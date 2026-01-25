@@ -1,0 +1,112 @@
+{
+  "tracks": [
+    {
+      "id": "laguna-seca",
+      "name": "Laguna Seca",
+      "location": "Monterey, CA",
+      "country": "USA",
+      "length": 3602.0,
+      "startFinish": {
+        "lat": 36.584722,
+        "lon": -121.753889,
+        "radius": 15.0
+      },
+      "splits": [
+        {
+          "lat": 36.586111,
+          "lon": -121.755556,
+          "radius": 15.0
+        },
+        {
+          "lat": 36.587778,
+          "lon": -121.757222,
+          "radius": 15.0
+        }
+      ]
+    },
+    {
+      "id": "nurburgring-gp",
+      "name": "Nurburgring GP",
+      "location": "Nurburg",
+      "country": "Germany",
+      "length": 5148.0,
+      "startFinish": {
+        "lat": 50.335278,
+        "lon": 6.947222,
+        "radius": 15.0
+      }
+    },
+    {
+      "id": "silverstone",
+      "name": "Silverstone",
+      "location": "Silverstone",
+      "country": "UK",
+      "length": 5891.0,
+      "startFinish": {
+        "lat": 52.070278,
+        "lon": -1.016667,
+        "radius": 15.0
+      }
+    },
+    {
+      "id": "cota",
+      "name": "Circuit of the Americas",
+      "location": "Austin, TX",
+      "country": "USA",
+      "length": 5513.0,
+      "startFinish": {
+        "lat": 30.132778,
+        "lon": -97.641111,
+        "radius": 15.0
+      }
+    },
+    {
+      "id": "spa-francorchamps",
+      "name": "Spa-Francorchamps",
+      "location": "Stavelot",
+      "country": "Belgium",
+      "length": 7004.0,
+      "startFinish": {
+        "lat": 50.437222,
+        "lon": 5.971389,
+        "radius": 15.0
+      }
+    },
+    {
+      "id": "monza",
+      "name": "Autodromo Nazionale Monza",
+      "location": "Monza",
+      "country": "Italy",
+      "length": 5793.0,
+      "startFinish": {
+        "lat": 45.620556,
+        "lon": 9.289167,
+        "radius": 15.0
+      }
+    },
+    {
+      "id": "suzuka",
+      "name": "Suzuka Circuit",
+      "location": "Suzuka",
+      "country": "Japan",
+      "length": 5807.0,
+      "startFinish": {
+        "lat": 34.843056,
+        "lon": 136.540833,
+        "radius": 15.0
+      }
+    },
+    {
+      "id": "custom-track",
+      "name": "My Local Track",
+      "location": "Your Location",
+      "country": "Your Country",
+      "length": 2000.0,
+      "startFinish": {
+        "lat": 0.0,
+        "lon": 0.0,
+        "radius": 15.0
+      }
+    }
+  ]
+}
