@@ -1,43 +1,48 @@
 /**
- * Track Rat - Display Manager Implementation
+ * Track Rat - Display Manager Implementation for TFT
+ * ST7789 240x320 TFT Display
  */
 
 #include "DisplayManager.h"
 #include "Config.h"
 
 DisplayManager::DisplayManager() :
-  display(nullptr),
+  tft(nullptr),
   currentMode(MODE_BOOT),
   lastUpdate(0),
   updateInterval(DISPLAY_UPDATE_INTERVAL),
+  screenWidth(TFT_WIDTH),
+  screenHeight(TFT_HEIGHT),
   trackDB(nullptr),
   lapTimer(nullptr),
   gpsHandler(nullptr),
-  selectedTrackIndex(0)
+  selectedTrackIndex(0),
+  smallFont(2),
+  mediumFont(4),
+  largeFont(6)
 {}
 
 DisplayManager::~DisplayManager() {
-  if (display) {
-    delete display;
+  if (tft) {
+    delete tft;
   }
 }
 
-bool DisplayManager::begin(uint8_t sda, uint8_t scl, uint8_t address) {
-  Wire.begin(sda, scl);
+bool DisplayManager::begin() {
+  tft = new TFT_eSPI();
 
-  display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+  tft->init();
+  tft->setRotation(TFT_ROTATION);
+  tft->fillScreen(UI_BACKGROUND);
+  tft->setTextColor(UI_TEXT, UI_BACKGROUND);
 
-  if (!display->begin(SSD1306_SWITCHCAPVCC, address)) {
-    DEBUG_PRINTLN("SSD1306 allocation failed");
-    return false;
-  }
+  // Set backlight
+  pinMode(TFT_BL, OUTPUT);
+  setBacklight(255);  // Full brightness
 
-  display->clearDisplay();
-  display->setTextColor(SSD1306_WHITE);
-  display->setTextSize(1);
-  display->display();
+  DEBUG_PRINTLN("TFT Display initialized");
+  DEBUG_PRINTF("Screen size: %dx%d\n", screenWidth, screenHeight);
 
-  DEBUG_PRINTLN("Display initialized");
   return true;
 }
 
@@ -81,7 +86,7 @@ int DisplayManager::getSelectedTrackIndex() const {
 }
 
 void DisplayManager::update() {
-  if (!display) return;
+  if (!tft) return;
 
   unsigned long now = millis();
   if (now - lastUpdate < updateInterval) {
@@ -110,113 +115,174 @@ void DisplayManager::update() {
       showSessionSummaryScreen();
       break;
   }
-
-  display->display();
 }
 
 void DisplayManager::showBootScreen() {
   clear();
-  drawHeader("TRACK RAT");
-  display->setCursor(10, 24);
-  display->println("GPS Lap Timer");
-  display->setCursor(10, 40);
-  display->println("Initializing...");
+
+  // Draw header
+  drawHeader("TRACK RAT", UI_HEADER_BG);
+
+  // Logo/Title in center
+  tft->setTextColor(UI_HIGHLIGHT);
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextSize(1);
+  tft->drawString("GPS Lap Timer", screenWidth / 2, screenHeight / 2 - 20, 4);
+
+  tft->setTextColor(UI_TEXT);
+  tft->drawString("ESP32-S3 Edition", screenWidth / 2, screenHeight / 2 + 20, 2);
+  tft->drawString("Initializing...", screenWidth / 2, screenHeight / 2 + 50, 2);
+
+  // Version info at bottom
+  tft->setTextDatum(MC_DATUM);
+  tft->drawString("v2.0.0", screenWidth / 2, screenHeight - 20, 2);
 }
 
 void DisplayManager::showGPSWaitScreen() {
   clear();
-  drawHeader("GPS STATUS");
+  drawHeader("GPS STATUS", UI_HEADER_BG);
 
   if (gpsHandler) {
     uint8_t sats = gpsHandler->getSatellites();
     bool hasFix = gpsHandler->hasFix();
 
-    display->setCursor(0, 16);
-    display->printf("Satellites: %d", sats);
+    // GPS status
+    tft->setTextDatum(TL_DATUM);
+    tft->setTextColor(UI_TEXT);
+    tft->drawString("Satellites:", 20, 50, 4);
 
-    display->setCursor(0, 28);
+    tft->setTextColor(sats >= 4 ? UI_HIGHLIGHT : UI_WARNING);
+    tft->drawNumber(sats, 200, 50, 4);
+
+    // Status
+    tft->setTextDatum(TL_DATUM);
+    tft->setTextColor(UI_TEXT);
+    tft->drawString("Status:", 20, 90, 4);
+
     if (hasFix) {
-      display->println("Status: FIX OK");
+      tft->setTextColor(UI_HIGHLIGHT);
+      tft->drawString("FIX OK", 150, 90, 4);
     } else {
-      display->println("Status: NO FIX");
+      tft->setTextColor(UI_WARNING);
+      tft->drawString("NO FIX", 150, 90, 4);
 
-      // Animated waiting indicator
+      // Animated waiting
       uint8_t dots = (millis() / 500) % 4;
-      display->setCursor(0, 40);
-      display->print("Waiting");
+      String waiting = "Waiting";
       for (uint8_t i = 0; i < dots; i++) {
-        display->print(".");
+        waiting += ".";
       }
+      tft->setTextDatum(MC_DATUM);
+      tft->drawString(waiting, screenWidth / 2, 140, 2);
     }
 
+    // GPS signal strength indicator
+    drawGPSSignal(screenWidth / 2 - 40, 180, sats, hasFix);
+
     // Progress bar
-    uint8_t progress = min(sats * 100 / 8, 100);  // 8 sats = 100%
-    drawProgressBar(0, 56, SCREEN_WIDTH, 8, progress);
+    uint8_t progress = min(sats * 100 / 8, 100);
+    drawProgressBar(20, screenHeight - 60, screenWidth - 40, 30, progress);
+
+    // Progress percentage
+    tft->setTextDatum(MC_DATUM);
+    tft->setTextColor(UI_TEXT);
+    char progText[8];
+    snprintf(progText, sizeof(progText), "%d%%", progress);
+    tft->drawString(progText, screenWidth / 2, screenHeight - 45, 2);
   }
 }
 
 void DisplayManager::showTrackSelectionScreen() {
   clear();
-  drawHeader("SELECT TRACK");
+  drawHeader("SELECT TRACK", UI_HEADER_BG);
 
   if (trackDB && trackDB->getTrackCount() > 0) {
     Track* track = trackDB->getTrack(selectedTrackIndex);
     if (track) {
-      // Track name (centered, large)
-      display->setTextSize(1);
-      display->setCursor(0, 20);
-      drawCentered(track->name, 20);
+      // Track name (large, centered)
+      tft->setTextDatum(MC_DATUM);
+      tft->setTextColor(UI_HIGHLIGHT);
+      tft->drawString(track->name, screenWidth / 2, 70, 4);
 
       // Location
-      display->setCursor(0, 32);
-      drawCentered(track->location, 32);
+      tft->setTextColor(UI_TEXT);
+      String location = track->location + ", " + track->country;
+      tft->drawString(location, screenWidth / 2, 110, 2);
 
-      // Track info
-      display->setCursor(0, 44);
-      char info[32];
-      snprintf(info, sizeof(info), "%.2f km", track->length / 1000.0);
-      drawCentered(String(info), 44);
+      // Track info box
+      int16_t boxY = 140;
+      fillRoundRect(20, boxY, screenWidth - 40, 80, 10, COLOR_DARKGRAY);
+
+      tft->setTextDatum(MC_DATUM);
+      tft->setTextColor(UI_TEXT);
+      tft->drawString("Track Length", screenWidth / 2, boxY + 20, 2);
+
+      tft->setTextColor(UI_HIGHLIGHT);
+      char lengthStr[16];
+      snprintf(lengthStr, sizeof(lengthStr), "%.2f km", track->length / 1000.0);
+      tft->drawString(lengthStr, screenWidth / 2, boxY + 50, 4);
 
       // Navigation hint
-      display->setCursor(0, 56);
+      tft->setTextDatum(MC_DATUM);
+      tft->setTextColor(UI_TEXT);
       char nav[32];
-      snprintf(nav, sizeof(nav), "<%d/%d>", selectedTrackIndex + 1, trackDB->getTrackCount());
-      drawCentered(String(nav), 56);
+      snprintf(nav, sizeof(nav), "Track %d of %d", selectedTrackIndex + 1, trackDB->getTrackCount());
+      tft->drawString(nav, screenWidth / 2, screenHeight - 60, 2);
+
+      // Button hints
+      drawButton(20, screenHeight - 40, 80, 30, "< PREV", COLOR_BLUE, COLOR_WHITE);
+      drawButton(screenWidth / 2 - 40, screenHeight - 40, 80, 30, "SELECT", COLOR_GREEN, COLOR_WHITE);
+      drawButton(screenWidth - 100, screenHeight - 40, 80, 30, "NEXT >", COLOR_BLUE, COLOR_WHITE);
     }
   } else {
-    display->setCursor(0, 28);
-    drawCentered("No tracks found", 28);
+    tft->setTextDatum(MC_DATUM);
+    tft->setTextColor(UI_ERROR);
+    tft->drawString("No tracks found!", screenWidth / 2, screenHeight / 2, 4);
   }
 }
 
 void DisplayManager::showTrackConfirmScreen() {
   clear();
-  drawHeader("CONFIRM");
+  drawHeader("CONFIRM TRACK", UI_HEADER_BG);
 
   if (trackDB) {
     Track* track = trackDB->getTrack(selectedTrackIndex);
     if (track) {
-      display->setCursor(0, 20);
-      drawCentered(track->name, 20);
+      // Track name
+      tft->setTextDatum(MC_DATUM);
+      tft->setTextColor(UI_HIGHLIGHT);
+      tft->drawString(track->name, screenWidth / 2, 60, 4);
 
+      // Location
+      tft->setTextColor(UI_TEXT);
+      tft->drawString(track->location, screenWidth / 2, 100, 2);
+
+      // Distance to track (if GPS available)
       if (gpsHandler && gpsHandler->hasFix()) {
         double distance = gpsHandler->distanceTo(
           track->startFinish.lat,
           track->startFinish.lon
         );
 
-        display->setCursor(0, 36);
-        char dist[32];
+        tft->setTextColor(UI_TEXT);
+        tft->drawString("Distance to track:", screenWidth / 2, 140, 2);
+
+        char distStr[32];
         if (distance < 1000) {
-          snprintf(dist, sizeof(dist), "%.0f m away", distance);
+          snprintf(distStr, sizeof(distStr), "%.0f meters", distance);
         } else {
-          snprintf(dist, sizeof(dist), "%.1f km away", distance / 1000.0);
+          snprintf(distStr, sizeof(distStr), "%.1f km", distance / 1000.0);
         }
-        drawCentered(String(dist), 36);
+
+        uint16_t distColor = distance < 500 ? UI_HIGHLIGHT : UI_WARNING;
+        tft->setTextColor(distColor);
+        tft->drawString(distStr, screenWidth / 2, 170, 4);
       }
 
-      display->setCursor(0, 52);
-      drawCentered("Press to start", 52);
+      // Ready indicator
+      fillRoundRect(40, screenHeight - 100, screenWidth - 80, 60, 10, COLOR_GREEN);
+      tft->setTextColor(COLOR_WHITE);
+      tft->drawString("Press SELECT to Start", screenWidth / 2, screenHeight - 70, 2);
     }
   }
 }
@@ -226,130 +292,227 @@ void DisplayManager::showLapTimingScreen() {
 
   if (!lapTimer) return;
 
-  // Current lap time (large, top)
-  display->setTextSize(2);
+  // Current lap time (huge, top center)
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(UI_LAP_TIME);
   String currentTime = LapTimer::formatTime(lapTimer->getCurrentLapTime());
-  int16_t x = (SCREEN_WIDTH - currentTime.length() * 12) / 2;
-  display->setCursor(x, 0);
-  display->println(currentTime);
-
-  display->setTextSize(1);
+  tft->drawString(currentTime, screenWidth / 2, 50, 7);  // Use large 7-segment font
 
   // Lap number
-  display->setCursor(0, 18);
-  display->printf("Lap: %d", lapTimer->getCurrentLapNumber());
+  tft->setTextDatum(TL_DATUM);
+  tft->setTextColor(UI_TEXT);
+  tft->drawString("Lap:", 20, 110, 2);
+  tft->setTextColor(UI_HIGHLIGHT);
+  tft->drawNumber(lapTimer->getCurrentLapNumber(), 80, 110, 4);
 
   // Last lap
-  display->setCursor(0, 28);
+  tft->setTextDatum(TL_DATUM);
+  tft->setTextColor(UI_TEXT);
+  tft->drawString("Last:", 20, 150, 2);
+
   LapData* lastLap = lapTimer->getLastLap();
   if (lastLap) {
-    display->printf("Last: %s", LapTimer::formatTime(lastLap->lapTime).c_str());
+    tft->setTextColor(UI_TEXT);
+    String lastTime = LapTimer::formatTime(lastLap->lapTime);
+    tft->drawString(lastTime, 90, 150, 4);
   } else {
-    display->print("Last: --:--:---");
+    tft->setTextColor(COLOR_GRAY);
+    tft->drawString("--:--:---", 90, 150, 4);
   }
 
   // Best lap
-  display->setCursor(0, 38);
+  tft->setTextDatum(TL_DATUM);
+  tft->setTextColor(UI_TEXT);
+  tft->drawString("Best:", 20, 190, 2);
+
   LapData* bestLap = lapTimer->getBestLap();
   if (bestLap) {
-    display->printf("Best: %s", LapTimer::formatTime(bestLap->lapTime).c_str());
+    tft->setTextColor(UI_HIGHLIGHT);
+    String bestTime = LapTimer::formatTime(bestLap->lapTime);
+    tft->drawString(bestTime, 90, 190, 4);
   } else {
-    display->print("Best: --:--:---");
+    tft->setTextColor(COLOR_GRAY);
+    tft->drawString("--:--:---", 90, 190, 4);
   }
 
   // Delta
-  display->setCursor(0, 48);
+  tft->setTextDatum(TL_DATUM);
+  tft->setTextColor(UI_TEXT);
+  tft->drawString("Delta:", 20, 230, 2);
+
   int32_t delta = lapTimer->getDeltaToBest();
   if (bestLap) {
-    display->printf("D: %s", LapTimer::formatDelta(delta).c_str());
+    String deltaStr = LapTimer::formatDelta(delta);
+    uint16_t deltaColor = delta > 0 ? UI_ERROR : UI_HIGHLIGHT;
+    tft->setTextColor(deltaColor);
+    tft->drawString(deltaStr, 110, 230, 4);
   } else {
-    display->print("D: ---");
+    tft->setTextColor(COLOR_GRAY);
+    tft->drawString("---", 110, 230, 4);
   }
 
   // Speed
   if (gpsHandler) {
-    display->setCursor(0, 56);
-    display->printf("SPD: %.1f km/h", gpsHandler->getSpeed());
+    tft->setTextDatum(TL_DATUM);
+    tft->setTextColor(UI_TEXT);
+    tft->drawString("Speed:", 20, 270, 2);
+
+    tft->setTextColor(UI_HIGHLIGHT);
+    char speedStr[16];
+    snprintf(speedStr, sizeof(speedStr), "%.1f km/h", gpsHandler->getSpeed());
+    tft->drawString(speedStr, 110, 270, 4);
   }
 }
 
 void DisplayManager::showSessionSummaryScreen() {
   clear();
-  drawHeader("SESSION END");
+  drawHeader("SESSION SUMMARY", UI_HEADER_BG);
 
   if (lapTimer) {
     int lapCount = lapTimer->getLapCount();
 
-    display->setCursor(0, 18);
-    display->printf("Laps: %d", lapCount);
+    // Total laps
+    tft->setTextDatum(TL_DATUM);
+    tft->setTextColor(UI_TEXT);
+    tft->drawString("Total Laps:", 20, 60, 2);
+    tft->setTextColor(UI_HIGHLIGHT);
+    tft->drawNumber(lapCount, 180, 60, 4);
 
     if (lapCount > 0) {
+      // Best lap
       LapData* bestLap = lapTimer->getBestLap();
       if (bestLap) {
-        display->setCursor(0, 28);
-        display->printf("Best: %s", LapTimer::formatTime(bestLap->lapTime).c_str());
+        tft->setTextDatum(TL_DATUM);
+        tft->setTextColor(UI_TEXT);
+        tft->drawString("Best Lap:", 20, 110, 2);
 
-        display->setCursor(0, 38);
-        display->printf("@ %.1f km/h", bestLap->maxSpeed);
+        tft->setTextColor(UI_HIGHLIGHT);
+        String bestTime = LapTimer::formatTime(bestLap->lapTime);
+        tft->drawString(bestTime, 20, 140, 4);
+
+        // Best lap speed
+        char speedStr[32];
+        snprintf(speedStr, sizeof(speedStr), "@ %.1f km/h", bestLap->maxSpeed);
+        tft->setTextColor(UI_TEXT);
+        tft->drawString(speedStr, 20, 180, 2);
       }
 
+      // Average lap
       uint32_t avgTime = lapTimer->getAverageLapTime();
       if (avgTime > 0) {
-        display->setCursor(0, 48);
-        display->printf("Avg: %s", LapTimer::formatTime(avgTime).c_str());
+        tft->setTextDatum(TL_DATUM);
+        tft->setTextColor(UI_TEXT);
+        tft->drawString("Average Lap:", 20, 220, 2);
+
+        String avgTimeStr = LapTimer::formatTime(avgTime);
+        tft->drawString(avgTimeStr, 20, 250, 4);
       }
     }
+
+    // Footer message
+    tft->setTextDatum(MC_DATUM);
+    tft->setTextColor(UI_TEXT);
+    tft->drawString("Session saved to SD card", screenWidth / 2, screenHeight - 30, 2);
   }
 }
 
 void DisplayManager::clear() {
-  if (display) {
-    display->clearDisplay();
-    display->setTextSize(1);
-    display->setCursor(0, 0);
+  if (tft) {
+    tft->fillScreen(UI_BACKGROUND);
   }
 }
 
-void DisplayManager::showMessage(const String& message, uint16_t duration) {
-  if (!display) return;
+void DisplayManager::showMessage(const String& message, uint16_t duration, uint16_t color) {
+  if (!tft) return;
 
   clear();
-  drawCentered(message, SCREEN_HEIGHT / 2 - 4);
-  display->display();
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(color);
+  tft->drawString(message, screenWidth / 2, screenHeight / 2, 4);
   delay(duration);
 }
 
-void DisplayManager::drawHeader(const String& title) {
-  if (!display) return;
-
-  display->setTextSize(1);
-  int16_t x = (SCREEN_WIDTH - title.length() * 6) / 2;
-  display->setCursor(x, 0);
-  display->println(title);
-
-  // Draw line under header
-  display->drawLine(0, 10, SCREEN_WIDTH - 1, 10, SSD1306_WHITE);
+void DisplayManager::setBacklight(uint8_t brightness) {
+  analogWrite(TFT_BL, brightness);
 }
 
-void DisplayManager::drawCentered(const String& text, int16_t y) {
-  if (!display) return;
+void DisplayManager::drawHeader(const String& title, uint16_t bgColor) {
+  if (!tft) return;
 
-  int16_t x = (SCREEN_WIDTH - text.length() * 6) / 2;
-  display->setCursor(x, y);
-  display->println(text);
+  // Draw header background
+  tft->fillRect(0, 0, screenWidth, 40, bgColor);
+
+  // Draw title
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(UI_HEADER_TEXT);
+  tft->drawString(title, screenWidth / 2, 20, 4);
+
+  // Draw separator line
+  tft->drawLine(0, 40, screenWidth, 40, UI_TEXT);
 }
 
-void DisplayManager::drawProgressBar(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t progress) {
-  if (!display) return;
+void DisplayManager::drawCentered(const String& text, int16_t y, uint16_t color, uint8_t font) {
+  if (!tft) return;
+
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(color);
+  tft->drawString(text, screenWidth / 2, y, font);
+}
+
+void DisplayManager::drawProgressBar(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t progress,
+                                     uint16_t fillColor, uint16_t bgColor) {
+  if (!tft) return;
 
   progress = min(progress, (uint8_t)100);
 
-  // Draw border
-  display->drawRect(x, y, w, h, SSD1306_WHITE);
+  // Draw background
+  tft->fillRect(x, y, w, h, bgColor);
 
   // Draw fill
-  int16_t fillWidth = ((w - 4) * progress) / 100;
+  int16_t fillWidth = (w * progress) / 100;
   if (fillWidth > 0) {
-    display->fillRect(x + 2, y + 2, fillWidth, h - 4, SSD1306_WHITE);
+    tft->fillRect(x, y, fillWidth, h, fillColor);
+  }
+
+  // Draw border
+  tft->drawRect(x, y, w, h, UI_TEXT);
+}
+
+void DisplayManager::drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const String& label,
+                                uint16_t bgColor, uint16_t textColor) {
+  if (!tft) return;
+
+  fillRoundRect(x, y, w, h, 5, bgColor);
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(textColor);
+  tft->drawString(label, x + w / 2, y + h / 2, 2);
+}
+
+void DisplayManager::fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t r, uint16_t color) {
+  if (!tft) return;
+
+  tft->fillRoundRect(x, y, w, h, r, color);
+}
+
+void DisplayManager::drawGPSSignal(int16_t x, int16_t y, uint8_t satellites, bool hasFix) {
+  if (!tft) return;
+
+  // Draw 5 signal bars
+  uint8_t barWidth = 12;
+  uint8_t barSpacing = 4;
+  uint8_t maxHeight = 40;
+
+  for (uint8_t i = 0; i < 5; i++) {
+    uint8_t barHeight = maxHeight * (i + 1) / 5;
+    uint16_t color;
+
+    if (i < satellites / 2) {
+      color = hasFix ? UI_HIGHLIGHT : UI_WARNING;
+    } else {
+      color = COLOR_DARKGRAY;
+    }
+
+    tft->fillRect(x + i * (barWidth + barSpacing), y + (maxHeight - barHeight),
+                  barWidth, barHeight, color);
   }
 }

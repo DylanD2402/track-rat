@@ -1,14 +1,32 @@
 /**
  * Track Rat - Track Database Implementation
+ * With SD Card and LittleFS support
  */
 
 #include "TrackDatabase.h"
 #include "Config.h"
 #include <math.h>
+#include <SD.h>
+#include <FS.h>
 
 TrackDatabase::TrackDatabase() : currentTrackIndex(-1), initialized(false) {}
 
 bool TrackDatabase::begin() {
+  // Try to mount SD card first (if enabled)
+#ifdef USE_SD_CARD
+  if (SD.begin(SD_CS)) {
+    DEBUG_PRINTLN("SD card mounted successfully");
+
+    // Try to load from SD card
+    if (loadTracksFromSD()) {
+      return true;
+    }
+  } else {
+    DEBUG_PRINTLN("SD card mount failed, falling back to LittleFS");
+  }
+#endif
+
+  // Fall back to LittleFS
   if (!LittleFS.begin(true)) {
     DEBUG_PRINTLN("Failed to mount LittleFS");
     return false;
@@ -24,6 +42,28 @@ bool TrackDatabase::begin() {
   }
 
   return true;
+}
+
+bool TrackDatabase::loadTracksFromSD() {
+  if (!SD.exists(TRACK_DATABASE_FILE)) {
+    DEBUG_PRINTLN("Track database file does not exist on SD card");
+    return false;
+  }
+
+  File file = SD.open(TRACK_DATABASE_FILE, FILE_READ);
+  if (!file) {
+    DEBUG_PRINTLN("Failed to open track database file from SD card");
+    return false;
+  }
+
+  String jsonData = file.readString();
+  file.close();
+
+  bool success = parseTracksFromJson(jsonData);
+  if (success) {
+    DEBUG_PRINTLN("Loaded tracks from SD card");
+  }
+  return success;
 }
 
 bool TrackDatabase::loadTracks() {

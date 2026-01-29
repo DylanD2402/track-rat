@@ -1,15 +1,17 @@
 /**
  * Track Rat - Main Application
- * ESP32 GPS Lap Timer with Offline Track Database
+ * ESP32-S3 GPS Lap Timer with Offline Track Database
  *
  * Hardware:
- * - ESP32 Development Board
- * - u-blox NEO GPS Module (UART)
- * - SSD1306 OLED Display (I2C)
+ * - ESP32-S3 N16R8 (16MB Flash, 8MB PSRAM)
+ * - Beitian BE-252Q GPS Module (UART)
+ * - ST7789 2.8" TFT Display 240x320 (built-in)
+ * - SD Card Reader (built-in)
  * - 3x Push Buttons for navigation
  */
 
 #include <Arduino.h>
+#include <SD.h>
 #include "Config.h"
 #include "TrackDatabase.h"
 #include "GPSHandler.h"
@@ -53,7 +55,7 @@ void setup() {
 
   DEBUG_PRINTLN("\n\n=================================");
   DEBUG_PRINTLN("Track Rat - GPS Lap Timer");
-  DEBUG_PRINTLN("ESP32 Version");
+  DEBUG_PRINTLN("ESP32-S3 N16R8 Edition");
   DEBUG_PRINTLN("=================================\n");
 
   // Initialize buttons
@@ -61,8 +63,8 @@ void setup() {
   pinMode(BUTTON_NEXT_PIN, INPUT_PULLUP);
   pinMode(BUTTON_PREV_PIN, INPUT_PULLUP);
 
-  DEBUG_PRINTLN("Initializing display...");
-  if (!display.begin(I2C_SDA, I2C_SCL, SCREEN_ADDRESS)) {
+  DEBUG_PRINTLN("Initializing TFT display...");
+  if (!display.begin()) {
     DEBUG_PRINTLN("ERROR: Display initialization failed!");
     while (1) delay(100);
   }
