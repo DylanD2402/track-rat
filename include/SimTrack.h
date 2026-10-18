@@ -1,5 +1,5 @@
 /**
- * Track Rat - Simulator circuit (used only when SIMULATE_GPS=1)
+ * Track Rat - Simulator circuit (used in simulator mode)
  *
  * A 150 m radius circle (~940 m lap, ~35-40 s per lap). The start/finish is
  * at angle 0 (east side of the circle); one split sits on the opposite side.

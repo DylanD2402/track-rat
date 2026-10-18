@@ -174,6 +174,24 @@ static void render() {
   }
 }
 
+// The simulated car laps this circle (see SimTrack.h and GPSHandler::simulateStep).
+static void addSimulatorTrack() {
+  Track sim;
+  sim.id = "simulator";
+  sim.name = "Simulator Loop";
+  sim.location = "Desk test";
+  sim.length = 2 * M_PI * SIM_RADIUS_M;
+  sim.startFinish = {SIM_SF_LAT, SIM_SF_LON, (float)DEFAULT_GATE_HALF_WIDTH_M};
+  sim.splits.push_back({SIM_SPLIT_LAT, SIM_SPLIT_LON, (float)DEFAULT_GATE_HALF_WIDTH_M});
+  std::vector<geo::XYf> outline;  // the circle, for the map screen
+  for (int i = 0; i <= 72; i++) {
+    float a = i * 2 * M_PI / 72;
+    outline.push_back({(float)(SIM_RADIUS_M * (cos(a) - 1.0)), (float)(SIM_RADIUS_M * sin(a))});
+  }
+  sim.map.push_back(outline);
+  trackDB.add(sim);
+}
+
 void setup() {
   Serial.begin(115200);
 #if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
@@ -188,28 +206,12 @@ void setup() {
   Storage::begin();
 
   trackDB.begin();
-#if SIMULATE_GPS
-  Track sim;
-  sim.id = "simulator";
-  sim.name = "Simulator Loop";
-  sim.location = "Desk test";
-  sim.country = "";
-  sim.length = 2 * M_PI * SIM_RADIUS_M;
-  sim.startFinish = {SIM_SF_LAT, SIM_SF_LON, (float)DEFAULT_GATE_HALF_WIDTH_M};
-  sim.splits.push_back({SIM_SPLIT_LAT, SIM_SPLIT_LON, (float)DEFAULT_GATE_HALF_WIDTH_M});
-  std::vector<geo::XYf> outline;  // the simulated circle, for the map screen
-  for (int i = 0; i <= 72; i++) {
-    float a = i * 2 * M_PI / 72;
-    outline.push_back({(float)(SIM_RADIUS_M * (cos(a) - 1.0)), (float)(SIM_RADIUS_M * sin(a))});
-  }
-  sim.map.push_back(outline);
-  trackDB.add(sim);
-#endif
-
   input.begin();
 
   display.drawBoot("Detecting GPS...");
   gps.begin();
+
+  if (gps.isSimulated()) addSimulatorTrack();
 
   enterState(AppState::GpsWait);
 }

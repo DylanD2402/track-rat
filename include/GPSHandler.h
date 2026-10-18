@@ -6,7 +6,8 @@
  * - Optionally asks a u-blox based module for 10 Hz updates (RAM only).
  * - Delivers each new position fix exactly once via takeFix().
  *
- * Built with SIMULATE_GPS=1 it instead generates a car lapping a small
+ * In simulator mode (the es3c28p-sim build, or automatically when no GPS
+ * is detected at boot) it instead generates a car lapping a small
  * circuit, so the whole UI and lap logic can be tested at a desk.
  */
 
@@ -38,6 +39,7 @@ public:
   float hdop() const { return hdopVal; }
   float fixRateHz() const { return rateHz; }
   uint32_t baud() const { return baudRate; }
+  bool isSimulated() const { return simulating; }
   const GpsFix& lastFix() const { return last; }
 
   // "YYYYMMDD_HHMMSS" from GPS date/time, or empty if unknown.
@@ -64,12 +66,12 @@ private:
   void configureUblox();
   void sendUbxValset(const uint8_t* cfg, size_t len);
   void countFixForRate(uint32_t now);
+  void readSerial(uint32_t now);
 
-#if SIMULATE_GPS
+  bool simulating = false;
   uint32_t simLastStep = 0;
   double simAngle = 0;
   void simulateStep();
-#endif
 };
 
 #endif  // GPS_HANDLER_H

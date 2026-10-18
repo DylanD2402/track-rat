@@ -42,9 +42,11 @@ pio device monitor                  # serial log, 115200 baud
 Other targets:
 
 ```bash
-pio run -e es3c28p-sim -t upload    # desk simulator: fake car lapping a fake track, no GPS needed
+pio run -e es3c28p-sim -t upload    # always run the simulator (fake car on a fake track)
 pio run -e es3c28p -t uploadfs      # store data/tracks.json in internal flash
 ```
+
+If no GPS is detected at boot, the normal build also switches to the simulator. A yellow **SIM** tag shows in the header whenever timing is simulated. Set `GPS_AUTO_SIMULATOR` to `0` in `include/Config.h` to turn this off.
 
 ## Using it
 

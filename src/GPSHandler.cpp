@@ -10,16 +10,22 @@ static HardwareSerial& gpsSerial = Serial1;
 
 void GPSHandler::begin() {
 #if SIMULATE_GPS
-  baudRate = 0;
-  DEBUG_PRINTLN("GPS: SIMULATOR mode - no GPS module is read");
+  simulating = true;
+  DEBUG_PRINTLN("GPS: SIMULATOR build - no GPS module is read");
   return;
-#else
+#endif
   gpsSerial.setRxBufferSize(4096);
   baudRate = detectBaud();
   if (baudRate == 0) {
+#if GPS_AUTO_SIMULATOR
+    simulating = true;
+    DEBUG_PRINTF("GPS: no NMEA detected (GPS TX -> GPIO %d?) - switching to SIMULATOR mode\n", GPS_RX_PIN);
+    return;
+#else
     baudRate = GPS_DEFAULT_BAUD;
     DEBUG_PRINTF("GPS: no NMEA detected, using %lu baud. Check wiring (GPS TX -> GPIO %d)\n",
                  (unsigned long)baudRate, GPS_RX_PIN);
+#endif
   } else {
     DEBUG_PRINTF("GPS: detected NMEA at %lu baud\n", (unsigned long)baudRate);
   }
@@ -27,7 +33,6 @@ void GPSHandler::begin() {
 
 #if GPS_CONFIGURE_UBLOX
   configureUblox();
-#endif
 #endif
 }
 
@@ -100,9 +105,20 @@ void GPSHandler::configureUblox() {
 void GPSHandler::update() {
   uint32_t now = millis();
 
-#if SIMULATE_GPS
-  simulateStep();
-#else
+  if (simulating) {
+    simulateStep();
+  } else {
+    readSerial(now);
+  }
+
+  if (now - rateWindowStart > 3000) {  // decay the rate if fixes stop
+    rateHz = 0;
+    rateWindowStart = now;
+    rateWindowFixes = 0;
+  }
+}
+
+void GPSHandler::readSerial(uint32_t now) {
   while (gpsSerial.available()) {
     char c = gpsSerial.read();
 #if GPS_ECHO_NMEA
@@ -137,13 +153,6 @@ void GPSHandler::update() {
       countFixForRate(now);
     }
   }
-#endif
-
-  if (now - rateWindowStart > 3000) {  // decay the rate if fixes stop
-    rateHz = 0;
-    rateWindowStart = now;
-    rateWindowFixes = 0;
-  }
 }
 
 void GPSHandler::countFixForRate(uint32_t now) {
@@ -170,28 +179,23 @@ bool GPSHandler::hasFix() const {
 }
 
 bool GPSHandler::receivingData() const {
-#if SIMULATE_GPS
-  return true;
-#else
+  if (simulating) return true;
   return lastSentenceMillis != 0 && (millis() - lastSentenceMillis) < 2000;
-#endif
 }
 
 String GPSHandler::timestampString() {
-#if SIMULATE_GPS
-  char buf[24];
-  snprintf(buf, sizeof(buf), "SIM_%lu", (unsigned long)(millis() / 1000));
-  return String(buf);
-#else
+  if (simulating) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "SIM_%lu", (unsigned long)(millis() / 1000));
+    return String(buf);
+  }
   if (!gps.date.isValid() || !gps.time.isValid() || gps.date.year() < 2020) return String();
   char buf[24];
   snprintf(buf, sizeof(buf), "%04d%02d%02d_%02d%02d%02d", gps.date.year(), gps.date.month(),
            gps.date.day(), gps.time.hour(), gps.time.minute(), gps.time.second());
   return String(buf);
-#endif
 }
 
-#if SIMULATE_GPS
 // A car driving anticlockwise around a circle at 10 Hz. Speed varies around
 // the lap and from lap to lap so best-lap and delta logic get exercised.
 void GPSHandler::simulateStep() {
@@ -221,4 +225,4 @@ void GPSHandler::simulateStep() {
   everFixed = true;
   countFixForRate(now);
 }
-#endif
+

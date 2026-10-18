@@ -133,10 +133,19 @@ void DisplayManager::header(const String& title, const GPSHandler* gps) {
   gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
   gfx->setTextColor(C_TEXT);
   String t = title;
-  int maxW = gps ? W - 50 : W - 12;  // leave room for the signal bars
+  int maxW = gps ? W - 84 : W - 12;  // leave room for the signal bars
   while (t.length() > 3 && gfx->textWidth(t, 2) > maxW) t.remove(t.length() - 1);
   gfx->drawString(t, 6, 5, 2);
-  if (gps) gpsBadge(*gps);
+  if (gps) {
+    gpsBadge(*gps);
+    if (gps->isSimulated()) {  // make simulated timing impossible to miss
+      gfx->fillRoundRect(W - 78, 4, 34, HEADER_H - 8, 4, C_WARN);
+      gfx->setTextDatum(MC_DATUM);
+      gfx->setTextColor(C_BG);
+      gfx->drawString("SIM", W - 61, HEADER_H / 2, 2);
+      gfx->setTextDatum(TL_DATUM);
+    }
+  }
 }
 
 void DisplayManager::footerButtons(const char* left, const char* center, const char* right) {
@@ -168,9 +177,6 @@ void DisplayManager::drawBoot(const char* status) {
   beginFrame();
   centered("TRACK RAT", 60, 4, C_ACCENT);
   centered("GPS lap timer", 95, 2, C_TEXT);
-#if SIMULATE_GPS
-  centered("SIMULATOR BUILD", 120, 2, C_WARN);
-#endif
   centered(status, 160, 2, C_DIM);
   endFrame();
 }
@@ -185,11 +191,8 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
   gfx->setTextColor(C_DIM);
   gfx->drawString("Data", 10, y, 2);
   if (gps.receivingData()) {
-#if SIMULATE_GPS
-    snprintf(buf, sizeof(buf), "simulated");
-#else
-    snprintf(buf, sizeof(buf), "NMEA OK @ %lu baud", (unsigned long)gps.baud());
-#endif
+    if (gps.isSimulated()) snprintf(buf, sizeof(buf), "SIMULATED - no GPS detected");
+    else snprintf(buf, sizeof(buf), "NMEA OK @ %lu baud", (unsigned long)gps.baud());
     gfx->setTextColor(C_GOOD);
   } else {
     snprintf(buf, sizeof(buf), "NO DATA - check GPS wiring");
