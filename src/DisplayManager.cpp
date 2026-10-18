@@ -42,6 +42,23 @@ bool DisplayManager::begin() {
   gfx = useSprite ? (TFT_eSPI*)&spr : &tft;
   DEBUG_PRINTF("Display: %dx%d, %s\n", tft.width(), tft.height(),
                useSprite ? "sprite buffer in PSRAM" : "NO sprite (PSRAM missing?) - direct draw");
+
+#if DISPLAY_TEST_PATTERN
+  // Four vertical stripes, each a quarter of the width. If one is missing or
+  // shows something else, that part of the panel isn't being written.
+  const uint16_t stripe[4] = {TFT_RED, TFT_GREEN, TFT_BLUE, TFT_WHITE};
+  const char* names[4] = {"RED", "GREEN", "BLUE", "WHITE"};
+  for (int i = 0; i < 4; i++) {
+    gfx->fillRect(i * W / 4, 0, W / 4, H, stripe[i]);
+    gfx->setTextDatum(MC_DATUM);
+    gfx->setTextColor(i == 3 ? TFT_BLACK : TFT_WHITE);
+    gfx->drawString(names[i], i * W / 4 + W / 8, H / 2, 2);
+  }
+  gfx->drawRect(0, 0, W, H, TFT_YELLOW);  // outline should touch all 4 edges
+  if (useSprite) spr.pushSprite(0, 0);
+  DEBUG_PRINTLN("Display: test pattern (red | green | blue | white) for 2 s");
+  delay(2000);
+#endif
   return true;
 }
 
@@ -55,7 +72,7 @@ void DisplayManager::beginFrame() {
 void DisplayManager::endFrame() {
   if (!useSprite) return;
   uint16_t* buf = (uint16_t*)spr.getPointer();
-  if (!shown || !shownValid) {
+  if (!DISPLAY_PARTIAL_UPDATE || !shown || !shownValid) {
     spr.pushSprite(0, 0);
     if (shown) {
       memcpy(shown, buf, W * H * sizeof(uint16_t));
