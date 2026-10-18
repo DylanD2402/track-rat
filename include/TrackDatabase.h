@@ -23,6 +23,9 @@ struct Track {
   float length = 0;  // metres
   TrackPoint startFinish = {0, 0, 0};
   std::vector<TrackPoint> splits;
+  // Track layout for the map screen: one or more lines, in metres east/north
+  // of the start/finish. Empty if tracks.json has no "map" for this track.
+  std::vector<std::vector<geo::XYf>> map;
 };
 
 class TrackDatabase {

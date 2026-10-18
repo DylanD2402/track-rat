@@ -36,6 +36,8 @@ public:
   void drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk);
   void drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                    const RunningOverlay& overlay, uint32_t holdMs);
+  void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
+                      const RunningOverlay& overlay, uint32_t holdMs);
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath);
 
 private:
@@ -51,6 +53,8 @@ private:
   void header(const String& title, const GPSHandler* gps);
   void gpsBadge(const GPSHandler& gps);
   void diffBox(int32_t delta, bool lapRunning, const RunningOverlay& ov);
+  void runningOverlays(const GPSHandler& gps, uint32_t holdMs);
+  String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);
   void centered(const String& s, int y, int font, uint16_t color);
   String distanceText(double m);

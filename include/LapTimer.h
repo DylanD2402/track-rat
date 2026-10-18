@@ -62,12 +62,17 @@ public:
   // NO_DELTA before there is a best lap, or when off the best lap's line.
   int32_t liveDeltaMs() const { return liveDelta; }
 
-private:
   // A point on a lap's path: metres from the start/finish, ms into the lap.
   struct TracePt {
     float x, y;
     int32_t t;
   };
+  // Path driven on the best lap, and so far on the current lap (for the map
+  // screen when a track has no stored layout).
+  const std::vector<TracePt>& bestPath() const { return bestTrace; }
+  const std::vector<TracePt>& currentPath() const { return curTrace; }
+
+private:
   std::vector<TracePt> curTrace;
   std::vector<TracePt> bestTrace;
   size_t matchIdx = 0;

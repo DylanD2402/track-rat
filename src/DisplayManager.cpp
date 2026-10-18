@@ -283,12 +283,7 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
                                  const RunningOverlay& ov, uint32_t holdMs) {
   beginFrame();
   char buf[40];
-  String title = track.name;
-  if (timer.lapRunning()) {
-    snprintf(buf, sizeof(buf), "LAP %d   ", timer.currentLapNumber());
-    title = buf + title;  // lap number first so a long name gets truncated, not the lap
-  }
-  header(title, &gps);
+  header(runningTitle(track, timer), &gps);
 
   // --- big time area (y 28..106) ---
   if (ov.showLap) {
@@ -324,6 +319,11 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   // --- live diff box (y 156..236) ---
   diffBox(timer.liveDeltaMs(), timer.lapRunning(), ov);
 
+  runningOverlays(gps, holdMs);
+  endFrame();
+}
+
+void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs) {
   if (!gps.hasFix()) {
     gfx->fillRect(0, H - 30, W, 30, C_BAD);
     centered("NO GPS FIX", H - 26, 4, C_TEXT);
@@ -335,6 +335,157 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
     centered("Keep holding to end session", 96, 2, C_TEXT);
     gfx->fillRect(20, 118, w, 12, C_WARN);
   }
+}
+
+String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
+  if (!timer.lapRunning()) return track.name;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "LAP %d   ", timer.currentLapNumber());
+  return buf + track.name;  // lap number first so a long name gets truncated, not the lap
+}
+
+// ---------------------------------------------------------------------------
+// Map view: track layout on the left, timing on the right.
+
+static const int MAP_X = 2, MAP_Y = HEADER_H + 2, MAP_W = 212, MAP_H = H - HEADER_H - 4;
+static const int PANEL_X = MAP_X + MAP_W + 6;
+static const uint16_t C_TRACK = 0xBDF7;  // light grey
+
+void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
+                                    const RunningOverlay& ov, uint32_t holdMs) {
+  beginFrame();
+  header(runningTitle(track, timer), &gps);
+  gfx->drawRoundRect(MAP_X, MAP_Y, MAP_W, MAP_H, 6, C_BUTTON);
+
+  // What to draw: the stored layout, else the best lap's path, else the
+  // path driven so far this lap.
+  const std::vector<LapTimer::TracePt>* path = nullptr;
+  if (track.map.empty()) {
+    if (timer.bestPath().size() >= 2) path = &timer.bestPath();
+    else if (timer.currentPath().size() >= 2) path = &timer.currentPath();
+  }
+
+  // Bounding box in metres
+  float minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  auto grow = [&](float x, float y) {
+    minX = min(minX, x); maxX = max(maxX, x);
+    minY = min(minY, y); maxY = max(maxY, y);
+  };
+  for (const auto& line : track.map)
+    for (const auto& p : line) grow(p.x, p.y);
+  if (path)
+    for (const auto& p : *path) grow(p.x, p.y);
+
+  geo::XY car = geo::toLocal(gps.lastFix().lat, gps.lastFix().lon, track.startFinish.lat, track.startFinish.lon);
+  bool haveShape = maxX > minX || maxY > minY;
+
+  if (!haveShape) {
+    gfx->setTextDatum(MC_DATUM);
+    gfx->setTextColor(C_DIM);
+    gfx->drawString("No map for this track", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 - 10, 2);
+    gfx->drawString("It draws itself once", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 + 10, 2);
+    gfx->drawString("your first lap starts", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 + 28, 2);
+    gfx->setTextDatum(TL_DATUM);
+  } else {
+    const float pad = 10;
+    float bw = max(maxX - minX, 1.0f), bh = max(maxY - minY, 1.0f);
+    float scale = min((MAP_W - 2 * pad) / bw, (MAP_H - 2 * pad) / bh);
+    float cx = MAP_X + MAP_W / 2.0f, cy = MAP_Y + MAP_H / 2.0f;
+    float midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
+    auto sx = [&](float x) { return (int)lroundf(cx + (x - midX) * scale); };
+    auto sy = [&](float y) { return (int)lroundf(cy - (y - midY) * scale); };  // north up
+
+    auto thickLine = [&](int x0, int y0, int x1, int y1, uint16_t c) {
+      gfx->drawLine(x0, y0, x1, y1, c);
+      gfx->drawLine(x0 + 1, y0, x1 + 1, y1, c);
+      gfx->drawLine(x0, y0 + 1, x1, y1 + 1, c);
+    };
+
+    for (const auto& line : track.map)
+      for (size_t i = 1; i < line.size(); i++)
+        thickLine(sx(line[i - 1].x), sy(line[i - 1].y), sx(line[i].x), sy(line[i].y), C_TRACK);
+
+    if (path) {
+      size_t step = max((size_t)1, path->size() / 800);
+      size_t prev = 0;
+      for (size_t i = step; i < path->size(); i += step) {
+        thickLine(sx((*path)[prev].x), sy((*path)[prev].y), sx((*path)[i].x), sy((*path)[i].y), C_TRACK);
+        prev = i;
+      }
+    }
+
+    // Start/finish marker
+    gfx->fillRect(sx(0) - 4, sy(0) - 4, 9, 9, C_TEXT);
+    gfx->drawRect(sx(0) - 4, sy(0) - 4, 9, 9, C_BG);
+
+    // Car, kept inside the map frame if it's off the drawn area
+    if (gps.lastFix().rxMillis != 0) {
+      int px = constrain(sx(car.x), MAP_X + 7, MAP_X + MAP_W - 8);
+      int py = constrain(sy(car.y), MAP_Y + 7, MAP_Y + MAP_H - 8);
+      gfx->fillCircle(px, py, 7, C_TEXT);
+      gfx->fillCircle(px, py, 5, gps.hasFix() ? C_ACCENT : C_WARN);
+    }
+  }
+
+  // --- right-hand panel ---
+  const int pw = W - PANEL_X - 2;
+  int y = MAP_Y + 2;
+  if (ov.showLap) {
+    gfx->fillRoundRect(PANEL_X - 2, y - 2, pw + 2, 44, 5, ov.lapIsBest ? 0x0320 : 0x0010);
+    char buf[16];
+    snprintf(buf, sizeof(buf), ov.lapIsBest ? "LAP %d BEST" : "LAP %d", ov.lapNumber);
+    gfx->setTextColor(C_TEXT);
+    gfx->drawString(buf, PANEL_X, y, 2);
+    gfx->drawString(formatLapTime(ov.lapMs, 1), PANEL_X, y + 16, 4);
+  } else {
+    gfx->setTextColor(C_DIM);
+    gfx->drawString(timer.lapRunning() ? "LAP TIME" : "OUT LAP", PANEL_X, y, 2);
+    gfx->setTextColor(C_TEXT);
+    gfx->drawString(timer.lapRunning() ? formatLapTime(timer.currentLapMs(millis()), 1) : String("--"),
+                    PANEL_X, y + 16, 4);
+  }
+
+  y += 52;
+  int32_t d = timer.liveDeltaMs();
+  bool haveDelta = timer.lapRunning() && d != NO_DELTA && d > -100000 && d < 100000;
+  gfx->fillRoundRect(PANEL_X - 2, y - 2, pw + 2, 46, 5, !haveDelta ? C_BUTTON : (d <= 0 ? 0x0360 : 0xA000));
+  gfx->setTextColor(haveDelta ? C_TEXT : C_DIM);
+  gfx->drawString("LIVE DIFF", PANEL_X, y, 2);
+  if (haveDelta) {
+    uint32_t a = d < 0 ? -d : d;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%c%lu.%02lu", d <= 0 ? '-' : '+', (unsigned long)(a / 1000),
+             (unsigned long)((a % 1000) / 10));
+    gfx->drawString(buf, PANEL_X, y + 17, 4);
+  } else {
+    gfx->drawString("--", PANEL_X, y + 17, 4);
+  }
+
+  y += 54;
+  if (ov.splitIndex >= 0) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "S%d %s", ov.splitIndex + 1, ov.deltaMs == NO_DELTA ? "" : formatDelta(ov.deltaMs).c_str());
+    gfx->setTextColor(ov.deltaMs == NO_DELTA ? C_TEXT : (ov.deltaMs <= 0 ? C_GOOD : C_BAD));
+    gfx->drawString(buf, PANEL_X, y, 2);
+  }
+
+  y += 22;
+  const Lap* best = timer.bestLap();
+  const Lap* last = timer.lastLap();
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("BEST", PANEL_X, y, 2);
+  gfx->setTextColor(best ? C_GOOD : C_DIM);
+  gfx->drawString(best ? formatLapTime(best->timeMs) : String("-:--.---"), PANEL_X, y + 15, 2);
+  y += 36;
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("LAST", PANEL_X, y, 2);
+  gfx->setTextColor(last ? C_TEXT : C_DIM);
+  gfx->drawString(last ? formatLapTime(last->timeMs) : String("-:--.---"), PANEL_X, y + 15, 2);
+
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("tap: timing", PANEL_X, H - 12, 1);
+
+  runningOverlays(gps, holdMs);
   endFrame();
 }
 
@@ -363,7 +514,7 @@ void DisplayManager::diffBox(int32_t delta, bool lapRunning, const RunningOverla
     gfx->setTextDatum(MC_DATUM);
     gfx->setTextColor(C_DIM);
     gfx->drawString(lapRunning ? "--" : "", W / 2, y + h / 2 + 6, 4);
-    gfx->drawString("hold screen to end", W / 2, y + h - 10, 1);
+    gfx->drawString("tap: map   hold: end session", W / 2, y + h - 10, 1);
     gfx->setTextDatum(TL_DATUM);
     return;
   }

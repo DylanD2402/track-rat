@@ -35,6 +35,7 @@ static bool nearestSuggested = false;
 static String sessionPath;
 static String sessionStamp;
 static RunningOverlay overlay;
+static bool showMap = false;  // timing screen: false = big clock, true = track map
 static uint32_t lapOverlayUntil = 0;
 static uint32_t splitOverlayUntil = 0;
 
@@ -135,6 +136,10 @@ static void handleInput(InputEvent ev) {
 
     case AppState::Running:
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) enterState(AppState::Summary);
+      else if (ev != InputEvent::None) {  // any tap or short BOOT press: switch view
+        showMap = !showMap;
+        lastRender = 0;
+      }
       break;
 
     case AppState::Summary:
@@ -160,7 +165,8 @@ static void render() {
     case AppState::Running:
       if (overlay.showLap && now > lapOverlayUntil) overlay.showLap = false;
       if (overlay.splitIndex >= 0 && now > splitOverlayUntil) overlay.splitIndex = -1;
-      display.drawRunning(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
+      if (showMap) display.drawRunningMap(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
+      else display.drawRunning(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       break;
     case AppState::Summary:
       display.drawSummary(selectedTrack(), lapTimer, sessionPath);
@@ -191,6 +197,12 @@ void setup() {
   sim.length = 2 * M_PI * SIM_RADIUS_M;
   sim.startFinish = {SIM_SF_LAT, SIM_SF_LON, (float)DEFAULT_GATE_HALF_WIDTH_M};
   sim.splits.push_back({SIM_SPLIT_LAT, SIM_SPLIT_LON, (float)DEFAULT_GATE_HALF_WIDTH_M});
+  std::vector<geo::XYf> outline;  // the simulated circle, for the map screen
+  for (int i = 0; i <= 72; i++) {
+    float a = i * 2 * M_PI / 72;
+    outline.push_back({(float)(SIM_RADIUS_M * (cos(a) - 1.0)), (float)(SIM_RADIUS_M * sin(a))});
+  }
+  sim.map.push_back(outline);
   trackDB.add(sim);
 #endif
 

@@ -27,6 +27,11 @@ struct XY {
   double y;  // metres north of reference
 };
 
+struct XYf {  // compact version for stored paths
+  float x;
+  float y;
+};
+
 // Great-circle distance in metres.
 inline double distanceM(double lat1, double lon1, double lat2, double lon2) {
   double dLat = (lat2 - lat1) * DEG2RAD;

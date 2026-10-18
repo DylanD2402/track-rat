@@ -22,7 +22,7 @@ bool TrackDatabase::loadFrom(fs::FS& fs, const char* name) {
   File file = fs.open(TRACK_DATABASE_FILE, "r");
   if (!file) return false;
 
-  DynamicJsonDocument doc(max((size_t)16384, (size_t)file.size() * 2));
+  DynamicJsonDocument doc(max((size_t)16384, (size_t)file.size() * 4));  // lands in PSRAM
   DeserializationError err = deserializeJson(doc, file);
   file.close();
   if (err) {
@@ -54,12 +54,25 @@ bool TrackDatabase::loadFrom(fs::FS& fs, const char* name) {
       DEBUG_PRINTF("Tracks: skipping '%s' (no start/finish coordinates)\n", track.name.c_str());
       continue;
     }
+
+    // "map": [ [[lat,lon],[lat,lon],...], ... ]  one array per line to draw
+    for (JsonArray line : t["map"].as<JsonArray>()) {
+      std::vector<geo::XYf> pts;
+      pts.reserve(line.size());
+      for (JsonArray ll : line) {
+        geo::XY p = geo::toLocal(ll[0] | 0.0, ll[1] | 0.0, track.startFinish.lat, track.startFinish.lon);
+        pts.push_back({(float)p.x, (float)p.y});
+      }
+      if (pts.size() >= 2) track.map.push_back(std::move(pts));
+    }
     tracks.push_back(track);
   }
 
   if (tracks.empty()) return false;
   sourceName = name;
-  DEBUG_PRINTF("Tracks: loaded %d from %s\n", tracks.size(), name);
+  int withMap = 0;
+  for (const Track& t : tracks) withMap += !t.map.empty();
+  DEBUG_PRINTF("Tracks: loaded %d from %s (%d with a map)\n", tracks.size(), name, withMap);
   return true;
 }
 
