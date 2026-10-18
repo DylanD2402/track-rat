@@ -50,6 +50,7 @@ private:
   void endFrame();
   void header(const String& title, const GPSHandler* gps);
   void gpsBadge(const GPSHandler& gps);
+  void diffBox(int32_t delta, bool lapRunning, const RunningOverlay& ov);
   void footerButtons(const char* left, const char* center, const char* right);
   void centered(const String& s, int y, int font, uint16_t color);
   String distanceText(double m);

@@ -121,6 +121,41 @@ static void testDropoutAcrossLine() {
   printf("  crossing during GPS dropout ignored: %s\n", ev.type == LapEventType::None ? "yes" : "no");
 }
 
+// Lap 1 at 30 m/s, lap 2 at 25 m/s: the live diff against lap 1 grows
+// linearly and is known exactly at any point of lap 2.
+static void testLiveDelta() {
+  LapTimer lt;
+  lt.begin({SF_LAT, SF_LON, 15}, {});
+  double angle = -0.2, t = 0;
+  bool sawNoDeltaOnLap1 = false;
+  int checked = 0;
+  while (lt.lapCount() < 2) {
+    double v = lt.lapCount() == 0 ? 30.0 : 25.0;
+    double lat, lon;
+    circlePos(angle, lat, lon);
+    lt.onFix(lat, lon, v * 3.6f, (uint32_t)t, (uint32_t)t);
+    if (lt.lapRunning() && lt.lapCount() == 0 && lt.liveDeltaMs() == NO_DELTA) sawNoDeltaOnLap1 = true;
+    if (lt.lapCount() == 1) {
+      double d = angle - 2 * M_PI;  // radians into lap 2
+      for (double target : {M_PI / 2, M_PI, 1.5 * M_PI}) {
+        if (fabs(d - target) < 0.5 * 25 * 0.1 / R) {
+          double expected = (target * R / 25.0 - target * R / 30.0) * 1000.0;
+          int32_t got = lt.liveDeltaMs();
+          CHECK(got != NO_DELTA && fabs(got - expected) <= 60, "live delta at %.2f rad: got %d expected %.0f",
+                target, got, expected);
+          printf("  live diff %.0f%% into lap 2: %+d ms (expected %+.0f)\n", target / (2 * M_PI) * 100, got,
+                 expected);
+          checked++;
+        }
+      }
+    }
+    angle += v * 0.1 / R;
+    t += 100;
+  }
+  CHECK(sawNoDeltaOnLap1, "no live diff should be shown before a best lap exists");
+  CHECK(checked == 3, "checked %d points", checked);
+}
+
 int main() {
   printf("LapTimer tests\n");
   testConstantSpeed(10, 3600000);
@@ -129,6 +164,7 @@ int main() {
   testParkedJitter();
   testBestLapAndDelta();
   testDropoutAcrossLine();
+  testLiveDelta();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

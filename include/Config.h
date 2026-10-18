@@ -73,6 +73,8 @@
 #define MIN_CROSSING_SPEED_KMH 5.0       // ignore jitter while parked on the line
 #define MAX_FIX_GAP_MS 2000              // don't interpolate across GPS dropouts
 #define MAX_LAPS_STORED 500
+#define MAX_TRACE_POINTS 30000           // path points kept per lap for live diff (50 min at 10 Hz)
+#define LIVE_DELTA_MAX_OFFSET_M 40.0     // further than this from the best lap's line = no live diff
 
 // ---------------------------------------------------------------------------
 // Storage

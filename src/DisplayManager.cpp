@@ -110,22 +110,30 @@ void DisplayManager::centered(const String& s, int y, int font, uint16_t color) 
   gfx->setTextDatum(TL_DATUM);
 }
 
+// Phone-style signal bars. Green = fix, yellow = searching, red outline = no data.
 void DisplayManager::gpsBadge(const GPSHandler& gps) {
-  uint16_t dot = gps.hasFix() ? C_GOOD : (gps.receivingData() ? C_WARN : C_BAD);
-  char buf[24];
-  snprintf(buf, sizeof(buf), "%d sat %.0fHz", gps.satellites(), gps.fixRateHz());
-  gfx->setTextDatum(TR_DATUM);
-  gfx->setTextColor(C_TEXT);
-  gfx->drawString(buf, W - 20, 5, 2);
-  gfx->fillCircle(W - 10, 12, 5, dot);
-  gfx->setTextDatum(TL_DATUM);
+  const int BARS = 5, BAR_W = 5, GAP = 2, MAX_H = 18;
+  const int x0 = W - 6 - BARS * BAR_W - (BARS - 1) * GAP;
+  const int baseY = HEADER_H - 4;
+
+  int sats = gps.satellites();
+  int lit = !gps.receivingData() ? 0 : sats >= 10 ? 5 : sats >= 8 ? 4 : sats >= 6 ? 3 : sats >= 4 ? 2 : sats >= 1 ? 1 : 0;
+  uint16_t on = gps.hasFix() ? C_GOOD : C_WARN;
+  uint16_t off = gps.receivingData() ? C_DIM : C_BAD;
+
+  for (int i = 0; i < BARS; i++) {
+    int h = MAX_H * (i + 1) / BARS;
+    int x = x0 + i * (BAR_W + GAP);
+    if (i < lit) gfx->fillRect(x, baseY - h, BAR_W, h, on);
+    else gfx->drawRect(x, baseY - h, BAR_W, h, off);
+  }
 }
 
 void DisplayManager::header(const String& title, const GPSHandler* gps) {
   gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
   gfx->setTextColor(C_TEXT);
   String t = title;
-  int maxW = gps ? W - 120 : W - 12;  // leave room for the GPS badge
+  int maxW = gps ? W - 50 : W - 12;  // leave room for the signal bars
   while (t.length() > 3 && gfx->textWidth(t, 2) > maxW) t.remove(t.length() - 1);
   gfx->drawString(t, 6, 5, 2);
   if (gps) gpsBadge(*gps);
@@ -282,27 +290,27 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   }
   header(title, &gps);
 
-  // --- big time area (y 28..124) ---
+  // --- big time area (y 28..106) ---
   if (ov.showLap) {
     uint16_t bg = ov.lapIsBest ? 0x0320 : 0x0010;
-    gfx->fillRect(0, HEADER_H + 2, W, 96, bg);
+    gfx->fillRect(0, HEADER_H + 2, W, 78, bg);
     snprintf(buf, sizeof(buf), ov.lapIsBest ? "LAP %d  -  BEST LAP" : "LAP %d", ov.lapNumber);
     gfx->setTextDatum(TC_DATUM);
     gfx->setTextColor(C_TEXT);
-    gfx->drawString(buf, W / 2, HEADER_H + 6, 2);
-    gfx->drawString(formatLapTime(ov.lapMs, 3), W / 2, HEADER_H + 28, 7);
+    gfx->drawString(buf, W / 2, HEADER_H + 5, 2);
+    gfx->drawString(formatLapTime(ov.lapMs, 3), W / 2, HEADER_H + 26, 7);
     gfx->setTextDatum(TL_DATUM);
   } else if (timer.lapRunning()) {
     String t = formatLapTime(timer.currentLapMs(millis()), 1);
     int font = gfx->textWidth(t, 8) <= W - 10 ? 8 : 7;
-    centered(t, font == 8 ? HEADER_H + 10 : HEADER_H + 24, font, C_TEXT);
+    centered(t, font == 8 ? HEADER_H + 4 : HEADER_H + 18, font, C_TEXT);
   } else {
-    centered("OUT LAP", HEADER_H + 22, 4, C_WARN);
-    centered("Cross start/finish to begin timing", HEADER_H + 62, 2, C_DIM);
+    centered("OUT LAP", HEADER_H + 16, 4, C_WARN);
+    centered("Cross start/finish to begin timing", HEADER_H + 52, 2, C_DIM);
   }
 
-  // --- last / best (y 128..170) ---
-  const int rowY = 128;
+  // --- last / best (y 108..150) ---
+  const int rowY = 108;
   gfx->setTextColor(C_DIM);
   gfx->drawString("LAST", 10, rowY, 2);
   gfx->drawString("BEST", W / 2 + 10, rowY, 2);
@@ -313,36 +321,8 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   gfx->setTextColor(best ? C_GOOD : C_TEXT);
   gfx->drawString(best ? formatLapTime(best->timeMs) : String("-:--.---"), W / 2 + 10, rowY + 16, 4);
 
-  // --- delta box (y 172..200) ---
-  const int dY = 174;
-  if (ov.splitIndex >= 0) {
-    snprintf(buf, sizeof(buf), "S%d  %s", ov.splitIndex + 1, formatLapTime(ov.splitMs).c_str());
-    gfx->setTextColor(C_TEXT);
-    gfx->drawString(buf, 10, dY, 4);
-    if (ov.deltaMs != NO_DELTA) {
-      gfx->setTextDatum(TR_DATUM);
-      gfx->setTextColor(ov.deltaMs <= 0 ? C_GOOD : C_BAD);
-      gfx->drawString(formatDelta(ov.deltaMs), W - 10, dY, 4);
-      gfx->setTextDatum(TL_DATUM);
-    }
-  } else if (last && best && last != best) {
-    gfx->setTextColor(C_DIM);
-    gfx->drawString("LAST vs BEST", 10, dY + 6, 2);
-    int32_t d = (int32_t)last->timeMs - (int32_t)best->timeMs;
-    gfx->setTextDatum(TR_DATUM);
-    gfx->setTextColor(d <= 0 ? C_GOOD : C_BAD);
-    gfx->drawString(formatDelta(d), W - 10, dY, 4);
-    gfx->setTextDatum(TL_DATUM);
-  }
-
-  // --- bottom line ---
-  snprintf(buf, sizeof(buf), "%.0f km/h", gps.lastFix().speedKmh);
-  gfx->setTextColor(C_TEXT);
-  gfx->drawString(buf, 10, 214, 4);
-  gfx->setTextDatum(TR_DATUM);
-  gfx->setTextColor(C_DIM);
-  gfx->drawString("hold to end", W - 10, 220, 2);
-  gfx->setTextDatum(TL_DATUM);
+  // --- live diff box (y 156..236) ---
+  diffBox(timer.liveDeltaMs(), timer.lapRunning(), ov);
 
   if (!gps.hasFix()) {
     gfx->fillRect(0, H - 30, W, 30, C_BAD);
@@ -356,6 +336,56 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
     gfx->fillRect(20, 118, w, 12, C_WARN);
   }
   endFrame();
+}
+
+// Live gap to the best lap: green box = ahead, red = behind.
+void DisplayManager::diffBox(int32_t delta, bool lapRunning, const RunningOverlay& ov) {
+  const int x = 4, y = 156, w = W - 8, h = H - 156 - 4;
+  bool have = lapRunning && delta != NO_DELTA && delta > -100000 && delta < 100000;
+  uint16_t bg = !have ? C_BUTTON : (delta <= 0 ? 0x0360 : 0xA000);
+  gfx->fillRoundRect(x, y, w, h, 8, bg);
+
+  gfx->setTextColor(have ? C_TEXT : C_DIM);
+  gfx->drawString("LIVE DIFF", x + 8, y + 5, 2);
+
+  // Split result for a few seconds after each split
+  if (ov.splitIndex >= 0) {
+    char sbuf[40];
+    snprintf(sbuf, sizeof(sbuf), "S%d %s  %s", ov.splitIndex + 1, formatLapTime(ov.splitMs).c_str(),
+             ov.deltaMs == NO_DELTA ? "" : formatDelta(ov.deltaMs).c_str());
+    gfx->setTextDatum(TR_DATUM);
+    gfx->setTextColor(C_TEXT);
+    gfx->drawString(sbuf, x + w - 8, y + 5, 2);
+    gfx->setTextDatum(TL_DATUM);
+  }
+
+  if (!have) {
+    gfx->setTextDatum(MC_DATUM);
+    gfx->setTextColor(C_DIM);
+    gfx->drawString(lapRunning ? "--" : "", W / 2, y + h / 2 + 6, 4);
+    gfx->drawString("hold screen to end", W / 2, y + h - 10, 1);
+    gfx->setTextDatum(TL_DATUM);
+    return;
+  }
+
+  // Font 6 (48 px digits) has '-' but no '+', so the plus is drawn by hand.
+  uint32_t a = delta < 0 ? -delta : delta;
+  char num[16];
+  snprintf(num, sizeof(num), "%s%lu.%02lu", delta < 0 ? "-" : "", (unsigned long)(a / 1000),
+           (unsigned long)((a % 1000) / 10));
+  const int PLUS = 28, GAP = 6;
+  int tw = gfx->textWidth(num, 6);
+  int total = tw + (delta > 0 ? PLUS + GAP : 0);
+  int tx = (W - total) / 2;
+  int ty = y + 24;
+  if (delta > 0) {
+    int cy = ty + 24;
+    gfx->fillRect(tx, cy - 3, PLUS, 6, C_TEXT);
+    gfx->fillRect(tx + PLUS / 2 - 3, cy - PLUS / 2, 6, PLUS, C_TEXT);
+    tx += PLUS + GAP;
+  }
+  gfx->setTextColor(C_TEXT);
+  gfx->drawString(num, tx, ty, 6);
 }
 
 void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, const String& savedPath) {

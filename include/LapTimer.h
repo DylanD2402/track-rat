@@ -58,7 +58,21 @@ public:
   uint32_t averageLapMs() const;
   float sessionMaxSpeedKmh() const { return sessionMaxSpeed; }
 
+  // Live gap to the best lap at the same point on track (+ = slower).
+  // NO_DELTA before there is a best lap, or when off the best lap's line.
+  int32_t liveDeltaMs() const { return liveDelta; }
+
 private:
+  // A point on a lap's path: metres from the start/finish, ms into the lap.
+  struct TracePt {
+    float x, y;
+    int32_t t;
+  };
+  std::vector<TracePt> curTrace;
+  std::vector<TracePt> bestTrace;
+  size_t matchIdx = 0;
+  int32_t liveDelta = NO_DELTA;
+
   TrackPoint sf = {0, 0, 0};
   std::vector<TrackPoint> splitPts;
   std::vector<Lap> laps;
@@ -89,6 +103,7 @@ private:
 
   int64_t continuousTime(uint32_t gpsTimeMs);
   void startLap(int64_t t, uint32_t startMillis);
+  int32_t matchBestTrace(float x, float y, int32_t elapsed);
 };
 
 #endif  // LAP_TIMER_H

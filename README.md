@@ -62,11 +62,13 @@ While timing, the screen shows:
 
 - **Current lap**, in large digits.
 - **Last and best lap.**
-- **Last vs best:** the time difference between your last lap and your best.
-- **Split delta:** for 5 s after each split, the gap to your best lap at that split.
-- **Speed.**
+- **Live diff:** how far ahead (green, `-`) or behind (red, `+`) your best lap you are right now, at the same point on track. It appears once you have a best lap.
+- **Split time:** for 5 s after each split, the split time and its gap to your best lap's split.
+- **GPS signal bars** in the top right: green with a fix, yellow while searching, red outline with no data.
 
 When you complete a lap, its time shows full-screen for 4 s, in green if it's a new best.
+
+The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
 
 ## Tracks
 
@@ -142,6 +144,7 @@ It checks that the timer:
 - measures known-length laps to within 2 ms at both 10 Hz and 1 Hz, including laps that run past UTC midnight
 - times splits correctly
 - tracks the best lap and computes deltas
+- computes the live diff to within about 40 ms of the true value
 - doesn't record false laps while parked on the line with GPS jitter
 - ignores a line crossing that happens during a GPS dropout
 
