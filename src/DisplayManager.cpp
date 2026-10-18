@@ -133,16 +133,16 @@ void DisplayManager::header(const String& title, const GPSHandler* gps) {
   gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
   gfx->setTextColor(C_TEXT);
   String t = title;
-  int maxW = gps ? W - 84 : W - 12;  // leave room for the signal bars
+  int maxW = gps ? W - 98 : W - 12;  // leave room for the signal bars
   while (t.length() > 3 && gfx->textWidth(t, 2) > maxW) t.remove(t.length() - 1);
   gfx->drawString(t, 6, 5, 2);
   if (gps) {
     gpsBadge(*gps);
     if (gps->isSimulated()) {  // make simulated timing impossible to miss
-      gfx->fillRoundRect(W - 78, 4, 34, HEADER_H - 8, 4, C_WARN);
+      gfx->fillRoundRect(W - 92, 4, 48, HEADER_H - 8, 4, C_WARN);
       gfx->setTextDatum(MC_DATUM);
       gfx->setTextColor(C_BG);
-      gfx->drawString("SIM", W - 61, HEADER_H / 2, 2);
+      gfx->drawString("BENCH", W - 68, HEADER_H / 2, 2);
       gfx->setTextDatum(TL_DATUM);
     }
   }
@@ -267,7 +267,9 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   header("READY", nullptr);
 
   centered(track.name, 40, 4, C_ACCENT);
-  if (gpsFix && distanceM >= 0) {
+  if (track.bench) {
+    centered("Simulated car - no GPS needed", 84, 2, C_WARN);
+  } else if (gpsFix && distanceM >= 0) {
     centered("Start/finish is " + distanceText(distanceM) + " away", 84, 2,
              distanceM < 2000 ? C_GOOD : C_WARN);
   } else {

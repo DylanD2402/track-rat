@@ -6,9 +6,8 @@
  * - Optionally asks a u-blox based module for 10 Hz updates (RAM only).
  * - Delivers each new position fix exactly once via takeFix().
  *
- * In simulator mode (the es3c28p-sim build, or automatically when no GPS
- * is detected at boot) it instead generates a car lapping a small
- * circuit, so the whole UI and lap logic can be tested at a desk.
+ * In bench-test mode (setSimulated) it instead generates a car lapping a
+ * small circuit, so the UI and lap logic can be tested at a desk.
  */
 
 #ifndef GPS_HANDLER_H
@@ -41,6 +40,7 @@ public:
   uint32_t baud() const { return baudRate; }
   int rxPinUsed() const { return rxPin; }
   bool isSimulated() const { return simulating; }
+  void setSimulated(bool on);
   const GpsFix& lastFix() const { return last; }
 
   // "YYYYMMDD_HHMMSS" from GPS date/time, or empty if unknown.

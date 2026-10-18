@@ -36,14 +36,17 @@ pio run -e es3c28p -t upload        # lap timer
 pio device monitor                  # serial log, 115200 baud
 ```
 
-Other targets:
+To store `data/tracks.json` in internal flash instead of on the SD card:
 
 ```bash
-pio run -e es3c28p-sim -t upload    # always run the simulator (fake car on a fake track)
-pio run -e es3c28p -t uploadfs      # store data/tracks.json in internal flash
+pio run -e es3c28p -t uploadfs
 ```
 
-If no GPS is detected at boot, the normal build also switches to the simulator. A yellow **SIM** tag shows in the header whenever timing is simulated. Set `GPS_AUTO_SIMULATOR` to `0` in `include/Config.h` to turn this off.
+### Bench test
+
+The last entry in the track list is **Bench Test**. Pick it and press START to run a simulated car around a small circuit, with real lap timing, splits, live diff and map, all at your desk. No GPS is needed, and if one is connected it's ignored for that session.
+
+While a bench test runs, a yellow **BENCH** tag shows in the header. When the session ends, the real GPS is used again.
 
 ## Using it
 

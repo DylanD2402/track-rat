@@ -8,30 +8,30 @@ Work through these in order. Each step checks one part of the hardware, so if so
 - Connect the board by USB-C.
 - If upload fails with "No serial data received", hold **BOOT**, tap **RESET**, release **BOOT**, then upload again.
 
-## 1. Display and touch: simulator build (no GPS needed)
+## 1. Display and touch: bench test (no GPS needed)
 
 ```bash
-pio run -e es3c28p-sim -t upload && pio device monitor
+pio run -e es3c28p -t upload && pio device monitor
 ```
 
 Expected:
 
-1. The boot screen says **TRACK RAT** in cyan on **black**, with "SIMULATOR BUILD".
+1. The boot screen says **TRACK RAT** in cyan on **black**.
    - **Background is white or colours look wrong:** set `DISPLAY_INVERT` to `0` in `include/Config.h` and re-flash.
    - **Image is upside down:** set `DISPLAY_ROTATION` to `3`.
 2. The serial log shows `Display: 320x240, sprite buffer in PSRAM`.
    - If it says `NO sprite`, PSRAM isn't enabled. Check `board_build.arduino.memory_type = qio_opi` in `platformio.ini`.
 3. The serial log shows `Input: touch controller found`.
-4. The simulator "finds" its track and opens the **Ready** screen for "Simulator Loop".
-5. Tap the **left** third of the screen. You should land on the track list, and the serial log prints `Touch: raw=(..) screen=(..)`.
+4. With no GPS fix, the "waiting for GPS" screen stays up. With a fix, the track list opens.
+5. Tap the screen to open the track list. The serial log prints `Touch: raw=(..) screen=(..)`.
    - **Wrong button triggered:** adjust `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` until a tap at the left edge gives a small screen x and a tap at the top gives a small screen y.
-6. Tap **>** and **<** to browse tracks, then tap **SELECT** on Simulator Loop, then **START**.
+6. Tap **>** and **<** to browse tracks. Go to **Bench Test** (the last one), tap **SELECT**, then **START**. A yellow **BENCH** tag appears in the header.
 7. The simulated car is already driving, so the out lap ends the next time it passes the start/finish, within about 40 s. Lap 1 starts then. Laps take about 35–40 s.
    - At the half-way split, "S1" and a split time appear. From lap 2 on, a +/- delta also appears.
    - At each lap end, the lap time shows full-screen. It's green when it's a new best.
    - The serial log shows `LAP n: m:ss.mmm` and `Saved SD:/sessions/...`.
 8. Hold the screen for 2 s. A progress bar fills, then the **summary** appears and lists your laps.
-9. If you have an SD card in, look for `/sessions/SIM_..._simulator.json` on it.
+9. If you have an SD card in, look for `/sessions/SIM_..._bench.json` on it.
 
 The **BOOT** button also works on every screen: press = next/back, hold 1 s = select/start/end.
 

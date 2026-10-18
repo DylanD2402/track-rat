@@ -45,8 +45,8 @@ static uint32_t lastStatusLog = 0;
 static const Track& selectedTrack() { return *trackDB.get(selectedIndex); }
 
 static double distanceToTrack(int index) {
-  if (!gps.hasFix()) return -1;
   const Track* t = trackDB.get(index);
+  if (!gps.hasFix() || t->bench) return -1;
   return geo::distanceM(gps.lastFix().lat, gps.lastFix().lon, t->startFinish.lat, t->startFinish.lon);
 }
 
@@ -56,6 +56,7 @@ static void enterState(AppState next) {
 
   if (next == AppState::Running) {
     const Track& t = selectedTrack();
+    gps.setSimulated(t.bench);
     lapTimer.begin(t.startFinish, t.splits);
     overlay = RunningOverlay();
     lapOverlayUntil = splitOverlayUntil = 0;
@@ -69,6 +70,8 @@ static void enterState(AppState next) {
     if (sessionPath.length() == 0) sessionPath = SessionLog::newSessionPath(selectedTrack(), sessionStamp);
     SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer);
   }
+
+  if (state == AppState::Running && next != AppState::Running) gps.setSimulated(false);
 
   state = next;
   lastRender = 0;  // redraw now
@@ -174,12 +177,14 @@ static void render() {
   }
 }
 
-// The simulated car laps this circle (see SimTrack.h and GPSHandler::simulateStep).
-static void addSimulatorTrack() {
+// Bench test: picking this track runs a simulated car around this circle
+// (see SimTrack.h and GPSHandler::simulateStep) instead of using the GPS.
+static void addBenchTrack() {
   Track sim;
-  sim.id = "simulator";
-  sim.name = "Simulator Loop";
-  sim.location = "Desk test";
+  sim.id = "bench";
+  sim.name = "Bench Test";
+  sim.location = "Simulated car - no GPS needed";
+  sim.bench = true;
   sim.length = 2 * M_PI * SIM_RADIUS_M;
   sim.startFinish = {SIM_SF_LAT, SIM_SF_LON, (float)DEFAULT_GATE_HALF_WIDTH_M};
   sim.splits.push_back({SIM_SPLIT_LAT, SIM_SPLIT_LON, (float)DEFAULT_GATE_HALF_WIDTH_M});
@@ -211,7 +216,7 @@ void setup() {
   display.drawBoot("Detecting GPS...");
   gps.begin();
 
-  if (gps.isSimulated()) addSimulatorTrack();
+  addBenchTrack();
 
   enterState(AppState::GpsWait);
 }

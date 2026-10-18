@@ -9,30 +9,38 @@
 static HardwareSerial& gpsSerial = Serial1;
 
 void GPSHandler::begin() {
-#if SIMULATE_GPS
-  simulating = true;
-  DEBUG_PRINTLN("GPS: SIMULATOR build - no GPS module is read");
-  return;
-#endif
   gpsSerial.setRxBufferSize(4096);
   if (!detect()) {
-#if GPS_AUTO_SIMULATOR
-    simulating = true;
-    DEBUG_PRINTLN("GPS: no NMEA detected on any GPS pins - switching to SIMULATOR mode");
-    return;
-#else
+    // Listen on the UART connector anyway, so a GPS plugged in later works.
     const int pairs[][2] = GPS_PIN_PAIRS;
     rxPin = pairs[0][0];
     txPin = pairs[0][1];
     baudRate = GPS_DEFAULT_BAUD;
-    DEBUG_PRINTLN("GPS: no NMEA detected - check wiring");
-#endif
+    DEBUG_PRINTF("GPS: no NMEA detected - listening on GPIO %d at %lu baud\n", rxPin, (unsigned long)baudRate);
   }
   gpsSerial.begin(baudRate, SERIAL_8N1, rxPin, txPin);
 
 #if GPS_CONFIGURE_UBLOX
   configureUblox();
 #endif
+}
+
+// Bench test: replace the GPS with a simulated car (see SimTrack.h).
+// Switching either way clears the position so the two never mix.
+void GPSHandler::setSimulated(bool on) {
+  if (on == simulating) return;
+  simulating = on;
+  last = {};
+  fixPending = false;
+  everFixed = false;
+  lastTimeValue = 0xFFFFFFFF;
+  sats = 0;
+  hdopVal = 99.9f;
+  rateHz = 0;
+  rateWindowFixes = 0;
+  simLastStep = 0;
+  simAngle = 0;
+  DEBUG_PRINTF("GPS: %s\n", on ? "BENCH TEST - simulated car" : "back to the real GPS");
 }
 
 // Count bytes arriving on a pin in `ms` milliseconds. Bytes arrive (even if
@@ -137,6 +145,7 @@ void GPSHandler::update() {
   uint32_t now = millis();
 
   if (simulating) {
+    while (gpsSerial.available()) gpsSerial.read();  // keep the real GPS's buffer drained
     simulateStep();
   } else {
     readSerial(now);

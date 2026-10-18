@@ -26,6 +26,7 @@ struct Track {
   // Track layout for the map screen: one or more lines, in metres east/north
   // of the start/finish. Empty if tracks.json has no "map" for this track.
   std::vector<std::vector<geo::XYf>> map;
+  bool bench = false;  // the built-in bench-test track: driven by the simulated car
 };
 
 class TrackDatabase {

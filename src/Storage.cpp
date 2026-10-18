@@ -12,18 +12,27 @@ namespace Storage {
 static bool sdOk = false;
 static bool flashOk = false;
 
-void begin() {
-  SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
-  sdOk = SD_MMC.begin("/sdcard", false /* 4-bit */);
-  if (!sdOk) {
-    // Some cards/boards are only reliable in 1-bit mode
-    SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
-    sdOk = SD_MMC.begin("/sdcard", true /* 1-bit */);
+// Try 4-bit, then 1-bit, then 1-bit slowly (marginal cards or wiring).
+static bool mountSd() {
+  struct Attempt { bool oneBit; int khz; };
+  const Attempt attempts[] = {{false, SDMMC_FREQ_DEFAULT}, {true, SDMMC_FREQ_DEFAULT}, {true, 5000}};
+  for (const Attempt& a : attempts) {
+    if (a.oneBit) SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
+    else SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
+    if (SD_MMC.begin("/sdcard", a.oneBit, false, a.khz)) {
+      DEBUG_PRINTF("Storage: SD card mounted (%llu MB, %s, %d kHz)\n", SD_MMC.cardSize() / (1024ULL * 1024ULL),
+                   a.oneBit ? "1-bit" : "4-bit", a.khz);
+      return true;
+    }
+    SD_MMC.end();
   }
-  if (sdOk) {
-    DEBUG_PRINTF("Storage: SD card mounted (%llu MB)\n", SD_MMC.cardSize() / (1024ULL * 1024ULL));
-  } else {
-    DEBUG_PRINTLN("Storage: no SD card");
+  return false;
+}
+
+void begin() {
+  sdOk = mountSd();
+  if (!sdOk) {
+    DEBUG_PRINTLN("Storage: SD card not mounted. If one is inserted it must be FAT32 (exFAT is not supported)");
   }
 
   flashOk = LittleFS.begin(true);  // formats an empty partition on first boot

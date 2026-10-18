@@ -21,9 +21,6 @@
 #define GPS_TARGET_RATE_HZ 10        // requested via UBX (ignored if the chip isn't u-blox)
 #define GPS_CONFIGURE_UBLOX 1        // send UBX config (RAM only, never saved to the module)
 #define GPS_ECHO_NMEA 0              // 1 = copy raw NMEA to the USB serial monitor
-#ifndef GPS_AUTO_SIMULATOR
-#define GPS_AUTO_SIMULATOR 1         // 1 = no GPS found at boot -> run the simulator (shows SIM)
-#endif
 #define GPS_MIN_SATELLITES 4
 #define GPS_FIX_TIMEOUT_MS 3000      // no fresh fix for this long = fix lost
 
@@ -83,13 +80,6 @@
 // ---------------------------------------------------------------------------
 #define TRACK_DATABASE_FILE "/tracks.json"
 #define SESSION_DIR "/sessions"
-
-// ---------------------------------------------------------------------------
-// Simulator (enabled by the es3c28p-sim build environment)
-// ---------------------------------------------------------------------------
-#ifndef SIMULATE_GPS
-#define SIMULATE_GPS 0
-#endif
 
 // ---------------------------------------------------------------------------
 // Debug output (USB serial)
