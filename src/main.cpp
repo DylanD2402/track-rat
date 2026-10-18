@@ -256,10 +256,11 @@ void loop() {
     }
   }
 
-  if (now - lastStatusLog > 5000 && state == AppState::GpsWait) {
+  if (now - lastStatusLog > 5000) {
     lastStatusLog = now;
-    DEBUG_PRINTF("GPS: data=%s sats=%d hdop=%.1f fix=%s rate=%.1fHz\n", gps.receivingData() ? "yes" : "NO",
-                 gps.satellites(), gps.hdop(), gps.hasFix() ? "yes" : "no", gps.fixRateHz());
+    DEBUG_PRINTF("GPS: data=%s sats=%d hdop=%.1f fix=%s rate=%.1fHz%s\n", gps.receivingData() ? "yes" : "NO",
+                 gps.satellites(), gps.hdop(), gps.hasFix() ? "yes" : "no", gps.fixRateHz(),
+                 gps.isSimulated() ? " (bench test)" : "");
   }
 
   if (lastRender == 0 || now - lastRender >= 1000 / DISPLAY_FPS) {
