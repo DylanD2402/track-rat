@@ -71,7 +71,18 @@ private:
   bool detect();
   int rxPin = -1, txPin = -1;
   void configureUblox();
-  void sendUbxValset(const uint8_t* cfg, size_t len);
+  void sendUbx(uint8_t cls, uint8_t id, const uint8_t* payload, size_t len);
+  void sendUbxValset(uint8_t layers, const uint8_t* cfg, size_t len);
+
+  // UBX reply parsing (only the CFG-VALGET response is used)
+  void feedUbx(uint8_t c);
+  uint8_t ubxState = 0, ubxCls = 0, ubxId = 0, ubxCkA = 0;
+  uint16_t ubxLen = 0, ubxPos = 0;
+  uint8_t ubxBuf[64];
+  static const int SIGNAL_KEYS = 5;
+  static uint32_t signalKey(int k);
+  uint8_t signalValue[SIGNAL_KEYS] = {};
+  uint8_t signalsRead = 0;
   void countFixForRate(uint32_t now);
   void readSerial(uint32_t now);
 

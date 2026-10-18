@@ -18,7 +18,15 @@
 // ---------------------------------------------------------------------------
 #define GPS_PIN_PAIRS {{44, 43}, {43, 44}, {14, 21}, {21, 14}}
 #define GPS_DEFAULT_BAUD 115200      // BE-252Q factory default
-#define GPS_TARGET_RATE_HZ 10        // requested via UBX (ignored if the chip isn't u-blox)
+// Update rate vs satellite systems (u-blox M10 maximums): 4 systems 10 Hz,
+// 3: 16 Hz, 2: 20 Hz, GPS only: 25 Hz. More systems = more satellites = more
+// accurate fixes; faster = smoother map and live diff. 20 Hz + GPS/Galileo
+// is the usual lap-timer choice.
+#define GPS_TARGET_RATE_HZ 20
+#define GPS_SET_CONSTELLATIONS 1     // 0 = leave the module's satellite systems alone
+#define GPS_USE_GALILEO 1
+#define GPS_USE_GLONASS 0
+#define GPS_USE_BEIDOU 0
 #define GPS_CONFIGURE_UBLOX 1        // send UBX config (RAM only, never saved to the module)
 #define GPS_ECHO_NMEA 0              // 1 = copy raw NMEA to the USB serial monitor
 #define GPS_MIN_SATELLITES 4

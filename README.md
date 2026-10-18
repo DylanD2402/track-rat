@@ -184,7 +184,8 @@ Everything else is in `include/Config.h`. The settings you're most likely to cha
 | Setting | Default | What it does |
 |---|---|---|
 | `GPS_PIN_PAIRS` | 44/43, 43/44, 14/21, 21/14 | Pins searched for the GPS at boot |
-| `GPS_TARGET_RATE_HZ` | 10 | Requested fix rate. Only works on a u-blox chip, otherwise the module's default applies |
+| `GPS_TARGET_RATE_HZ` | 20 | Requested update rate (u-blox only). The GPS Status screen shows the rate actually reached |
+| `GPS_USE_GALILEO` / `_GLONASS` / `_BEIDOU` | 1 / 0 / 0 | Satellite systems besides GPS. More systems = more satellites but a lower top rate (4 systems: 10 Hz, 2: 20 Hz) |
 | `GPS_ECHO_NMEA` | 0 | 1 = copy raw GPS output to the serial monitor |
 | `DISPLAY_INVERT` | 1 | Set to 0 if colours look inverted (white background) |
 | `TOUCH_SWAP_XY`, `TOUCH_INVERT_X/Y` | 1, 0, 1 | Fix touch orientation if taps land in the wrong place |

@@ -189,6 +189,23 @@ static void render() {
   }
 }
 
+// Once the GPS has a fix, pick the nearest track (within range) automatically.
+static void autoPickTrack() {
+  if (!gps.hasFix() || nearestSuggested) return;
+  if (state != AppState::GpsWait && state != AppState::TrackSelect) return;
+  nearestSuggested = true;
+  double dist;
+  int nearest = trackDB.findNearest(gps.lastFix().lat, gps.lastFix().lon, TRACK_DETECTION_RADIUS_M, &dist);
+  if (nearest >= 0) {
+    selectedIndex = nearest;
+    DEBUG_PRINTF("Nearest track: %s (%.0f m)\n", selectedTrack().name.c_str(), dist);
+    if (state == AppState::GpsWait) enterState(AppState::TrackConfirm);
+  } else if (state == AppState::GpsWait) {
+    DEBUG_PRINTLN("No track within range - choose one manually");
+    enterState(AppState::TrackSelect);
+  }
+}
+
 // Bench test: picking this track runs a simulated car around this circle
 // (see SimTrack.h and GPSHandler::simulateStep) instead of using the GPS.
 static void addBenchTrack() {
@@ -234,8 +251,17 @@ void setup() {
 
   addBenchTrack();
 
+  // Keep reading the GPS while the logo plays, so a fix found in the
+  // meantime skips the waiting-for-GPS screen entirely.
+  while (display.splashRunning()) {
+    gps.update();
+    delay(5);
+  }
   display.finishSplash();
-  enterState(AppState::GpsWait);
+  gps.update();
+  state = AppState::GpsWait;
+  autoPickTrack();
+  if (state == AppState::GpsWait) enterState(AppState::GpsWait);
 }
 
 void loop() {
@@ -254,20 +280,7 @@ void loop() {
 
   handleInput(input.poll());
 
-  // Automatic track pick once the GPS has a fix
-  if (gps.hasFix() && !nearestSuggested && (state == AppState::GpsWait || state == AppState::TrackSelect)) {
-    nearestSuggested = true;
-    double dist;
-    int nearest = trackDB.findNearest(gps.lastFix().lat, gps.lastFix().lon, TRACK_DETECTION_RADIUS_M, &dist);
-    if (nearest >= 0) {
-      selectedIndex = nearest;
-      DEBUG_PRINTF("Nearest track: %s (%.0f m)\n", selectedTrack().name.c_str(), dist);
-      if (state == AppState::GpsWait) enterState(AppState::TrackConfirm);
-    } else if (state == AppState::GpsWait) {
-      DEBUG_PRINTLN("No track within range - choose one manually");
-      enterState(AppState::TrackSelect);
-    }
-  }
+  autoPickTrack();
 
   if (now - lastStatusLog > 5000) {
     lastStatusLog = now;

@@ -93,42 +93,84 @@ bool GPSHandler::detect() {
   return false;
 }
 
-// UBX-CFG-VALSET (u-blox M8 protocol 27+ / M9 / M10). Written to RAM only, so
-// the module returns to factory settings on power-off. Non-u-blox modules
-// ignore these bytes.
-void GPSHandler::sendUbxValset(const uint8_t* cfg, size_t len) {
-  uint8_t msg[64];
-  size_t payloadLen = 4 + len;
-  size_t n = 0;
-  msg[n++] = 0xB5;
-  msg[n++] = 0x62;
-  msg[n++] = 0x06;  // CFG
-  msg[n++] = 0x8A;  // VALSET
-  msg[n++] = payloadLen & 0xFF;
-  msg[n++] = payloadLen >> 8;
-  msg[n++] = 0x00;  // version
-  msg[n++] = 0x01;  // layer: RAM
-  msg[n++] = 0x00;
-  msg[n++] = 0x00;
-  memcpy(&msg[n], cfg, len);
-  n += len;
+// --- u-blox configuration (UBX protocol; non-u-blox modules ignore it) ---
 
+void GPSHandler::sendUbx(uint8_t cls, uint8_t id, const uint8_t* payload, size_t len) {
+  uint8_t head[6] = {0xB5, 0x62, cls, id, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8)};
   uint8_t ckA = 0, ckB = 0;
-  for (size_t i = 2; i < n; i++) {
-    ckA += msg[i];
-    ckB += ckA;
-  }
-  msg[n++] = ckA;
-  msg[n++] = ckB;
-  gpsSerial.write(msg, n);
+  for (int i = 2; i < 6; i++) { ckA += head[i]; ckB += ckA; }
+  for (size_t i = 0; i < len; i++) { ckA += payload[i]; ckB += ckA; }
+  uint8_t tail[2] = {ckA, ckB};
+  gpsSerial.write(head, 6);
+  gpsSerial.write(payload, len);
+  gpsSerial.write(tail, 2);
   gpsSerial.flush();
+}
+
+// UBX-CFG-VALSET. layers: 0x01 RAM, 0x02 battery-backed RAM (survives a
+// warm restart while the module keeps backup power).
+void GPSHandler::sendUbxValset(uint8_t layers, const uint8_t* cfg, size_t len) {
+  uint8_t payload[80];
+  payload[0] = 0x00;  // version
+  payload[1] = layers;
+  payload[2] = payload[3] = 0x00;
+  memcpy(payload + 4, cfg, len);
+  sendUbx(0x06, 0x8A, payload, 4 + len);
+}
+
+// Minimal UBX frame reader, fed alongside TinyGPS++. Only the
+// UBX-CFG-VALGET response is used (to read the satellite-system settings).
+void GPSHandler::feedUbx(uint8_t c) {
+  switch (ubxState) {
+    case 0: ubxState = (c == 0xB5) ? 1 : 0; return;
+    case 1: ubxState = (c == 0x62) ? 2 : 0; return;
+    case 2: ubxCls = c; ubxState = 3; return;
+    case 3: ubxId = c; ubxState = 4; return;
+    case 4: ubxLen = c; ubxState = 5; return;
+    case 5:
+      ubxLen |= c << 8;
+      ubxPos = 0;
+      ubxState = ubxLen <= sizeof(ubxBuf) ? (ubxLen ? 6 : 7) : 0;
+      return;
+    case 6:
+      ubxBuf[ubxPos++] = c;
+      if (ubxPos >= ubxLen) ubxState = 7;
+      return;
+    case 7: ubxCkA = c; ubxState = 8; return;
+    case 8: {
+      ubxState = 0;
+      uint8_t a = 0, b = 0;
+      const uint8_t head[4] = {ubxCls, ubxId, (uint8_t)(ubxLen & 0xFF), (uint8_t)(ubxLen >> 8)};
+      for (uint8_t h : head) { a += h; b += a; }
+      for (uint16_t i = 0; i < ubxLen; i++) { a += ubxBuf[i]; b += a; }
+      if (a != ubxCkA || b != c) return;
+      if (ubxCls == 0x06 && ubxId == 0x8B && ubxLen >= 4) {  // CFG-VALGET response
+        signalsRead = 0;
+        for (uint16_t i = 4; i + 5 <= ubxLen; i += 5) {   // 1-byte (L) values only
+          uint32_t key = ubxBuf[i] | ubxBuf[i + 1] << 8 | ubxBuf[i + 2] << 16 | (uint32_t)ubxBuf[i + 3] << 24;
+          for (int k = 0; k < SIGNAL_KEYS; k++)
+            if (key == signalKey(k)) {
+              signalValue[k] = ubxBuf[i + 4];
+              signalsRead |= 1 << k;
+            }
+        }
+      }
+      return;
+    }
+  }
+}
+
+// GPS, Galileo, GLONASS, BeiDou, QZSS enable keys (CFG-SIGNAL-*_ENA)
+uint32_t GPSHandler::signalKey(int k) {
+  static const uint32_t keys[SIGNAL_KEYS] = {0x1031001F, 0x10310021, 0x10310025, 0x10310022, 0x10310024};
+  return keys[k];
 }
 
 void GPSHandler::configureUblox() {
   const uint16_t measMs = 1000 / GPS_TARGET_RATE_HZ;
 
-  // Drop the NMEA sentences we don't use (GSV is large and multi-part) so
-  // 10 Hz output fits comfortably in the link, and select automotive dynamics.
+  // Rate, automotive dynamics, and only the NMEA sentences we use (GGA, RMC)
+  // so high rates fit easily in the link. RAM only: no restart needed.
   const uint8_t cfg[] = {
     0x01, 0x00, 0x21, 0x30, (uint8_t)(measMs & 0xFF), (uint8_t)(measMs >> 8),  // CFG-RATE-MEAS
     0xC5, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_GSV_UART1 = 0
@@ -137,8 +179,53 @@ void GPSHandler::configureUblox() {
     0xB1, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_VTG_UART1 = 0
     0x21, 0x00, 0x11, 0x20, 0x04,  // CFG-NAVSPG-DYNMODEL = automotive
   };
-  sendUbxValset(cfg, sizeof(cfg));
-  DEBUG_PRINTF("GPS: requested %d Hz (u-blox VALSET, RAM only)\n", GPS_TARGET_RATE_HZ);
+  sendUbxValset(0x01, cfg, sizeof(cfg));
+  DEBUG_PRINTF("GPS: requested %d Hz (u-blox CFG-RATE)\n", GPS_TARGET_RATE_HZ);
+
+#if GPS_SET_CONSTELLATIONS
+  // Changing satellite systems restarts tracking (the fix drops for a few
+  // seconds), so read the current setting first and only change it if needed.
+  const uint8_t want[SIGNAL_KEYS] = {1, GPS_USE_GALILEO, GPS_USE_GLONASS, GPS_USE_BEIDOU, 1 /* QZSS goes with GPS */};
+  uint8_t get[4 + 4 * SIGNAL_KEYS] = {0x00, 0x00, 0x00, 0x00};  // version, layer RAM, position
+  for (int k = 0; k < SIGNAL_KEYS; k++) {
+    uint32_t key = signalKey(k);
+    for (int i = 0; i < 4; i++) get[4 + 4 * k + i] = (key >> (8 * i)) & 0xFF;
+  }
+  signalsRead = 0;
+  sendUbx(0x06, 0x8B, get, sizeof(get));
+  uint32_t start = millis();
+  while (millis() - start < 700 && signalsRead != (1 << SIGNAL_KEYS) - 1) {
+    readSerial(millis());
+    delay(5);
+  }
+
+  static const char* names[SIGNAL_KEYS] = {"GPS", "Galileo", "GLONASS", "BeiDou", "QZSS"};
+  if (signalsRead == (1 << SIGNAL_KEYS) - 1) {
+    String on;
+    bool same = true;
+    for (int k = 0; k < SIGNAL_KEYS; k++) {
+      if (signalValue[k]) on += String(on.length() ? "+" : "") + names[k];
+      same &= (signalValue[k] != 0) == (want[k] != 0);
+    }
+    DEBUG_PRINTF("GPS: satellite systems in use: %s\n", on.c_str());
+    if (same) return;
+  } else {
+    DEBUG_PRINTLN("GPS: could not read satellite systems (not a u-blox M10?) - leaving them as they are");
+    return;
+  }
+
+  uint8_t set[5 * SIGNAL_KEYS];
+  String on;
+  for (int k = 0; k < SIGNAL_KEYS; k++) {
+    uint32_t key = signalKey(k);
+    for (int i = 0; i < 4; i++) set[5 * k + i] = (key >> (8 * i)) & 0xFF;
+    set[5 * k + 4] = want[k];
+    if (want[k]) on += String(on.length() ? "+" : "") + names[k];
+  }
+  sendUbxValset(0x03, set, sizeof(set));  // RAM + battery-backed, so next boot needn't change it
+  DEBUG_PRINTF("GPS: switching satellite systems to %s - tracking restarts, fix back in a few seconds\n",
+               on.c_str());
+#endif
 }
 
 void GPSHandler::update() {
@@ -165,6 +252,7 @@ void GPSHandler::readSerial(uint32_t now) {
     Serial.write(c);
 #endif
     gps.encode(c);
+    feedUbx((uint8_t)c);
   }
 
   if (gps.passedChecksum() != lastChecksumCount) {
