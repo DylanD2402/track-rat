@@ -24,14 +24,18 @@ import json
 import math
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 ]
+OSM_API_MAP = "https://api.openstreetmap.org/api/0.6/map"
 EARTH_R = 6371000.0
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_DB = os.path.join(REPO_ROOT, "data", "tracks.json")
@@ -73,19 +77,62 @@ def simplify(points, tol_m, ref):
 
 # --- sources --------------------------------------------------------------
 
-def fetch_overpass(lat, lon, radius_m):
+def _post(url, data, timeout):
+    req = urllib.request.Request(url, data=data, headers={"User-Agent": "track-rat/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def _get(url, timeout):
+    req = urllib.request.Request(url, headers={"User-Agent": "track-rat/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def fetch_osm(lat, lon, radius_m):
+    """Overpass mirrors first (2 tries each), then the main OpenStreetMap API."""
     query = f'[out:json][timeout:60];way["highway"="raceway"](around:{radius_m},{lat},{lon});out geom;'
     data = urllib.parse.urlencode({"data": query}).encode()
-    last_err = None
     for url in OVERPASS_URLS:
+        for attempt in range(2):
+            try:
+                lines = parse_overpass(json.loads(_post(url, data, 90)))
+                print(f"  got data from {url}")
+                return lines
+            except Exception as e:
+                print(f"  {url}: {e}", file=sys.stderr)
+                if attempt == 0:
+                    time.sleep(5)
+
+    # Fallback: the main OSM API returns everything in a bounding box as XML.
+    dlat = radius_m / 111194.9
+    dlon = radius_m / (111194.9 * math.cos(math.radians(lat)))
+    bbox = f"{lon - dlon:.6f},{lat - dlat:.6f},{lon + dlon:.6f},{lat + dlat:.6f}"
+    url = f"{OSM_API_MAP}?bbox={bbox}"
+    for attempt in range(3):
         try:
-            req = urllib.request.Request(url, data=data, headers={"User-Agent": "track-rat/1.0"})
-            with urllib.request.urlopen(req, timeout=90) as r:
-                return parse_overpass(json.load(r))
-        except Exception as e:  # try the next mirror
-            last_err = e
-            print(f"  {url}: {e}", file=sys.stderr)
-    raise SystemExit(f"Could not reach OpenStreetMap (Overpass): {last_err}")
+            print(f"  trying the main OpenStreetMap API...")
+            lines = parse_osm_xml(_get(url, 120))
+            print(f"  got data from {OSM_API_MAP}")
+            return lines
+        except Exception as e:
+            print(f"  {OSM_API_MAP}: {e}", file=sys.stderr)
+            time.sleep(5)
+    raise SystemExit("Could not reach OpenStreetMap. Try again later, or use --file (see README).")
+
+
+def parse_osm_xml(xml_bytes):
+    root = ET.fromstring(xml_bytes)
+    nodes = {n.get("id"): [float(n.get("lat")), float(n.get("lon"))] for n in root.iter("node")}
+    lines = []
+    for w in root.iter("way"):
+        tags = {t.get("k"): t.get("v") for t in w.iter("tag")}
+        if tags.get("highway") != "raceway":
+            continue
+        pts = [nodes[nd.get("ref")] for nd in w.iter("nd") if nd.get("ref") in nodes]
+        if len(pts) >= 2:
+            lines.append((pts, tags.get("name", ""), tags.get("service", "")))
+    return lines
 
 
 def parse_overpass(doc):
@@ -188,7 +235,7 @@ def main():
         raw = load_file(args.file)
     else:
         print(f"Fetching raceways within {args.radius} m of {sf_lat}, {sf_lon} from OpenStreetMap...")
-        raw = fetch_overpass(sf_lat, sf_lon, args.radius)
+        raw = fetch_osm(sf_lat, sf_lon, args.radius)
 
     if args.no_pit:
         raw = [r for r in raw if r[2] != "pit_lane" and "pit" not in r[1].lower()]
