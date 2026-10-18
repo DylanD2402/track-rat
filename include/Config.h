@@ -25,6 +25,13 @@
 #define GPS_FIX_TIMEOUT_MS 3000      // no fresh fix for this long = fix lost
 
 // ---------------------------------------------------------------------------
+// Bluetooth: stream GPS to phone apps as a RaceBox Mini (RaceChrono etc.)
+// ---------------------------------------------------------------------------
+#ifndef BLE_ENABLED
+#define BLE_ENABLED 1
+#endif
+
+// ---------------------------------------------------------------------------
 // Display (ILI9341V 240x320, used in landscape 320x240)
 // ---------------------------------------------------------------------------
 #define DISPLAY_ROTATION 1           // 1 or 3 for landscape

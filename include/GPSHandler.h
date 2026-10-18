@@ -20,6 +20,11 @@ struct GpsFix {
   double lat;
   double lon;
   float speedKmh;
+  float courseDeg;      // direction of travel, 0 = north, clockwise
+  bool courseValid;
+  float altM;           // metres above sea level
+  uint16_t year;        // UTC date, 0 if not known yet
+  uint8_t month, day;
   uint32_t gpsTimeMs;   // UTC milliseconds since midnight, from the GPS
   uint32_t rxMillis;    // millis() when the fix was received
 };

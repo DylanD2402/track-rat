@@ -127,6 +127,20 @@ python tools/fetch_track_map.py --id calabogie --name "Calabogie Motorsports Par
 - **Pit lane:** add `--no-pit` to leave it out.
 - **Your own layout:** `--file layout.geojson` (or `.gpx` / `.kml`) uses a file you've drawn or exported instead.
 
+## Phone apps (Bluetooth)
+
+Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**, so apps that support that device can use it as their GPS. The board's own screen and lap timing keep working at the same time.
+
+- **Apps with RaceBox Mini support:** RaceChrono and RaceChrono Pro, Solostorm, NMEAconnect, AutoX DL and the RaceBox app. This list comes from the [RaceBox Mini emulator project](https://github.com/anchit92/Open-Source-RaceBox-mini-Emulator) that inspired this feature; I've not tested each app.
+- **Connecting:** in the app, add a RaceBox Mini device. The board shows up as `RaceBox Mini` followed by 10 digits (the log prints the exact name at boot). While a phone is connected, a blue **BT** tag shows in the header.
+- **Update rate:** one packet per GPS fix, so up to 10 a second.
+- **Accelerometer:** this board has none, so the motion values read as a device lying still. Apps still calculate G-forces from the GPS.
+- **Accuracy figures:** the accuracy fields are estimates from the satellite precision value (HDOP), because the GPS sends NMEA text rather than u-blox binary data.
+- **Bench Test:** a bench session streams the simulated car, which is handy for setting up an app at a desk.
+- **Turning it off:** set `BLE_ENABLED` to `0` in `include/Config.h`.
+
+Track Rat isn't affiliated with RaceBox. The device name is used only so apps recognise the data format.
+
 ## Session logs
 
 Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. The file holds:
@@ -166,6 +180,12 @@ It checks that the timer:
 - times splits correctly
 - tracks the best lap and computes deltas
 - computes the live diff to within about 40 ms of the true value
+
+`test/test_racebox.cpp` checks the Bluetooth packet's fields, checksum and GPS time-of-week:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
+```
 - doesn't record false laps while parked on the line with GPS jitter
 - ignores a line crossing that happens during a GPS dropout
 

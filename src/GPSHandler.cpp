@@ -185,6 +185,14 @@ void GPSHandler::readSerial(uint32_t now) {
       last.lat = gps.location.lat();
       last.lon = gps.location.lng();
       last.speedKmh = gps.speed.isValid() ? (float)gps.speed.kmph() : 0.0f;
+      last.courseValid = gps.course.isValid() && last.speedKmh > 3.0f;  // heading is noise when slow
+      last.courseDeg = gps.course.isValid() ? (float)gps.course.deg() : 0.0f;
+      last.altM = gps.altitude.isValid() ? (float)gps.altitude.meters() : 0.0f;
+      if (gps.date.isValid() && gps.date.year() >= 2020) {
+        last.year = gps.date.year();
+        last.month = gps.date.month();
+        last.day = gps.date.day();
+      }
       last.gpsTimeMs = gps.time.hour() * 3600000UL + gps.time.minute() * 60000UL +
                        gps.time.second() * 1000UL + gps.time.centisecond() * 10UL;
       last.rxMillis = now;
@@ -257,6 +265,14 @@ void GPSHandler::simulateStep() {
   last.lat = SIM_SF_LAT + dLat;
   last.lon = SIM_SF_LON + dLon;
   last.speedKmh = speedMs * 3.6f;
+  // Moving anticlockwise: direction of travel is (-sin a, cos a) east/north
+  float course = atan2f(-sinf((float)a), cosf((float)a)) * RAD_TO_DEG;
+  last.courseDeg = course < 0 ? course + 360.0f : course;
+  last.courseValid = true;
+  last.altM = 100.0f;
+  last.year = 2026;
+  last.month = 1;
+  last.day = 1;
   last.gpsTimeMs = (now + 12UL * 3600000UL) % 86400000UL;
   last.rxMillis = now;
   sats = 12;

@@ -15,6 +15,7 @@
 #include "GeoMath.h"
 #include "InputManager.h"
 #include "LapTimer.h"
+#include "RaceBoxBle.h"
 #include "SessionLog.h"
 #include "SimTrack.h"
 #include "Storage.h"
@@ -215,6 +216,9 @@ void setup() {
 
   display.drawBoot("Detecting GPS...");
   gps.begin();
+#if BLE_ENABLED
+  RaceBoxBle::begin();
+#endif
 
   addBenchTrack();
 
@@ -226,8 +230,13 @@ void loop() {
   gps.update();
 
   GpsFix fix;
-  if (gps.takeFix(fix) && state == AppState::Running) {
-    onLapEvent(lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis));
+  if (gps.takeFix(fix)) {
+#if BLE_ENABLED
+    RaceBoxBle::sendFix(fix, gps);
+#endif
+    if (state == AppState::Running) {
+      onLapEvent(lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis));
+    }
   }
 
   handleInput(input.poll());

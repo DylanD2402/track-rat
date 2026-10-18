@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "SessionLog.h"
 #include "Storage.h"
+#include "RaceBoxBle.h"
 
 static const int W = 320;
 static const int H = 240;
@@ -131,21 +132,31 @@ void DisplayManager::gpsBadge(const GPSHandler& gps) {
 
 void DisplayManager::header(const String& title, const GPSHandler* gps) {
   gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
-  gfx->setTextColor(C_TEXT);
-  String t = title;
-  int maxW = gps ? W - 98 : W - 12;  // leave room for the signal bars
-  while (t.length() > 3 && gfx->textWidth(t, 2) > maxW) t.remove(t.length() - 1);
-  gfx->drawString(t, 6, 5, 2);
+
+  // Status tags right to left: signal bars, BENCH, BT
+  int right = W;
+  auto tag = [&](const char* text, int w, uint16_t bg, uint16_t fg) {
+    right -= w + 4;
+    gfx->fillRoundRect(right, 4, w, HEADER_H - 8, 4, bg);
+    gfx->setTextDatum(MC_DATUM);
+    gfx->setTextColor(fg);
+    gfx->drawString(text, right + w / 2, HEADER_H / 2, 2);
+    gfx->setTextDatum(TL_DATUM);
+  };
   if (gps) {
     gpsBadge(*gps);
-    if (gps->isSimulated()) {  // make simulated timing impossible to miss
-      gfx->fillRoundRect(W - 92, 4, 48, HEADER_H - 8, 4, C_WARN);
-      gfx->setTextDatum(MC_DATUM);
-      gfx->setTextColor(C_BG);
-      gfx->drawString("BENCH", W - 68, HEADER_H / 2, 2);
-      gfx->setTextDatum(TL_DATUM);
-    }
+    right = W - 44;
+    if (gps->isSimulated()) tag("BENCH", 48, C_WARN, C_BG);  // simulated timing must be obvious
+#if BLE_ENABLED
+    if (RaceBoxBle::connected()) tag("BT", 26, 0x041F, C_TEXT);  // a phone app is receiving GPS
+#endif
   }
+
+  gfx->setTextColor(C_TEXT);
+  String t = title;
+  int maxW = right - 12;
+  while (t.length() > 3 && gfx->textWidth(t, 2) > maxW) t.remove(t.length() - 1);
+  gfx->drawString(t, 6, 5, 2);
 }
 
 void DisplayManager::footerButtons(const char* left, const char* center, const char* right) {
