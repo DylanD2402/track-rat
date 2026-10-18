@@ -31,6 +31,12 @@ public:
   bool begin();
 
   void drawBoot(const char* status);
+
+  // Start-up logo animation (Splash.cpp). Runs on the other core; drawing
+  // anything else before finishSplash() returns would clash with it.
+  void startSplash();
+  void finishSplash();
+  bool splashRunning() const;
   // statusOnly: the GPS Status screen opened from the track list (no auto-advance)
   void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk, bool statusOnly);
   void drawTrackSelect(const Track& track, int index, int count, double distanceM, const GPSHandler& gps,

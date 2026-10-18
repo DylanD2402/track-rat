@@ -109,6 +109,26 @@ The easiest way to add your own track is to edit the file on the SD card.
 
 > **The pre-loaded track coordinates are approximate.** Check the start/finish point of any track you drive (satellite view in Google Maps works well) before trusting its lap times.
 
+## Start-up logo
+
+At power-on, the logo fades in behind a rippling edge that sweeps left to right, holds, then fades out the same way. This takes about 2.7 s, and it plays while the board mounts storage and finds the GPS, so it adds little or no time to startup. Press BOOT to skip it.
+
+To use your own logo:
+
+```bash
+pip install pillow
+python tools/png_to_logo.py my_logo.png
+```
+
+This writes `include/logo_image.h`. Rebuild and flash to see the new logo.
+
+- **Size:** around 240–300 px wide and 80–140 px tall works best. Anything larger than the 320×240 screen is scaled down.
+- **Background:** transparent areas become black.
+- **Back to the placeholder:** delete `include/logo_image.h`.
+- **Timing:** `SPLASH_FADE_MS` and `SPLASH_HOLD_MS` in `include/Config.h`.
+- **Wave shape:** `BAND`, `AMP` and `WAVELEN` in `include/SplashSweep.h`.
+- **Turning it off:** set `SPLASH_ENABLED` to `0` in `include/Config.h`.
+
 ## Track maps
 
 While timing, tap the screen (or press BOOT) to switch between the big clock and a **map view**. The map view shows the track layout with your car as a cyan dot, plus the lap time, live diff, best and last lap down the right-hand side.

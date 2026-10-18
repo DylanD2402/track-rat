@@ -185,6 +185,7 @@ String DisplayManager::distanceText(double m) {
 // ---------------------------------------------------------------------------
 
 void DisplayManager::drawBoot(const char* status) {
+  if (splashRunning()) return;  // the logo animation owns the screen
   beginFrame();
   centered("TRACK RAT", 60, 4, C_ACCENT);
   centered("GPS lap timer", 95, 2, C_TEXT);

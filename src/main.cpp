@@ -219,6 +219,7 @@ void setup() {
   DEBUG_PRINTF("PSRAM: %u bytes free\n", ESP.getFreePsram());
 
   display.begin();
+  display.startSplash();  // plays on the other core while the rest of setup runs
   display.drawBoot("Mounting storage...");
   Storage::begin();
 
@@ -233,6 +234,7 @@ void setup() {
 
   addBenchTrack();
 
+  display.finishSplash();
   enterState(AppState::GpsWait);
 }
 
