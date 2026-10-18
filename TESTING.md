@@ -37,7 +37,7 @@ The **BOOT** button also works on every screen: press = next/back, hold 1 s = se
 
 ## 2. GPS link: real build, indoors is fine
 
-Wire the BE-252Q (GPS TX → GPIO 14, GPS RX → GPIO 21, 5V, GND), then:
+Plug the BE-252Q into the board's UART connector (or GPIO 14/21 on the expansion header), then:
 
 ```bash
 pio run -e es3c28p -t upload && pio device monitor
@@ -46,16 +46,16 @@ pio run -e es3c28p -t upload && pio device monitor
 Expected in the serial log:
 
 ```
-GPS: detected NMEA at 115200 baud
+GPS: detected NMEA at 115200 baud (GPS TX -> GPIO 44, GPS RX -> GPIO 43)
 GPS: requested 10 Hz (u-blox VALSET, RAM only)
 GPS: data=yes sats=0 hdop=99.9 fix=no rate=0.0Hz
 ```
 
-The "waiting for GPS" screen should show **NMEA OK @ 115200 baud** in green.
+The "waiting for GPS" screen should show **NMEA OK @ 115200, GPIO nn** in green.
 
 - **`no NMEA detected` / NO DATA:**
-  - TX and RX are probably swapped. Swap the two wires, or swap `GPS_RX_PIN`/`GPS_TX_PIN`.
-  - Also check that the module's LED is on.
+  - Make sure the GPS was plugged in **before** the board started. Press RST to re-detect.
+  - Check that the module's LED is on, and that the plug is fully seated.
 - **To see the raw sentences:** set `GPS_ECHO_NMEA` to `1`.
 
 ## 3. GPS fix: outdoors

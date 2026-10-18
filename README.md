@@ -17,14 +17,11 @@ First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and c
 | Beitian BE-252Q | UART NMEA, factory default 115200 baud (auto-detected) |
 | microSD card | Optional, FAT32. Holds `tracks.json` and session logs |
 
-### Wiring (GPS to the board's expansion header)
+### Wiring
 
-| BE-252Q | ES3C28P |
-|---|---|
-| TX | **GPIO 14** |
-| RX | **GPIO 21** |
-| VCC | 5V |
-| GND | GND |
+Plug the BE-252Q into the board's **UART** connector (GPIO 43/44): GPS TX and RX to the connector's TX/RX, plus 5V and GND. The expansion header (GPIO 14/21) also works.
+
+At boot the firmware tries both places and both orientations, so it doesn't matter if TX and RX are crossed. The GPS screen shows which GPIO it found the GPS on.
 
 The BE-252Q's compass wires (SDA/SCL) aren't used.
 
@@ -144,7 +141,7 @@ Everything else is in `include/Config.h`. The settings you're most likely to cha
 
 | Setting | Default | What it does |
 |---|---|---|
-| `GPS_RX_PIN` / `GPS_TX_PIN` | 14 / 21 | GPS UART pins |
+| `GPS_PIN_PAIRS` | 44/43, 43/44, 14/21, 21/14 | Pins searched for the GPS at boot |
 | `GPS_TARGET_RATE_HZ` | 10 | Requested fix rate. Only works on a u-blox chip, otherwise the module's default applies |
 | `GPS_ECHO_NMEA` | 0 | 1 = copy raw GPS output to the serial monitor |
 | `DISPLAY_INVERT` | 1 | Set to 0 if colours look inverted (white background) |

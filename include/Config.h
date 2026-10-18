@@ -11,18 +11,19 @@
 #define CONFIG_H
 
 // ---------------------------------------------------------------------------
-// GPS (Beitian BE-252Q) - wired to the expansion header, on UART1
-//   GPS TX  -> ESP32 GPIO 14  (GPS_RX_PIN)
-//   GPS RX  -> ESP32 GPIO 21  (GPS_TX_PIN)
-//   GPS VCC -> 5V (or 3.3V), GND -> GND
+// GPS (Beitian BE-252Q)
+// Plug it into the board's UART connector (GPIO 43/44) or the expansion
+// header (GPIO 14/21). At boot every pair below is tried, both ways round,
+// so TX/RX orientation doesn't matter. {ESP32 RX pin, ESP32 TX pin}
 // ---------------------------------------------------------------------------
-#define GPS_RX_PIN 14
-#define GPS_TX_PIN 21
+#define GPS_PIN_PAIRS {{44, 43}, {43, 44}, {14, 21}, {21, 14}}
 #define GPS_DEFAULT_BAUD 115200      // BE-252Q factory default
 #define GPS_TARGET_RATE_HZ 10        // requested via UBX (ignored if the chip isn't u-blox)
 #define GPS_CONFIGURE_UBLOX 1        // send UBX config (RAM only, never saved to the module)
-#define GPS_ECHO_NMEA 0
-#define GPS_AUTO_SIMULATOR 1         // 1 = no GPS found at boot -> run the simulator (shows SIM)              // 1 = copy raw NMEA to the USB serial monitor
+#define GPS_ECHO_NMEA 0              // 1 = copy raw NMEA to the USB serial monitor
+#ifndef GPS_AUTO_SIMULATOR
+#define GPS_AUTO_SIMULATOR 1         // 1 = no GPS found at boot -> run the simulator (shows SIM)
+#endif
 #define GPS_MIN_SATELLITES 4
 #define GPS_FIX_TIMEOUT_MS 3000      // no fresh fix for this long = fix lost
 

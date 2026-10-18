@@ -2,7 +2,7 @@
  * Track Rat - GPS Handler
  *
  * Reads NMEA from the Beitian BE-252Q over UART1 using TinyGPS++.
- * - Auto-detects the module's baud rate at startup.
+ * - Finds which pins the module is on and its baud rate at startup.
  * - Optionally asks a u-blox based module for 10 Hz updates (RAM only).
  * - Delivers each new position fix exactly once via takeFix().
  *
@@ -39,6 +39,7 @@ public:
   float hdop() const { return hdopVal; }
   float fixRateHz() const { return rateHz; }
   uint32_t baud() const { return baudRate; }
+  int rxPinUsed() const { return rxPin; }
   bool isSimulated() const { return simulating; }
   const GpsFix& lastFix() const { return last; }
 
@@ -62,7 +63,8 @@ private:
   uint16_t rateWindowFixes = 0;
   float rateHz = 0;
 
-  uint32_t detectBaud();
+  bool detect();
+  int rxPin = -1, txPin = -1;
   void configureUblox();
   void sendUbxValset(const uint8_t* cfg, size_t len);
   void countFixForRate(uint32_t now);

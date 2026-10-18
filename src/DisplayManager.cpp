@@ -192,10 +192,10 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
   gfx->drawString("Data", 10, y, 2);
   if (gps.receivingData()) {
     if (gps.isSimulated()) snprintf(buf, sizeof(buf), "SIMULATED - no GPS detected");
-    else snprintf(buf, sizeof(buf), "NMEA OK @ %lu baud", (unsigned long)gps.baud());
+    else snprintf(buf, sizeof(buf), "NMEA OK @ %lu, GPIO %d", (unsigned long)gps.baud(), gps.rxPinUsed());
     gfx->setTextColor(C_GOOD);
   } else {
-    snprintf(buf, sizeof(buf), "NO DATA - check GPS wiring");
+    snprintf(buf, sizeof(buf), "NO DATA - check GPS wiring, press RST");
     gfx->setTextColor(C_BAD);
   }
   gfx->drawString(buf, 90, y, 2);

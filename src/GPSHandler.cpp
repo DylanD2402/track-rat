@@ -15,43 +15,74 @@ void GPSHandler::begin() {
   return;
 #endif
   gpsSerial.setRxBufferSize(4096);
-  baudRate = detectBaud();
-  if (baudRate == 0) {
+  if (!detect()) {
 #if GPS_AUTO_SIMULATOR
     simulating = true;
-    DEBUG_PRINTF("GPS: no NMEA detected (GPS TX -> GPIO %d?) - switching to SIMULATOR mode\n", GPS_RX_PIN);
+    DEBUG_PRINTLN("GPS: no NMEA detected on any GPS pins - switching to SIMULATOR mode");
     return;
 #else
+    const int pairs[][2] = GPS_PIN_PAIRS;
+    rxPin = pairs[0][0];
+    txPin = pairs[0][1];
     baudRate = GPS_DEFAULT_BAUD;
-    DEBUG_PRINTF("GPS: no NMEA detected, using %lu baud. Check wiring (GPS TX -> GPIO %d)\n",
-                 (unsigned long)baudRate, GPS_RX_PIN);
+    DEBUG_PRINTLN("GPS: no NMEA detected - check wiring");
 #endif
-  } else {
-    DEBUG_PRINTF("GPS: detected NMEA at %lu baud\n", (unsigned long)baudRate);
   }
-  gpsSerial.begin(baudRate, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  gpsSerial.begin(baudRate, SERIAL_8N1, rxPin, txPin);
 
 #if GPS_CONFIGURE_UBLOX
   configureUblox();
 #endif
 }
 
-uint32_t GPSHandler::detectBaud() {
-  const uint32_t candidates[] = {GPS_DEFAULT_BAUD, 38400, 9600, 57600, 230400};
-  for (uint32_t b : candidates) {
-    gpsSerial.begin(b, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-    TinyGPSPlus probe;
-    uint32_t start = millis();
-    while (millis() - start < 1500) {  // > 1 epoch at the 1 Hz default
-      while (gpsSerial.available()) probe.encode(gpsSerial.read());
-      if (probe.passedChecksum() >= 2) {
-        return b;
-      }
-      delay(5);
+// Count bytes arriving on a pin in `ms` milliseconds. Bytes arrive (even if
+// garbled) at any baud rate, so this finds which pin the GPS TX is wired to.
+static size_t bytesOnPin(int rx, int tx, uint32_t baud, uint32_t ms) {
+  gpsSerial.begin(baud, SERIAL_8N1, rx, tx);
+  size_t n = 0;
+  uint32_t start = millis();
+  while (millis() - start < ms) {
+    while (gpsSerial.available()) {
+      gpsSerial.read();
+      n++;
     }
-    gpsSerial.end();
+    delay(5);
   }
-  return 0;
+  gpsSerial.end();
+  return n;
+}
+
+// Find the pins (the GPS can be on the UART connector or the expansion
+// header, either way round) and then the baud rate.
+bool GPSHandler::detect() {
+  const int pairs[][2] = GPS_PIN_PAIRS;
+  for (const auto& pr : pairs) {
+    size_t n = bytesOnPin(pr[0], pr[1], GPS_DEFAULT_BAUD, 1100);  // > 1 s, the slowest NMEA rate
+    DEBUG_PRINTF("GPS: RX=GPIO %d: %u bytes\n", pr[0], (unsigned)n);
+    if (n < 8) continue;
+
+    const uint32_t bauds[] = {GPS_DEFAULT_BAUD, 38400, 9600, 57600, 230400};
+    for (uint32_t b : bauds) {
+      gpsSerial.begin(b, SERIAL_8N1, pr[0], pr[1]);
+      TinyGPSPlus probe;
+      uint32_t start = millis();
+      while (millis() - start < 1500 && probe.passedChecksum() < 2) {
+        while (gpsSerial.available()) probe.encode(gpsSerial.read());
+        delay(5);
+      }
+      gpsSerial.end();
+      if (probe.passedChecksum() >= 2) {
+        rxPin = pr[0];
+        txPin = pr[1];
+        baudRate = b;
+        DEBUG_PRINTF("GPS: detected NMEA at %lu baud (GPS TX -> GPIO %d, GPS RX -> GPIO %d)\n",
+                     (unsigned long)b, rxPin, txPin);
+        return true;
+      }
+    }
+    DEBUG_PRINTF("GPS: data on GPIO %d but no valid NMEA at any baud rate\n", pr[0]);
+  }
+  return false;
 }
 
 // UBX-CFG-VALSET (u-blox M8 protocol 27+ / M9 / M10). Written to RAM only, so
