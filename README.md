@@ -33,7 +33,7 @@ Needs [PlatformIO](https://platformio.org/) (VS Code extension or `pip install p
 
 ```bash
 pio run -e es3c28p -t upload        # lap timer
-pio device monitor                  # serial log, 115200 baud
+python tools/serial_log.py --port COM4 --seconds 20 --reset   # restart and capture the log
 ```
 
 To store `data/tracks.json` in internal flash instead of on the SD card:
@@ -47,6 +47,10 @@ pio run -e es3c28p -t uploadfs
 The last entry in the track list is **Bench Test**. Pick it and press START to run a simulated car around a small circuit, with real lap timing, splits, live diff and map, all at your desk. No GPS is needed, and if one is connected it's ignored for that session.
 
 While a bench test runs, a yellow **BENCH** tag shows in the header. When the session ends, the real GPS is used again.
+
+The board resets itself before and after uploading, so no buttons are needed. Only if an upload fails with "Failed to connect": hold BOOT, tap RST, release BOOT, and retry.
+
+`tools/serial_log.py` reads the log without resetting the board. Most serial tools reset it into download mode when they open the port, which leaves it stuck until RST is pressed. `--reset` restarts the board normally first, so the log covers startup. It also works where `pio device monitor` can't, such as an AI assistant's terminal.
 
 ## Using it
 

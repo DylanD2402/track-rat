@@ -1,17 +1,17 @@
 # First flash and test
 
-Work through these in order. Each step checks one part of the hardware, so if something's wrong you'll know which part. Keep the serial monitor open (`pio device monitor`) the whole time. Every step logs what it's doing there.
+Work through these in order. Each step checks one part of the hardware, so if something's wrong you'll know which part. Every step logs what it's doing over USB. Read the log with `python tools/serial_log.py --port COM4 --seconds 20 --reset` (use your own port).
 
 ## 0. Before you start
 
 - Install PlatformIO. The first build downloads the ESP32 toolchain, which takes a few minutes.
 - Connect the board by USB-C.
-- If upload fails with "No serial data received", hold **BOOT**, tap **RESET**, release **BOOT**, then upload again.
+- The board resets itself for uploads. Only if an upload fails with "Failed to connect" or "No serial data received": hold **BOOT**, tap **RST**, release **BOOT**, then upload again.
 
 ## 1. Display and touch: bench test (no GPS needed)
 
 ```bash
-pio run -e es3c28p -t upload && pio device monitor
+pio run -e es3c28p -t upload && python tools/serial_log.py --port COM4 --seconds 30
 ```
 
 Expected:
@@ -40,7 +40,7 @@ The **BOOT** button also works on every screen: press = next/back, hold 1 s = se
 Plug the BE-252Q into the board's UART connector (or GPIO 14/21 on the expansion header), then:
 
 ```bash
-pio run -e es3c28p -t upload && pio device monitor
+pio run -e es3c28p -t upload && python tools/serial_log.py --port COM4 --seconds 30
 ```
 
 Expected in the serial log:
