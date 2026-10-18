@@ -1,381 +1,157 @@
-# Track Rat - GPS Lap Timer for Raspberry Pi
+# Track Rat
 
-A comprehensive GPS-based lap timer system for Raspberry Pi that tracks lap times, split times, speed, and G-forces for track racing applications.
+Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" touch display and SD slot) and a **Beitian BE-252Q** GPS.
 
-## Features
+- Works completely offline. Track start/finish coordinates live on the device.
+- Picks the nearest track automatically (within 5 km), or you choose one on the touchscreen.
+- Lap and split times come from GPS timestamps. The crossing is interpolated between fixes, so timing resolution is a few milliseconds even at 1 Hz.
+- Each session is saved to the SD card (or internal flash) after every lap.
 
-- **GPS Lap Timing**: Automatic lap detection using GPS coordinates
-- **Split Times**: Track intermediate split points around the track
-- **G-Force Monitoring**: Real-time lateral and longitudinal G-force measurement
-- **Speed Tracking**: Current, average, and maximum speed per lap
-- **OLED Display**: Live display of lap times and telemetry data
-- **Best Lap Tracking**: Automatic detection and display of best lap time
-- **Delta Display**: Real-time comparison to best lap
-- **Session Summary**: Complete statistics after each session
+First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and checking each part of the hardware.
 
-## Hardware Requirements
+## Hardware
 
-### Required Components
+| Part | Notes |
+|---|---|
+| ES3C28P board | ESP32-S3 N16R8, ILI9341V 240x320 IPS, FT6336G capacitive touch, SDIO microSD |
+| Beitian BE-252Q | UART NMEA, factory default 115200 baud (auto-detected) |
+| microSD card | Optional, FAT32. Holds `tracks.json` and session logs |
 
-1. **Raspberry Pi** (3/4/Zero W recommended)
-2. **GPS Module** (USB or UART)
-   - Examples: GlobalSat BU-353S4, u-blox NEO-6M/7M/8M
-   - Must support NMEA protocol
-3. **MPU6050 Accelerometer/Gyroscope** (I2C)
-   - 3-axis accelerometer for G-force measurement
-   - Available as GY-521 module
-4. **SSD1306 OLED Display** (128x64, I2C)
-   - For real-time data display
-5. **Power Supply**
-   - 5V USB power bank or car USB adapter
-   - Minimum 2A recommended
+### Wiring (GPS to the board's expansion header)
 
-### Optional Components
+| BE-252Q | ES3C28P |
+|---|---|
+| TX | **GPIO 14** |
+| RX | **GPIO 21** |
+| VCC | 5V |
+| GND | GND |
 
-- Case/enclosure for weather protection
-- SD card (16GB+ recommended)
-- Heat sinks for Raspberry Pi
-- External antenna for GPS (for better signal in car)
+The BE-252Q's compass wires (SDA/SCL) aren't used.
 
-## Wiring Diagram
+Everything else (display, touch, SD) is built into the board. The pins are set in `include/Config.h` and `platformio.ini`.
 
-### MPU6050 to Raspberry Pi (I2C)
-```
-MPU6050    ->  Raspberry Pi
-VCC        ->  3.3V (Pin 1)
-GND        ->  GND (Pin 6)
-SCL        ->  GPIO 3 / SCL (Pin 5)
-SDA        ->  GPIO 2 / SDA (Pin 3)
-```
+## Build and flash
 
-### SSD1306 OLED to Raspberry Pi (I2C)
-```
-SSD1306    ->  Raspberry Pi
-VCC        ->  3.3V (Pin 17)
-GND        ->  GND (Pin 20)
-SCL        ->  GPIO 3 / SCL (Pin 5)
-SDA        ->  GPIO 2 / SDA (Pin 3)
-```
-
-### GPS Module (USB)
-```
-Simply plug into any USB port on the Raspberry Pi
-```
-
-### GPS Module (UART - if not using USB)
-```
-GPS        ->  Raspberry Pi
-VCC        ->  5V (Pin 2)
-GND        ->  GND (Pin 6)
-TX         ->  RX / GPIO 15 (Pin 10)
-RX         ->  TX / GPIO 14 (Pin 8)
-```
-
-## Software Installation
-
-### 1. Prepare Raspberry Pi
+Needs [PlatformIO](https://platformio.org/) (VS Code extension or `pip install platformio`).
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Enable I2C
-sudo raspi-config
-# Navigate to: Interface Options -> I2C -> Enable
-
-# Install system dependencies
-sudo apt install -y python3-pip python3-dev i2c-tools gpsd gpsd-clients python3-gps
+pio run -e es3c28p -t upload        # lap timer
+pio device monitor                  # serial log, 115200 baud
 ```
 
-### 2. Install Track Rat
+Other targets:
 
 ```bash
-# Clone or download Track Rat
-cd ~
-git clone https://github.com/yourusername/track-rat.git
-cd track-rat
-
-# Install Python dependencies
-pip3 install -r requirements.txt
+pio run -e es3c28p-sim -t upload    # desk simulator: fake car lapping a fake track, no GPS needed
+pio run -e es3c28p -t uploadfs      # store data/tracks.json in internal flash
 ```
 
-### 3. Configure GPS Daemon
+## Using it
 
-```bash
-# Edit gpsd configuration
-sudo nano /etc/default/gpsd
+| Screen | Touch | BOOT button |
+|---|---|---|
+| Waiting for GPS | tap: choose a track now | press: choose a track now |
+| Select track | left / right third: previous / next, centre: select | press: next, hold 1 s: select |
+| Ready | centre: start, left: back | hold 1 s: start, press: back |
+| Timing | hold 2 s: end session | hold 1 s: end session |
+| Summary | tap: back to track list | press: back to track list |
 
-# Set the following (adjust device path if needed):
-DEVICES="/dev/ttyUSB0"  # or /dev/ttyAMA0 for UART GPS
-GPSD_OPTIONS="-n"
-START_DAEMON="true"
+When the GPS gets a fix, the nearest track within 5 km is selected and the Ready screen opens. Timing starts at the first start/finish crossing. Everything before that is the out lap.
 
-# Restart gpsd
-sudo systemctl restart gpsd
-sudo systemctl enable gpsd
+While timing, the screen shows:
 
-# Test GPS
-cgps
-# You should see GPS data. Press Ctrl+C to exit.
+- **Current lap**, in large digits.
+- **Last and best lap.**
+- **Last vs best:** the time difference between your last lap and your best.
+- **Split delta:** for 5 s after each split, the gap to your best lap at that split.
+- **Speed.**
+
+When you complete a lap, its time shows full-screen for 4 s, in green if it's a new best.
+
+## Tracks
+
+Tracks are loaded from `/tracks.json`, searched in this order:
+
+1. The SD card
+2. Internal flash (`uploadfs`)
+3. The built-in list
+
+The easiest way to add your own track is to edit the file on the SD card.
+
+```json
+{
+  "tracks": [
+    {
+      "id": "my-track",
+      "name": "My Local Track",
+      "location": "Town, State",
+      "country": "USA",
+      "length": 2400,
+      "startFinish": { "lat": 40.123456, "lon": -74.123456, "radius": 15 },
+      "splits": [
+        { "lat": 40.124500, "lon": -74.120100, "radius": 15 }
+      ]
+    }
+  ]
+}
 ```
 
-### 4. Test I2C Devices
+- **`startFinish` and `splits`:** a point on the racing line. A lap or split counts when your path passes through that point, within `radius` metres either side, travelling in any direction.
+- **`radius`:** about half the track width plus a few metres. 10–20 m is typical.
+- **Placement:** put splits where no other part of the track passes within `radius`.
+- **`splits`:** optional.
+- **Missing coordinates:** tracks whose coordinates are `0, 0` are skipped.
 
-```bash
-# Scan for I2C devices
-sudo i2cdetect -y 1
+> **The pre-loaded track coordinates are approximate.** Check the start/finish point of any track you drive (satellite view in Google Maps works well) before trusting its lap times.
 
-# You should see:
-# 0x68 - MPU6050 accelerometer
-# 0x3C - SSD1306 OLED display
-```
+## Session logs
+
+Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. The file holds:
+
+- every lap time
+- every split time
+- max and average speed per lap
+- the best lap
+
+The file is rewritten after every lap.
 
 ## Configuration
 
-### Configure Your Track
+Everything else is in `include/Config.h`. The settings you're most likely to change:
 
-1. Open `config.py`:
-```bash
-nano config.py
-```
+| Setting | Default | What it does |
+|---|---|---|
+| `GPS_RX_PIN` / `GPS_TX_PIN` | 14 / 21 | GPS UART pins |
+| `GPS_TARGET_RATE_HZ` | 10 | Requested fix rate. Only works on a u-blox chip, otherwise the module's default applies |
+| `GPS_ECHO_NMEA` | 0 | 1 = copy raw GPS output to the serial monitor |
+| `DISPLAY_INVERT` | 1 | Set to 0 if colours look inverted (white background) |
+| `TOUCH_SWAP_XY`, `TOUCH_INVERT_X/Y` | 1, 0, 1 | Fix touch orientation if taps land in the wrong place |
+| `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
+| `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
 
-2. Set your track's finish line coordinates:
-```python
-# Get these coordinates using a GPS app on your phone
-FINISH_LINE_LAT = 40.123456  # Your track's finish line latitude
-FINISH_LINE_LON = -74.123456  # Your track's finish line longitude
-FINISH_LINE_RADIUS = 15.0  # Detection radius in meters
-```
+## Tests
 
-3. (Optional) Add split points:
-```python
-SPLIT_POINTS = [
-    (40.123500, -74.123500),  # Split 1
-    (40.123600, -74.123600),  # Split 2
-]
-```
-
-### Getting Track Coordinates
-
-1. **Using Phone GPS App**:
-   - Install a GPS app (e.g., "GPS Status & Toolbox" for Android)
-   - Stand at your track's finish line
-   - Note the latitude and longitude
-
-2. **Using Google Maps**:
-   - Right-click on the finish line location
-   - Select "What's here?"
-   - Copy the coordinates
-
-## Usage
-
-### Basic Usage
+The lap-timing logic has no Arduino dependencies and is tested on a PC:
 
 ```bash
-# Run Track Rat
-python3 main.py
-
-# The system will:
-# 1. Initialize GPS and sensors
-# 2. Wait for GPS fix
-# 3. Start tracking when you cross the finish line
-# 4. Display lap times and telemetry
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_laptimer.cpp src/LapTimer.cpp -o /tmp/lt && /tmp/lt
 ```
 
-### Testing Mode (No Hardware)
+It checks that the timer:
 
-```bash
-# Test with simulated GPS and sensors
-python3 main.py --simulate
+- measures known-length laps to within 2 ms at both 10 Hz and 1 Hz, including laps that run past UTC midnight
+- times splits correctly
+- tracks the best lap and computes deltas
+- doesn't record false laps while parked on the line with GPS jitter
+- ignores a line crossing that happens during a GPS dropout
 
-# Use console display instead of OLED
-python3 main.py --console
-
-# Both options
-python3 main.py --simulate --console
-```
-
-### Configuration Wizard
-
-```bash
-# Get help configuring your track
-python3 main.py --configure
-```
-
-## Display Layout
-
-The OLED display shows:
+## Layout
 
 ```
-CUR: 01:23.456      (Current lap time)
-LST: 01:22.123      (Last lap time)
-BST: 01:21.987      (Best lap time)
-DLT: +1.5           (Delta to best lap)
-SPD: 125.3 km/h     (Current speed)
-G: +0.85L +0.12A    (Lateral and Longitudinal G-forces)
+include/   Config.h, GeoMath.h (gate maths), headers
+src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
+           DisplayManager, InputManager, Storage, SessionLog
+data/      tracks.json
+test/      host-side lap timer tests
+legacy/    the original Raspberry Pi / Python prototype
 ```
-
-## Tips for Best Results
-
-### GPS Accuracy
-- Wait for at least 8 satellites before starting
-- Use external antenna for better signal in the car
-- Mount GPS module with clear view of sky
-- Avoid metal surfaces that can block signal
-
-### Mounting
-- Mount Raspberry Pi securely to avoid vibration
-- Keep GPS module away from electronic interference
-- Ensure accelerometer is level and aligned with car axis
-- Use vibration dampening for sensors
-
-### Track Setup
-- Set finish line radius based on track width (10-20m typical)
-- Place split points at key corners or straights
-- Test detection radius before actual use
-- Record multiple reference laps to verify accuracy
-
-### Power Management
-- Use quality power supply (min 2A)
-- Consider UPS/battery backup for data safety
-- Monitor temperature in hot cars
-- Shutdown properly to avoid SD card corruption
-
-## Auto-Start on Boot (Optional)
-
-To automatically start Track Rat when Raspberry Pi boots:
-
-```bash
-# Create systemd service
-sudo nano /etc/systemd/system/trackrat.service
-```
-
-Add:
-```ini
-[Unit]
-Description=Track Rat GPS Lap Timer
-After=gpsd.service
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/track-rat
-ExecStart=/usr/bin/python3 /home/pi/track-rat/main.py
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable:
-```bash
-sudo systemctl enable trackrat.service
-sudo systemctl start trackrat.service
-```
-
-## Troubleshooting
-
-### GPS Not Working
-```bash
-# Check GPS device
-ls /dev/ttyUSB* /dev/ttyAMA*
-
-# Check gpsd status
-sudo systemctl status gpsd
-
-# View GPS data
-cgps
-# or
-gpsmon
-
-# Restart gpsd
-sudo systemctl restart gpsd
-```
-
-### I2C Devices Not Detected
-```bash
-# Check I2C is enabled
-sudo raspi-config
-# Interface Options -> I2C -> Enable
-
-# Check device detection
-sudo i2cdetect -y 1
-
-# Check permissions
-sudo usermod -a -G i2c pi
-```
-
-### Display Not Working
-```bash
-# Test I2C connection
-sudo i2cdetect -y 1  # Should show 0x3C
-
-# Check display libraries
-pip3 list | grep -i adafruit
-
-# Reinstall if needed
-pip3 install --upgrade adafruit-circuitpython-ssd1306
-```
-
-### Accelerometer Issues
-```bash
-# Check I2C address
-sudo i2cdetect -y 1  # Should show 0x68
-
-# If 0x69, update config.py:
-MPU6050_ADDRESS = 0x69
-```
-
-## File Structure
-
-```
-track-rat/
-├── main.py              # Main application
-├── config.py            # Configuration file
-├── gps_handler.py       # GPS interface module
-├── sensor_handler.py    # Accelerometer interface
-├── lap_timer.py         # Lap timing logic
-├── display_handler.py   # Display interface
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
-```
-
-## Data Logging (Future Enhancement)
-
-Track Rat can be extended to log data to CSV or database for later analysis. Session data includes:
-- Lap times
-- Speed data (current, average, max)
-- G-force data (lateral, longitudinal)
-- GPS coordinates
-- Split times
-
-## Safety Warning
-
-⚠️ **IMPORTANT**: This device is for track use only. Never interact with or adjust the device while driving on public roads. Always obey traffic laws and track safety regulations.
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Contributing
-
-Contributions welcome! Please open an issue or submit a pull request.
-
-## Support
-
-For issues, questions, or suggestions:
-- Open an issue on GitHub
-- Check existing issues for solutions
-
-## Credits
-
-Created for motorsport enthusiasts who want professional lap timing on a budget.
-
-## Version History
-
-- v1.0.0 - Initial release
-  - GPS lap timing
-  - Split time tracking
-  - G-force monitoring
-  - OLED display support
-  - Console mode for testing

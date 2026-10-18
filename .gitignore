@@ -70,3 +70,7 @@ session_data/
 
 # Configuration overrides
 config_local.py
+
+# PlatformIO
+.pio/
+.vscode/

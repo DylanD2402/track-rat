@@ -1,7 +1,9 @@
 /**
- * Track Rat - Display Manager for TFT Display
- * Handles ST7789 TFT display (240x320) and GUI for track selection and lap timing
- * Hardware: ESP32-S3 with built-in TFT display
+ * Track Rat - Display
+ *
+ * ILI9341V 320x240 (landscape) via TFT_eSPI. Every screen is drawn into a
+ * full-screen sprite in PSRAM and pushed in one go, so there is no flicker.
+ * Screens are stateless: main.cpp passes in what to show.
  */
 
 #ifndef DISPLAY_MANAGER_H
@@ -9,86 +11,46 @@
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
-#include "TrackDatabase.h"
-#include "LapTimer.h"
 #include "GPSHandler.h"
+#include "LapTimer.h"
+#include "TrackDatabase.h"
 
-enum DisplayMode {
-  MODE_BOOT,
-  MODE_GPS_WAITING,
-  MODE_TRACK_SELECTION,
-  MODE_TRACK_CONFIRM,
-  MODE_LAP_TIMING,
-  MODE_SESSION_SUMMARY
+struct RunningOverlay {
+  // Shown for a few seconds after a lap or split
+  bool showLap = false;
+  uint16_t lapNumber = 0;
+  uint32_t lapMs = 0;
+  bool lapIsBest = false;
+  int32_t deltaMs = NO_DELTA;  // lap delta vs best, or split delta
+  int splitIndex = -1;         // >= 0: delta box shows a split
+  uint32_t splitMs = 0;
 };
 
 class DisplayManager {
-private:
-  TFT_eSPI* tft;
-  DisplayMode currentMode;
-  unsigned long lastUpdate;
-  uint16_t updateInterval;
-
-  // Screen dimensions
-  int16_t screenWidth;
-  int16_t screenHeight;
-
-  // References to other components
-  TrackDatabase* trackDB;
-  LapTimer* lapTimer;
-  GPSHandler* gpsHandler;
-
-  // Track selection
-  int selectedTrackIndex;
-
-  // Font sizes
-  uint8_t smallFont;
-  uint8_t mediumFont;
-  uint8_t largeFont;
-
-  // Helper methods
-  void drawHeader(const String& title, uint16_t bgColor = 0x001F);
-  void drawCentered(const String& text, int16_t y, uint16_t color = 0xFFFF, uint8_t font = 2);
-  void drawProgressBar(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t progress,
-                       uint16_t fillColor = 0x07E0, uint16_t bgColor = 0x4208);
-  void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const String& label,
-                  uint16_t bgColor, uint16_t textColor);
-  void fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t r, uint16_t color);
-
-  // GPS signal indicator
-  void drawGPSSignal(int16_t x, int16_t y, uint8_t satellites, bool hasFix);
-
 public:
-  DisplayManager();
-  ~DisplayManager();
-
   bool begin();
-  void setComponents(TrackDatabase* db, LapTimer* timer, GPSHandler* gps);
 
-  // Mode management
-  void setMode(DisplayMode mode);
-  DisplayMode getMode() const;
+  void drawBoot(const char* status);
+  void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk);
+  void drawTrackSelect(const Track& track, int index, int count, double distanceM, bool touchOk);
+  void drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk);
+  void drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
+                   const RunningOverlay& overlay, uint32_t holdMs);
+  void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath);
 
-  // Track selection
-  void nextTrack();
-  void previousTrack();
-  int getSelectedTrackIndex() const;
+private:
+  TFT_eSPI tft;
+  TFT_eSprite spr = TFT_eSprite(&tft);
+  bool useSprite = false;
+  TFT_eSPI* gfx = &tft;  // sprite if available, else the panel directly
 
-  // Update display
-  void update();
-
-  // Individual screens
-  void showBootScreen();
-  void showGPSWaitScreen();
-  void showTrackSelectionScreen();
-  void showTrackConfirmScreen();
-  void showLapTimingScreen();
-  void showSessionSummaryScreen();
-
-  // Utility
-  void clear();
-  void showMessage(const String& message, uint16_t duration = 2000, uint16_t color = 0xFFFF);
-  void setBacklight(uint8_t brightness);  // 0-255
+  void beginFrame();
+  void endFrame();
+  void header(const String& title, const GPSHandler* gps);
+  void gpsBadge(const GPSHandler& gps);
+  void footerButtons(const char* left, const char* center, const char* right);
+  void centered(const String& s, int y, int font, uint16_t color);
+  String distanceText(double m);
 };
 
-#endif // DISPLAY_MANAGER_H
+#endif  // DISPLAY_MANAGER_H

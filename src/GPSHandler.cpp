@@ -1,192 +1,224 @@
 /**
  * Track Rat - GPS Handler Implementation
- * u-blox NEO GPS Module Interface using TinyGPS++
  */
 
 #include "GPSHandler.h"
 #include "Config.h"
-#include <math.h>
+#include "SimTrack.h"
 
-GPSHandler::GPSHandler() :
-  currentLat(0.0),
-  currentLon(0.0),
-  currentSpeed(0.0),
-  currentAltitude(0.0),
-  currentTime(0),
-  currentDate(0),
-  satellites(0),
-  validFix(false),
-  lastUpdate(0),
-  validFixTime(0),
-  gpsSerial(nullptr)
-{}
+static HardwareSerial& gpsSerial = Serial1;
 
-bool GPSHandler::begin(uint8_t rxPin, uint8_t txPin, uint32_t baud) {
-  gpsSerial = new HardwareSerial(2);  // Use UART2 on ESP32
-  gpsSerial->begin(baud, SERIAL_8N1, rxPin, txPin);
+void GPSHandler::begin() {
+#if SIMULATE_GPS
+  baudRate = 0;
+  DEBUG_PRINTLN("GPS: SIMULATOR mode - no GPS module is read");
+  return;
+#else
+  gpsSerial.setRxBufferSize(4096);
+  baudRate = detectBaud();
+  if (baudRate == 0) {
+    baudRate = GPS_DEFAULT_BAUD;
+    DEBUG_PRINTF("GPS: no NMEA detected, using %lu baud. Check wiring (GPS TX -> GPIO %d)\n",
+                 (unsigned long)baudRate, GPS_RX_PIN);
+  } else {
+    DEBUG_PRINTF("GPS: detected NMEA at %lu baud\n", (unsigned long)baudRate);
+  }
+  gpsSerial.begin(baudRate, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 
-  DEBUG_PRINTLN("GPS Handler initialized");
-  DEBUG_PRINTF("GPS UART: RX=%d, TX=%d, Baud=%d\n", rxPin, txPin, baud);
+#if GPS_CONFIGURE_UBLOX
+  configureUblox();
+#endif
+#endif
+}
 
-  return true;
+uint32_t GPSHandler::detectBaud() {
+  const uint32_t candidates[] = {GPS_DEFAULT_BAUD, 38400, 9600, 57600, 230400};
+  for (uint32_t b : candidates) {
+    gpsSerial.begin(b, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+    TinyGPSPlus probe;
+    uint32_t start = millis();
+    while (millis() - start < 1500) {  // > 1 epoch at the 1 Hz default
+      while (gpsSerial.available()) probe.encode(gpsSerial.read());
+      if (probe.passedChecksum() >= 2) {
+        return b;
+      }
+      delay(5);
+    }
+    gpsSerial.end();
+  }
+  return 0;
+}
+
+// UBX-CFG-VALSET (u-blox M8 protocol 27+ / M9 / M10). Written to RAM only, so
+// the module returns to factory settings on power-off. Non-u-blox modules
+// ignore these bytes.
+void GPSHandler::sendUbxValset(const uint8_t* cfg, size_t len) {
+  uint8_t msg[64];
+  size_t payloadLen = 4 + len;
+  size_t n = 0;
+  msg[n++] = 0xB5;
+  msg[n++] = 0x62;
+  msg[n++] = 0x06;  // CFG
+  msg[n++] = 0x8A;  // VALSET
+  msg[n++] = payloadLen & 0xFF;
+  msg[n++] = payloadLen >> 8;
+  msg[n++] = 0x00;  // version
+  msg[n++] = 0x01;  // layer: RAM
+  msg[n++] = 0x00;
+  msg[n++] = 0x00;
+  memcpy(&msg[n], cfg, len);
+  n += len;
+
+  uint8_t ckA = 0, ckB = 0;
+  for (size_t i = 2; i < n; i++) {
+    ckA += msg[i];
+    ckB += ckA;
+  }
+  msg[n++] = ckA;
+  msg[n++] = ckB;
+  gpsSerial.write(msg, n);
+  gpsSerial.flush();
+}
+
+void GPSHandler::configureUblox() {
+  const uint16_t measMs = 1000 / GPS_TARGET_RATE_HZ;
+
+  // Drop the NMEA sentences we don't use (GSV is large and multi-part) so
+  // 10 Hz output fits comfortably in the link, and select automotive dynamics.
+  const uint8_t cfg[] = {
+    0x01, 0x00, 0x21, 0x30, (uint8_t)(measMs & 0xFF), (uint8_t)(measMs >> 8),  // CFG-RATE-MEAS
+    0xC5, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_GSV_UART1 = 0
+    0xCA, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_GLL_UART1 = 0
+    0xC0, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_GSA_UART1 = 0
+    0xB1, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_VTG_UART1 = 0
+    0x21, 0x00, 0x11, 0x20, 0x04,  // CFG-NAVSPG-DYNMODEL = automotive
+  };
+  sendUbxValset(cfg, sizeof(cfg));
+  DEBUG_PRINTF("GPS: requested %d Hz (u-blox VALSET, RAM only)\n", GPS_TARGET_RATE_HZ);
 }
 
 void GPSHandler::update() {
-  if (!gpsSerial) return;
+  uint32_t now = millis();
 
-  // Read available GPS data
-  while (gpsSerial->available() > 0) {
-    char c = gpsSerial->read();
+#if SIMULATE_GPS
+  simulateStep();
+#else
+  while (gpsSerial.available()) {
+    char c = gpsSerial.read();
+#if GPS_ECHO_NMEA
+    Serial.write(c);
+#endif
+    gps.encode(c);
+  }
 
-    if (gps.encode(c)) {
-      // New data available
-      lastUpdate = millis();
+  if (gps.passedChecksum() != lastChecksumCount) {
+    lastChecksumCount = gps.passedChecksum();
+    lastSentenceMillis = now;
+  }
 
-      // Update position
-      if (gps.location.isValid()) {
-        currentLat = gps.location.lat();
-        currentLon = gps.location.lng();
-      }
+  if (gps.satellites.isUpdated()) sats = gps.satellites.value();
+  if (gps.hdop.isUpdated()) hdopVal = gps.hdop.hdop();
 
-      // Update speed
-      if (gps.speed.isValid()) {
-        currentSpeed = gps.speed.kmph();
-      }
-
-      // Update altitude
-      if (gps.altitude.isValid()) {
-        currentAltitude = gps.altitude.meters();
-      }
-
-      // Update time
-      if (gps.time.isValid()) {
-        currentTime = (uint32_t)gps.time.hour() * 3600000UL +
-                      (uint32_t)gps.time.minute() * 60000UL +
-                      (uint32_t)gps.time.second() * 1000UL +
-                      (uint32_t)gps.time.centisecond() * 10UL;
-      }
-
-      // Update date
-      if (gps.date.isValid()) {
-        currentDate = (uint32_t)gps.date.year() * 10000UL +
-                      (uint32_t)gps.date.month() * 100UL +
-                      (uint32_t)gps.date.day();
-      }
-
-      // Update satellite count
-      if (gps.satellites.isValid()) {
-        satellites = gps.satellites.value();
-      }
-
-      // Check for valid fix
-      bool hadFix = validFix;
-      validFix = gps.location.isValid() &&
-                 gps.location.age() < 2000 &&
-                 satellites >= 4;
-
-      if (validFix && !hadFix) {
-        validFixTime = millis();
-        DEBUG_PRINTLN("GPS fix acquired!");
-      } else if (!validFix && hadFix) {
-        DEBUG_PRINTLN("GPS fix lost!");
-      }
+  // GGA and RMC both update the location each epoch; only count a fix once
+  // per distinct GPS timestamp.
+  if (gps.location.isUpdated() && gps.time.isValid() && gps.location.isValid()) {
+    uint32_t tv = gps.time.value();
+    gps.location.lat();  // clears the updated flag
+    if (tv != lastTimeValue) {
+      lastTimeValue = tv;
+      last.lat = gps.location.lat();
+      last.lon = gps.location.lng();
+      last.speedKmh = gps.speed.isValid() ? (float)gps.speed.kmph() : 0.0f;
+      last.gpsTimeMs = gps.time.hour() * 3600000UL + gps.time.minute() * 60000UL +
+                       gps.time.second() * 1000UL + gps.time.centisecond() * 10UL;
+      last.rxMillis = now;
+      fixPending = true;
+      everFixed = true;
+      countFixForRate(now);
     }
   }
+#endif
 
-  // Check for timeout
-  if (millis() - lastUpdate > GPS_TIMEOUT && validFix) {
-    validFix = false;
-    DEBUG_PRINTLN("GPS data timeout");
+  if (now - rateWindowStart > 3000) {  // decay the rate if fixes stop
+    rateHz = 0;
+    rateWindowStart = now;
+    rateWindowFixes = 0;
   }
 }
 
-bool GPSHandler::hasFix() const {
-  return validFix;
-}
-
-uint8_t GPSHandler::getSatellites() const {
-  return satellites;
-}
-
-uint32_t GPSHandler::getFixAge() const {
-  if (!validFix) return 0xFFFFFFFF;
-  return millis() - validFixTime;
-}
-
-double GPSHandler::getLatitude() const {
-  return currentLat;
-}
-
-double GPSHandler::getLongitude() const {
-  return currentLon;
-}
-
-double GPSHandler::getSpeed() const {
-  return currentSpeed;
-}
-
-double GPSHandler::getSpeedMPS() const {
-  return currentSpeed / 3.6;  // km/h to m/s
-}
-
-double GPSHandler::getAltitude() const {
-  return currentAltitude;
-}
-
-uint32_t GPSHandler::getTimeMillis() const {
-  return currentTime;
-}
-
-uint32_t GPSHandler::getDate() const {
-  return currentDate;
-}
-
-bool GPSHandler::getDateTime(uint16_t& year, uint8_t& month, uint8_t& day,
-                             uint8_t& hour, uint8_t& minute, uint8_t& second) {
-  if (!gps.date.isValid() || !gps.time.isValid()) {
-    return false;
+void GPSHandler::countFixForRate(uint32_t now) {
+  if (rateWindowFixes == 0) rateWindowStart = now;
+  rateWindowFixes++;
+  uint32_t span = now - rateWindowStart;
+  if (span >= 2000) {
+    rateHz = (rateWindowFixes - 1) * 1000.0f / span;
+    rateWindowStart = now;
+    rateWindowFixes = 1;
   }
+}
 
-  year = gps.date.year();
-  month = gps.date.month();
-  day = gps.date.day();
-  hour = gps.time.hour();
-  minute = gps.time.minute();
-  second = gps.time.second();
-
+bool GPSHandler::takeFix(GpsFix& out) {
+  if (!fixPending) return false;
+  fixPending = false;
+  out = last;
   return true;
 }
 
-double GPSHandler::distanceTo(double lat, double lon) const {
-  return calculateDistance(currentLat, currentLon, lat, lon);
+bool GPSHandler::hasFix() const {
+  return everFixed && (millis() - last.rxMillis) < GPS_FIX_TIMEOUT_MS &&
+         sats >= GPS_MIN_SATELLITES;
 }
 
-double GPSHandler::calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-  // Haversine formula
-  const double R = 6371000.0;  // Earth's radius in meters
-
-  double lat1Rad = lat1 * DEG_TO_RAD;
-  double lat2Rad = lat2 * DEG_TO_RAD;
-  double deltaLat = (lat2 - lat1) * DEG_TO_RAD;
-  double deltaLon = (lon2 - lon1) * DEG_TO_RAD;
-
-  double a = sin(deltaLat / 2.0) * sin(deltaLat / 2.0) +
-             cos(lat1Rad) * cos(lat2Rad) *
-             sin(deltaLon / 2.0) * sin(deltaLon / 2.0);
-
-  double c = 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
-
-  return R * c;
+bool GPSHandler::receivingData() const {
+#if SIMULATE_GPS
+  return true;
+#else
+  return lastSentenceMillis != 0 && (millis() - lastSentenceMillis) < 2000;
+#endif
 }
 
-double GPSHandler::courseTo(double lat, double lon) const {
-  return TinyGPSPlus::courseTo(currentLat, currentLon, lat, lon);
+String GPSHandler::timestampString() {
+#if SIMULATE_GPS
+  char buf[24];
+  snprintf(buf, sizeof(buf), "SIM_%lu", (unsigned long)(millis() / 1000));
+  return String(buf);
+#else
+  if (!gps.date.isValid() || !gps.time.isValid() || gps.date.year() < 2020) return String();
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%04d%02d%02d_%02d%02d%02d", gps.date.year(), gps.date.month(),
+           gps.date.day(), gps.time.hour(), gps.time.minute(), gps.time.second());
+  return String(buf);
+#endif
 }
 
-bool GPSHandler::isValid() const {
-  return validFix;
-}
+#if SIMULATE_GPS
+// A car driving anticlockwise around a circle at 10 Hz. Speed varies around
+// the lap and from lap to lap so best-lap and delta logic get exercised.
+void GPSHandler::simulateStep() {
+  uint32_t now = millis();
+  if (simLastStep == 0) simLastStep = now;
+  if (now - simLastStep < 100) return;
+  simLastStep += 100;
 
-unsigned long GPSHandler::getLastUpdateTime() const {
-  return lastUpdate;
+  int lapNo = (int)(simAngle / (2 * M_PI));
+  float lapFactor = 1.0f + 0.04f * sinf(lapNo * 1.7f);  // laps differ by a few %
+  float speedMs = (24.0f + 8.0f * sinf((float)simAngle * 2.0f)) * lapFactor;
+  simAngle += speedMs * 0.1 / SIM_RADIUS_M;
+
+  // Start just before the S/F point (angle 0) so the first crossing is quick.
+  double a = simAngle - 0.3;
+  double dLat = (SIM_RADIUS_M * sin(a)) / 111320.0;
+  double dLon = (SIM_RADIUS_M * (cos(a) - 1.0)) / (111320.0 * cos(SIM_SF_LAT * DEG_TO_RAD));
+
+  last.lat = SIM_SF_LAT + dLat;
+  last.lon = SIM_SF_LON + dLon;
+  last.speedKmh = speedMs * 3.6f;
+  last.gpsTimeMs = (now + 12UL * 3600000UL) % 86400000UL;
+  last.rxMillis = now;
+  sats = 12;
+  hdopVal = 0.8f;
+  fixPending = true;
+  everFixed = true;
+  countFixForRate(now);
 }
+#endif
