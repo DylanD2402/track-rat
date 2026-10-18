@@ -16,7 +16,7 @@ pio run -e es3c28p -t upload && pio device monitor
 
 Expected:
 
-1. The boot screen says **TRACK RAT** in cyan on **black**.
+1. The boot screen says **TRACK RAT** in white on **black**.
    - **Background is white or colours look wrong:** set `DISPLAY_INVERT` to `0` in `include/Config.h` and re-flash.
    - **Image is upside down:** set `DISPLAY_ROTATION` to `3`.
 2. The serial log shows `Display: 320x240, sprite buffer in PSRAM`.

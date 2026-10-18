@@ -17,7 +17,6 @@ static const uint16_t C_BG = TFT_BLACK;
 static const uint16_t C_TEXT = TFT_WHITE;
 static const uint16_t C_DIM = TFT_DARKGREY;
 static const uint16_t C_HEADER = 0x10A2;  // dark slate
-static const uint16_t C_ACCENT = TFT_CYAN;
 static const uint16_t C_GOOD = TFT_GREEN;
 static const uint16_t C_BAD = TFT_RED;
 static const uint16_t C_WARN = TFT_YELLOW;
@@ -187,7 +186,7 @@ String DisplayManager::distanceText(double m) {
 void DisplayManager::drawBoot(const char* status) {
   if (splashRunning()) return;  // the logo animation owns the screen
   beginFrame();
-  centered("TRACK RAT", 60, 4, C_ACCENT);
+  centered("TRACK RAT", 60, 4, C_TEXT);
   centered("GPS lap timer", 95, 2, C_TEXT);
   centered(status, 160, 2, C_DIM);
   endFrame();
@@ -259,7 +258,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
   snprintf(buf, sizeof(buf), "SELECT TRACK   %d / %d", index + 1, count);
   header(buf, &gps);  // tap the top bar for GPS status
 
-  centered(track.name, 44, 4, C_ACCENT);
+  centered(track.name, 44, 4, C_TEXT);
   centered(track.location + (track.country.length() ? ", " + track.country : String("")), 82, 2, C_TEXT);
   if (track.length > 0) {
     snprintf(buf, sizeof(buf), "%.2f km", track.length / 1000.0);
@@ -284,7 +283,7 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   beginFrame();
   header("READY", nullptr);
 
-  centered(track.name, 40, 4, C_ACCENT);
+  centered(track.name, 40, 4, C_TEXT);
   if (track.bench) {
     centered("Simulated car - no GPS needed", 84, 2, C_WARN);
   } else if (gpsFix && distanceM >= 0) {
@@ -445,8 +444,8 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
     if (gps.lastFix().rxMillis != 0) {
       int px = constrain(sx(car.x), MAP_X + 7, MAP_X + MAP_W - 8);
       int py = constrain(sy(car.y), MAP_Y + 7, MAP_Y + MAP_H - 8);
-      gfx->fillCircle(px, py, 7, C_TEXT);
-      gfx->fillCircle(px, py, 5, gps.hasFix() ? C_ACCENT : C_WARN);
+      gfx->fillCircle(px, py, 8, C_BG);  // dark ring keeps it visible on the grey track line
+      gfx->fillCircle(px, py, 6, gps.hasFix() ? C_TEXT : C_WARN);
     }
   }
 

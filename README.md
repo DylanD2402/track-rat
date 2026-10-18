@@ -131,7 +131,7 @@ This writes `include/logo_image.h`. Rebuild and flash to see the new logo.
 
 ## Track maps
 
-While timing, tap the screen (or press BOOT) to switch between the big clock and a **map view**. The map view shows the track layout with your car as a cyan dot, plus the lap time, live diff, best and last lap down the right-hand side.
+While timing, tap the screen (or press BOOT) to switch between the big clock and a **map view**. The map view shows the track layout with your car as a white dot, plus the lap time, live diff, best and last lap down the right-hand side.
 
 - **Tracks with a `"map"` in `tracks.json`:** the stored layout is drawn.
 - **Tracks without one:** the map draws itself from your GPS path. It fills in during your first lap and then shows your best lap's line.

@@ -39,7 +39,7 @@ static void drawPlaceholderLogo(TFT_eSprite& s) {
     }
   s.setTextDatum(MC_DATUM);
   s.setFreeFont(&FreeSansBoldOblique24pt7b);
-  s.setTextColor(TFT_CYAN);
+  s.setTextColor(TFT_WHITE);
   s.drawString("TRACK RAT", w / 2, s.height() / 2 - 6);
   s.setFreeFont(nullptr);
   s.setTextColor(TFT_WHITE);
