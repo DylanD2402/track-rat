@@ -156,6 +156,34 @@ static void testLiveDelta() {
   CHECK(checked == 3, "checked %d points", checked);
 }
 
+// Bench Test circle: 60 m radius at 25 m/s = 15.1 s laps, which the normal
+// 20 s minimum would reject but the 8 s bench minimum accepts.
+static void testShortBenchLaps() {
+  const double r = 60.0, v = 25.0;
+  for (uint32_t minLap : {(uint32_t)MIN_LAP_TIME_MS, (uint32_t)8000}) {
+    LapTimer lt;
+    lt.begin({SF_LAT, SF_LON, 15}, {}, minLap);
+    double angle = -0.3;
+    for (int i = 0; i < 700; i++) {  // 70 s
+      double lat = SF_LAT + r * sin(angle) / 111194.93;
+      double lon = SF_LON + r * (cos(angle) - 1.0) / (111194.93 * cos(SF_LAT * geo::DEG2RAD));
+      lt.onFix(lat, lon, v * 3.6f, 100 * i, 100 * i);
+      angle += v * 0.1 / r;
+    }
+    double expected = 2 * M_PI * r / v * 1000.0;
+    if (minLap == 8000) {
+      CHECK(lt.lapCount() >= 3, "bench: expected 3+ laps, got %zu", lt.lapCount());
+      if (lt.lapCount()) CHECK(fabs(lt.lap(0).timeMs - expected) <= 2, "bench lap %u vs %.0f", lt.lap(0).timeMs, expected);
+      printf("  bench laps (60 m circle): %zu laps of %u ms (expected %.0f)\n", lt.lapCount(),
+             lt.lapCount() ? lt.lap(0).timeMs : 0, expected);
+    } else {
+      // The 20 s minimum skips every other crossing, giving double-length laps.
+      CHECK(lt.lapCount() >= 1 && fabs(lt.lap(0).timeMs - 2 * expected) <= 2,
+            "20 s minimum: expected %.0f ms laps", 2 * expected);
+    }
+  }
+}
+
 int main() {
   printf("LapTimer tests\n");
   testConstantSpeed(10, 3600000);
@@ -165,6 +193,7 @@ int main() {
   testBestLapAndDelta();
   testDropoutAcrossLine();
   testLiveDelta();
+  testShortBenchLaps();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

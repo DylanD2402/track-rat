@@ -5,8 +5,9 @@
 #include "LapTimer.h"
 #include "Config.h"
 
-void LapTimer::begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits) {
+void LapTimer::begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits, uint32_t minLapMs) {
   sf = startFinish;
+  minLap = minLapMs;
   splitPts = splits;
   reset();
 }
@@ -100,7 +101,7 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
         ev.type = LapEventType::LapStarted;
       } else {
         int64_t elapsed = tc - lapStartT;
-        if (elapsed >= MIN_LAP_TIME_MS) {
+        if (elapsed >= minLap) {
           ev = LapEvent();
           if (elapsed <= MAX_LAP_TIME_MS && laps.size() < MAX_LAPS_STORED) {
             Lap lap;

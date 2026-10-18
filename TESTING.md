@@ -26,7 +26,7 @@ Expected:
 5. Tap the screen to open the track list. The serial log prints `Touch: raw=(..) screen=(..)`.
    - **Wrong button triggered:** adjust `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` until a tap at the left edge gives a small screen x and a tap at the top gives a small screen y.
 6. Tap **>** and **<** to browse tracks. Go to **Bench Test** (the last one), tap **SELECT**, then **START**. A yellow **BENCH** tag appears in the header.
-7. The simulated car is already driving, so the out lap ends the next time it passes the start/finish, within about 40 s. Lap 1 starts then. Laps take about 35–40 s.
+7. The simulated car is already driving, so the out lap ends the next time it passes the start/finish, within about 15 s. Lap 1 starts then. Laps take about 15 s.
    - At the half-way split, "S1" and a split time appear. From lap 2 on, a +/- delta also appears.
    - At each lap end, the lap time shows full-screen. It's green when it's a new best.
    - The serial log shows `LAP n: m:ss.mmm` and `Saved SD:/sessions/...`.

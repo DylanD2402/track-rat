@@ -58,7 +58,7 @@ static void enterState(AppState next) {
   if (next == AppState::Running) {
     const Track& t = selectedTrack();
     gps.setSimulated(t.bench);
-    lapTimer.begin(t.startFinish, t.splits);
+    lapTimer.begin(t.startFinish, t.splits, t.bench ? SIM_MIN_LAP_MS : MIN_LAP_TIME_MS);
     overlay = RunningOverlay();
     lapOverlayUntil = splitOverlayUntil = 0;
     sessionStamp = gps.timestampString();

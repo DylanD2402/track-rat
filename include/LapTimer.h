@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <vector>
+#include "Config.h"
 #include "GeoMath.h"
 
 constexpr int32_t NO_DELTA = INT32_MIN;
@@ -39,7 +40,9 @@ struct LapEvent {
 
 class LapTimer {
 public:
-  void begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits);
+  // Start/finish crossings sooner than minLapMs after the last are ignored (GPS jitter).
+  void begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits,
+             uint32_t minLapMs = MIN_LAP_TIME_MS);
   void reset();
 
   // rxMillis is the device clock when the fix arrived; only used to run the
@@ -82,6 +85,7 @@ private:
   std::vector<TrackPoint> splitPts;
   std::vector<Lap> laps;
   int bestIndex = -1;
+  uint32_t minLap = MIN_LAP_TIME_MS;
 
   // previous fix
   bool havePrev = false;
