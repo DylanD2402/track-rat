@@ -43,6 +43,8 @@ private:
   TFT_eSprite spr = TFT_eSprite(&tft);
   bool useSprite = false;
   TFT_eSPI* gfx = &tft;  // sprite if available, else the panel directly
+  uint16_t* shown = nullptr;  // copy of the panel contents (PSRAM)
+  bool shownValid = false;
 
   void beginFrame();
   void endFrame();

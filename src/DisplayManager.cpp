@@ -34,6 +34,11 @@ bool DisplayManager::begin() {
 
   spr.setColorDepth(16);
   useSprite = spr.createSprite(W, H) != nullptr;  // ~150 KB, lands in PSRAM
+  if (useSprite) {
+    // Copy of what is currently on the panel, so endFrame() can send only changed rows
+    shown = (uint16_t*)ps_malloc(W * H * sizeof(uint16_t));
+    shownValid = false;
+  }
   gfx = useSprite ? (TFT_eSPI*)&spr : &tft;
   DEBUG_PRINTF("Display: %dx%d, %s\n", tft.width(), tft.height(),
                useSprite ? "sprite buffer in PSRAM" : "NO sprite (PSRAM missing?) - direct draw");
@@ -45,8 +50,35 @@ void DisplayManager::beginFrame() {
   gfx->setTextDatum(TL_DATUM);
 }
 
+// Sending all 320x240 pixels takes ~50 ms, long enough to see the old and new
+// frame at once. Send only bands of rows that differ from what's on screen.
 void DisplayManager::endFrame() {
-  if (useSprite) spr.pushSprite(0, 0);
+  if (!useSprite) return;
+  uint16_t* buf = (uint16_t*)spr.getPointer();
+  if (!shown || !shownValid) {
+    spr.pushSprite(0, 0);
+    if (shown) {
+      memcpy(shown, buf, W * H * sizeof(uint16_t));
+      shownValid = true;
+    }
+    return;
+  }
+
+  const size_t rowBytes = W * sizeof(uint16_t);
+  const int MERGE_GAP = 8;  // join bands separated by only a few unchanged rows
+  int bandStart = -1, lastChanged = -1;
+  for (int y = 0; y <= H; y++) {
+    bool changed = y < H && memcmp(buf + y * W, shown + y * W, rowBytes) != 0;
+    if (changed) {
+      if (bandStart < 0) bandStart = y;
+      lastChanged = y;
+    } else if (bandStart >= 0 && (y == H || y - lastChanged > MERGE_GAP)) {
+      int h = lastChanged - bandStart + 1;
+      spr.pushSprite(0, bandStart, 0, bandStart, W, h);
+      memcpy(shown + bandStart * W, buf + bandStart * W, h * rowBytes);
+      bandStart = -1;
+    }
+  }
 }
 
 void DisplayManager::centered(const String& s, int y, int font, uint16_t color) {
