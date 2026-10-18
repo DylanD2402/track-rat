@@ -32,7 +32,7 @@
 #define DISPLAY_INVERT 1             // IPS panel: if the background shows WHITE, set to 0
 #define DISPLAY_FPS 10
 #define DISPLAY_PARTIAL_UPDATE 1     // 1 = send only changed rows (less tearing), 0 = send every frame whole
-#define DISPLAY_TEST_PATTERN 1       // 1 = show 4 coloured stripes for 2 s at boot (red, green, blue, white)
+#define DISPLAY_TEST_PATTERN 0       // 1 = show 4 coloured stripes for 2 s at boot (red, green, blue, white)
 
 // ---------------------------------------------------------------------------
 // Touch (FT6336G, I2C)

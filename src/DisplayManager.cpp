@@ -63,7 +63,11 @@ bool DisplayManager::begin() {
 }
 
 void DisplayManager::beginFrame() {
-  gfx->fillScreen(C_BG);
+  // Not gfx->fillScreen(): TFT_eSprite doesn't override it, and the base
+  // version clears the panel's portrait size (240x320), leaving columns
+  // 240-319 of the landscape sprite uncleared.
+  if (useSprite) spr.fillSprite(C_BG);
+  else tft.fillScreen(C_BG);
   gfx->setTextDatum(TL_DATUM);
 }
 
