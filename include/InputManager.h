@@ -2,7 +2,7 @@
  * Track Rat - Input
  *
  * Touch (FT6336G capacitive panel) and the on-board BOOT button.
- *   Touch: tap the left / centre / right third of the screen, or hold.
+ *   Touch: tap the top bar, or the left / centre / right third below it, or hold.
  *   BOOT:  short press, or long press (fires while still held).
  */
 
@@ -11,7 +11,7 @@
 
 #include <Arduino.h>
 
-enum class InputEvent { None, TapLeft, TapCenter, TapRight, Hold, BootShort, BootLong };
+enum class InputEvent { None, TapLeft, TapCenter, TapRight, TapHeader, Hold, BootShort, BootLong };
 
 class InputManager {
 public:

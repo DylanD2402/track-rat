@@ -54,6 +54,7 @@ While a bench test runs, a yellow **BENCH** tag shows in the header. When the se
 |---|---|---|
 | Waiting for GPS | tap: choose a track now | press: choose a track now |
 | Select track | left / right third: previous / next, centre: select | press: next, hold 1 s: select |
+| GPS Status (tap the top bar of the track list) | tap: back | press: back |
 | Ready | centre: start, left: back | hold 1 s: start, press: back |
 | Timing | hold 2 s: end session | hold 1 s: end session |
 | Summary | tap: back to track list | press: back to track list |

@@ -31,8 +31,10 @@ public:
   bool begin();
 
   void drawBoot(const char* status);
-  void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk);
-  void drawTrackSelect(const Track& track, int index, int count, double distanceM, bool touchOk);
+  // statusOnly: the GPS Status screen opened from the track list (no auto-advance)
+  void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk, bool statusOnly);
+  void drawTrackSelect(const Track& track, int index, int count, double distanceM, const GPSHandler& gps,
+                       bool touchOk);
   void drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk);
   void drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                    const RunningOverlay& overlay, uint32_t holdMs);

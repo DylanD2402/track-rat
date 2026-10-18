@@ -193,9 +193,9 @@ void DisplayManager::drawBoot(const char* status) {
 }
 
 void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource,
-                                 bool touchOk) {
+                                 bool touchOk, bool statusOnly) {
   beginFrame();
-  header("TRACK RAT - waiting for GPS", &gps);
+  header(statusOnly ? "GPS STATUS" : "TRACK RAT - waiting for GPS", &gps);
 
   char buf[64];
   int y = 36;
@@ -246,15 +246,17 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
     gfx->fillRect(10 + i * 25, 170, 20, 12, i < bars ? (gps.hasFix() ? C_GOOD : C_WARN) : C_BUTTON);
   }
 
-  centered(touchOk ? "Tap screen (or BOOT) to pick a track now" : "Press BOOT to pick a track now", 210, 2, C_DIM);
+  if (statusOnly) centered(touchOk ? "Tap to go back" : "Press BOOT to go back", 210, 2, C_DIM);
+  else centered(touchOk ? "Tap screen (or BOOT) to pick a track now" : "Press BOOT to pick a track now", 210, 2, C_DIM);
   endFrame();
 }
 
-void DisplayManager::drawTrackSelect(const Track& track, int index, int count, double distanceM, bool touchOk) {
+void DisplayManager::drawTrackSelect(const Track& track, int index, int count, double distanceM,
+                                     const GPSHandler& gps, bool touchOk) {
   beginFrame();
   char buf[32];
   snprintf(buf, sizeof(buf), "SELECT TRACK   %d / %d", index + 1, count);
-  header(buf, nullptr);
+  header(buf, &gps);  // tap the top bar for GPS status
 
   centered(track.name, 44, 4, C_ACCENT);
   centered(track.location + (track.country.length() ? ", " + track.country : String("")), 82, 2, C_TEXT);
@@ -268,8 +270,12 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
     centered(buf, 168, 2, C_DIM);
   }
 
-  if (touchOk) footerButtons("<", "SELECT", ">");
-  else centered("BOOT: tap = next, hold = select", 212, 2, C_DIM);
+  if (touchOk) {
+    centered("tap the top bar for GPS status", 188, 1, C_DIM);
+    footerButtons("<", "SELECT", ">");
+  } else {
+    centered("BOOT: tap = next, hold = select", 212, 2, C_DIM);
+  }
   endFrame();
 }
 

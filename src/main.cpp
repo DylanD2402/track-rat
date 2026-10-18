@@ -21,7 +21,7 @@
 #include "Storage.h"
 #include "TrackDatabase.h"
 
-enum class AppState { GpsWait, TrackSelect, TrackConfirm, Running, Summary };
+enum class AppState { GpsWait, TrackSelect, TrackConfirm, Running, Summary, GpsStatus };
 
 static DisplayManager display;
 static GPSHandler gps;
@@ -52,7 +52,7 @@ static double distanceToTrack(int index) {
 }
 
 static void enterState(AppState next) {
-  static const char* names[] = {"GPS_WAIT", "TRACK_SELECT", "TRACK_CONFIRM", "RUNNING", "SUMMARY"};
+  static const char* names[] = {"GPS_WAIT", "TRACK_SELECT", "TRACK_CONFIRM", "RUNNING", "SUMMARY", "GPS_STATUS"};
   DEBUG_PRINTF("State: %s -> %s\n", names[(int)state], names[(int)next]);
 
   if (next == AppState::Running) {
@@ -127,6 +127,10 @@ static void handleInput(InputEvent ev) {
       break;
 
     case AppState::TrackSelect:
+      if (ev == InputEvent::TapHeader) {
+        enterState(AppState::GpsStatus);
+        break;
+      }
       if (ev == InputEvent::TapLeft) selectedIndex = (selectedIndex + count - 1) % count;
       else if (ev == InputEvent::TapRight || ev == InputEvent::BootShort) selectedIndex = (selectedIndex + 1) % count;
       else if (ev == InputEvent::TapCenter || ev == InputEvent::BootLong) enterState(AppState::TrackConfirm);
@@ -149,6 +153,10 @@ static void handleInput(InputEvent ev) {
     case AppState::Summary:
       if (ev != InputEvent::Hold) enterState(AppState::TrackSelect);
       break;
+
+    case AppState::GpsStatus:
+      if (ev != InputEvent::Hold) enterState(AppState::TrackSelect);
+      break;
   }
 }
 
@@ -156,11 +164,14 @@ static void render() {
   uint32_t now = millis();
   switch (state) {
     case AppState::GpsWait:
-      display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable());
+      display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable(), false);
+      break;
+    case AppState::GpsStatus:
+      display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable(), true);
       break;
     case AppState::TrackSelect:
       display.drawTrackSelect(selectedTrack(), selectedIndex, trackDB.count(), distanceToTrack(selectedIndex),
-                              input.touchAvailable());
+                              gps, input.touchAvailable());
       break;
     case AppState::TrackConfirm:
       display.drawTrackConfirm(selectedTrack(), distanceToTrack(selectedIndex), gps.hasFix(),
