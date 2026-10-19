@@ -19,6 +19,13 @@ static volatile bool isConnected = false;
 static String name;
 static uint32_t sent = 0;
 
+// A read-only text characteristic. As a std::string: NimBLE's setValue(const T&)
+// would send a string literal with its terminating zero, and a char pointer
+// as the pointer's own bytes.
+static void addText(NimBLEService* svc, const char* uuid, const std::string& text) {
+  svc->createCharacteristic(uuid, NIMBLE_PROPERTY::READ)->setValue(text);
+}
+
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* server, ble_gap_conn_desc* desc) override {
     isConnected = true;
@@ -56,11 +63,11 @@ void begin() {
 
   // Device Information service, which RaceBox apps read when connecting
   NimBLEService* info = server->createService("180A");
-  info->createCharacteristic("2A24", NIMBLE_PROPERTY::READ)->setValue("RaceBox Mini");     // model
-  info->createCharacteristic("2A25", NIMBLE_PROPERTY::READ)->setValue(name.substring(13).c_str());  // serial
-  info->createCharacteristic("2A26", NIMBLE_PROPERTY::READ)->setValue("3.3");              // firmware
-  info->createCharacteristic("2A27", NIMBLE_PROPERTY::READ)->setValue("1");                // hardware
-  info->createCharacteristic("2A29", NIMBLE_PROPERTY::READ)->setValue("RaceBox");          // manufacturer
+  addText(info, "2A24", "RaceBox Mini");              // model
+  addText(info, "2A25", name.substring(13).c_str());  // serial: the 10 digits
+  addText(info, "2A26", "3.3");                       // firmware
+  addText(info, "2A27", "1");                         // hardware
+  addText(info, "2A29", "RaceBox");                   // manufacturer
   info->start();
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
@@ -109,6 +116,5 @@ void sendFix(const GpsFix& fix, const GPSHandler& gps) {
 }
 
 bool connected() { return isConnected; }
-const String& deviceName() { return name; }
 
 }  // namespace RaceBoxBle

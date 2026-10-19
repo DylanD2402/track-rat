@@ -97,6 +97,14 @@ private:
   float lat = 0, lon = 0;
 };
 
+// A start/finish or split as recorded in [comments], exactly as the lap
+// timer uses it, so the session can be timed again from its log:
+// "lat lon radius", plus "heading set" or "heading map" if it has a direction.
+std::string pointText(const TrackPoint& p);
+// The reverse; false if `s` isn't one. Logs from before directions were
+// recorded give a point with no direction.
+bool parsePoint(const std::string& s, TrackPoint& p);
+
 // A start/finish or split line across the track at `p`, `p.radius` metres
 // either side, square to the track's direction there. The direction comes
 // from the nearest map line within maxOffsetM of `p` (map in metres from
@@ -111,7 +119,6 @@ public:
   // for a well-formed data line, decoded into `out`.
   bool feed(const char* line, Sample& out);
 
-  const std::vector<std::string>& channels() const { return chans; }
   const std::vector<std::string>& comments() const { return comms; }
   // The value of a "Key: value" comment line, or "" if there isn't one.
   std::string comment(const std::string& key) const;

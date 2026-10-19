@@ -7,17 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include "RaceBoxPacket.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 static uint32_t u32(const uint8_t* p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 static int32_t i32(const uint8_t* p) { return (int32_t)u32(p); }

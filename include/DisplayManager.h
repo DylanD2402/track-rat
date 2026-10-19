@@ -101,6 +101,7 @@ private:
   bool drawMapArea(int x, int y, int w, int h, const std::vector<std::vector<geo::XYf>>& lines, MapPath path,
                    bool showCar, geo::XY car, bool carFix, bool showStartFinish);
   void runningOverlays(const GPSHandler& gps, uint32_t holdMs, const RunningOverlay* ov = nullptr);
+  void holdBar(uint32_t holdMs, const char* what);  // progress while the screen is held
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);
   void centered(const String& s, int y, int font, uint16_t color);

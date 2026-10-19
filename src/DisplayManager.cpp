@@ -4,33 +4,17 @@
 
 #include "DisplayManager.h"
 #include "Config.h"
+#include "DisplayStyle.h"
 #include "SessionLog.h"
 #include "Storage.h"
 #include "RaceBoxBle.h"
-
-static const int W = 320;
-static const int H = 240;
-static const int HEADER_H = 26;
-static const int FOOTER_Y = 202;
-
-static const uint16_t C_BG = TFT_BLACK;
-static const uint16_t C_TEXT = TFT_WHITE;
-static const uint16_t C_DIM = TFT_DARKGREY;
-static const uint16_t C_HEADER = 0x10A2;  // dark slate
-static const uint16_t C_GOOD = TFT_GREEN;
-static const uint16_t C_BAD = TFT_RED;
-static const uint16_t C_WARN = TFT_YELLOW;
-static const uint16_t C_BUTTON = 0x2124;
 
 bool DisplayManager::begin() {
   tft.init();
   tft.setRotation(DISPLAY_ROTATION);
   tft.invertDisplay(DISPLAY_INVERT);
   tft.fillScreen(C_BG);
-#ifdef TFT_BL
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, HIGH);
-#endif
+  setBacklight(true);
 
   spr.setColorDepth(16);
   useSprite = spr.createSprite(W, H) != nullptr;  // ~150 KB, lands in PSRAM
@@ -446,12 +430,16 @@ void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs, con
     gfx->setTextDatum(TL_DATUM);
   }
 
-  if (holdMs > 150) {
-    int w = (int)min((uint32_t)(W - 40), (uint32_t)((W - 40) * holdMs / END_SESSION_HOLD_MS));
-    gfx->fillRect(10, 90, W - 20, 50, C_HEADER);
-    centered("Keep holding to end session", 96, 2, C_TEXT);
-    gfx->fillRect(20, 118, w, 12, C_WARN);
-  }
+  holdBar(holdMs, "Keep holding to end session");
+}
+
+// While the screen is held: `what` ("Keep holding to ...") over a bar that fills up to the end.
+void DisplayManager::holdBar(uint32_t holdMs, const char* what) {
+  if (holdMs <= 150) return;
+  int w = (int)min((uint32_t)(W - 40), (uint32_t)((W - 40) * holdMs / END_SESSION_HOLD_MS));
+  gfx->fillRect(10, 90, W - 20, 50, C_HEADER);
+  centered(what, 96, 2, C_TEXT);
+  gfx->fillRect(20, 118, w, 12, C_WARN);
 }
 
 String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
@@ -467,6 +455,7 @@ String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
 static const int MAP_X = 2, MAP_Y = HEADER_H + 2, MAP_W = 212, MAP_H = H - HEADER_H - 4;
 static const int PANEL_X = MAP_X + MAP_W + 6;
 static const uint16_t C_TRACK = 0xBDF7;  // light grey
+static const layout::Lines NO_LINES;  // Free Roam has a path but no stored layout
 
 // Draws stored lines and/or a path (points whose first two members are float
 // x, y in metres) scaled to fit the box, north up, plus the start/finish
@@ -705,9 +694,8 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
   gfx->setTextDatum(MC_DATUM);
   gfx->setTextColor(C_TEXT);
   gfx->drawString("PERFORMANCE", bw, py + 16, 4);
-  wifiButton(MENU_WIFI_Y, 32, highlight == 4);
   gfx->setTextDatum(TL_DATUM);
-  wifiButton(MENU_WIFI_Y, 32, highlight == 3);
+  wifiButton(MENU_WIFI_Y, 32, highlight == 4);
   if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 192, 2, C_WARN);
   centered(touchOk ? "tap a mode   -   top bar: GPS status" : "BOOT: tap = next, hold = choose", 218, 2, C_DIM);
   endFrame();
@@ -718,10 +706,9 @@ void DisplayManager::drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uin
   header("FREE ROAM", &gps);
   gfx->drawRoundRect(MAP_X, MAP_Y, MAP_W, MAP_H, 6, C_BUTTON);
 
-  static const std::vector<std::vector<geo::XYf>> noLines;
   MapPath mp = {(const uint8_t*)fr.path.data(), fr.path.size(), sizeof(geo::XYf)};
   geo::XY car = fr.hasPosition() ? geo::toLocal(gps.lastFix().lat, gps.lastFix().lon, fr.refLat, fr.refLon) : geo::XY{0, 0};
-  if (!drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, noLines, mp, fr.hasPosition(), car, gps.hasFix(), false)) {
+  if (!drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, NO_LINES, mp, fr.hasPosition(), car, gps.hasFix(), false)) {
     gfx->setTextDatum(MC_DATUM);
     gfx->setTextColor(C_DIM);
     gfx->drawString(fr.hasPosition() ? "Start driving -" : "Waiting for GPS", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 - 8, 2);
@@ -763,9 +750,8 @@ void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs
   // In the title, so it doesn't cover the route on the map
   header(savedPath.length() ? "DRIVE SUMMARY - tap to continue" : "DRIVE NOT SAVED - tap to continue", nullptr);
   gfx->drawRoundRect(MAP_X, MAP_Y, MAP_W, MAP_H, 6, C_BUTTON);
-  static const std::vector<std::vector<geo::XYf>> noLines;
   MapPath mp = {(const uint8_t*)fr.path.data(), fr.path.size(), sizeof(geo::XYf)};
-  drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, noLines, mp, false, geo::XY{0, 0}, true, false);
+  drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, NO_LINES, mp, false, geo::XY{0, 0}, true, false);
 
   char buf[24];
   struct Row { const char* label; String value; };

@@ -23,7 +23,7 @@ bool begin(fs::FS& fs);
 bool running();
 
 // These only queue the work; the writer task does it. False if the buffer
-// is full (counted in droppedBytes()).
+// is full.
 bool open(const String& path, const char* header, size_t headerLen);
 bool append(const char* data, size_t len);
 void close();  // also writes out what's buffered straight away
@@ -35,7 +35,6 @@ void poll();   // call from the main loop: finishes a close() the full buffer he
 
 // Statistics, for the log
 uint32_t bytesWritten();      // to the current file
-uint32_t droppedBytes();      // never reached the card (buffer full or write failed)
 uint32_t bufferedBytes();     // waiting to be written
 uint32_t slowestWriteMs();    // longest single write + flush so far
 

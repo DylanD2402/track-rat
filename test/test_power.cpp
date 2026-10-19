@@ -11,17 +11,7 @@
 #include "Battery.h"
 #include "FirmwareImage.h"
 #include "SleepTimer.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                          \
-  do {                                            \
-    if (!(cond)) {                                \
-      failures++;                                 \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                        \
-      printf("\n");                               \
-    }                                             \
-  } while (0)
+#include "check.h"
 
 // Same numbers as include/Config.h
 static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5}; }

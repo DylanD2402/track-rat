@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include "TrackDatabase.h"
 #include "Config.h"
+#include "JsonFile.h"
 #include "Storage.h"
 #include <LittleFS.h>
 #include <SD_MMC.h>
@@ -102,54 +103,53 @@ static void readEntry(JsonObject t, std::vector<Track>& out) {
   }
 }
 
-bool TrackDatabase::loadFrom(fs::FS& fs, const char* name) {
-  if (!fs.exists(TRACK_DATABASE_FILE)) return false;
+// Parse tracks.json on `fs` (`where` names it in the log) and hand its tracks to `use`.
+static bool withTracksFile(fs::FS& fs, const char* where, std::function<void(JsonArray)> use) {
   File file = fs.open(TRACK_DATABASE_FILE, "r");
   if (!file) return false;
-
   DynamicJsonDocument doc(max((size_t)16384, (size_t)file.size() * 4));  // large: lands in PSRAM
   DeserializationError err = deserializeJson(doc, file);
   file.close();
   if (err) {
-    DEBUG_PRINTF("Tracks: %s%s is invalid JSON: %s\n", name, TRACK_DATABASE_FILE, err.c_str());
+    DEBUG_PRINTF("Tracks: %s%s is invalid JSON: %s\n", where, TRACK_DATABASE_FILE, err.c_str());
     return false;
   }
+  use(doc["tracks"].as<JsonArray>());
+  return true;
+}
 
-  tracks.clear();
+bool TrackDatabase::loadFrom(fs::FS& fs, const char* name) {
+  if (!fs.exists(TRACK_DATABASE_FILE)) return false;
   int withMap = 0, noLine = 0, layouts = 0;
-  std::vector<Track> entry;
-  for (JsonObject t : doc["tracks"].as<JsonArray>()) {
-    entry.clear();
-    readEntry(t, entry);
-    for (Track& track : entry) {
-      if (track.centerLat == 0.0 && track.centerLon == 0.0) {
-        DEBUG_PRINTF("Tracks: skipping '%s' (no location)\n", track.displayName().c_str());
-        continue;
+  bool read = withTracksFile(fs, name, [&](JsonArray arr) {
+    tracks.clear();
+    std::vector<Track> entry;
+    for (JsonObject t : arr) {
+      entry.clear();
+      readEntry(t, entry);
+      for (Track& track : entry) {
+        if (track.centerLat == 0.0 && track.centerLon == 0.0) {
+          DEBUG_PRINTF("Tracks: skipping '%s' (no location)\n", track.displayName().c_str());
+          continue;
+        }
+        withMap += track.hasMap;
+        noLine += !track.hasStartFinish;
+        layouts += track.layoutIndex >= 0;
+        tracks.push_back(track);
       }
-      withMap += track.hasMap;
-      noLine += !track.hasStartFinish;
-      layouts += track.layoutIndex >= 0;
-      tracks.push_back(track);
     }
-  }
-
-  if (tracks.empty()) return false;
+  });
+  if (!read || tracks.empty()) return false;
   sourceName = name;
   fileFs = &fs;
   DEBUG_PRINTF("Tracks: loaded %d from %s (%d are layouts of a venue, %d with a map, %d without a start/finish yet)\n",
-               tracks.size(), name, layouts, withMap, noLine);
+               (int)tracks.size(), name, layouts, withMap, noLine);
   return true;
 }
 
 const Track* TrackDatabase::get(int index) const {
   if (index < 0 || index >= (int)tracks.size()) return nullptr;
   return &tracks[index];
-}
-
-const Track* TrackDatabase::find(const String& id) const {
-  for (const Track& t : tracks)
-    if (t.id == id) return &t;
-  return nullptr;
 }
 
 int TrackDatabase::findNearest(double lat, double lon, double maxDistanceM, double* distanceOut) const {
@@ -168,15 +168,7 @@ int TrackDatabase::findNearest(double lat, double lon, double maxDistanceM, doub
 }
 
 bool TrackDatabase::readFile(std::function<void(JsonArray)> use) {
-  if (!fileFs) return false;
-  File file = fileFs->open(TRACK_DATABASE_FILE, "r");
-  if (!file) return false;
-  DynamicJsonDocument doc(max((size_t)16384, (size_t)file.size() * 4));
-  DeserializationError err = deserializeJson(doc, file);
-  file.close();
-  if (err) return false;
-  use(doc["tracks"].as<JsonArray>());
-  return true;
+  return fileFs && withTracksFile(*fileFs, sourceName, use);
 }
 
 static JsonObject findById(JsonArray arr, const String& id) {
@@ -388,19 +380,9 @@ bool TrackDatabase::editFile(size_t extraBytes, std::function<bool(JsonArray)> c
   JsonArray arr = doc["tracks"].as<JsonArray>();
   if (arr.isNull()) arr = doc.createNestedArray("tracks");
   if (!change(arr)) return false;
-  if (doc.overflowed()) {
-    DEBUG_PRINTLN("Tracks: out of memory editing tracks.json - not saved");
-    return false;
-  }
 
-  String tmp = String(TRACK_DATABASE_FILE) + ".tmp";
-  File out = fs->open(tmp, "w");
-  if (!out) return false;
-  size_t written = serializeJsonPretty(doc, out);
-  out.close();
+  size_t written = writeJsonFile(*fs, TRACK_DATABASE_FILE, doc, true);
   if (!written) return false;
-  fs->remove(TRACK_DATABASE_FILE);
-  if (!fs->rename(tmp, TRACK_DATABASE_FILE)) return false;
   fileFs = fs;
   sourceName = (fs == &SD_MMC) ? "SD" : "flash";
   DEBUG_PRINTF("Tracks: saved tracks.json (%u KB) in %lu ms\n", (unsigned)(written / 1024),
@@ -529,5 +511,5 @@ void TrackDatabase::loadBuiltIn() {
   }
   sourceName = "built-in";
   fileFs = nullptr;
-  DEBUG_PRINTF("Tracks: no tracks.json found, using %d built-in tracks\n", tracks.size());
+  DEBUG_PRINTF("Tracks: no tracks.json found, using %d built-in tracks\n", (int)tracks.size());
 }

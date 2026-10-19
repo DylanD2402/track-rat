@@ -115,8 +115,8 @@ bool GPSHandler::detect() {
 void GPSHandler::sendUbx(uint8_t cls, uint8_t id, const uint8_t* payload, size_t len) {
   uint8_t head[6] = {0xB5, 0x62, cls, id, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8)};
   uint8_t ckA = 0, ckB = 0;
-  for (int i = 2; i < 6; i++) { ckA += head[i]; ckB += ckA; }
-  for (size_t i = 0; i < len; i++) { ckA += payload[i]; ckB += ckA; }
+  ubxChecksum(head + 2, 4, ckA, ckB);
+  ubxChecksum(payload, len, ckA, ckB);
   uint8_t tail[2] = {ckA, ckB};
   gpsSerial.write(head, 6);
   gpsSerial.write(payload, len);
@@ -464,11 +464,16 @@ void GPSHandler::simulateStep() {
   float course = atan2f(-sinf((float)a), cosf((float)a)) * RAD_TO_DEG;
   last.courseDeg = course < 0 ? course + 360.0f : course;
   last.courseValid = true;
+  last.gpsTimeMs = (now + 12UL * 3600000UL) % 86400000UL;
+  publishSimFix(now);
+}
+
+// The rest of a simulated fix (a good 3D fix), then on to takeFix() like a real one.
+void GPSHandler::publishSimFix(uint32_t now) {
   last.altM = 100.0f;
   last.year = 2026;
   last.month = 1;
   last.day = 1;
-  last.gpsTimeMs = (now + 12UL * 3600000UL) % 86400000UL;
   last.rxMillis = now;
   sats = 12;
   hdopVal = 0.8f;
@@ -516,15 +521,6 @@ void GPSHandler::simulateLaunchStep() {
   last.speedKmh = simV * 3.6;
   last.courseDeg = 0;
   last.courseValid = simV > 0.5;
-  last.altM = 100.0f;
-  last.year = 2026;
-  last.month = 1;
-  last.day = 1;
   last.gpsTimeMs = (simClockMs + 12UL * 3600000UL) % 86400000UL;
-  last.rxMillis = now;
-  sats = 12;
-  hdopVal = 0.8f;
-  queueFix(last);
-  everFixed = true;
-  countFixForRate(now);
+  publishSimFix(now);
 }

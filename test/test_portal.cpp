@@ -8,17 +8,7 @@
 #include <cstring>
 #include <string>
 #include "PortalLogic.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 using namespace portal;
 

@@ -6,19 +6,8 @@
 
 #include "DisplayManager.h"
 #include "Config.h"
+#include "DisplayStyle.h"
 
-static const int W = 320;
-static const int H = 240;
-static const int HEADER_H = 26;
-
-static const uint16_t C_BG = TFT_BLACK;
-static const uint16_t C_TEXT = TFT_WHITE;
-static const uint16_t C_DIM = TFT_DARKGREY;
-static const uint16_t C_GOOD = TFT_GREEN;
-static const uint16_t C_BAD = TFT_RED;
-static const uint16_t C_WARN = TFT_YELLOW;
-static const uint16_t C_BUTTON = 0x2124;
-static const uint16_t C_HEADER = 0x10A2;
 static const uint16_t C_GO = 0xFD20;  // orange
 
 using perf::PerfResult;
@@ -119,12 +108,7 @@ void DisplayManager::drawPerfLive(const PerfRun& pr, const GPSHandler& gps, Spee
     centered("No runs yet", 184, 2, C_DIM);
   }
 
-  if (holdMs > 150) {
-    int w = (int)min((uint32_t)(W - 40), (uint32_t)((W - 40) * holdMs / END_SESSION_HOLD_MS));
-    gfx->fillRect(10, 90, W - 20, 50, C_HEADER);
-    centered("Keep holding to leave", 96, 2, C_TEXT);
-    gfx->fillRect(20, 118, w, 12, C_WARN);
-  }
+  holdBar(holdMs, "Keep holding to leave");
 
   if (touchOk) footerButtons(leftButton, "RESULTS", "MENU");
   else centered("BOOT: tap = results, hold = menu", 212, 2, C_DIM);

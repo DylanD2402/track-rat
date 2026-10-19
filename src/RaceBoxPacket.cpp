@@ -14,6 +14,8 @@
 #include "RaceBoxPacket.h"
 #include <math.h>
 #include <string.h>
+#include "LocalTime.h"
+#include "UbxParser.h"
 
 static void put8(uint8_t* p, size_t off, uint8_t v) { p[off] = v; }
 static void put16(uint8_t* p, size_t off, uint16_t v) {
@@ -32,19 +34,10 @@ static uint32_t scaled(float v, float scale) {
   return (uint32_t)(x + 0.5);
 }
 
-// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's algorithm).
-static int32_t daysFromCivil(int32_t y, uint32_t m, uint32_t d) {
-  y -= m <= 2;
-  const int32_t era = (y >= 0 ? y : y - 399) / 400;
-  const uint32_t yoe = (uint32_t)(y - era * 400);
-  const uint32_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-  const uint32_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  return era * 146097 + (int32_t)doe - 719468;
-}
-
 uint32_t gpsTimeOfWeekMs(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
                          uint8_t second, uint16_t millis) {
   const int64_t LEAP_SECONDS = 18;  // GPS - UTC since 2017
+  using localtime_::daysFromCivil;
   int64_t days = daysFromCivil(year, month, day) - daysFromCivil(1980, 1, 6);  // GPS epoch, a Sunday
   int64_t secs = days * 86400 + hour * 3600 + minute * 60 + second + LEAP_SECONDS;
   int64_t ms = secs * 1000 + millis;
@@ -119,11 +112,8 @@ void buildRaceBoxPacket(const RaceBoxFix& f, uint8_t* out) {
   out[5] = RACEBOX_PAYLOAD_LEN >> 8;
   memcpy(out + 6, p, RACEBOX_PAYLOAD_LEN);
 
-  uint8_t a = 0, b = 0;  // 8-bit Fletcher over class..payload
-  for (size_t i = 2; i < 6 + RACEBOX_PAYLOAD_LEN; i++) {
-    a += out[i];
-    b += a;
-  }
+  uint8_t a = 0, b = 0;
+  ubxChecksum(out + 2, 4 + RACEBOX_PAYLOAD_LEN, a, b);
   out[86] = a;
   out[87] = b;
 }

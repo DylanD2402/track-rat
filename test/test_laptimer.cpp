@@ -9,17 +9,7 @@
 #include <cstdlib>
 #include "LapTimer.h"
 #include "LayoutMatch.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 static const double SF_LAT = 37.0, SF_LON = -122.0, R = 150.0;
 
@@ -72,11 +62,11 @@ static void testConstantSpeed(double hz, uint32_t startTimeMs) {
 static void testParkedJitter() {
   LapTimer lt;
   lt.begin({SF_LAT, SF_LON, 15}, {});
-  srand(1);
+  testSeed(1);
   int events = 0;
   for (int i = 0; i < 6000; i++) {
-    double jitterN = ((rand() % 2001) - 1000) / 1000.0 * 3.0;  // +/- 3 m
-    double jitterE = ((rand() % 2001) - 1000) / 1000.0 * 3.0;
+    double jitterN = ((testRand() % 2001) - 1000) / 1000.0 * 3.0;  // +/- 3 m
+    double jitterE = ((testRand() % 2001) - 1000) / 1000.0 * 3.0;
     LapEvent ev = lt.onFix(SF_LAT + jitterN / 111194.93, SF_LON + jitterE / 88800.0, 1.0f, 100 * i, 100 * i);
     if (ev.type != LapEventType::None) events++;
   }
@@ -446,10 +436,10 @@ static void testMatchEdgeCases() {
   CHECK(layout::score(dup, map).value() > 0.95f, "repeated points %.2f", layout::score(dup, map).value());
 
   // within() must agree with the exact nearest distance
-  srand(7);
+  testSeed(7);
   int disagree = 0;
   for (int i = 0; i < 2000; i++) {
-    float x = (rand() % 4000) / 10.0f - 50, y = (rand() % 3000) / 10.0f - 150;
+    float x = (testRand() % 4000) / 10.0f - 50, y = (testRand() % 3000) / 10.0f - 150;
     bool exact = layout::nearestD2(map, x, y) <= 15.0f * 15.0f;
     disagree += exact != layout::within(map, x, y, 15.0f);
   }
@@ -483,10 +473,10 @@ static void testLapTimerDirectionEdges() {
   {  // parked on a line with a direction: GPS jitter makes no events
     LapTimer lt;
     lt.begin(line(SF_LAT, SF_LON, 0, HeadingFrom::Map), {});
-    srand(3);
+    testSeed(3);
     int events = 0;
     for (int i = 0; i < 3000; i++) {
-      double n = ((rand() % 2001) - 1000) / 1000.0 * 3.0, e = ((rand() % 2001) - 1000) / 1000.0 * 3.0;
+      double n = ((testRand() % 2001) - 1000) / 1000.0 * 3.0, e = ((testRand() % 2001) - 1000) / 1000.0 * 3.0;
       if (lt.onFix(SF_LAT + n / 111194.93, SF_LON + e / 88800.0, 1.0f, 100 * i, 100 * i).type != LapEventType::None)
         events++;
     }
@@ -524,6 +514,16 @@ static void testLapTimerDirectionEdges() {
     lt.changeGates(line(SF_LAT, SF_LON, 0, HeadingFrom::Set), {line(SF_LAT, splitLon, 180, HeadingFrom::Set),
                                                                line(SF_LAT, splitLon, 180, HeadingFrom::Set)});
     CHECK(lt.lapCount() == 1 && lt.lapRunning(), "laps kept");
+  }
+  {  // layouts share a start/finish when it's in the same place and not set to run the other way
+    const double mLon = 111194.93 * cos(SF_LAT * geo::DEG2RAD);
+    TrackPoint north = line(SF_LAT, SF_LON, 0, HeadingFrom::Set);
+    CHECK(layout::sharesLine(north, line(SF_LAT, SF_LON + 3 / mLon, 10, HeadingFrom::Set)), "3 m apart, same way");
+    CHECK(!layout::sharesLine(north, line(SF_LAT, SF_LON + 6 / mLon, 0, HeadingFrom::Set)), "6 m apart");
+    CHECK(!layout::sharesLine(north, line(SF_LAT, SF_LON, 180, HeadingFrom::Set)), "Reverse on the same line");
+    CHECK(layout::sharesLine(north, line(SF_LAT, SF_LON, 180, HeadingFrom::Map)), "a guessed direction may be backwards");
+    CHECK(layout::sharesLine(TrackPoint{SF_LAT, SF_LON, 15}, line(SF_LAT, SF_LON, 180, HeadingFrom::Set)),
+          "a line with no direction");
   }
 }
 
@@ -610,8 +610,7 @@ static SimResult simulateSession(const std::vector<SimLayout>& layouts, int sele
     int k = layout::pickLayout(path, cur, cands);
     if (k < 0) return false;
     int next = idx[k];
-    bool sameLine = hypot(layouts[next].sfAt.x - o.x, layouts[next].sfAt.y - o.y) < 5 &&
-                    cosf((layouts[next].sf.heading - layouts[selected].sf.heading) * (float)geo::DEG2RAD) >= 0;
+    bool sameLine = layout::sharesLine(layouts[selected].sf, layouts[next].sf);
     size_t before = lt.lapCount();
     if (sameLine && lt.lapRunning()) lt.changeGates(layouts[next].sf, layouts[next].splits);
     else lt.begin(layouts[next].sf, layouts[next].splits);
@@ -625,8 +624,8 @@ static SimResult simulateSession(const std::vector<SimLayout>& layouts, int sele
   for (int i = 0; i < n; i++) {
     double s = v * 0.1 * i;
     geo::XY p = s < leadLen ? posOnLoop(leadIn, s) : posOnLoop(driven, startS + s - leadLen);
-    p.x += noiseM * ((rand() % 2001) - 1000) / 1000.0;  // GPS wander
-    p.y += noiseM * ((rand() % 2001) - 1000) / 1000.0;
+    p.x += noiseM * ((testRand() % 2001) - 1000) / 1000.0;  // GPS wander
+    p.y += noiseM * ((testRand() % 2001) - 1000) / 1000.0;
     double lat, lon;
     geo::fromLocal(p.x, p.y, SF_LAT, SF_LON, lat, lon);
     LapEvent ev = lt.onFix(lat, lon, v * 3.6f, 3600000 + 100 * i, 100 * i);
@@ -714,11 +713,11 @@ static void testLayoutSimulation() {
     printf("  sim: driving somewhere else entirely -> stays on %s, no laps\n", venue[r.finalLayout].name);
   }
   {  // with 2 m of GPS wander on every fix the right layout is still found
-    srand(11);
+    testSeed(11);
     SimResult r = simulateSession(venue, 0, shortL, 50, 4.3 * 600 / v, {}, 2.0);
     CHECK(r.finalLayout == 1 && r.lapsKept && r.lapsAfter == 4 && fabs(r.lastLapMs - 600 / v * 1000) < 300,
           "noisy short: ended on %s, %zu laps, last %u", venue[r.finalLayout].name, r.lapsAfter, r.lastLapMs);
-    srand(12);
+    testSeed(12);
     r = simulateSession(venue, 0, full, 50, 3.3 * 1000 / v, {}, 2.0);
     CHECK(r.finalLayout == 0 && r.switches == 0, "noisy full: switched to %s", venue[r.finalLayout].name);
     printf("  sim with 2 m GPS wander: Short found, Full kept\n");

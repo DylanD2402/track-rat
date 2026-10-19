@@ -74,6 +74,8 @@ Leave it running with the board plugged in. Every 30 s it checks the current bra
 
 A failed build is reported and nothing is flashed. If you have uncommitted edits to the code, it won't pull until you commit or stash them.
 
+When a commit changes the Wi-Fi page (`web/`) or `data/` (such as `tracks.json`), it also runs `uploadfs`. **That wipes sessions and tracks saved in internal flash** (boards without an SD card); the SD card is never touched. `--uploadfs` does it on every commit.
+
 - **`--now`:** also flash the current commit at startup.
 - **`--push-logs`:** commits each log to a `device-logs` branch, so whoever made the change can read the result without you copying it. **The logs contain GPS positions, including where the board is when you're testing at home, so only use this if the repository is private.**
 
@@ -101,7 +103,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count. This needs you to be doing at least 15 km/h when you tap; slower than that the GPS direction is too rough, and the line is saved without one.
 
-**Layouts:** a venue with several layouts (Full, Short, the kart track) lists each one separately, and its Ready screen shows which layout is picked. Tap the top bar of the Ready screen for the next layout. You don't have to get it right: after your first full lap, the timer compares your lap with the map of each layout there (and any other track within 3 km that has a map). If another one clearly fits better, it switches to it and shows **Layout: ...** on screen. If you haven't crossed the picked layout's line after 2 km, it checks the same way.
+**Layouts:** a venue with several layouts (Full, Short, the kart track) lists each one separately, and its Ready screen shows which layout is picked. Tap the top bar of the Ready screen for the next layout. You don't have to get it right: after your first full lap, the timer compares your lap with the map of each layout there (and any other track within 3 km that has a map). If another one clearly fits better, it switches to it and shows **Layout: ...** on screen. If you haven't crossed the picked layout's line after 2 km, it checks the same way. It doesn't when you're putting a line down yourself (SET LINE, NEW TRACK): the line goes on the track you chose.
 
 | Screen | Touch | BOOT button (or big button) |
 |---|---|---|
@@ -279,7 +281,7 @@ A venue with more than one layout lists them in `layouts`. Each has a `name`, an
 
 - **Records are kept per layout.** Each layout's id is `<venue id>.<layout id>` (here `my-kart-park.full`), used for session file names. A layout's id is its name in lower case with dashes, unless you give it an `"id"`.
 - **Telling layouts apart:** the timer needs a `map` for each layout to recognise it from your lap (see Track maps). A Reverse layout with the same map is told apart by the `heading` of its line.
-- **Switching mid-session:** if the new layout shares the start/finish line, your laps so far are kept. Otherwise timing starts again at the new layout's line, in a new session file.
+- **Switching mid-session:** if the new layout shares the start/finish line, your laps so far are kept. Otherwise the session so far is saved under the old layout, and timing starts again at the new layout's line, in a new session file.
 
 ### All Canadian tracks
 
@@ -344,7 +346,7 @@ Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**,
 
 - **Apps with RaceBox Mini support:** RaceChrono and RaceChrono Pro, Solostorm, NMEAconnect, AutoX DL and the RaceBox app. This list comes from the [RaceBox Mini emulator project](https://github.com/anchit92/Open-Source-RaceBox-mini-Emulator) that inspired this feature; I've not tested each app.
 - **Connecting:** in the app, add a RaceBox Mini device. The board shows up as `RaceBox Mini` followed by 10 digits (the log prints the exact name at boot). While a phone is connected, a blue **BT** tag shows in the header.
-- **Update rate:** one packet per GPS fix, so up to 10 a second.
+- **Update rate:** one packet per GPS fix, so up to 20 a second (`GPS_TARGET_RATE_HZ`).
 - **Accelerometer:** this board has none, so the motion values read as a device lying still. Apps still calculate G-forces from the GPS.
 - **Accuracy figures:** the position, speed and heading accuracy fields come straight from the GPS (UBX-NAV-PVT). With a GPS that only sends NMEA they're estimates from the satellite precision value (HDOP).
 - **Bench Test:** a bench session streams the simulated car, which is handy for setting up an app at a desk.
@@ -446,9 +448,9 @@ The ignition can cut the power at any moment, so nothing needs to be ended to be
 
 - **The log** is written about once a second, so a power cut loses at most the last second.
 - **The summary** is rewritten after every lap without ever being half written: the new copy goes to a temporary file, which then replaces the old one.
-- **At the next boot,** any session that wasn't ended gets its summary rebuilt from its log, by timing the log again with the same lap timer. The log at boot shows `Session: recovered ...`.
+- **At the next boot,** any session that wasn't ended gets its summary rebuilt from its log, by timing the log again with the same lap timer and the same lines (the log records each line's direction too). The log at boot shows `Session: recovered ...`.
 
-Performance runs are saved as `/sessions/<date>_<time>_perf.json`, with every run's times (seconds), trap speeds (km/h), braking distance (metres), peak speed, height change, and whether it was invalid or not level, plus the session's best.
+Performance runs are saved as `/sessions/<date>_<time>_perf.json`, with every run's times (seconds), trap speeds (km/h), braking distance (metres), peak speed, height change, and whether it was invalid or not level, plus the session's best. It's rewritten after every run the same safe way as the summary.
 
 ## Configuration
 
@@ -493,6 +495,8 @@ It checks that the timer:
 - times splits correctly
 - tracks the best lap and computes deltas
 - computes the live diff to within about 40 ms of the true value
+- doesn't record false laps while parked on the line with GPS jitter
+- ignores a line crossing that happens during a GPS dropout
 - ignores a start/finish or split crossed the wrong way, still times one crossed the right way, and treats a line with no direction as before
 - on a kart track whose return straight passes 10 m from the line, times full laps instead of half laps
 - turns round a direction guessed backwards from the map, but never one that was set
@@ -504,8 +508,6 @@ It checks that the timer:
 ```bash
 g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
 ```
-- doesn't record false laps while parked on the line with GPS jitter
-- ignores a line crossing that happens during a GPS dropout
 
 `test/test_localtime.cpp` checks that session file names in local time roll the date over correctly: either side of midnight, across months, years and leap days, and in half-hour time zones:
 
@@ -554,6 +556,7 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 - the timing lines written for Circuit Tools
 - that a logged session, read back and timed again, gives the same laps to within 1 ms, in Free Roam too
 - recovery after a power cut: a last line cut short, zeros left on the card, a line marked during the session
+- that a line's direction is recorded and timed again the same way (set the wrong way, or guessed backwards from the map)
 - the log writer's buffer, with two threads, wrapping and filling up
 
 **On Windows** without g++, the `ziglang` Python package has a C++ compiler that needs no install: `pip install ziglang`, then use `python -m ziglang c++` in place of `g++`, add `-D_USE_MATH_DEFINES`, and write the output to a `.exe`.
@@ -589,9 +592,9 @@ It checks that:
 
 ```
 include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
-           LogRing.h (log buffer), headers
+           LogRing.h (log buffer), DisplayStyle.h (screen size, colours), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
-           DisplayManager, InputManager, Storage, SessionLog,
+           DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
            SessionReplay (times a session again from its log),
            Power (battery, sleep), FirmwareUpdate (SD card update)
@@ -601,6 +604,6 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            WifiPortal (Wi-Fi page)
 web/       the Wi-Fi page (gzipped into data/web when building)
 data/      tracks.json
-test/      host-side tests
+test/      host-side tests (check.h: shared by all of them)
 legacy/    the original Raspberry Pi / Python prototype
 ```

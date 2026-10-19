@@ -19,17 +19,7 @@
 #include "GpsSource.h"
 #include "LapTimer.h"
 #include "UbxParser.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 // ---------------------------------------------------------------------------
 // Building GPS output
@@ -228,12 +218,12 @@ struct Link {
   uint32_t heldUntil = 0;
   void send(const std::vector<uint8_t>& b) { buf.insert(buf.end(), b.begin(), b.end()); }
   void deliver(Receiver& r, uint32_t now, bool stalls) {
-    if (stalls && heldUntil == 0 && rand() % 200 == 0) heldUntil = now + 300 + rand() % 900;
+    if (stalls && heldUntil == 0 && testRand() % 200 == 0) heldUntil = now + 300 + testRand() % 900;
     if (now < heldUntil) return;
     heldUntil = 0;
     size_t off = 0;
     while (off < buf.size()) {
-      size_t n = 1 + rand() % 160;
+      size_t n = 1 + testRand() % 160;
       if (off + n > buf.size()) n = buf.size() - off;
       r.read(&buf[off], n, now);
       off += n;
@@ -480,7 +470,7 @@ static bool fixesEvery50ms(const std::vector<GpsFix>& fixes, size_t from) {
 
 static void testEndToEnd() {
   const double lapS = 2 * M_PI * RADIUS / SPEED;  // 31.4 s
-  srand(7);
+  testSeed(7);
 
   {  // u-blox, fresh power-up (NMEA only), loop stalls up to 1.2 s
     SimGps g;

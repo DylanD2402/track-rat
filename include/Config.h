@@ -2,7 +2,7 @@
  * Track Rat - Configuration
  *
  * Board: LCDWiki ES3C28P (ESP32-S3 N16R8, 2.8" ILI9341V IPS, FT6336G touch, SDIO SD slot)
- * GPS:   Beitian BE-252Q (UART, NMEA)
+ * GPS:   Beitian BE-252Q (UART: binary UBX-NAV-PVT, or NMEA from other modules)
  *
  * Display pins are passed to TFT_eSPI from platformio.ini build_flags.
  */

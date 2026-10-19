@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include "Config.h"
+#include "JsonFile.h"
 #include "LogWriter.h"
 #include "SessionReplay.h"
 #include "Storage.h"
@@ -75,32 +76,14 @@ String newSessionBase(const String& stamp, const String& name) {
   return base;
 }
 
-// Write to a temporary file, then rename it over the old one, so a power
-// cut leaves either the old summary or the new one, never half of one.
-static bool writeJson(fs::FS& fs, const String& path, const JsonDocument& doc, bool pretty) {
-  String tmp = path + ".tmp";
-  File f = fs.open(tmp, "w");
-  if (!f) {
-    DEBUG_PRINTF("Session: could not open %s for writing\n", tmp.c_str());
-    return false;
-  }
-  size_t n = pretty ? serializeJsonPretty(doc, f) : serializeJson(doc, f);
-  f.close();
-  if (!n) {
-    fs.remove(tmp);
-    return false;
-  }
-  if (fs.rename(tmp, path)) return true;  // LittleFS replaces the old file in one step
-  fs.remove(path);                        // FAT won't rename over an existing file
-  return fs.rename(tmp, path);
-}
-
 bool save(const String& path, const Track& track, const String& stamp, const LapTimer& timer,
           const String& logName, bool finished, bool recovered) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs || path.length() == 0) return false;
 
-  DynamicJsonDocument doc(4096 + timer.lapCount() * 256);
+  size_t splitTimes = 0;
+  for (size_t i = 0; i < timer.lapCount(); i++) splitTimes += timer.lap(i).splitMs.size();
+  DynamicJsonDocument doc(4096 + timer.lapCount() * 256 + splitTimes * 16);
   doc["track"] = track.id;
   doc["trackName"] = track.name;
   if (track.layoutName.length()) doc["layout"] = track.layoutName;
@@ -130,7 +113,7 @@ bool save(const String& path, const Track& track, const String& stamp, const Lap
       for (int32_t v : l.splitMs) s.add(v);
     }
   }
-  return writeJson(*fs, path, doc, true);
+  return writeJsonFile(*fs, path, doc, true) > 0;
 }
 
 bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive, uint32_t durationMs,
@@ -141,7 +124,7 @@ bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive
   const bool withRoute = logName.length() == 0;  // the full log has the route at every fix
   const size_t step = max((size_t)1, (size_t)(10.0f / FreeRoam::MIN_POINT_SPACING_M));
   const size_t points = withRoute ? drive.path.size() / step + 2 : 0;
-  DynamicJsonDocument doc(4096 + points * 64);
+  DynamicJsonDocument doc(4096 + points * 80);  // a [lat, lon] pair takes up to 71 bytes
   doc["type"] = "freeroam";
   doc["started"] = stamp;
   if (logName.length()) doc["log"] = logName;
@@ -162,7 +145,7 @@ bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive
       p.add(serialized(String(lon, 6)));
     }
   }
-  if (!writeJson(*fs, path, doc, false)) return false;
+  if (!writeJsonFile(*fs, path, doc, false)) return false;
   DEBUG_PRINTF("Session: free roam saved to %s:%s\n", Storage::sessionFSName(), path.c_str());
   return true;
 }
@@ -215,15 +198,10 @@ bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, b
   h.comments.push_back(std::string("Track: ") + t.id.c_str());
   h.comments.push_back(std::string("Track name: ") + t.name.c_str());
   if (timing) {
-    // Exactly what the lap timer uses, so the session can be timed again from the log
-    snprintf(buf, sizeof(buf), "Start/finish: %.7f %.7f %.1f", t.startFinish.lat, t.startFinish.lon,
-             t.startFinish.radius);
-    h.comments.push_back(buf);
-    for (size_t i = 0; i < t.splits.size(); i++) {
-      snprintf(buf, sizeof(buf), "Split %u: %.7f %.7f %.1f", (unsigned)(i + 1), t.splits[i].lat, t.splits[i].lon,
-               t.splits[i].radius);
-      h.comments.push_back(buf);
-    }
+    // Exactly what the lap timer uses, direction included, so the session can be timed again from the log
+    h.comments.push_back("Start/finish: " + vbo::pointText(t.startFinish));
+    for (size_t i = 0; i < t.splits.size(); i++)
+      h.comments.push_back("Split " + std::to_string(i + 1) + ": " + vbo::pointText(t.splits[i]));
     // Circuit Tools needs a line across the track, so it needs the track's
     // direction at the start/finish: from the stored map, if there is one.
     if (vbo::gateFromMap(t.map, t.refLat(), t.refLon(), t.startFinish, h.start)) {

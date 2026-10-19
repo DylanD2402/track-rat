@@ -187,6 +187,15 @@ inline bool pathCrosses(const std::vector<geo::XYf>& path, double gx, double gy,
   return false;
 }
 
+// Two layouts share a start/finish line: within 5 m, and not set to run
+// opposite ways (a Reverse layout drawn on the same line doesn't share it).
+// Laps timed at one also count at the other.
+inline bool sharesLine(const TrackPoint& a, const TrackPoint& b) {
+  bool opposite = a.headingFrom == HeadingFrom::Set && b.headingFrom == HeadingFrom::Set &&
+                  cosf((a.heading - b.heading) * (float)geo::DEG2RAD) < 0;
+  return !opposite && geo::distanceM(a.lat, a.lon, b.lat, b.lon) < 5.0;
+}
+
 // A layout that might be the one being driven (see pickLayout).
 struct Candidate {
   geo::XY sfAt;       // its start/finish, in the path's frame

@@ -91,6 +91,25 @@ std::string headerText(const Header& h) {
   return s;
 }
 
+std::string pointText(const TrackPoint& p) {
+  char buf[80];
+  int n = snprintf(buf, sizeof(buf), "%.7f %.7f %.1f", p.lat, p.lon, p.radius);
+  if (p.hasHeading() && n > 0 && (size_t)n < sizeof(buf)) {
+    snprintf(buf + n, sizeof(buf) - n, " %.1f %s", p.heading, p.headingFrom == HeadingFrom::Map ? "map" : "set");
+  }
+  return buf;
+}
+
+bool parsePoint(const std::string& s, TrackPoint& p) {
+  TrackPoint q = {0, 0, 0, 0, HeadingFrom::None};
+  char from[8] = "";
+  int n = sscanf(s.c_str(), "%lf %lf %f %f %7s", &q.lat, &q.lon, &q.radius, &q.heading, from);
+  if (n < 3) return false;
+  if (n >= 4) q.headingFrom = strcmp(from, "map") == 0 ? HeadingFrom::Map : HeadingFrom::Set;
+  p = q;
+  return true;
+}
+
 // --- g from the GPS ----------------------------------------------------------
 
 void GForce::update(uint32_t utcMs, float speedKmh, float headingDeg, bool headingValid) {

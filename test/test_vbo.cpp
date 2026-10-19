@@ -23,17 +23,7 @@
 #include "LogRing.h"
 #include "SessionReplay.h"
 #include "VboFormat.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 static std::string line(const vbo::Sample& s) {
   char buf[160];
@@ -208,7 +198,9 @@ struct SessionFile {
 
 static double metresPerDegLon(double lat) { return 111194.93 * cos(lat * geo::DEG2RAD); }
 
-static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t startUtc, bool lineInHeader = true) {
+// heading/from: the start/finish line's direction, if it has one. Stops after 5 laps or maxFixes.
+static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t startUtc, bool lineInHeader = true,
+                        float heading = 0, HeadingFrom from = HeadingFrom::None, int maxFixes = 100000) {
   const double R = 150.0;
   auto circlePos = [&](double angle, double& lat, double& lon) {
     lat = sfLat + R * sin(angle) / 111194.93;
@@ -219,7 +211,7 @@ static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t sta
     double t = i * 2 * M_PI / 72;
     map[0].push_back({(float)(R * (cos(t) - 1)), (float)(R * sin(t))});
   }
-  s.sf = {sfLat, sfLon, 15};
+  s.sf = {sfLat, sfLon, 15, heading, from};
   s.splits = {{sfLat, sfLon - 2 * R / metresPerDegLon(sfLat), 15}};
 
   vbo::Header h;
@@ -227,14 +219,11 @@ static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t sta
   h.month = 10;
   h.day = 18;
   h.utcMs = startUtc;
-  char buf[96];
   h.comments = {"Track Rat GPS lap timer", "Started: 20261018_235800", "Type: laps", "Track: test",
                 "Track name: Test Circle"};
-  if (lineInHeader) {
-    snprintf(buf, sizeof(buf), "Start/finish: %.7f %.7f %.1f", s.sf.lat, s.sf.lon, s.sf.radius);
-    h.comments.push_back(buf);
-    snprintf(buf, sizeof(buf), "Split 1: %.7f %.7f %.1f", s.splits[0].lat, s.splits[0].lon, s.splits[0].radius);
-    h.comments.push_back(buf);
+  if (lineInHeader) {  // as SessionLog::beginTrackLog writes them
+    h.comments.push_back("Start/finish: " + vbo::pointText(s.sf));
+    h.comments.push_back("Split 1: " + vbo::pointText(s.splits[0]));
     CHECK(vbo::gateFromMap(map, sfLat, sfLon, s.sf, h.start), "start gate");
     h.hasStart = true;
     vbo::Gate sg;
@@ -249,7 +238,7 @@ static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t sta
   s.live.begin(s.sf, s.splits);
   vbo::GForce g;
   double angle = -0.2;
-  for (int i = 0; s.live.lapCount() < 5 && i < 100000; i++) {
+  for (int i = 0; s.live.lapCount() < 5 && i < maxFixes; i++) {
     const double v = 30.0 + 3.0 * s.live.lapCount();
     double lat, lon;
     circlePos(angle, lat, lon);
@@ -326,9 +315,9 @@ static void checkLayout(const SessionFile& s, const char* where) {
 
 // Replays `text` in chunks of 1..maxChunk bytes.
 static void replay(SessionReplay& r, const std::string& text, size_t maxChunk, unsigned seed = 1) {
-  srand(seed);
+  testSeed(seed);
   for (size_t i = 0; i < text.size();) {
-    size_t n = 1 + rand() % maxChunk;
+    size_t n = 1 + testRand() % maxChunk;
     if (n > text.size() - i) n = text.size() - i;
     r.feed(text.data() + i, n);
     i += n;
@@ -336,12 +325,15 @@ static void replay(SessionReplay& r, const std::string& text, size_t maxChunk, u
   r.finish();
 }
 
-static void checkSameLaps(const LapTimer& got, const LapTimer& want, size_t laps, const char* where) {
+// tolMs: positions in the log are rounded to about 2 cm, which can move a
+// crossing by half a millisecond at 150 km/h.
+static void checkSameLaps(const LapTimer& got, const LapTimer& want, size_t laps, const char* where, int tolMs = 1) {
   CHECK(got.lapCount() == laps, "%s: re-timed %zu laps, want %zu", where, got.lapCount(), laps);
   for (size_t i = 0; i < got.lapCount() && i < laps; i++) {
     int32_t d = (int32_t)got.lap(i).timeMs - (int32_t)want.lap(i).timeMs;
-    CHECK(abs(d) <= 1, "%s: lap %zu: re-timed %u ms, live %u ms", where, i + 1, got.lap(i).timeMs, want.lap(i).timeMs);
-    CHECK(got.lap(i).splitMs.size() == 1 && abs(got.lap(i).splitMs[0] - want.lap(i).splitMs[0]) <= 1,
+    CHECK(abs(d) <= tolMs, "%s: lap %zu: re-timed %u ms, live %u ms", where, i + 1, got.lap(i).timeMs,
+          want.lap(i).timeMs);
+    CHECK(got.lap(i).splitMs.size() == 1 && abs(got.lap(i).splitMs[0] - want.lap(i).splitMs[0]) <= tolMs,
           "%s: lap %zu split", where, i + 1);
   }
 }
@@ -442,6 +434,47 @@ static void testRecovery() {
     CHECK(!r.timed && r.timer.lapCount() == 0 && r.samples == (uint32_t)marked.fixes, "no line anywhere: untimed");
   }
   printf("  recovery: cut mid-line / in the last number / before LF dropped, trailing zeros ignored, line from track list\n");
+}
+
+// The start/finish's direction is recorded in the log, so a session is timed
+// again as it was live: a line set the other way never counts, and one
+// guessed backwards from the map is turned round in the replay as it was live.
+static void testLineDirections() {
+  TrackPoint q;
+  const TrackPoint set = {45.1234567, -76.7654321, 12.5f, 271.3f, HeadingFrom::Set};
+  CHECK(vbo::parsePoint(vbo::pointText(set), q) && q.headingFrom == HeadingFrom::Set &&
+            fabs(q.heading - 271.3f) < 0.06f && fabs(q.lat - set.lat) < 1e-7 && fabs(q.lon - set.lon) < 1e-7 &&
+            q.radius == 12.5f,
+        "set direction: %s", vbo::pointText(set).c_str());
+  TrackPoint guess = set;
+  guess.headingFrom = HeadingFrom::Map;
+  CHECK(vbo::parsePoint(vbo::pointText(guess), q) && q.headingFrom == HeadingFrom::Map, "guessed direction: %s",
+        vbo::pointText(guess).c_str());
+  TrackPoint none = set;
+  none.headingFrom = HeadingFrom::None;
+  CHECK(vbo::pointText(none) == "45.1234567 -76.7654321 12.5" && vbo::parsePoint(vbo::pointText(none), q) &&
+            !q.hasHeading(),
+        "no direction: %s", vbo::pointText(none).c_str());
+  CHECK(!vbo::parsePoint("", q) && !vbo::parsePoint("45.1 x", q), "not a point");
+
+  struct Case {
+    const char* name;
+    float heading;
+    HeadingFrom from;
+    size_t laps;  // timed live: the car crosses the line heading north
+  };
+  const Case cases[] = {{"set the right way", 0, HeadingFrom::Set, 5},
+                        {"set the wrong way", 180, HeadingFrom::Set, 0},
+                        {"guessed backwards", 180, HeadingFrom::Map, 5}};
+  for (const Case& c : cases) {
+    SessionFile s;
+    makeSession(s, 37.0, -122.0, 86400000 - 120000, true, c.heading, c.from, 4000);
+    CHECK(s.live.lapCount() == c.laps, "%s: %zu laps live, want %zu", c.name, s.live.lapCount(), c.laps);
+    SessionReplay r;
+    replay(r, s.text, 4096);
+    checkSameLaps(r.timer, s.live, s.live.lapCount(), c.name, 2);
+    printf("  line %s: %zu laps live, %zu re-timed from the log\n", c.name, s.live.lapCount(), r.timer.lapCount());
+  }
 }
 
 // Free Roam: 2 km north at 72 km/h, 20 Hz, across UTC midnight.
@@ -573,6 +606,7 @@ int main() {
   testGate();
   testHemispheres();
   testRecovery();
+  testLineDirections();
   testFreeRoamRecovery();
   testLogRingThreads();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);

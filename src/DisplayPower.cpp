@@ -6,25 +6,10 @@
 
 #include "DisplayManager.h"
 #include "Config.h"
+#include "DisplayStyle.h"
+#include "Power.h"
 
-static const int W = 320;
-static const int H = 240;
-static const int HEADER_H = 26;
-static const int FOOTER_Y = 202;
-static const uint16_t C_BG = TFT_BLACK;
-static const uint16_t C_TEXT = TFT_WHITE;
-static const uint16_t C_DIM = TFT_DARKGREY;
-static const uint16_t C_HEADER = 0x10A2;
-static const uint16_t C_BUTTON = 0x2124;
-
-void DisplayManager::setBacklight(bool on) {
-#ifdef TFT_BL
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, on ? HIGH : LOW);
-#else
-  (void)on;
-#endif
-}
+void DisplayManager::setBacklight(bool on) { Power::backlight(on); }
 
 void DisplayManager::powerDown() {
   beginFrame();

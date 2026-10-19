@@ -74,7 +74,6 @@ void update(uint32_t nowMs) {
 #endif
 }
 
-bool batteryPresent() { return BATTERY_ENABLED && monitor.present(); }
 int batteryPercent() { return BATTERY_ENABLED ? monitor.percent() : -1; }
 int batteryMillivolts() { return BATTERY_ENABLED ? monitor.millivolts() : 0; }
 bool batteryLow(uint32_t nowMs) { return BATTERY_ENABLED && monitor.low(nowMs); }

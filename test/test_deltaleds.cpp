@@ -10,17 +10,7 @@
 #include "AddOns.h"
 #include "DeltaLeds.h"
 #include "LapTimer.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 static bool isOff(const Rgb& c) { return c.r == 0 && c.g == 0 && c.b == 0; }
 
