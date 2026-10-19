@@ -105,6 +105,40 @@
 #define LOG_FLUSH_MS 1000
 
 // ---------------------------------------------------------------------------
+// Battery (3.7 V LiPo on the board's socket, TP4054 charger, voltage on IO9)
+// The board divides the battery voltage by 2 (two 200 k resistors) before IO9.
+// ---------------------------------------------------------------------------
+#define BATTERY_ENABLED 1
+#define BATTERY_ADC_PIN 9
+#define BATTERY_DIVIDER_RATIO 2.0f   // 200 k + 200 k
+#define BATTERY_CAL_OFFSET_MV 0      // trim against a multimeter on the battery (+ reads higher)
+#define BATTERY_SAMPLES 16           // ADC readings averaged each time
+#define BATTERY_READ_MS 1000         // how often the voltage is read
+// No battery fitted: the pin floats low, or the charger holds the empty socket at its float voltage.
+#define BATTERY_PRESENT_MIN_MV 2500
+#define BATTERY_PRESENT_MAX_MV 4230
+#define BATTERY_PRESENT_HYST_MV 30
+#define BATTERY_ABSENT_SAMPLES 5     // this many bad readings in a row (1 s apart) = no battery
+#define BATTERY_LOW_MV 3300          // save the session and sleep at or below this...
+#define BATTERY_LOW_HOLD_MS 10000    // ...for this long
+#define BATTERY_LOW_SCREEN_MS 5000   // how long the "battery low" message shows before sleeping
+
+// ---------------------------------------------------------------------------
+// Auto-sleep: parked with no touch or BOOT press. Waking is by BOOT (IO0) or a touch (INT, IO17).
+// ---------------------------------------------------------------------------
+#define AUTO_SLEEP_ENABLED 1
+#define AUTO_SLEEP_IDLE_MS (20UL * 60UL * 1000UL)  // parked and untouched this long: backlight off
+#define AUTO_SLEEP_DEEP_AFTER_MS (60UL * 1000UL)   // backlight off this long: deep sleep
+#define AUTO_SLEEP_MOVING_KMH 5.0                  // at or above this speed the car counts as moving
+
+// ---------------------------------------------------------------------------
+// Firmware update from the SD card
+// ---------------------------------------------------------------------------
+#define FIRMWARE_FILE "/trackrat.bin"
+#define FIRMWARE_DONE_FILE "/trackrat.installed.bin"  // the file is renamed to this after a successful install
+#define FIRMWARE_PROMPT_TIMEOUT_MS 30000              // no answer in this time = skip
+
+// ---------------------------------------------------------------------------
 // Debug output (USB serial)
 // ---------------------------------------------------------------------------
 #ifndef DEBUG_MODE
