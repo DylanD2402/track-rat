@@ -24,7 +24,7 @@ static int failures = 0;
   } while (0)
 
 // Same numbers as include/Config.h
-static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30}; }
+static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5}; }
 
 static void testVoltageToPercent() {
   using battery::percentFromMv;
@@ -82,12 +82,25 @@ static void testPresence() {
   h.addSample(2000, 4150);
   CHECK(h.present(), "not present at 4.15 V");
 
-  // A battery pulled out while running
+  // A battery pulled out while running: gone after a few seconds, not on the first odd reading
   battery::Monitor pulled(limits());
   for (int t = 0; t < 10; t++) pulled.addSample(t * 1000, 3700);
   CHECK(pulled.present(), "present");
   pulled.addSample(10000, 30);
+  CHECK(pulled.present(), "one zero reading hid the gauge");
+  for (int t = 11; t < 15; t++) pulled.addSample(t * 1000, 30);
   CHECK(!pulled.present() && pulled.percent() == -1, "still present after removal");
+
+  // Isolated ADC glitches (a spike up, a dip to zero) never hide the gauge or restart the low timer
+  battery::Monitor glitchy(limits());
+  uint32_t gt = 0;
+  for (int i = 0; i < 400; i++, gt += 1000) {
+    int mv = 3250;  // low the whole time
+    if (i % 17 == 5) mv = 4300;
+    if (i % 23 == 7) mv = 0;
+    glitchy.addSample(gt, mv);
+  }
+  CHECK(glitchy.present() && glitchy.low(gt), "isolated glitches reset presence or the low timer");
   printf("  no battery (0 V or float voltage) shows nothing; real battery shows %d%%\n", m.percent());
 }
 
@@ -125,7 +138,7 @@ static void testLow() {
   CHECK(!s.low(u), "low while charged");
 
   // Battery pulled out while low: not low any more
-  m.addSample(t, 20);
+  for (int i = 0; i < 5; i++) m.addSample(t + i * 1000, 20);
   CHECK(!m.low(t + 60000), "low with no battery");
 
   // The hold time is measured with unsigned arithmetic, so it survives millis() wrapping
@@ -231,6 +244,210 @@ static void testFirmwareImage() {
   printf("  firmware file: good image accepted; text, bootloader, wrong chip, too big, too small refused\n");
 }
 
+// ---------------------------------------------------------------------------
+// Chunked copy: the same loop the SD installer runs, with a fake file and fake flash
+// ---------------------------------------------------------------------------
+struct FakeFlash {
+  std::vector<uint8_t> data;
+  size_t failAfter = (size_t)-1;  // write fails once this many bytes are in
+};
+
+static void testCopyImage() {
+  using firmware::Copy;
+  std::vector<uint8_t> src(10000);
+  for (size_t i = 0; i < src.size(); i++) src[i] = (uint8_t)(i * 31 + 7);
+  uint8_t buf[4096];
+
+  auto run = [&](size_t total, FakeFlash& fl, size_t readLimit, std::vector<size_t>* marks) {
+    size_t pos = 0;
+    return firmware::copyImage(
+        total, buf, sizeof(buf),
+        [&](uint8_t* b, size_t want) -> size_t {
+          size_t n = want;
+          if (pos + n > readLimit) n = readLimit > pos ? readLimit - pos : 0;  // the card ends early / is pulled
+          memcpy(b, src.data() + pos, n);
+          pos += n;
+          return n;
+        },
+        [&](const uint8_t* b, size_t n) {
+          if (fl.data.size() + n > fl.failAfter) return false;
+          fl.data.insert(fl.data.end(), b, b + n);
+          return true;
+        },
+        [&](size_t done, size_t) {
+          if (marks) marks->push_back(done);
+        });
+  };
+
+  FakeFlash ok;
+  std::vector<size_t> marks;
+  CHECK(run(src.size(), ok, src.size(), &marks) == Copy::Ok, "copy failed");
+  CHECK(ok.data == src, "copied bytes differ");
+  CHECK(marks.front() == 0 && marks.back() == src.size(), "progress didn't run 0 to total");
+  bool rising = true;
+  for (size_t i = 1; i < marks.size(); i++)
+    if (marks[i] <= marks[i - 1]) rising = false;
+  CHECK(rising, "progress not strictly rising");
+  CHECK(marks.size() == 4, "progress calls %zu (want 0, 4096, 8192, 10000)", marks.size());
+
+  FakeFlash exact;  // exact multiple of the buffer
+  CHECK(run(8192, exact, 8192, nullptr) == Copy::Ok && exact.data.size() == 8192, "exact multiple");
+
+  FakeFlash none;  // nothing to copy
+  CHECK(run(0, none, 0, nullptr) == Copy::Ok && none.data.empty(), "empty copy");
+
+  FakeFlash cut;  // card pulled half way
+  CHECK(run(src.size(), cut, 5000, nullptr) == Copy::ReadError, "short file not reported");
+
+  FakeFlash bad;  // flash write fails in the second chunk
+  bad.failAfter = 4096;
+  CHECK(run(src.size(), bad, src.size(), nullptr) == Copy::WriteError, "write failure not reported");
+
+  // A read that claims more than was asked for is an error, not a buffer overrun
+  FakeFlash over;
+  Copy r = firmware::copyImage(
+      100, buf, sizeof(buf), [&](uint8_t*, size_t want) -> size_t { return want + 1; },
+      [&](const uint8_t*, size_t) { return true; }, [&](size_t, size_t) {});
+  CHECK(r == Copy::ReadError, "over-long read accepted");
+  printf("  installer copy loop: complete, empty, card pulled, flash error and over-read all handled\n");
+}
+
+// ---------------------------------------------------------------------------
+// End to end: the same calls main.cpp makes, driven by a synthetic day
+// ---------------------------------------------------------------------------
+
+// Noise generator so the tests don't depend on <random>
+static uint32_t rngState = 12345;
+static int noise(int amplitude) {
+  rngState = rngState * 1664525u + 1013904223u;
+  return (int)((rngState >> 8) % (2 * amplitude + 1)) - amplitude;
+}
+
+static void testDrivingDay() {
+  const uint32_t IDLE = 20 * 60 * 1000, DEEP = 60 * 1000;
+  SleepTimer sleep(IDLE, DEEP);
+  battery::Monitor bat(limits());
+  sleep.begin(0);
+
+  uint32_t drivingUntil = 30 * 60 * 1000;  // 30 min session, then parked
+  uint32_t touchAt = drivingUntil + 5 * 60 * 1000;  // 5 min after parking the driver pokes the screen
+  uint32_t screenOffAt = 0, deepAt = 0;
+  bool touchedScreenWasOff = true;
+  int lowAt = -1, minPercent = 101;
+  int prevPercent = 101;
+  bool percentOnlyFell = true;
+  bool slept = false;
+
+  uint32_t t = 0;
+  for (; t < 3 * 60 * 60 * 1000 && !slept; t += 100) {
+    bool movingFix = t < drivingUntil && (t % 100 == 0);  // 10 Hz fixes at 95 km/h while driving
+    if (movingFix) sleep.activity(t);
+    if (t == touchAt) touchedScreenWasOff = sleep.activity(t);  // a touch
+
+    // Battery: 4.15 V falling to 3.25 V over the three hours, with ADC noise; one reading a second
+    if (t % 1000 == 0) {
+      int mv = 4150 - (int)((900ull * t) / (3ull * 60 * 60 * 1000)) + noise(25);
+      bat.addSample(t, mv);
+      if (bat.present()) {
+        int p = bat.percent();
+        if (p > prevPercent + 3) percentOnlyFell = false;  // the curve is steep in places: allow a little jitter
+        prevPercent = p;
+        minPercent = p < minPercent ? p : minPercent;
+      }
+      if (bat.low(t) && lowAt < 0) lowAt = (int)(t / 60000);
+    }
+
+    SleepAction a = sleep.update(t, false);
+    if (a == SleepAction::ScreenOff && !screenOffAt) screenOffAt = t;
+    if (a == SleepAction::DeepSleep) {
+      deepAt = t;
+      slept = true;
+    }
+  }
+
+  // Parked at 30 min, touched at 35 min: the touch restarts the 20 minutes
+  CHECK(!touchedScreenWasOff, "screen was off 5 min after parking");
+  CHECK(screenOffAt == touchAt + IDLE, "screen off at %u s, want %u s", screenOffAt / 1000, (touchAt + IDLE) / 1000);
+  CHECK(deepAt == touchAt + IDLE + DEEP, "deep sleep at %u s, want %u s", deepAt / 1000,
+        (touchAt + IDLE + DEEP) / 1000);
+  CHECK(screenOffAt > drivingUntil + IDLE, "slept before 20 min of parking");
+  // 55 min in the battery is still around 4.0 V: no low-battery sleep, and the gauge only fell
+  CHECK(lowAt < 0, "low battery fired at %d min with a 4.0 V battery", lowAt);
+  CHECK(percentOnlyFell, "percentage rose while the battery drained");
+  CHECK(minPercent > 50, "percentage fell to %d%% by the time it slept", minPercent);
+  printf("  synthetic day: 30 min drive, touch at 35 min, backlight off at %u min, deep sleep at %u min 1 s\n",
+         screenOffAt / 60000, deepAt / 60000);
+}
+
+static void testDrainToLow() {
+  battery::Monitor bat(limits());
+  int lowAtMv = 0, lowAtMin = -1;
+  int prev = 101;
+  bool monotonic = true;
+  // 4.2 V to 3.0 V over 4 hours, noisy; the unit should call low once it has been at or under 3.30 V for 10 s
+  const uint32_t total = 4 * 60 * 60 * 1000;
+  for (uint32_t t = 0; t < total; t += 1000) {
+    int trueMv = 4200 - (int)((1200ull * t) / total);
+    bat.addSample(t, trueMv + noise(20));
+    if (bat.present()) {
+      if (bat.percent() > prev + 3) monotonic = false;
+      prev = bat.percent();
+    }
+    if (bat.low(t)) {
+      lowAtMv = trueMv;
+      lowAtMin = (int)(t / 60000);
+      break;
+    }
+  }
+  CHECK(lowAtMin > 0, "never reported low");
+  CHECK(lowAtMv <= 3320 && lowAtMv >= 3250, "low reported at true %d mV", lowAtMv);
+  CHECK(monotonic, "percentage rose during discharge");
+  printf("  discharge: low reported at about %d mV, %d min in\n", lowAtMv, lowAtMin);
+}
+
+static void testNoisyAndFloating() {
+  // A healthy battery with +/-40 mV of ADC noise: always present, never low, no flicker
+  battery::Monitor h(limits());
+  int transitions = 0;
+  bool was = false;
+  bool everLow = false;
+  for (uint32_t t = 0; t < 600000; t += 1000) {
+    h.addSample(t, 3850 + noise(40));
+    if (h.present() != was) transitions++;
+    was = h.present();
+    if (h.low(t)) everLow = true;
+  }
+  CHECK(transitions == 1 && !everLow, "healthy battery: %d presence changes, low=%d", transitions, everLow);
+
+  // Empty socket on USB: the charger's float voltage wobbling either side of the upper limit must not
+  // make the gauge flicker on and off
+  battery::Monitor f(limits());
+  transitions = 0;
+  was = false;
+  for (uint32_t t = 0; t < 600000; t += 1000) {
+    f.addSample(t, 4240 + noise(35));  // 4.205 to 4.275 V
+    if (f.present() != was) transitions++;
+    was = f.present();
+  }
+  CHECK(transitions <= 2, "floating charger: gauge changed %d times in 10 min", transitions);
+
+  // Pin shorted / floating at the ADC floor, and ADC reading garbage high
+  battery::Monitor z(limits());
+  for (uint32_t t = 0; t < 60000; t += 1000) z.addSample(t, 0);
+  CHECK(!z.present() && !z.low(60000), "zero reading");
+  battery::Monitor g(limits());
+  for (uint32_t t = 0; t < 60000; t += 1000) g.addSample(t, 9000);
+  CHECK(!g.present() && !g.low(60000), "huge reading");
+
+  // USB plugged in while the battery is low and the unit hasn't slept yet: charging pulls the reading up
+  battery::Monitor c(limits());
+  uint32_t t = 0;
+  for (; t < 8000; t += 1000) c.addSample(t, 3250);  // low for 8 s
+  for (; t < 30000; t += 1000) c.addSample(t, 3600);  // USB in, charging
+  CHECK(!c.low(t), "low still reported after charging started");
+  printf("  noisy readings, floating charger, garbage readings and charging all behave\n");
+}
+
 int main() {
   printf("Power tests\n");
   testVoltageToPercent();
@@ -239,6 +456,10 @@ int main() {
   testLow();
   testSleepTimer();
   testFirmwareImage();
+  testCopyImage();
+  testDrivingDay();
+  testDrainToLow();
+  testNoisyAndFloating();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

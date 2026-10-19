@@ -60,30 +60,19 @@ const char* install(const Offer& offer, void (*progress)(size_t done, size_t tot
     return "out of memory";
   }
 
-  size_t done = 0;
-  const char* error = nullptr;
-  if (progress) progress(0, offer.size);
-  while (done < offer.size) {
-    size_t want = min((size_t)4096, offer.size - done);
-    size_t got = f.read(buf, want);
-    if (got == 0) {
-      error = "read error: is the card still in?";
-      break;
-    }
-    if (Update.write(buf, got) != got) {
-      DEBUG_PRINTF("Firmware: write failed: %s\n", Update.errorString());
-      error = "flash write failed";
-      break;
-    }
-    done += got;
-    if (progress) progress(done, offer.size);
-  }
+  firmware::Copy copied = firmware::copyImage(
+      offer.size, buf, 4096, [&](uint8_t* b, size_t want) { return f.read(b, want); },
+      [&](const uint8_t* b, size_t n) { return Update.write((uint8_t*)b, n) == n; },
+      [&](size_t done, size_t total) {
+        if (progress) progress(done, total);
+      });
   free(buf);
   f.close();
 
-  if (error) {
+  if (copied != firmware::Copy::Ok) {
+    DEBUG_PRINTF("Firmware: copy failed: %s\n", Update.errorString());
     Update.abort();
-    return error;
+    return copied == firmware::Copy::ReadError ? "read error: is the card still in?" : "flash write failed";
   }
   if (!Update.end(true) || !Update.isFinished()) {  // checks the image, then makes the new slot the boot slot
     DEBUG_PRINTF("Firmware: Update.end failed: %s\n", Update.errorString());

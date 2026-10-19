@@ -51,6 +51,7 @@ struct Limits {
   int lowMv;            // at or below this the battery is nearly flat
   uint32_t lowHoldMs;   // ... for this long, so a bump or a load spike doesn't trigger it
   int hysteresisMv;     // margin before "no battery" clears again (stops the gauge flickering at the limit)
+  int absentAfter;      // this many out-of-range readings in a row = no battery (one ADC glitch isn't)
 };
 
 class Monitor {
@@ -64,7 +65,10 @@ public:
     if (fitted) inRange = mv >= lim.presentMinMv && mv <= lim.presentMaxMv;
     else inRange = mv >= lim.presentMinMv + lim.hysteresisMv && mv <= lim.presentMaxMv - lim.hysteresisMv;
 
-    if (!inRange) {
+    if (inRange) {
+      outOfRange = 0;
+    } else {
+      if (fitted && ++outOfRange < lim.absentAfter) return;  // a lone bad reading changes nothing
       fitted = false;
       haveAverage = false;  // start again from a clean average if a battery appears
       lowSince = 0;
@@ -73,13 +77,13 @@ public:
     }
     fitted = true;
     if (!haveAverage) {
-      avgMv = mv;
+      avg16 = mv * 16;
       haveAverage = true;
     } else {
-      avgMv += (mv - avgMv) / 4;  // 1 s samples: settles in a few seconds
+      avg16 += (mv * 16 - avg16) / 8;  // 1 s samples: settles in about 10 s; x16 keeps the fraction
     }
 
-    if (avgMv <= lim.lowMv) {
+    if (avg16 <= lim.lowMv * 16) {
       if (!lowTiming) {
         lowTiming = true;
         lowSince = nowMs;
@@ -90,8 +94,8 @@ public:
   }
 
   bool present() const { return fitted && haveAverage; }
-  int millivolts() const { return present() ? avgMv : 0; }
-  int percent() const { return present() ? percentFromMv(avgMv) : -1; }
+  int millivolts() const { return present() ? (avg16 + 8) / 16 : 0; }
+  int percent() const { return present() ? percentFromMv(millivolts()) : -1; }
 
   // Low for long enough that the unit should save and sleep. Never true when no battery is fitted.
   bool low(uint32_t nowMs) const {
@@ -101,8 +105,9 @@ public:
 private:
   Limits lim;
   bool fitted = false;
+  int outOfRange = 0;
   bool haveAverage = false;
-  int avgMv = 0;
+  int avg16 = 0;  // smoothed mV x 16
   bool lowTiming = false;
   uint32_t lowSince = 0;
 };

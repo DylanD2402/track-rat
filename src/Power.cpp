@@ -11,7 +11,7 @@
 namespace Power {
 
 static battery::Monitor monitor({BATTERY_PRESENT_MIN_MV, BATTERY_PRESENT_MAX_MV, BATTERY_LOW_MV, BATTERY_LOW_HOLD_MS,
-                                 BATTERY_PRESENT_HYST_MV});
+                                 BATTERY_PRESENT_HYST_MV, BATTERY_ABSENT_SAMPLES});
 static uint32_t lastRead = 0;
 static uint32_t lastLog = 0;
 static bool firstRead = true;
@@ -43,7 +43,6 @@ static int readBatteryMv(int* pinMvOut) {
   uint32_t sum = 0;
   for (int i = 0; i < BATTERY_SAMPLES; i++) {
     sum += analogReadMilliVolts(BATTERY_ADC_PIN);
-    delayMicroseconds(200);
   }
   int pinMv = (int)(sum / BATTERY_SAMPLES);
   if (pinMvOut) *pinMvOut = pinMv;
@@ -91,7 +90,7 @@ void backlight(bool on) {
 
 void deepSleep() {
   DEBUG_PRINTLN("Power: deep sleep (BOOT or touch wakes it)");
-  Serial.flush();
+  delay(50);  // let the log line out (Serial.flush() could wait on a USB host that isn't there)
 
   backlight(false);
 #ifdef TFT_BL
@@ -104,7 +103,16 @@ void deepSleep() {
   while ((digitalRead(BOOT_BUTTON_PIN) == LOW || digitalRead(TOUCH_INT) == LOW) && millis() - start < 3000) delay(10);
 
   // BOOT is IO0 (pulled up on the board, low when pressed); touch INT is IO17 (low while touched).
-  esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_PIN) | (1ULL << TOUCH_INT), ESP_EXT1_WAKEUP_ANY_LOW);
+  // A pin that is still low now (stuck button, touch chip holding INT low) would wake the board
+  // immediately, so it is left out of this sleep.
+  uint64_t mask = 0;
+  if (digitalRead(BOOT_BUTTON_PIN) == HIGH) mask |= 1ULL << BOOT_BUTTON_PIN;
+  if (digitalRead(TOUCH_INT) == HIGH) mask |= 1ULL << TOUCH_INT;
+  if (mask) {
+    esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
+  } else {
+    esp_sleep_enable_timer_wakeup(10ULL * 1000000ULL);  // nothing usable to wake on: try again in 10 s
+  }
   esp_deep_sleep_start();
   while (true) {}  // never reached
 }

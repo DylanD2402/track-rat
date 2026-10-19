@@ -114,6 +114,7 @@
 #define BATTERY_PRESENT_MIN_MV 2500
 #define BATTERY_PRESENT_MAX_MV 4230
 #define BATTERY_PRESENT_HYST_MV 30
+#define BATTERY_ABSENT_SAMPLES 5     // this many bad readings in a row (1 s apart) = no battery
 #define BATTERY_LOW_MV 3300          // save the session and sleep at or below this...
 #define BATTERY_LOW_HOLD_MS 10000    // ...for this long
 #define BATTERY_LOW_SCREEN_MS 5000   // how long the "battery low" message shows before sleeping

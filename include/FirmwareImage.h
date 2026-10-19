@@ -44,6 +44,26 @@ inline Check check(const uint8_t* head, size_t headLen, size_t fileSize, size_t 
   return Check::Ok;
 }
 
+enum class Copy { Ok, ReadError, WriteError };
+
+// Copy `total` bytes from read() to write() in chunks, reporting progress. read(buf, want) returns the
+// bytes read (0 = failed); write(buf, n) returns true if all n were written. A short or failed read or
+// write stops the copy: a half-written image is never accepted.
+template <class ReadFn, class WriteFn, class ProgressFn>
+inline Copy copyImage(size_t total, uint8_t* buf, size_t bufSize, ReadFn read, WriteFn write, ProgressFn progress) {
+  size_t done = 0;
+  progress(done, total);
+  while (done < total) {
+    size_t want = total - done < bufSize ? total - done : bufSize;
+    size_t got = read(buf, want);
+    if (got == 0 || got > want) return Copy::ReadError;
+    if (!write(buf, got)) return Copy::WriteError;
+    done += got;
+    progress(done, total);
+  }
+  return Copy::Ok;
+}
+
 inline const char* describe(Check c) {
   switch (c) {
     case Check::Ok: return "ok";
