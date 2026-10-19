@@ -61,8 +61,12 @@ bool logging();
 uint32_t fixesLogged();  // in the current (or last) log
 
 // At boot: any session whose log has no finished summary (the power went
-// off mid-session) gets its summary rebuilt from the log.
+// off mid-session) gets its summary rebuilt from the log. Returns at once:
+// a task on core 0 replays the logs (about 6 s per hour of log) using a copy
+// of the tracks' lines taken now. This boot's sessions never share a file
+// name with a log being recovered, and are left alone by it.
 void recoverUnfinished(const TrackDatabase& tracks);
+bool recovering();  // the recovery task is still running
 
 String fileName(const String& path);  // "/sessions/a.vbo" -> "a.vbo"
 

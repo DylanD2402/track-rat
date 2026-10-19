@@ -833,7 +833,7 @@ void setup() {
 #endif
 
   addBenchTrack();
-  SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut
+  SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut, in the background
 
   // Keep reading the GPS while the logo plays, so a fix found in the
   // meantime skips the waiting-for-GPS screen entirely.
@@ -913,11 +913,11 @@ void loop() {
                (unsigned long)SessionLog::fixesLogged(), (unsigned long)(LogWriter::bytesWritten() / 1024),
                (unsigned long)LogWriter::bufferedBytes(), (unsigned long)LogWriter::slowestWriteMs());
     }
-    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s%s\n",
+    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s%s%s\n",
                  gps.receivingData() ? "yes" : "NO", gps.usingUbx() ? "UBX" : "NMEA", gps.satellites(),
                  gps.usingUbx() ? "pdop" : "hdop", gps.hdop(), gps.accuracyM(), gps.hasFix() ? "yes" : "no",
                  gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "",
-                 logInfo);
+                 logInfo, SessionLog::recovering() ? " (recovering old sessions)" : "");
   }
 
   if (!sleepTimer.screenOff() && (lastRender == 0 || now - lastRender >= 1000 / DISPLAY_FPS)) {
