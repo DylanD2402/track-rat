@@ -4,6 +4,9 @@
  * ILI9341V 320x240 (landscape) via TFT_eSPI. Every screen is drawn into a
  * full-screen sprite in PSRAM and pushed in one go, so there is no flicker.
  * Screens are stateless: main.cpp passes in what to show.
+ *
+ * Text is Inter, anti-aliased (TFT_eSPI smooth fonts made by
+ * tools/make_fonts.py). Colours and layout are in UiTheme.h.
  */
 
 #ifndef DISPLAY_MANAGER_H
@@ -31,6 +34,11 @@ struct RunningOverlay {
 
 class DisplayManager {
 public:
+  // Text styles, in the order of the fonts made by tools/make_fonts.py.
+  // NumL and NumXL have digits and ":.+-%" only; Hero has capitals and digits only.
+  enum class Font : uint8_t { Caption, Body, Button, Title, Hero, NumL, NumXL };
+  static const uint8_t* fontData(Font f);  // for TFT_eSPI loadFont() on another sprite (the splash)
+
   bool begin();
 
   void drawBoot(const char* status);
@@ -73,9 +81,10 @@ public:
   void drawWifi(bool wifiOn, const String& network, const String& address, int phones, int uploadCode,
                 int progress, bool restarting, bool touchOk);
 
-  // WI-FI buttons, in the right third: on the menu from MENU_WIFI_Y to 186,
-  // on the summaries from WIFI_BUTTON_Y to the bottom
+  // WI-FI buttons, in the right third: on the menu from MENU_WIFI_Y to
+  // MENU_WIFI_Y + MENU_ROW_H, on the summaries from WIFI_BUTTON_Y to the bottom
   static constexpr int MENU_WIFI_Y = 154;
+  static constexpr int MENU_ROW_H = 34;
   static constexpr int WIFI_BUTTON_Y = 196;
 
 private:
@@ -87,6 +96,14 @@ private:
   uint16_t* shown = nullptr;  // copy of the panel contents (PSRAM)
   bool shownValid = false;
   int batteryPct = -1;
+
+  int loadedFont = -1;
+  void useFont(Font f);
+  // Draws s with its `datum` point (TFT_eSPI TL_DATUM, MC_DATUM...) at x, y. Returns its width.
+  int text(const String& s, int x, int y, Font f, uint16_t color, uint8_t datum = TL_DATUM);
+  int textWidth(const String& s, Font f);
+  String fit(const String& s, Font f, int maxW);  // shortened with "…" to fit maxW
+  void label(const char* s, int x, int y, uint8_t datum = TL_DATUM);  // small grey caption
 
   void beginFrame();
   void endFrame();
@@ -103,7 +120,13 @@ private:
   void runningOverlays(const GPSHandler& gps, uint32_t holdMs, const RunningOverlay* ov = nullptr);
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);
-  void centered(const String& s, int y, int font, uint16_t color);
+  void button(int x, int y, int w, int h, const char* label, bool primary, bool highlight = false);
+  void holdToEnd(uint32_t holdMs, const char* what);
+  // Centred on the screen; a Title too wide for the screen drops to Body, then is shortened
+  void centered(const String& s, int y, Font f, uint16_t color);
+  // Performance cards (DisplayPerf.cpp)
+  void perfBigValue(float value, int decimals, const char* unit, int y, uint16_t color);
+  void perfRow(int y, const char* label, const String& value, const String& extra, uint16_t valueColor);
   String distanceText(double m);
 };
 

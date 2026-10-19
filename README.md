@@ -317,6 +317,24 @@ This writes `include/logo_image.h`. Rebuild and flash to see the new logo.
 - **Wave shape:** `BAND`, `AMP` and `WAVELEN` in `include/SplashSweep.h`.
 - **Turning it off:** set `SPLASH_ENABLED` to `0` in `include/Config.h`.
 
+## Screen design and fonts
+
+Every screen uses **Inter**, an open-source typeface (SIL Open Font License, see `include/fonts/OFL.txt`) drawn in the style of Apple's San Francisco. Text is anti-aliased, and digits are tabular, so a running lap time doesn't shift sideways as it counts. Big numbers use Inter Display, its tighter cut for large sizes. The Wi-Fi page uses the same typeface, served from the board (`web/fonts/`), since the phone has no internet on Track Rat's network.
+
+- **Colours and layout:** `include/UiTheme.h`. True black, raised grey cards, and one bright colour per meaning: green ahead or best, red behind or no fix, yellow waiting, orange go, blue Wi-Fi and Bluetooth. Text on a coloured block is black, which holds up better in sun.
+- **Changing a font size or weight:** edit `FONTS` in `tools/make_fonts.py` and run it. It needs Inter's `.otf` files (the [release zip](https://github.com/rsms/inter/releases), or `fonts-inter` on Debian/Ubuntu) and `pip install pillow fonttools`. It rewrites `include/fonts/*.h`; rebuild and flash.
+
+### Seeing the screens without the board
+
+`tools/render_screens.py` builds the real screen code on your PC against a stand-in for the display library, drives a simulated car round a track from `data/tracks.json` through the real lap timer, and saves every screen as a PNG, plus a contact sheet of them all:
+
+```bash
+pip install pillow
+python tools/render_screens.py        # -> build/screens/*.png, build/screens/contact_sheet.png
+```
+
+Text is placed and drawn as on the board, with the same fonts; shapes are close but not pixel-identical. Needs g++.
+
 ## Track maps
 
 While timing, tap the screen (or press BOOT) to switch between the big clock and a **map view**. The map view shows the track layout with your car as a white dot, plus the lap time, live diff, best and last lap down the right-hand side.
@@ -411,7 +429,7 @@ Good to know:
 
 ### Changing the page
 
-The page is a single file, `web/index.html` (plain HTML and JavaScript, no libraries). `tools/build_web.py` gzips it into `data/web/index.html.gz` every time PlatformIO runs; it also puts the git version on the Device tab. To put a new page on the board:
+The page is a single file, `web/index.html` (plain HTML and JavaScript, no libraries), plus its fonts in `web/fonts/`. `tools/build_web.py` gzips the page into `data/web/index.html.gz` and copies the fonts to `data/web/fonts/` every time PlatformIO runs; it also puts the git version on the Device tab. To put a new page on the board:
 
 ```bash
 pio run -e es3c28p -t uploadfs
@@ -597,9 +615,10 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            Power (battery, sleep), FirmwareUpdate (SD card update)
            LedBar, DeltaLeds,
            PerfRun (acceleration/braking), PerfLog (performance summaries),
-           DisplayPerf (performance screens)
+           DisplayPerf (performance screens), DisplayPower (battery and update screens)
            WifiPortal (Wi-Fi page)
-web/       the Wi-Fi page (gzipped into data/web when building)
+include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
+web/       the Wi-Fi page and its fonts (copied into data/web when building)
 data/      tracks.json
 test/      host-side tests
 legacy/    the original Raspberry Pi / Python prototype

@@ -6,16 +6,10 @@
 
 #include "DisplayManager.h"
 #include "Config.h"
+#include "UiTheme.h"
 
-static const int W = 320;
-static const int H = 240;
-static const int HEADER_H = 26;
-static const int FOOTER_Y = 202;
-static const uint16_t C_BG = TFT_BLACK;
-static const uint16_t C_TEXT = TFT_WHITE;
-static const uint16_t C_DIM = TFT_DARKGREY;
-static const uint16_t C_HEADER = 0x10A2;
-static const uint16_t C_BUTTON = 0x2124;
+using namespace ui;
+using Font = DisplayManager::Font;
 
 void DisplayManager::setBacklight(bool on) {
 #ifdef TFT_BL
@@ -33,41 +27,36 @@ void DisplayManager::powerDown() {
   setBacklight(false);
 }
 
-// Full-screen notice: a title bar in `color`, then up to two lines.
+// Full-screen notice: a coloured title pill, then up to two lines.
 void DisplayManager::drawMessage(const char* title, const char* line1, const char* line2, uint16_t color) {
   beginFrame();
-  gfx->fillRect(0, 0, W, HEADER_H, color);
-  gfx->setTextDatum(MC_DATUM);
-  gfx->setTextColor(TFT_BLACK);
-  gfx->drawString(title, W / 2, HEADER_H / 2, 2);
-  gfx->setTextDatum(TL_DATUM);
-  if (line1 && line1[0]) centered(line1, 90, 4, C_TEXT);
-  if (line2 && line2[0]) centered(line2, 135, 2, C_DIM);
+  int w = textWidth(title, Font::Button) + 36;
+  gfx->fillRoundRect((W - w) / 2, 44, w, 32, 16, color);
+  text(title, W / 2, 61, Font::Button, C_BG, MC_DATUM);
+  if (line1 && line1[0]) centered(line1, 104, Font::Title, C_TEXT);
+  if (line2 && line2[0]) centered(line2, 140, Font::Body, C_TEXT2);
   endFrame();
 }
 
 void DisplayManager::drawFirmwarePrompt(const char* modified, uint32_t sizeBytes, bool touchOk) {
   beginFrame();
-  gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
-  gfx->setTextColor(C_TEXT);
-  gfx->drawString("FIRMWARE UPDATE", 6, 5, 2);
+  header("Firmware update", nullptr);
 
   char buf[64];
-  centered("trackrat.bin is on the SD card", 42, 2, C_TEXT);
+  centered("trackrat.bin is on the SD card", HEADER_H + 14, Font::Body, C_TEXT2);
   snprintf(buf, sizeof(buf), "%u KB", (unsigned)((sizeBytes + 512) / 1024));
-  centered(buf, 66, 4, C_TEXT);
+  centered(buf, HEADER_H + 38, Font::Title, C_TEXT);
   if (modified && modified[0]) {
     snprintf(buf, sizeof(buf), "File dated %s", modified);
-    centered(buf, 100, 2, C_DIM);
+    centered(buf, HEADER_H + 68, Font::Caption, C_TEXT2);
   }
-  centered("Install it, then restart?", 130, 2, C_TEXT);
+  centered("Install it, then restart?", 124, Font::Body, C_TEXT);
   if (touchOk) {
-    footerButtons("SKIP", "INSTALL", "SKIP");
-    centered("Tap INSTALL, or hold BOOT 1 s.", 156, 2, C_DIM);
-    centered("Anything else skips.", 176, 2, C_DIM);
+    footerButtons("Skip", "Install", "Skip");
+    centered("Or hold BOOT for 1 s. Anything else skips.", 160, Font::Caption, C_TEXT3);
   } else {
-    centered("Hold BOOT 1 s to install.", 160, 2, C_DIM);
-    centered("Any other press skips.", 180, 2, C_DIM);
+    centered("Hold BOOT for 1 s to install.", 156, Font::Body, C_TEXT2);
+    centered("Any other press skips.", 178, Font::Body, C_TEXT2);
   }
   endFrame();
 }
@@ -76,17 +65,15 @@ void DisplayManager::drawFirmwareProgress(int percent) {
   if (percent < 0) percent = 0;
   if (percent > 100) percent = 100;
   beginFrame();
-  gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
-  gfx->setTextColor(C_TEXT);
-  gfx->drawString("INSTALLING FIRMWARE", 6, 5, 2);
+  header("Installing firmware", nullptr);
 
   char buf[16];
   snprintf(buf, sizeof(buf), "%d%%", percent);
-  centered(buf, 70, 6, C_TEXT);
+  centered(buf, 66, Font::NumL, C_TEXT);
 
-  const int bx = 30, by = 140, bw = W - 60, bh = 24;
-  gfx->drawRect(bx, by, bw, bh, C_TEXT);
-  gfx->fillRect(bx + 2, by + 2, (bw - 4) * percent / 100, bh - 4, TFT_GREEN);
-  centered("Don't switch it off", 180, 2, C_DIM);
+  const int bx = 32, by = 136, bw = W - 64, bh = 12;
+  gfx->fillRoundRect(bx, by, bw, bh, bh / 2, C_SURFACE);
+  if (percent > 0) gfx->fillRoundRect(bx, by, max(bh, bw * percent / 100), bh, bh / 2, C_GREEN);
+  centered("Don't switch it off", 168, Font::Body, C_TEXT2);
   endFrame();
 }

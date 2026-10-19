@@ -38,12 +38,13 @@ static void drawPlaceholderLogo(TFT_eSprite& s) {
       s.fillRect(x * sq, s.height() - (2 - row) * sq, sq, sq, c);
     }
   s.setTextDatum(MC_DATUM);
-  s.setFreeFont(&FreeSansBoldOblique24pt7b);
-  s.setTextColor(TFT_WHITE);
-  s.drawString("TRACK RAT", w / 2, s.height() / 2 - 6);
-  s.setFreeFont(nullptr);
-  s.setTextColor(TFT_WHITE);
-  s.drawString("GPS LAP TIMER", w / 2, s.height() / 2 + 26, 2);
+  s.setTextColor(TFT_WHITE, TFT_BLACK);  // smooth fonts blend their edges with the background colour
+  s.loadFont(DisplayManager::fontData(DisplayManager::Font::Hero));
+  s.drawString("TRACK RAT", w / 2, s.height() / 2 - 8);
+  s.loadFont(DisplayManager::fontData(DisplayManager::Font::Caption));
+  s.setTextColor(0x9CD3, TFT_BLACK);  // grey
+  s.drawString("GPS LAP TIMER", w / 2, s.height() / 2 + 24);
+  s.unloadFont();
 }
 
 static bool bootPressed() { return digitalRead(BOOT_BUTTON_PIN) == LOW; }

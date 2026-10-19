@@ -9,7 +9,24 @@
 #include <LittleFS.h>
 #include <SD_MMC.h>
 
+// tracks.json is replaced by removing it and renaming the new copy into place
+// (FAT can't rename over a file): editFile() writes tracks.json.tmp, the
+// Wi-Fi page moves the old one to tracks.json.bak first. A power cut between
+// the two steps leaves no tracks.json; put the complete copy back.
+static void recoverTracksFile(fs::FS& fs, const char* name) {
+  if (fs.exists(TRACK_DATABASE_FILE)) return;
+  const String candidates[] = {String(TRACK_DATABASE_FILE) + ".tmp", String(TRACK_DATABASE_FILE) + ".bak"};
+  for (const String& c : candidates) {
+    if (fs.exists(c) && fs.rename(c, TRACK_DATABASE_FILE)) {
+      DEBUG_PRINTF("Tracks: %s%s was missing - restored it from %s\n", name, TRACK_DATABASE_FILE, c.c_str());
+      return;
+    }
+  }
+}
+
 void TrackDatabase::begin() {
+  if (Storage::sdMounted()) recoverTracksFile(SD_MMC, "SD");
+  if (Storage::flashMounted()) recoverTracksFile(LittleFS, "flash");
   if (Storage::sdMounted() && loadFrom(SD_MMC, "SD")) return;
   if (Storage::flashMounted() && loadFrom(LittleFS, "flash")) return;
   loadBuiltIn();

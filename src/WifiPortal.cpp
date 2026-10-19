@@ -40,7 +40,7 @@ static volatile uint32_t rebootAt = 0;
 // GPS status for the Device page, copied from loop() so handlers never read
 // the GPS handler while it's being updated.
 struct GpsSnapshot {
-  bool data, fix, simulated;
+  bool data, fix, simulated, ubx;
   uint8_t sats;
   float hdop, rateHz, speedKmh;
   double lat, lon;
@@ -219,7 +219,8 @@ static void sendInfo(AsyncWebServerRequest* req) {
   gps["fix"] = g.fix;
   gps["simulated"] = g.simulated;
   gps["satellites"] = g.sats;
-  gps["hdop"] = g.hdop;
+  gps["hdop"] = g.hdop;  // PDOP when ubx
+  gps["ubx"] = g.ubx;
   gps["rateHz"] = g.rateHz;
   gps["speedKmh"] = g.speedKmh;
   gps["rxPin"] = g.rxPin;
@@ -392,6 +393,10 @@ static void setupRoutes() {
     req->send(res);
   });
 
+  // The page's fonts (Inter), copied from web/fonts by tools/build_web.py. They
+  // only change with a new page, so phones may keep them.
+  s.serveStatic("/fonts/", LittleFS, "/web/fonts/").setCacheControl("max-age=86400");
+
   s.on("/api/info", HTTP_GET, sendInfo);
 
   s.on("/api/sessions", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -528,6 +533,7 @@ void loop(const GPSHandler& gps) {
     g.data = gps.receivingData();
     g.fix = gps.hasFix();
     g.simulated = gps.isSimulated();
+    g.ubx = gps.usingUbx();
     g.sats = gps.satellites();
     g.hdop = gps.hdop();
     g.rateHz = gps.fixRateHz();

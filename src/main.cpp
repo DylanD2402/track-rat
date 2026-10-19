@@ -30,6 +30,7 @@
 #include "SleepTimer.h"
 #include "Storage.h"
 #include "TrackDatabase.h"
+#include "UiTheme.h"
 #include "WifiPortal.h"
 
 enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi };
@@ -88,7 +89,6 @@ static bool perfDemo = false;       // bench test: a simulated car launches and 
 static String perfPath;
 static String perfStamp;
 static const perf::SpeedUnit PERF_UNITS = PERF_UNITS_MPH ? perf::SpeedUnit::Mph : perf::SpeedUnit::Kmh;
-static const int MENU_PERF_ROW_Y = 144;  // taps from here to +48 on the menu hit the Performance button (see drawMenu)
 
 static uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
@@ -499,7 +499,7 @@ static void handleInput(InputEvent ev) {
       if (ev == InputEvent::TapHeader) enterState(AppState::GpsStatus);
       else if ((ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight) &&
                input.lastTapY() >= DisplayManager::MENU_WIFI_Y &&
-               input.lastTapY() < DisplayManager::MENU_WIFI_Y + 32) {
+               input.lastTapY() < DisplayManager::MENU_WIFI_Y + DisplayManager::MENU_ROW_H) {
         chooseMenuItem(ev == InputEvent::TapRight ? 4 : 3);
       }
       else if (ev == InputEvent::TapLeft) chooseMenuItem(0);
@@ -653,7 +653,7 @@ static void render() {
     case AppState::Performance:
       if (perfRun.state() == perf::PerfRun::State::Go) perfView = PerfView::Live;  // a new run is on
       if (perfView == PerfView::Live) {
-        const char* left = (!gps.hasFix() && !perfDemo) ? "DEMO" : "1 FT";
+        const char* left = (!gps.hasFix() && !perfDemo) ? "Demo" : "1 ft";
         display.drawPerfLive(perfRun, gps, PERF_UNITS, left, input.touchHeldMs(), input.touchAvailable());
       } else {
         display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, PERF_UNITS, input.touchAvailable());
@@ -735,7 +735,7 @@ static void lowBatterySleep() {
   DEBUG_PRINTF("Battery low (%d mV): saving and sleeping\n", Power::batteryMillivolts());
   saveForSleep();
   display.setBacklight(true);
-  display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", TFT_YELLOW);
+  display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
   delay(BATTERY_LOW_SCREEN_MS);
   display.powerDown();
   Power::deepSleep();
@@ -760,7 +760,7 @@ static void offerFirmwareUpdate() {
   if (!FirmwareUpdate::find(offer)) return;
 
   if (offer.check != firmware::Check::Ok) {
-    display.drawMessage("FIRMWARE FILE SKIPPED", "Can't use trackrat.bin", firmware::describe(offer.check), TFT_RED);
+    display.drawMessage("FIRMWARE FILE SKIPPED", "Can't use trackrat.bin", firmware::describe(offer.check), ui::C_RED);
     delay(4000);
     return;
   }
@@ -793,11 +793,11 @@ static void offerFirmwareUpdate() {
   const char* error = FirmwareUpdate::install(offer, drawInstallProgress);
   if (error) {
     DEBUG_PRINTF("Firmware: install failed: %s\n", error);
-    display.drawMessage("UPDATE FAILED", error, "The old firmware is unchanged", TFT_RED);
+    display.drawMessage("UPDATE FAILED", error, "The old firmware is unchanged", ui::C_RED);
     delay(5000);
     return;
   }
-  display.drawMessage("UPDATE INSTALLED", "Restarting...", "", TFT_GREEN);
+  display.drawMessage("UPDATE INSTALLED", "Restarting…", "", ui::C_GREEN);
   delay(1500);
   ESP.restart();
 }
