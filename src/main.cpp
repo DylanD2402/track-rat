@@ -30,10 +30,12 @@
 #include "SleepTimer.h"
 #include "Storage.h"
 #include "TrackDatabase.h"
+#include "WifiPortal.h"
 
-enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance };
+enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
-                                    "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE"};
+                                    "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
+                                    "WIFI"};
 
 static DisplayManager display;
 static GPSHandler gps;
@@ -44,6 +46,7 @@ static FreeRoam freeRoam;
 
 static AppState state = AppState::GpsWait;
 static AppState statusReturn = AppState::Menu;  // where the GPS Status screen goes back to
+static AppState wifiReturn = AppState::Menu;    // where the Wi-Fi screen goes back to
 static int selectedIndex = 0;
 static int menuHighlight = 0;
 static bool autoPickDone = false;
@@ -216,6 +219,15 @@ static void enterState(AppState next) {
   }
 
   if (next == AppState::GpsStatus) statusReturn = state;
+
+  // Wi-Fi is on only while its screen is shown, never while timing.
+  if (next == AppState::Wifi) {
+    wifiReturn = state;
+    WifiPortal::start();
+  } else if (state == AppState::Wifi) {
+    WifiPortal::stop();
+  }
+
   state = next;
   lastRender = 0;  // redraw now
 }
@@ -462,8 +474,16 @@ static void chooseMenuItem(int item) {
     case 3:  // Performance: works without a fix too, for the bench demo
       enterState(AppState::Performance);
       break;
+    case 4:
+      enterState(AppState::Wifi);
+      break;
   }
   lastRender = 0;
+}
+
+// The WI-FI button, in the right third of the menu and summary screens
+static bool tappedWifi(InputEvent ev, int buttonTop) {
+  return ev == InputEvent::TapRight && input.lastTapY() >= buttonTop - 4;
 }
 
 static void handleInput(InputEvent ev) {
@@ -481,11 +501,14 @@ static void handleInput(InputEvent ev) {
     case AppState::Menu:
       if (ev == InputEvent::TapHeader) enterState(AppState::GpsStatus);
       else if ((ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight) &&
-               input.lastTapY() >= MENU_PERF_ROW_Y && input.lastTapY() < MENU_PERF_ROW_Y + 48) chooseMenuItem(3);
+               input.lastTapY() >= DisplayManager::MENU_WIFI_Y &&
+               input.lastTapY() < DisplayManager::MENU_WIFI_Y + 32) {
+        chooseMenuItem(ev == InputEvent::TapRight ? 4 : 3);
+      }
       else if (ev == InputEvent::TapLeft) chooseMenuItem(0);
       else if (ev == InputEvent::TapCenter) chooseMenuItem(1);
       else if (ev == InputEvent::TapRight) chooseMenuItem(2);
-      else if (ev == InputEvent::BootShort) menuHighlight = (menuHighlight + 1) % 4;
+      else if (ev == InputEvent::BootShort) menuHighlight = (menuHighlight + 1) % 5;
       else if (ev == InputEvent::BootLong) chooseMenuItem(menuHighlight);
       lastRender = 0;
       break;
@@ -570,11 +593,17 @@ static void handleInput(InputEvent ev) {
     }
 
     case AppState::Summary:  // back to this track's Ready screen, to go out again
-      if (ev != InputEvent::Hold) enterState(AppState::TrackConfirm);
+      if (tappedWifi(ev, DisplayManager::WIFI_BUTTON_Y) || ev == InputEvent::BootLong) enterState(AppState::Wifi);
+      else if (ev != InputEvent::Hold) enterState(AppState::TrackConfirm);
       break;
 
     case AppState::FreeRoamSummary:
-      if (ev != InputEvent::Hold) enterState(AppState::Menu);
+      if (tappedWifi(ev, DisplayManager::WIFI_BUTTON_Y) || ev == InputEvent::BootLong) enterState(AppState::Wifi);
+      else if (ev != InputEvent::Hold) enterState(AppState::Menu);
+      break;
+
+    case AppState::Wifi:  // any tap or press turns Wi-Fi off, except mid firmware update
+      if (ev != InputEvent::Hold && !WifiPortal::busy()) enterState(wifiReturn);
       break;
 
     case AppState::GpsStatus:
@@ -632,6 +661,11 @@ static void render() {
       } else {
         display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, PERF_UNITS, input.touchAvailable());
       }
+      break;
+    case AppState::Wifi:
+      display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),
+                       WifiPortal::clientCount(), WifiPortal::uploadCodeValue(), WifiPortal::updateProgress(),
+                       WifiPortal::restarting(), input.touchAvailable());
       break;
   }
 }
@@ -850,6 +884,7 @@ void loop() {
   LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
 
   autoPickTrack();
+  WifiPortal::loop(gps);
 
   Power::update(now);
   display.setBatteryPercent(Power::batteryPercent());

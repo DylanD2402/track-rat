@@ -75,3 +75,6 @@ config_local.py
 .pio/
 .vscode/
 logs/
+
+# Wi-Fi page, gzipped from web/ by tools/build_web.py
+data/web/

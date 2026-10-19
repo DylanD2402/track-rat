@@ -52,7 +52,7 @@ public:
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                       const RunningOverlay& overlay, uint32_t holdMs);
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath);
-  // Mode menu: highlight is for BOOT-button navigation (0..3, 3 = Performance)
+  // Mode menu: highlight is for BOOT-button navigation (0..4, 3 = Performance, 4 = Wi-Fi)
   void drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk);
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
@@ -69,8 +69,17 @@ public:
   void drawMessage(const char* title, const char* line1, const char* line2, uint16_t color);
   void drawFirmwarePrompt(const char* modified, uint32_t sizeBytes, bool touchOk);
   void drawFirmwareProgress(int percent);
+  // Wi-Fi screen: network name, address and upload code. progress: firmware install, -1 = none
+  void drawWifi(bool wifiOn, const String& network, const String& address, int phones, int uploadCode,
+                int progress, bool restarting, bool touchOk);
+
+  // WI-FI buttons, in the right third: on the menu from MENU_WIFI_Y to 186,
+  // on the summaries from WIFI_BUTTON_Y to the bottom
+  static constexpr int MENU_WIFI_Y = 154;
+  static constexpr int WIFI_BUTTON_Y = 196;
 
 private:
+  void wifiButton(int y, int h, bool highlight, bool holdHint = false);
   TFT_eSPI tft;
   TFT_eSprite spr = TFT_eSprite(&tft);
   bool useSprite = false;

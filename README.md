@@ -9,6 +9,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Each session is saved to the SD card (or internal flash) after every lap.
 - Optional battery with a percentage gauge; sleeps by itself when parked. Firmware can be updated from the SD card.
 - Acceleration and braking runs (0-100 km/h, 1/4 mile, 100-0 braking) with a result card for each run.
+- A Wi-Fi page on your phone downloads sessions, swaps the track list and installs firmware. No app needed.
 
 First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and checking each part of the hardware.
 
@@ -41,11 +42,13 @@ pio run -e es3c28p -t upload        # lap timer
 python tools/serial_log.py --port COM4 --seconds 20 --reset   # restart and capture the log
 ```
 
-To store `data/tracks.json` in internal flash instead of on the SD card:
+To copy `data/` into internal flash (the Wi-Fi page, and `tracks.json` for boards without an SD card):
 
 ```bash
 pio run -e es3c28p -t uploadfs
 ```
+
+Do this once, and again when the Wi-Fi page changes. It replaces everything in internal flash, including sessions and tracks saved there when there was no SD card.
 
 ### Automatic flashing
 
@@ -86,6 +89,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap is saved as the track's map. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand, including **Bench Test**.
 - **PERFORMANCE:** the wide button under the three modes. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
+- **WI-FI:** turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)).
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count. This needs you to be doing at least 15 km/h when you tap; slower than that the GPS direction is too rough, and the line is saved without one.
 
@@ -94,7 +98,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Screen | Touch | BOOT button (or big button) |
 |---|---|---|
 | Waiting for GPS | tap: menu | press: menu |
-| Menu | tap a mode; top bar: GPS status | press: next, hold 1 s: choose |
+| Menu | tap a mode or WI-FI; top bar: GPS status | press: next, hold 1 s: choose |
 | Track list | left / right third: previous / next, centre: select, hold: menu | press: next, hold 1 s: select |
 | GPS Status (top bar of the menu or track list) | tap: back | press: back |
 | Ready | centre: start, left: back, right: set line, top bar: next layout | hold 1 s: start, press: back |
@@ -102,7 +106,8 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
 | Performance | left: rollout / demo, centre: results, right: menu, hold 2 s: menu | press: next screen, hold 1 s: menu |
-| Summaries | tap: continue | press: continue |
+| Summaries | tap: continue; WI-FI button: Wi-Fi page | press: continue, hold 1 s: Wi-Fi page |
+| Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
 
 While timing, the screen shows:
 
@@ -368,6 +373,42 @@ You can update without PlatformIO or a USB cable.
 - **Wrong file:** a file that isn't an ESP32-S3 app image, or is too big, is refused with a message and left on the card.
 - **Safety:** it writes to the second app slot, and the board only switches to it once the whole image has been written and checked. If the write fails, the old firmware keeps running. Sessions and tracks are not touched.
 - **If a new build won't start,** flash over USB with `pio run -e es3c28p -t upload`.
+## Wi-Fi page
+
+Get your sessions onto your phone without taking the SD card out.
+
+1. In the pits, tap **WI-FI** on the menu or on a session summary (or hold BOOT on a summary). The screen shows the network name, the address and an upload code.
+2. On your phone, join the Wi-Fi network **TrackRat-XXXX**. There's no password. The last 4 characters are different on each board.
+3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **http://192.168.4.1** in your browser.
+4. When you're done, tap the Track Rat screen (or press BOOT) to turn Wi-Fi off.
+
+What the page does:
+
+- **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
+- **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list.
+- **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
+- **Device:** firmware version, free space on the card and in flash, GPS status and memory.
+- **Settings:** not there yet.
+
+Each time the page opens it tells Track Rat your phone's time zone, which is kept for when file names use local time.
+
+Good to know:
+
+- **Wi-Fi is off while timing.** It's only on while the Wi-Fi screen shows, and starting a session turns it off. Bluetooth (RaceBox) keeps working while it's on.
+- **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open http://192.168.4.1 in Safari or Chrome while still on the TrackRat network.
+- **Mobile data:** some phones keep using mobile data for everything when a Wi-Fi network has no internet. If the page won't load, tell the phone to stay connected or turn mobile data off.
+- **Upload code:** installing firmware or replacing `tracks.json` asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
+- **Anyone nearby can join** and download sessions while it's on, so turn it off when you're done.
+
+### Changing the page
+
+The page is a single file, `web/index.html` (plain HTML and JavaScript, no libraries). `tools/build_web.py` gzips it into `data/web/index.html.gz` every time PlatformIO runs; it also puts the git version on the Device tab. To put a new page on the board:
+
+```bash
+pio run -e es3c28p -t uploadfs
+```
+
+Without it, the board shows a plain page with the session list, `tracks.json` and firmware upload.
 
 ## Session logs
 
@@ -455,6 +496,18 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 - doesn't record false laps while parked on the line with GPS jitter
 - ignores a line crossing that happens during a GPS dropout
 
+`test/test_portal.cpp` checks the Wi-Fi page's request rules: which file names can be downloaded, time zones, the captive-portal host check, the network name, upload progress, the `tracks.json` check, one upload at a time and the upload code:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
+```
+
+`test/test_web.js` checks how the page groups session files by day and track (needs Node.js):
+
+```bash
+node test/test_web.js
+```
+
 `test/test_freeroam.cpp` checks Free Roam's distance, top and average speed, that GPS jitter and position glitches add no distance, and that very long drives are capped:
 
 ```bash
@@ -516,6 +569,8 @@ src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
            LedBar, DeltaLeds,
            PerfRun (acceleration/braking), PerfLog (performance summaries),
            DisplayPerf (performance screens)
+           WifiPortal (Wi-Fi page)
+web/       the Wi-Fi page (gzipped into data/web when building)
 data/      tracks.json
 test/      host-side tests
 legacy/    the original Raspberry Pi / Python prototype
