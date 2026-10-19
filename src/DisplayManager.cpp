@@ -781,10 +781,18 @@ void DisplayManager::wifiButton(int y, int h, bool highlight) {
   gfx->setTextDatum(TL_DATUM);
 }
 
-void DisplayManager::drawWifi(const String& network, const String& address, int phones, int progress,
+void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& address, int phones, int progress,
                               bool restarting, bool touchOk) {
   beginFrame();
-  header("WI-FI ON", nullptr);
+  header(wifiOn ? "WI-FI ON" : "WI-FI", nullptr);
+  if (!wifiOn) {
+    centered("Wi-Fi didn't start", 80, 4, C_BAD);
+    centered("The serial log says why", 120, 2, C_DIM);
+    if (touchOk) footerButtons("", "BACK", "");
+    else centered("press BOOT: back", 212, 2, C_TEXT);
+    endFrame();
+    return;
+  }
 
   centered("On your phone, join the Wi-Fi network", HEADER_H + 10, 2, C_DIM);
   centered(network, HEADER_H + 30, 4, C_TEXT);

@@ -3,11 +3,14 @@
  *
  * Request handlers run in the AsyncTCP task (core 0, next to the Wi-Fi
  * driver), not in loop(). They only touch storage and the GPS snapshot that
- * loop() copies in, never the lap timer or track list.
+ * loop() copies in, never the lap timer or track list. The rules they apply
+ * (allowed names, time zones, upload ownership) are in PortalLogic.h, which
+ * is tested on a PC.
  */
 
 #include "WifiPortal.h"
 #include "Config.h"
+#include "PortalLogic.h"
 #include "Storage.h"
 #include <ArduinoJson.h>
 #include <DNSServer.h>
@@ -48,16 +51,17 @@ static GpsSnapshot gpsSnap = {};
 static portMUX_TYPE snapLock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t lastSnap = 0;
 
-// Firmware upload (one at a time)
+// Firmware upload: one at a time (fwSlot holds the request sending it)
+static portal::UploadSlot fwSlot;
 static volatile int fwProgress = -1;
 static bool fwOk = false;
-static bool fwStarted = false;
 static String fwError;
 
-// tracks.json upload (one at a time)
+// tracks.json upload: one at a time
+static portal::UploadSlot tracksSlot;
 static File tracksFile;
+static fs::FS* tracksFs = nullptr;
 static bool tracksOk = false;
-static bool tracksStarted = false;
 static String tracksError;
 
 // ---------------------------------------------------------------------------
@@ -89,22 +93,6 @@ static int savedTimeZoneOffset() {
 
 // ---------------------------------------------------------------------------
 
-static void appendJsonString(String& out, const String& s) {
-  out += '"';
-  for (size_t i = 0; i < s.length(); i++) {
-    char c = s[i];
-    if (c == '"' || c == '\\') {
-      out += '\\';
-      out += c;
-    } else if ((uint8_t)c < 0x20) {
-      out += ' ';
-    } else {
-      out += c;
-    }
-  }
-  out += '"';
-}
-
 static fs::FS* fsByName(const String& name) {
   if (name == "sd" && Storage::sdMounted()) return &SD_MMC;
   if (name == "flash" && Storage::flashMounted()) return &LittleFS;
@@ -124,14 +112,6 @@ static fs::FS* tracksWriteFs() {
   return nullptr;
 }
 
-static const char* contentTypeFor(const String& name) {
-  if (name.endsWith(".json")) return "application/json";
-  if (name.endsWith(".csv")) return "text/csv";
-  if (name.endsWith(".gpx")) return "application/gpx+xml";
-  if (name.endsWith(".vbo") || name.endsWith(".txt")) return "text/plain";
-  return "application/octet-stream";
-}
-
 // Every file in /sessions, on the SD card and in flash.
 static void listSessions(fs::FS& fs, const char* fsName, String& out, bool& first) {
   File dir = fs.open(SESSION_DIR);
@@ -141,7 +121,7 @@ static void listSessions(fs::FS& fs, const char* fsName, String& out, bool& firs
     if (!first) out += ',';
     first = false;
     out += "{\"name\":";
-    appendJsonString(out, f.name());
+    portal::appendJsonString(out, f.name());
     out += ",\"size\":";
     out += (uint32_t)f.size();
     out += ",\"fs\":\"";
@@ -154,8 +134,7 @@ static void listSessions(fs::FS& fs, const char* fsName, String& out, bool& firs
 // Answering with a redirect to us makes them show the page by themselves.
 static bool redirectToPortal(AsyncWebServerRequest* req) {
   String ip = WiFi.softAPIP().toString();
-  String host = req->host();
-  if (host == ip || host == ip + ":80") return false;
+  if (portal::isPortalHost(req->host().c_str(), ip.c_str())) return false;
   req->redirect("http://" + ip + "/");
   return true;
 }
@@ -218,85 +197,130 @@ static void sendInfo(AsyncWebServerRequest* req) {
   req->send(200, "application/json", out);
 }
 
+// ---------------------------------------------------------------------------
+// tracks.json upload: written to a temp file, then swapped in, old one kept as .bak
+
+static void dropTracksUpload() {
+  if (tracksFile) tracksFile.close();
+  if (tracksFs) tracksFs->remove(TRACKS_UPLOAD_TMP);
+}
+
 static void onTracksUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                            size_t len, bool final) {
-  fs::FS* fs = tracksWriteFs();
   if (index == 0) {
-    tracksStarted = true;
+    if (!tracksSlot.claim(req)) return;  // another upload is running: refused in the reply
     tracksError = "";
-    tracksOk = fs != nullptr;
-    if (!fs) tracksError = "No SD card or flash to save to";
+    tracksFs = tracksWriteFs();
+    tracksOk = tracksFs != nullptr;
+    if (!tracksOk) tracksError = "No SD card or flash to save to";
     // The page checks the JSON before sending it; here just make sure it's an object.
-    size_t i = 0;
-    while (i < len && isspace(data[i])) i++;
-    if (tracksOk && (i == len || data[i] != '{')) {
+    if (tracksOk && !portal::looksLikeJsonObject(data, len)) {
       tracksOk = false;
       tracksError = "That isn't a tracks.json file";
     }
     if (tracksOk) {
-      tracksFile = fs->open(TRACKS_UPLOAD_TMP, "w");
+      tracksFile = tracksFs->open(TRACKS_UPLOAD_TMP, "w");
       if (!tracksFile) {
         tracksOk = false;
         tracksError = "Can't write to storage";
       }
     }
+    req->onDisconnect([req]() {  // phone went away half way: keep the old file
+      if (!tracksSlot.owns(req)) return;
+      dropTracksUpload();
+      tracksSlot.release(req);
+    });
   }
+  if (!tracksSlot.owns(req)) return;
   if (tracksOk && len && tracksFile.write(data, len) != len) {
     tracksOk = false;
     tracksError = "Storage full or write failed";
   }
-  if (final) {
-    if (tracksFile) tracksFile.close();
-    if (tracksOk) {  // keep the old file as tracks.json.bak
-      fs->remove(TRACKS_BACKUP);
-      if (fs->exists(TRACK_DATABASE_FILE)) fs->rename(TRACK_DATABASE_FILE, TRACKS_BACKUP);
-      if (!fs->rename(TRACKS_UPLOAD_TMP, TRACK_DATABASE_FILE)) {
-        fs->rename(TRACKS_BACKUP, TRACK_DATABASE_FILE);
-        tracksOk = false;
-        tracksError = "Couldn't replace tracks.json";
-      }
-    } else if (fs) {
-      fs->remove(TRACKS_UPLOAD_TMP);
+  if (!final) return;
+
+  fs::FS* fs = tracksFs;
+  if (tracksFile) tracksFile.close();
+  if (tracksOk) {
+    fs->remove(TRACKS_BACKUP);
+    if (fs->exists(TRACK_DATABASE_FILE)) fs->rename(TRACK_DATABASE_FILE, TRACKS_BACKUP);
+    if (!fs->rename(TRACKS_UPLOAD_TMP, TRACK_DATABASE_FILE)) {
+      fs->rename(TRACKS_BACKUP, TRACK_DATABASE_FILE);
+      tracksOk = false;
+      tracksError = "Couldn't replace tracks.json";
     }
-    DEBUG_PRINTF("Wi-Fi: tracks.json upload %s (%u bytes)%s\n", tracksOk ? "saved" : "FAILED",
-                 (unsigned)(index + len), tracksOk ? "" : (" - " + tracksError).c_str());
   }
+  if (!tracksOk) dropTracksUpload();
+  DEBUG_PRINTF("Wi-Fi: tracks.json upload %s (%u bytes)%s\n", tracksOk ? "saved" : "FAILED",
+               (unsigned)(index + len), tracksOk ? "" : (" - " + tracksError).c_str());
 }
+
+static void onTracksDone(AsyncWebServerRequest* req) {
+  if (!tracksSlot.owns(req)) {
+    if (tracksSlot.busy()) req->send(409, "text/plain", "Another upload is running. Try again when it's done.");
+    else req->send(400, "text/plain", "No file received");
+    return;
+  }
+  if (tracksOk) req->send(200, "text/plain", "Saved. Restart Track Rat to use the new track list.");
+  else req->send(400, "text/plain", tracksError);
+  tracksSlot.release(req);
+}
+
+// ---------------------------------------------------------------------------
+// Firmware upload: written straight into the other app slot by Update
 
 static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                              size_t len, bool final) {
   if (index == 0) {
-    fwStarted = true;
+    if (!fwSlot.claim(req)) return;  // another upload is running: refused in the reply
     fwError = "";
     fwProgress = 0;
     fwOk = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
     if (!fwOk) fwError = Update.errorString();
     DEBUG_PRINTF("Wi-Fi: firmware upload started (%s)\n", filename.c_str());
-    req->onDisconnect([]() {  // phone gave up half way
-      if (Update.isRunning()) {
-        Update.abort();
-        DEBUG_PRINTLN("Wi-Fi: firmware upload cut off - not installed");
-      }
-      if (fwProgress >= 0 && fwProgress < 100) fwProgress = -1;
+    req->onDisconnect([req]() {  // phone went away half way: nothing installed
+      if (!fwSlot.owns(req)) return;
+      if (Update.isRunning()) Update.abort();
+      if (fwProgress < 100) fwProgress = -1;
+      fwSlot.release(req);
+      DEBUG_PRINTLN("Wi-Fi: firmware upload cut off - not installed");
     });
   }
+  if (!fwSlot.owns(req)) return;
   if (fwOk && len && Update.write(data, len) != len) {
     fwOk = false;
     fwError = Update.errorString();
     Update.abort();
   }
-  size_t total = req->contentLength();
-  if (fwOk && total) fwProgress = min(99, (int)((uint64_t)(index + len) * 100 / total));
-  if (final) {
-    if (fwOk && !Update.end(true)) {
-      fwOk = false;
-      fwError = Update.errorString();
-    }
-    fwProgress = fwOk ? 100 : -1;
-    DEBUG_PRINTF("Wi-Fi: firmware %s (%u bytes)%s\n", fwOk ? "installed" : "NOT installed",
-                 (unsigned)(index + len), fwOk ? "" : (" - " + fwError).c_str());
+  if (fwOk) fwProgress = portal::uploadPercent(index + len, req->contentLength());
+  if (!final) return;
+
+  if (fwOk && !Update.end(true)) {
+    fwOk = false;
+    fwError = Update.errorString();
   }
+  fwProgress = fwOk ? 100 : -1;
+  DEBUG_PRINTF("Wi-Fi: firmware %s (%u bytes)%s\n", fwOk ? "installed" : "NOT installed", (unsigned)(index + len),
+               fwOk ? "" : (" - " + fwError).c_str());
 }
+
+static void onFirmwareDone(AsyncWebServerRequest* req) {
+  if (!fwSlot.owns(req)) {
+    if (fwSlot.busy()) req->send(409, "text/plain", "Another upload is running. Try again when it's done.");
+    else req->send(400, "text/plain", "No file received");
+    return;
+  }
+  if (fwOk && fwProgress == 100) {
+    req->send(200, "text/plain", "Installed. Track Rat is restarting.");
+    rebootAt = millis() + 1500;  // after the reply has gone
+  } else {
+    if (Update.isRunning()) Update.abort();  // the file ended without a last piece
+    fwProgress = -1;
+    req->send(400, "text/plain", "Not installed: " + (fwError.length() ? fwError : String("incomplete file")));
+  }
+  fwSlot.release(req);
+}
+
+// ---------------------------------------------------------------------------
 
 static void setupRoutes() {
   AsyncWebServer& s = *server;
@@ -327,9 +351,9 @@ static void setupRoutes() {
   // /dl?fs=sd&f=<file in /sessions>. Sent a piece at a time as the phone
   // takes it, from the AsyncTCP task.
   s.on("/dl", HTTP_GET, [](AsyncWebServerRequest* req) {
-    String name = req->arg("f");
+    const String& name = req->arg("f");
     fs::FS* fs = fsByName(req->arg("fs"));
-    if (!fs || name.length() == 0 || name.indexOf('/') >= 0 || name.indexOf("..") >= 0) {
+    if (!fs || !portal::isSafeFileName(name.c_str())) {
       req->send(400, "text/plain", "Bad file name");
       return;
     }
@@ -338,7 +362,7 @@ static void setupRoutes() {
       req->send(404, "text/plain", "No such file");
       return;
     }
-    req->send(req->beginResponse(*fs, path, contentTypeFor(name), true));
+    req->send(req->beginResponse(*fs, path, portal::contentTypeFor(name.c_str()), true));
   });
 
   s.on("/tracks.json", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -352,36 +376,14 @@ static void setupRoutes() {
     req->send(res);
   });
 
-  s.on(
-      "/api/tracks", HTTP_POST,
-      [](AsyncWebServerRequest* req) {
-        if (!tracksStarted) req->send(400, "text/plain", "No file received");
-        else if (tracksOk) req->send(200, "text/plain", "Saved. Restart Track Rat to use the new track list.");
-        else req->send(400, "text/plain", tracksError);
-        tracksStarted = false;
-      },
-      onTracksUpload);
-
-  s.on(
-      "/api/firmware", HTTP_POST,
-      [](AsyncWebServerRequest* req) {
-        if (!fwStarted) {
-          req->send(400, "text/plain", "No file received");
-        } else if (fwOk) {
-          req->send(200, "text/plain", "Installed. Track Rat is restarting.");
-          rebootAt = millis() + 1500;  // after the reply has gone
-        } else {
-          req->send(400, "text/plain", "Not installed: " + fwError);
-        }
-        fwStarted = false;
-      },
-      onFirmwareUpload);
+  s.on("/api/tracks", HTTP_POST, onTracksDone, onTracksUpload);
+  s.on("/api/firmware", HTTP_POST, onFirmwareDone, onFirmwareUpload);
 
   // The page sends the phone's time zone: tz = minutes east of UTC
   s.on("/api/time", HTTP_POST, [](AsyncWebServerRequest* req) {
     const AsyncWebParameter* p = req->getParam("tz", true);
-    int tz = p ? p->value().toInt() : 9999;
-    if (tz < -720 || tz > 840) {
+    int tz;
+    if (!p || !portal::parseTimeZone(p->value().c_str(), &tz)) {
       req->send(400, "text/plain", "Bad time zone");
       return;
     }
@@ -390,6 +392,10 @@ static void setupRoutes() {
   });
 
   s.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (fwSlot.busy()) {
+      req->send(409, "text/plain", "A firmware update is running");
+      return;
+    }
     req->send(200, "text/plain", "Restarting");
     rebootAt = millis() + 1000;
   });
@@ -403,9 +409,8 @@ static void setupRoutes() {
 }
 
 static void buildNetworkName() {
-  uint64_t mac = ESP.getEfuseMac();  // byte 0 of the MAC is the lowest byte
   char buf[24];
-  snprintf(buf, sizeof(buf), "TrackRat-%02X%02X", (uint8_t)(mac >> 32), (uint8_t)(mac >> 40));
+  portal::networkName(ESP.getEfuseMac(), buf, sizeof(buf));
   ssid = buf;
 }
 
@@ -429,8 +434,8 @@ bool start() {
     server->begin();
   }
   on = true;
-  DEBUG_PRINTF("Wi-Fi: %s on, page at http://%s (%lu ms)\n", ssid.c_str(), WiFi.softAPIP().toString().c_str(),
-               (unsigned long)(millis() - t0));
+  DEBUG_PRINTF("Wi-Fi: %s on, page at http://%s (%lu ms, %u bytes RAM free)\n", ssid.c_str(),
+               WiFi.softAPIP().toString().c_str(), (unsigned long)(millis() - t0), ESP.getFreeHeap());
   return true;
 }
 

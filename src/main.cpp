@@ -341,8 +341,9 @@ static void render() {
       display.drawFreeRoamSummary(freeRoam, freeRoamDurationMs, freeRoamPath);
       break;
     case AppState::Wifi:
-      display.drawWifi(WifiPortal::networkName(), WifiPortal::address(), WifiPortal::clientCount(),
-                       WifiPortal::updateProgress(), WifiPortal::restarting(), input.touchAvailable());
+      display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),
+                       WifiPortal::clientCount(), WifiPortal::updateProgress(), WifiPortal::restarting(),
+                       input.touchAvailable());
       break;
   }
 }
