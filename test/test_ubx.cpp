@@ -68,7 +68,10 @@ int main() {
   // --- Checksums ---
   {
     UbxParser p;
-    CHECK(feedAll(p, ACK_VALSET, sizeof(ACK_VALSET)) == 1, "ack frame");
+    CHECK(!p.inFrame(), "idle");
+    CHECK(feedAll(p, ACK_VALSET, 1) == 0 && p.inFrame(), "in frame after sync byte");
+    CHECK(feedAll(p, ACK_VALSET + 1, 8) == 0 && p.inFrame(), "in frame before the last byte");
+    CHECK(feedAll(p, ACK_VALSET + 9, 1) == 1 && !p.inFrame(), "frame done");
     CHECK(p.is(0x05, 0x01) && p.length() == 2 && p.payload()[0] == 0x06 && p.payload()[1] == 0x8A,
           "ack contents %02X %02X len %u", p.msgClass(), p.msgId(), p.length());
 

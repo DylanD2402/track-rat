@@ -10,7 +10,9 @@ static HardwareSerial& gpsSerial = Serial1;
 
 void GPSHandler::begin() {
   gpsSerial.setRxBufferSize(GPS_RX_BUFFER_BYTES);  // rides out SD writes etc. without losing data
-  source = GpsSourceSwitch(GPS_USE_UBX, GPS_PVT_WAIT_MS);
+  // NAV-PVT silent for 3 fix intervals (at least 1 s) while NMEA arrives = the GPS restarted
+  const uint32_t pvtLostMs = 3000 / GPS_TARGET_RATE_HZ > 1000 ? 3000 / GPS_TARGET_RATE_HZ : 1000;
+  source = GpsSourceSwitch(GPS_USE_UBX, GPS_PVT_WAIT_MS, pvtLostMs);
   detected = detect();
   if (!detected) {
     // Listen on the UART connector anyway, so a GPS plugged in later works.
@@ -137,6 +139,8 @@ void GPSHandler::handleUbxFrame(uint32_t now) {
   UbxPvt v;
   if (ubx.is(UBX_CLASS_NAV, UBX_ID_NAV_PVT) && decodeNavPvt(p, len, v)) {
     onPvt(v, now);
+  } else if (ubx.is(0x05, 0x00) && len >= 2) {  // ACK-NAK: the GPS turned a command down
+    DEBUG_PRINTF("GPS: u-blox rejected a command (class 0x%02X id 0x%02X)\n", p[0], p[1]);
   } else if (ubx.is(0x06, 0x8B) && len >= 4) {  // CFG-VALGET response
     signalsRead = 0;
     for (uint16_t i = 4; i + 5 <= len; i += 5) {   // 1-byte (L) values only
@@ -158,7 +162,9 @@ uint32_t GPSHandler::signalKey(int k) {
 
 // Rate, automotive dynamics, and only the messages we use, so high rates fit
 // easily in the link: NAV-PVT, plus NMEA GGA and RMC until NAV-PVT is seen
-// arriving. RAM only: no restart needed.
+// arriving. RAM only: no restart needed. Two VALSETs, because the GPS
+// rejects a whole VALSET if it rejects any key in it: if it turns down the
+// message settings, the rate still goes through.
 void GPSHandler::sendBaseConfig(bool gpsTalking) {
   const uint16_t measMs = 1000 / GPS_TARGET_RATE_HZ;
   const uint8_t cfg[] = {
@@ -167,12 +173,15 @@ void GPSHandler::sendBaseConfig(bool gpsTalking) {
     0xCA, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_GLL_UART1 = 0
     0xC0, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_GSA_UART1 = 0
     0xB1, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_VTG_UART1 = 0
-    0xBB, 0x00, 0x91, 0x20, 0x01,  // CFG-MSGOUT-NMEA_ID_GGA_UART1 = 1
-    0xAC, 0x00, 0x91, 0x20, 0x01,  // CFG-MSGOUT-NMEA_ID_RMC_UART1 = 1
-    0x07, 0x00, 0x91, 0x20, GPS_USE_UBX,  // CFG-MSGOUT-UBX_NAV_PVT_UART1 = every fix
     0x21, 0x00, 0x11, 0x20, 0x04,  // CFG-NAVSPG-DYNMODEL = automotive
   };
   sendUbxValset(0x01, cfg, sizeof(cfg));
+  const uint8_t msgs[] = {
+    0xBB, 0x00, 0x91, 0x20, 0x01,  // CFG-MSGOUT-NMEA_ID_GGA_UART1 = 1
+    0xAC, 0x00, 0x91, 0x20, 0x01,  // CFG-MSGOUT-NMEA_ID_RMC_UART1 = 1
+    0x07, 0x00, 0x91, 0x20, GPS_USE_UBX,  // CFG-MSGOUT-UBX_NAV_PVT_UART1 = every fix
+  };
+  sendUbxValset(0x01, msgs, sizeof(msgs));
   source.configSent(millis(), gpsTalking);
   DEBUG_PRINTF("GPS: requested %d Hz%s (u-blox CFG-VALSET)\n", GPS_TARGET_RATE_HZ,
                GPS_USE_UBX ? " and UBX-NAV-PVT" : "");
@@ -255,23 +264,30 @@ void GPSHandler::update() {
 }
 
 void GPSHandler::readSerial(uint32_t now) {
+  // Each NMEA sentence and UBX message is handled as soon as it's complete,
+  // so a backlog after a busy spell gives every fix, not just the latest.
   while (gpsSerial.available()) {
-    char c = gpsSerial.read();
+    uint8_t c = gpsSerial.read();
 #if GPS_ECHO_NMEA
-    Serial.write(c);
+    bool inUbx = ubx.inFrame();
 #endif
-    gps.encode(c);
-    if (ubx.feed((uint8_t)c)) handleUbxFrame(now);
-  }
-
-  if (gps.passedChecksum() != lastChecksumCount) {
-    lastChecksumCount = gps.passedChecksum();
-    lastSentenceMillis = now;
-    onSourceEvent(source.onNmea(now));
+    gps.encode((char)c);
+    if (ubx.feed(c)) handleUbxFrame(now);
+#if GPS_ECHO_NMEA
+    if (!inUbx && !ubx.inFrame()) Serial.write(c);  // text only, not the binary messages
+#endif
+    if (gps.passedChecksum() != lastChecksumCount) {
+      lastChecksumCount = gps.passedChecksum();
+      lastSentenceMillis = now;
+      onSourceEvent(source.onNmea(now));
+      if (!source.pvtActive()) takeNmeaFix(now);  // else fixes come from NAV-PVT (onPvt)
+    }
   }
   onSourceEvent(source.poll(now));
-  if (source.pvtActive()) return;  // fixes come from NAV-PVT (onPvt)
+}
 
+// After each NMEA sentence: a new fix if it completed one.
+void GPSHandler::takeNmeaFix(uint32_t now) {
   if (gps.satellites.isUpdated()) sats = gps.satellites.value();
   if (gps.hdop.isUpdated()) hdopVal = gps.hdop.hdop();
 

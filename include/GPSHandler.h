@@ -94,6 +94,7 @@ private:
   uint8_t signalsRead = 0;
   void countFixForRate(uint32_t now);
   void readSerial(uint32_t now);
+  void takeNmeaFix(uint32_t now);
 
   bool simulating = false;
   uint32_t simLastStep = 0;

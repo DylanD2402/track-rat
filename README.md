@@ -284,6 +284,12 @@ g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 g++ -std=c++17 -Iinclude test/test_ubx.cpp src/UbxParser.cpp -o /tmp/ubx && /tmp/ubx
 ```
 
+`test/test_gps_source.cpp` checks the choice between UBX and NMEA, and runs a simulated GPS through the UBX reader into the lap timer: switching on from power-up, after a board reset, after the GPS restarts, a GPS plugged in late, a GPS that isn't u-blox, damaged messages, a busy main loop, and laps across midnight:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_gps_source.cpp src/GpsSource.cpp src/UbxParser.cpp src/LapTimer.cpp -o /tmp/gs && /tmp/gs
+```
+
 ## Layout
 
 ```

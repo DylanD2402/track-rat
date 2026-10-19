@@ -208,16 +208,14 @@ struct Receiver {
     }
   }
   void read(const uint8_t* b, size_t n, uint32_t now) {
-    bool sawNmea = false;
     for (size_t i = 0; i < n; i++) {
-      if (nmeaCount.feed(b[i])) sawNmea = true;
+      if (nmeaCount.feed(b[i])) act(sw.onNmea(now), now);  // per sentence, as GPSHandler does
       if (!ubx.feed(b[i])) continue;
       UbxPvt v;
       if (!ubx.is(UBX_CLASS_NAV, UBX_ID_NAV_PVT) || !decodeNavPvt(ubx.payload(), ubx.length(), v)) continue;
       act(sw.onPvt(now), now);
       if (sw.pvtActive() && fixFromPvt(v, now, last, last)) fixes.push_back(last);
     }
-    if (sawNmea) act(sw.onNmea(now), now);
     act(sw.poll(now), now);
   }
   int count(GpsEvent e) const { return ev[(int)e]; }
@@ -273,24 +271,33 @@ static void testSwitchUnits() {
     // A slow module that starts NAV-PVT after all is still used
     CHECK(s.onPvt(20000) == GpsEvent::PvtStarted, "late pvt");
   }
-  {  // exact boundaries: wait (3000) and lost (2000) are "more than"
+  {  // exact boundaries: wait (3000) and lost (1000) are "more than"
     GpsSourceSwitch s(true, 3000);
     s.configSent(1001, true);
     CHECK(s.poll(4001) == GpsEvent::None, "at exactly the wait");
     CHECK(s.poll(4002) == GpsEvent::NoPvt, "just past the wait");
     s.onPvt(5000);
-    CHECK(s.onNmea(7000) == GpsEvent::None, "at exactly the lost time");
-    CHECK(s.onNmea(7001) == GpsEvent::PvtLost && !s.pvtActive(), "just past the lost time");
-    CHECK(s.onNmea(7050) == GpsEvent::None, "lost reported once");
+    CHECK(s.onNmea(6000) == GpsEvent::None, "at exactly the lost time");
+    CHECK(s.onNmea(6001) == GpsEvent::PvtLost && !s.pvtActive(), "just past the lost time");
+    CHECK(s.onNmea(6050) == GpsEvent::None, "lost reported once");
   }
   {  // GPS restarts: PVT stops, NMEA comes back
     GpsSourceSwitch s(true, 3000);
     s.configSent(0, true);
     s.onPvt(100);
-    CHECK(s.onNmea(1500) == GpsEvent::None, "pvt recent");
-    CHECK(s.onNmea(2200) == GpsEvent::PvtLost, "pvt lost");
-    s.configSent(2200, true);
-    CHECK(s.onPvt(2300) == GpsEvent::PvtStarted, "pvt back");
+    CHECK(s.onNmea(1100) == GpsEvent::None, "pvt recent");
+    CHECK(s.onNmea(1150) == GpsEvent::PvtLost, "pvt lost");
+    s.configSent(1150, true);
+    CHECK(s.onPvt(1250) == GpsEvent::PvtStarted, "pvt back");
+  }
+  {  // a 1 Hz GPS with NMEA left on alongside PVT (GPS_ECHO_NMEA) isn't 'lost'
+     // when GPSHandler sets the lost time to 3 fix intervals
+    GpsSourceSwitch s(true, 3000, 3000);
+    s.configSent(0, true);
+    for (uint32_t t = 100; t < 20000; t += 1000) {
+      s.onPvt(t);
+      CHECK(s.onNmea(t + 990) == GpsEvent::None, "1 Hz at %u", t);
+    }
   }
   {  // GPS unplugged while on PVT: silence alone isn't "lost", nothing to do
     GpsSourceSwitch s(true, 3000);
@@ -539,7 +546,7 @@ static void testEndToEnd() {
     r.gps = &g;
     r.begin(4990, true);
     size_t before = 0;
-    run(g, r, 30, true, [&](int i) {
+    run(g, r, 30, false, [&](int i) {
       if (i == 200) { g.silent = true; before = r.fixes.size(); }
       if (i == 220) { g.silent = false; g.restart(); }
     });
@@ -547,6 +554,11 @@ static void testEndToEnd() {
           r.count(GpsEvent::PvtLost), r.count(GpsEvent::PvtStarted));
     CHECK(r.configs == 2 && r.nmeaOffs == 2 && !g.nmeaOn && g.pvtOn && r.sw.pvtActive(), "restart: back on PVT");
     CHECK(r.fixes.size() > before + 300, "restart: fixes resume (%zu then %zu)", before, r.fixes.size());
+    uint32_t worstGap = 0;
+    for (size_t i = 1; i < r.fixes.size(); i++)
+      if (r.fixes[i].gpsTimeMs - r.fixes[i - 1].gpsTimeMs > worstGap) worstGap = r.fixes[i].gpsTimeMs - r.fixes[i - 1].gpsTimeMs;
+    // 1 s of silence, then NMEA: PVT asked for and back within a few epochs
+    CHECK(worstGap <= 1200, "restart: fixes stopped for %u ms", worstGap);
     printf("  GPS restart mid-session: back on PVT, %zu fixes\n", r.fixes.size());
   }
 

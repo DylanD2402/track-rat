@@ -420,8 +420,9 @@ void loop() {
 
   if (now - lastStatusLog > 5000) {
     lastStatusLog = now;
-    DEBUG_PRINTF("GPS: data=%s sats=%d hdop=%.1f fix=%s rate=%.1fHz dropped=%lu%s\n",
-                 gps.receivingData() ? "yes" : "NO", gps.satellites(), gps.hdop(), gps.hasFix() ? "yes" : "no",
+    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s\n",
+                 gps.receivingData() ? "yes" : "NO", gps.usingUbx() ? "UBX" : "NMEA", gps.satellites(),
+                 gps.usingUbx() ? "pdop" : "hdop", gps.hdop(), gps.accuracyM(), gps.hasFix() ? "yes" : "no",
                  gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "");
   }
 

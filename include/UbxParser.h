@@ -36,6 +36,8 @@ public:
   uint16_t length() const { return len; }
   const uint8_t* payload() const { return buf; }
   bool is(uint8_t c, uint8_t i) const { return cls == c && id == i; }
+  // Part way through a frame (from its first sync byte to its last checksum byte)
+  bool inFrame() const { return state != 0; }
 
   uint32_t framesOk() const { return okCount; }
   uint32_t checksumErrors() const { return badCount; }

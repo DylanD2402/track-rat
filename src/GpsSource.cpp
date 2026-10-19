@@ -23,7 +23,7 @@ GpsEvent GpsSourceSwitch::onNmea(uint32_t now) {
     configuredTalking = true;
     return GpsEvent::Configure;
   }
-  if (active && elapsed(lastPvt, now) > (int32_t)PVT_LOST_MS) {
+  if (active && elapsed(lastPvt, now) > (int32_t)lostMs) {
     active = false;
     return GpsEvent::PvtLost;
   }

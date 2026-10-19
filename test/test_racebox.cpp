@@ -103,6 +103,10 @@ int main() {
   buildRaceBoxPacket(f, pk);
   CHECK(p[20] == 2, "2D fix type %u", p[20]);
   CHECK(u32(p + 40) == 0xFFFFFFFF, "capped hAcc %u", u32(p + 40));
+  f.fixType = 4;  // GNSS + dead reckoning: RaceBox has no such type, reported as 3D
+  buildRaceBoxPacket(f, pk);
+  CHECK(p[20] == 3, "GNSS+DR fix type %u", p[20]);
+  f.fixType = 2;
   a = b = 0;
   for (int i = 2; i < 86; i++) { a += pk[i]; b += a; }
   CHECK(pk[86] == a && pk[87] == b, "checksum");

@@ -155,11 +155,13 @@ static int drawPmText(TFT_eSPI* g, const char* s, int x, int y, uint16_t color) 
 
 static int pmTextWidth(TFT_eSPI* g, const char* s) {
   int w = 0;
-  String rest;
+  char rest[48];
+  size_t n = 0;
   for (; *s; s++) {
     if (*s == '#') w += 8;
-    else rest += *s;
+    else if (n < sizeof(rest) - 1) rest[n++] = *s;
   }
+  rest[n] = 0;
   return w + g->textWidth(rest, 2);
 }
 

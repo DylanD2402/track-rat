@@ -69,7 +69,8 @@ void buildRaceBoxPacket(const RaceBoxFix& f, uint8_t* out) {
   put32(p, 16, (uint32_t)(int32_t)(f.millis * 1000000L));
 
   uint8_t fixType = 0;
-  if (f.hasFix) fixType = f.accuracyKnown ? f.fixType : (f.satellites >= 4 ? 3 : 2);
+  // RaceBox defines 0, 2 (2D) and 3 (3D); GNSS + dead reckoning (4) counts as 3D
+  if (f.hasFix) fixType = (f.accuracyKnown ? f.fixType == 2 : f.satellites < 4) ? 2 : 3;
   put8(p, 20, fixType);
   put8(p, 21, (f.hasFix ? 0x01 : 0) | (f.headingValid ? 0x20 : 0));
   put8(p, 22, (f.timeValid ? 0x20 : 0) | (f.dateValid ? 0x40 : 0) | (dateTime ? 0x80 : 0));

@@ -35,10 +35,11 @@ enum class GpsEvent : uint8_t {
 
 class GpsSourceSwitch {
 public:
-  static constexpr uint32_t PVT_LOST_MS = 2000;
-
-  explicit GpsSourceSwitch(bool useUbx = true, uint32_t pvtWaitMs = 3000)
-      : useUbx(useUbx), waitMs(pvtWaitMs) {}
+  // pvtWaitMs: how long to wait for the first NAV-PVT after asking.
+  // pvtLostMs: NAV-PVT silent this long while NMEA arrives = GPS restarted.
+  // Keep it above a few fix intervals (1000 ms suits 3 Hz and faster).
+  explicit GpsSourceSwitch(bool useUbx = true, uint32_t pvtWaitMs = 3000, uint32_t pvtLostMs = 1000)
+      : useUbx(useUbx), waitMs(pvtWaitMs), lostMs(pvtLostMs) {}
 
   // The base config (NAV-PVT on, NMEA GGA/RMC on) was just sent.
   // gpsTalking: a GPS was heard first (false = sent blind at start-up).
@@ -53,6 +54,7 @@ public:
 private:
   bool useUbx;
   uint32_t waitMs;
+  uint32_t lostMs;
   bool active = false;
   bool gaveUp = false;
   bool configuredTalking = false;
