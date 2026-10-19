@@ -72,6 +72,11 @@ public:
   // Load the map for this track (frees the others). Lines with no direction
   // get one from the map near them, if it passes close by (HeadingFrom::Map).
   void loadMap(int index);
+  // The same, with map lines already read (metres from this track's refLat/refLon).
+  void setLoadedMap(int index, layout::Lines&& map);
+  // Keep, in memory, guessed directions that LapTimer turned round, so the
+  // next session doesn't have to find out again.
+  void keepGuessedHeadings(int index, const TrackPoint& startFinish, const std::vector<TrackPoint>& splits);
 
   // Layouts of the same venue: how many, which one this is (0-based), and
   // the index of the next one (wrapping round; itself if there's only one).

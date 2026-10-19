@@ -21,7 +21,7 @@ static void readPoint(JsonObject j, TrackPoint& p) {
   p.radius = j["radius"] | DEFAULT_GATE_HALF_WIDTH_M;
   p.heading = 0;
   p.headingFrom = HeadingFrom::None;
-  if (!j["heading"].isNull()) {
+  if (j["heading"].is<float>()) {  // any number; a string or other junk means no direction
     p.heading = fmodf(fmodf(j["heading"].as<float>(), 360.0f) + 360.0f, 360.0f);
     p.headingFrom = HeadingFrom::Set;
   }
@@ -57,8 +57,8 @@ static void readLayout(JsonObject src, Track& track) {
 static String slug(const String& name) {
   String out;
   for (size_t i = 0; i < name.length(); i++) {
-    char c = tolower(name[i]);
-    if (isalnum(c)) out += c;
+    unsigned char c = tolower((unsigned char)name[i]);
+    if (isalnum(c)) out += (char)c;
     else if (out.length() && out[out.length() - 1] != '-') out += '-';
   }
   while (out.endsWith("-")) out.remove(out.length() - 1);
@@ -84,6 +84,7 @@ static void readEntry(JsonObject t, std::vector<Track>& out) {
     return;
   }
   int i = 0;
+  size_t first = out.size();
   for (JsonObject lo : layouts) {
     Track track = venue;
     track.layoutIndex = i++;
@@ -93,6 +94,8 @@ static void readEntry(JsonObject t, std::vector<Track>& out) {
     if (!layoutId.length()) layoutId = slug(track.layoutName);
     if (!layoutId.length()) layoutId = String(i);
     track.id = venue.venueId + "." + layoutId;
+    for (size_t k = first; k < out.size(); k++)  // two layouts with the same id would share records
+      if (out[k].id == track.id) track.id += String("-") + i;
     track.length = lo["length"] | venue.length;
     readLayout(lo, track);
     out.push_back(track);
@@ -207,23 +210,42 @@ void TrackDatabase::loadMap(int index) {
   Track* t = index >= 0 && index < (int)tracks.size() ? &tracks[index] : nullptr;
   if (!t || t->bench || !t->hasMap || !fileFs) return;
 
-  t->map.clear();
+  layout::Lines map;
   readFile([&](JsonArray arr) {
     JsonObject o = findLayout(arr, *t);
-    if (!o.isNull()) readMapLines(o, t->refLat(), t->refLon(), t->map);
+    if (!o.isNull()) readMapLines(o, t->refLat(), t->refLon(), map);
   });
+  setLoadedMap(index, std::move(map));
+}
+
+void TrackDatabase::setLoadedMap(int index, layout::Lines&& map) {
+  for (int i = 0; i < (int)tracks.size(); i++)
+    if (i != index && !tracks[i].bench) {
+      tracks[i].map.clear();
+      tracks[i].map.shrink_to_fit();
+    }
+  Track* t = index >= 0 && index < (int)tracks.size() ? &tracks[index] : nullptr;
+  if (!t || t->bench) return;
+  t->map = std::move(map);
 
   // Lines with no direction: take it from the map, if it passes close by
-  auto guess = [&](TrackPoint& p) {
-    if (p.hasHeading()) return;
-    geo::XY at = geo::toLocal(p.lat, p.lon, t->refLat(), t->refLon());
-    if (layout::headingFromMap(t->map, at.x, at.y, p.radius, p.heading)) p.headingFrom = HeadingFrom::Map;
-  };
-  if (t->hasStartFinish) guess(t->startFinish);
-  for (TrackPoint& sp : t->splits) guess(sp);
-
+  if (t->hasStartFinish && !t->map.empty()) {
+    std::vector<geo::XY> splitAt;
+    for (const TrackPoint& sp : t->splits) splitAt.push_back(geo::toLocal(sp.lat, sp.lon, t->refLat(), t->refLon()));
+    layout::guessHeadings(t->map, {0, 0}, t->startFinish, splitAt, t->splits);
+  }
   DEBUG_PRINTF("Tracks: map for '%s': %d line(s)%s\n", t->displayName().c_str(), (int)t->map.size(),
                t->startFinish.headingFrom == HeadingFrom::Map ? ", start/finish direction taken from it" : "");
+}
+
+void TrackDatabase::keepGuessedHeadings(int index, const TrackPoint& startFinish, const std::vector<TrackPoint>& splits) {
+  if (index < 0 || index >= (int)tracks.size()) return;
+  Track& t = tracks[index];
+  if (t.startFinish.headingFrom == HeadingFrom::Map && startFinish.headingFrom == HeadingFrom::Map)
+    t.startFinish.heading = startFinish.heading;
+  for (size_t i = 0; i < t.splits.size() && i < splits.size(); i++)
+    if (t.splits[i].headingFrom == HeadingFrom::Map && splits[i].headingFrom == HeadingFrom::Map)
+      t.splits[i].heading = splits[i].heading;
 }
 
 int TrackDatabase::layoutCount(int index) const {
@@ -412,6 +434,8 @@ bool TrackDatabase::setStartFinish(int index, double lat, double lon, float head
     t.startFinish.heading = headingDeg;
     t.startFinish.headingFrom = HeadingFrom::Set;
   }
+  for (TrackPoint& sp : t.splits)  // guessed to match the old line: guess again below (loadMap)
+    if (sp.headingFrom == HeadingFrom::Map) sp.headingFrom = HeadingFrom::None;
   t.hasStartFinish = true;
   if (t.centerLat == 0.0 && t.centerLon == 0.0) {
     t.centerLat = lat;

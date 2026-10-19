@@ -54,6 +54,7 @@ static uint32_t splitOverlayUntil = 0;
 // Layout check: after the first lap (or 2 km without crossing the line),
 // is the driver on a different layout than the one picked? See checkLayout.
 static const double LAYOUT_SEARCH_RADIUS_M = 3000;
+static const float LINE_HEADING_MIN_KMH = 15;  // slower than this the GPS course is too rough to save with a line
 static bool layoutChecked = false;
 static std::vector<geo::XYf> drivenPath;  // before timing starts: metres from the track's reference point
 static float drivenM = 0, nextLayoutCheckM = 0;
@@ -110,6 +111,7 @@ static void enterState(AppState next) {
     SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer);
   }
   if (state == AppState::Running && next != AppState::Running) {
+    trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
     gps.setSimulated(false);
     settingLine = false;
   }
@@ -137,7 +139,8 @@ static void markStartFinish() {
   }
   const GpsFix& f = gps.lastFix();
   // The direction of travel is saved with the line, so crossing it the other way doesn't count
-  trackDB.setStartFinish(selectedIndex, f.lat, f.lon, f.courseValid ? f.courseDeg : -1);
+  bool courseOk = f.courseValid && f.speedKmh >= LINE_HEADING_MIN_KMH;
+  trackDB.setStartFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
   settingLine = false;
   beginLapTiming(selectedTrack());
   lapTimer.startLapNow(f.gpsTimeMs, f.rxMillis);
@@ -146,7 +149,8 @@ static void markStartFinish() {
 }
 
 // Change to another layout mid-session (checkLayout found a better match).
-static void switchLayout(int index) {
+// `map` is its map in metres from the current track's reference point.
+static void switchLayout(int index, layout::Lines& map) {
   const Track& from = selectedTrack();
   const Track& to = *trackDB.get(index);
   bool opposite = from.startFinish.headingFrom == HeadingFrom::Set && to.startFinish.headingFrom == HeadingFrom::Set &&
@@ -156,12 +160,25 @@ static void switchLayout(int index) {
   DEBUG_PRINTF("Layout: switching from '%s' to '%s'%s\n", from.displayName().c_str(), to.displayName().c_str(),
                sameLine ? " (same start/finish, laps kept)" : "");
 
+  // Move the map to the new track's reference point (saves reading tracks.json again)
+  geo::XY shift = geo::toLocal(to.refLat(), to.refLon(), from.refLat(), from.refLon());
+  for (std::vector<geo::XYf>& line : map)
+    for (geo::XYf& p : line) {
+      p.x -= (float)shift.x;
+      p.y -= (float)shift.y;
+    }
+  trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
   selectedIndex = index;
-  trackDB.loadMap(index);
+  trackDB.setLoadedMap(index, std::move(map));
   const Track& t = selectedTrack();
   if (sameLine && lapTimer.lapRunning()) {
     lapTimer.changeGates(t.startFinish, t.splits);  // the laps so far were timed at this line too
-    if (sessionPath.length()) SessionLog::save(sessionPath, t, sessionStamp, lapTimer);
+    if (sessionPath.length()) {  // carry on in the same file, renamed for this layout
+      String renamed = SessionLog::newSessionPath(t, sessionStamp);
+      fs::FS* fs = Storage::sessionFS();
+      if (fs && renamed.length() && fs->rename(sessionPath, renamed)) sessionPath = renamed;
+      SessionLog::save(sessionPath, t, sessionStamp, lapTimer);
+    }
   } else {
     beginLapTiming(t);  // timing starts again at this layout's line
     sessionPath = "";   // in a new session file
@@ -183,24 +200,19 @@ static bool checkLayout(const std::vector<geo::XYf>& path, bool afterLap) {
   if (!trackDB.readMaps(idx, cur.refLat(), cur.refLon(), maps)) return false;
   // Before any lap the current line hasn't been crossed, so it scores nothing
   float curScore = afterLap && !cur.map.empty() ? layout::score(path, cur.map).value() : 0;
-  int best = -1;
-  float bestScore = 0;
+  std::vector<layout::Candidate> cands;
   for (size_t k = 0; k < idx.size(); k++) {
     const Track& t = *trackDB.get(idx[k]);
-    geo::XY sf = geo::toLocal(t.startFinish.lat, t.startFinish.lon, cur.refLat(), cur.refLon());
-    if (!layout::pathCrosses(path, sf.x, sf.y, t.startFinish)) continue;
-    float s = layout::score(path, maps[k]).value();
-    if (s > bestScore) {
-      bestScore = s;
-      best = idx[k];
-    }
+    cands.push_back({geo::toLocal(t.startFinish.lat, t.startFinish.lon, cur.refLat(), cur.refLon()), t.startFinish,
+                     &maps[k]});
   }
-  DEBUG_PRINTF("Layout check (%s): '%s' scores %.2f, best other '%s' %.2f (%lu ms)\n",
-               afterLap ? "first lap" : "no line crossed yet", cur.displayName().c_str(), curScore,
-               best >= 0 ? trackDB.get(best)->displayName().c_str() : "-", bestScore,
-               (unsigned long)(millis() - startMs));
-  if (best < 0 || bestScore < layout::MATCH_MIN_SCORE || bestScore < curScore + layout::MATCH_MARGIN) return false;
-  switchLayout(best);
+  float bestScore = 0;
+  int k = layout::pickLayout(path, curScore, cands, &bestScore);
+  DEBUG_PRINTF("Layout check (%s): '%s' scores %.2f, best other %.2f (%lu ms)%s\n",
+               afterLap ? "first lap" : "no line crossed yet", cur.displayName().c_str(), curScore, bestScore,
+               (unsigned long)(millis() - startMs), k >= 0 ? "" : " - staying");
+  if (k < 0) return false;
+  switchLayout(idx[k], maps[k]);
   return true;
 }
 
@@ -208,6 +220,7 @@ static bool checkLayout(const std::vector<geo::XYf>& path, bool afterLap) {
 // the driver is on a layout whose line isn't the one picked.
 static void trackDrivenPath(const GpsFix& f) {
   if (layoutChecked || lapTimer.lapRunning() || lapTimer.lapCount() > 0) return;
+  if (f.speedKmh < 10) return;  // parked or crawling: GPS wander isn't distance driven
   const Track& t = selectedTrack();
   geo::XY p = geo::toLocal(f.lat, f.lon, t.refLat(), t.refLon());
   if (!drivenPath.empty()) {

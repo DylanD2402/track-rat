@@ -81,7 +81,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap is saved as the track's map. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand, including **Bench Test**.
 
-**Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count.
+**Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count. This needs you to be doing at least 15 km/h when you tap; slower than that the GPS direction is too rough, and the line is saved without one.
 
 **Layouts:** a venue with several layouts (Full, Short, the kart track) lists each one separately, and its Ready screen shows which layout is picked. Tap the top bar of the Ready screen for the next layout. You don't have to get it right: after your first full lap, the timer compares your lap with the map of each layout there (and any other track within 3 km that has a map). If another one clearly fits better, it switches to it and shows **Layout: ...** on screen. If you haven't crossed the picked layout's line after 2 km, it checks the same way.
 
@@ -288,6 +288,7 @@ It checks that the timer:
 - on a kart track whose return straight passes 10 m from the line, times full laps instead of half laps
 - turns round a direction guessed backwards from the map, but never one that was set
 - recognises which layout was driven by comparing the lap with each layout's map
+- in a simulated session at a venue with Full, Short, Reverse and a kart track next door, switches to the layout actually driven (after the first lap, or after 2 km if the picked layout's line is never crossed), keeps lap 1 when the line is shared, stays put when nothing fits, and still works with 2 m of GPS wander
 
 `test/test_racebox.cpp` checks the Bluetooth packet's fields, checksum and GPS time-of-week:
 

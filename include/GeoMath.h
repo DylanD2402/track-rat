@@ -104,11 +104,12 @@ inline float bearingDeg(double dx, double dy) {
   return (float)(d < 0 ? d + 360.0 : d);
 }
 
-// True if travelling a->b is within 90 degrees of headingDeg. Used to ignore
-// crossings the wrong way, such as a straight alongside or the pit lane.
+// True if travelling a->b is within 90 degrees of headingDeg (exactly 90 is
+// not). Used to ignore crossings the wrong way, such as a straight alongside
+// or the pit lane.
 inline bool travelsWith(XY a, XY b, float headingDeg) {
   double h = headingDeg * DEG2RAD;
-  return (b.x - a.x) * sin(h) + (b.y - a.y) * cos(h) > 0.0;
+  return (b.x - a.x) * sin(h) + (b.y - a.y) * cos(h) > 1e-6;  // metres along the heading
 }
 
 }  // namespace geo

@@ -56,6 +56,7 @@ public:
   // when the layout changes and its start/finish is in the same place).
   void changeGates(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits);
   const TrackPoint& startFinish() const { return sf; }
+  const std::vector<TrackPoint>& splits() const { return splitPts; }
 
   // rxMillis is the device clock when the fix arrived; only used to run the
   // live on-screen clock between fixes.

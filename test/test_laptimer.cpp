@@ -377,6 +377,360 @@ static void testLayoutMatch() {
   CHECK(layout::pathCrosses(drivenFull, 300, 0, south), "full lap crosses x = 300 heading south");
 }
 
+// Directions guessed from the map for lines that have none.
+static void testGuessHeadings() {
+  // Map drawn clockwise: north up the left side through the S/F at (0, 0),
+  // south down the right side through a split at (300, 0).
+  layout::Lines map = {loop({{0, -100}, {0, 100}, {300, 100}, {300, -100}})};
+  std::vector<geo::XY> splitAt = {{300, 0}};
+  auto split = [] { return std::vector<TrackPoint>{{SF_LAT, SF_LON, 15}}; };
+
+  {  // no directions: both guessed, consistent with each other
+    TrackPoint sf = {SF_LAT, SF_LON, 15};
+    auto sp = split();
+    layout::guessHeadings(map, {0, 0}, sf, splitAt, sp);
+    CHECK(sf.headingFrom == HeadingFrom::Map && fabs(sf.heading) < 0.5f, "S/F guess %.1f", sf.heading);
+    CHECK(sp[0].headingFrom == HeadingFrom::Map && fabs(sp[0].heading - 180) < 0.5f, "split guess %.1f",
+          sp[0].heading);
+  }
+  {  // S/F set north, map agrees: split guessed south
+    TrackPoint sf = line(SF_LAT, SF_LON, 0, HeadingFrom::Set);
+    auto sp = split();
+    layout::guessHeadings(map, {0, 0}, sf, splitAt, sp);
+    CHECK(sf.headingFrom == HeadingFrom::Set && sf.heading == 0, "set S/F must not change");
+    CHECK(fabs(sp[0].heading - 180) < 0.5f, "split with agreeing map %.1f", sp[0].heading);
+  }
+  {  // S/F set south (the map is drawn backwards): split turned round to north
+    TrackPoint sf = line(SF_LAT, SF_LON, 180, HeadingFrom::Set);
+    auto sp = split();
+    layout::guessHeadings(map, {0, 0}, sf, splitAt, sp);
+    CHECK(sp[0].headingFrom == HeadingFrom::Map && (sp[0].heading < 0.5f || sp[0].heading > 359.5f),
+          "split with backwards map %.1f", sp[0].heading);
+  }
+  {  // split on a different map line (may run either way): left alone
+    layout::Lines two = {{{0, -100}, {0, 100}}, {{300, -100}, {300, 100}}};
+    TrackPoint sf = line(SF_LAT, SF_LON, 0, HeadingFrom::Set);
+    auto sp = split();
+    layout::guessHeadings(two, {0, 0}, sf, splitAt, sp);
+    CHECK(!sp[0].hasHeading(), "split on another line got %.1f", sp[0].heading);
+  }
+  {  // S/F nowhere near the map: nothing guessed
+    TrackPoint sf = {SF_LAT, SF_LON, 15};
+    auto sp = split();
+    layout::guessHeadings(map, {150, 0}, sf, splitAt, sp);
+    CHECK(!sf.hasHeading() && !sp[0].hasHeading(), "far from the map: no guesses");
+  }
+  {  // a split that already has a direction keeps it; an empty map guesses nothing
+    TrackPoint sf = {SF_LAT, SF_LON, 15};
+    std::vector<TrackPoint> sp = {line(SF_LAT, SF_LON, 45, HeadingFrom::Set)};
+    layout::guessHeadings(map, {0, 0}, sf, splitAt, sp);
+    CHECK(sp[0].heading == 45 && sp[0].headingFrom == HeadingFrom::Set, "set split changed");
+    TrackPoint sf2 = {SF_LAT, SF_LON, 15};
+    auto sp2 = split();
+    layout::guessHeadings(layout::Lines(), {0, 0}, sf2, splitAt, sp2);
+    CHECK(!sf2.hasHeading(), "empty map");
+  }
+  printf("  directions guessed from the map: S/F, splits, backwards map, other lines\n");
+}
+
+// Odd inputs to the matching helpers.
+static void testMatchEdgeCases() {
+  layout::Lines map = {loop({{0, -100}, {0, 100}, {300, 100}, {300, -100}})};
+  float h;
+  CHECK(!layout::headingFromMap(layout::Lines(), 0, 0, 15, h), "empty map");
+  CHECK(!layout::headingFromMap({{{5, 5}, {5, 5}}}, 5, 5, 15, h), "zero-length line");
+  CHECK(layout::headingFromMap({{{0, 0}, {0, 3}}}, 0, 1, 15, h) && fabs(h) < 0.5f, "short 2-point line %.1f", h);
+  CHECK(layout::score({}, map).value() == 0 && layout::score({{0, 0}}, map).value() == 0, "empty path scores 0");
+  CHECK(layout::score({{0, 0}, {0, 50}}, layout::Lines()).value() == 0, "empty map scores 0");
+  std::vector<geo::XYf> dup = {{0, -100}, {0, -100}, {0, 100}, {0, 100}, {300, 100}, {300, -100}, {0, -100}};
+  CHECK(layout::score(dup, map).value() > 0.95f, "repeated points %.2f", layout::score(dup, map).value());
+
+  // within() must agree with the exact nearest distance
+  srand(7);
+  int disagree = 0;
+  for (int i = 0; i < 2000; i++) {
+    float x = (rand() % 4000) / 10.0f - 50, y = (rand() % 3000) / 10.0f - 150;
+    bool exact = layout::nearestD2(map, x, y) <= 15.0f * 15.0f;
+    disagree += exact != layout::within(map, x, y, 15.0f);
+  }
+  CHECK(disagree == 0, "within() disagreed %d times", disagree);
+
+  // A guessed (Map) direction can be backwards, so pathCrosses ignores it
+  std::vector<geo::XYf> north = {{0, -50}, {0, 50}};
+  CHECK(layout::pathCrosses(north, 0, 0, line(0, 0, 180, HeadingFrom::Map)), "Map direction ignored");
+  CHECK(!layout::pathCrosses(north, 30, 0, TrackPoint{0, 0, 15}), "30 m off a 15 m gate");
+
+  // resample: spacing, and both ends kept
+  std::vector<geo::XYf> pts;
+  layout::resample({{0, 0}, {0, 25}, {0, 25}, {0, 47}}, 10, pts);
+  CHECK(pts.size() == 6 && fabs(pts[4].y - 40) < 1e-3 && pts.back().y == 47, "resample %zu points", pts.size());
+
+  // No candidates, or a candidate with no map: stay
+  CHECK(layout::pickLayout(north, 0, {}) == -1, "no candidates");
+  CHECK(layout::pickLayout(north, 0, {{{0, 0}, TrackPoint{0, 0, 15}, nullptr}}) == -1, "candidate without a map");
+  printf("  matching helpers with empty, repeated and odd input\n");
+}
+
+// Lap timer corner cases for directions and changing layout.
+static void testLapTimerDirectionEdges() {
+  const double lapS = 2 * M_PI * R / 30.0;
+  {  // travelling exactly across the heading (90 degrees off) doesn't count; 89 does; 359 vs north does
+    geo::XY a = {0, -5}, b = {0, 5};
+    CHECK(!geo::travelsWith(a, b, 90) && !geo::travelsWith(a, b, 270), "perpendicular");
+    CHECK(geo::travelsWith(a, b, 89) && geo::travelsWith(a, b, 359) && geo::travelsWith(a, b, -45),
+          "within 90 degrees");
+  }
+  {  // parked on a line with a direction: GPS jitter makes no events
+    LapTimer lt;
+    lt.begin(line(SF_LAT, SF_LON, 0, HeadingFrom::Map), {});
+    srand(3);
+    int events = 0;
+    for (int i = 0; i < 3000; i++) {
+      double n = ((rand() % 2001) - 1000) / 1000.0 * 3.0, e = ((rand() % 2001) - 1000) / 1000.0 * 3.0;
+      if (lt.onFix(SF_LAT + n / 111194.93, SF_LON + e / 88800.0, 1.0f, 100 * i, 100 * i).type != LapEventType::None)
+        events++;
+    }
+    CHECK(events == 0 && lt.startFinish().heading == 0, "parked: %d events, heading %.0f", events,
+          lt.startFinish().heading);
+  }
+  {  // a backwards guess that's turned round goes back to the guess on begin() (a new session)
+    LapTimer lt;
+    TrackPoint guess = line(SF_LAT, SF_LON, 180, HeadingFrom::Map);
+    lt.begin(guess, {});
+    driveCircle(lt, true, 2.5 * lapS);
+    CHECK(fabs(lt.startFinish().heading) < 0.01, "flipped");
+    lt.begin(guess, {});
+    CHECK(lt.startFinish().heading == 180, "begin() restores the given line");
+  }
+  {  // a backwards guess also turns round guessed splits, but not set ones
+    const double splitLon = SF_LON - 2 * R / (111194.93 * cos(SF_LAT * geo::DEG2RAD));
+    LapTimer lt;
+    lt.begin(line(SF_LAT, SF_LON, 180, HeadingFrom::Map),
+             {line(SF_LAT, splitLon, 0, HeadingFrom::Map), line(SF_LAT, splitLon, 180, HeadingFrom::Set)});
+    int splits = 0;
+    int laps = driveCircle(lt, true, 4.5 * lapS, nullptr, &splits);
+    CHECK(laps == 3 && fabs(lt.splits()[0].heading - 180) < 0.01 && lt.splits()[1].heading == 180,
+          "split flip: %d laps, split headings %.0f %.0f", laps, lt.splits()[0].heading, lt.splits()[1].heading);
+    bool both = lt.lapCount() == 3;
+    for (size_t i = 0; i < lt.lapCount(); i++) both = both && lt.lap(i).splitMs[0] > 0 && lt.lap(i).splitMs[1] > 0;
+    CHECK(both, "both splits timed on every lap after the flip");
+  }
+  {  // changeGates mid-session keeps the laps and resizes the current lap's splits
+    LapTimer lt;
+    lt.begin(line(SF_LAT, SF_LON, 0, HeadingFrom::Set), {});
+    driveCircle(lt, true, 1.5 * lapS);
+    CHECK(lt.lapCount() == 1, "1 lap before changeGates");
+    const double splitLon = SF_LON - 2 * R / (111194.93 * cos(SF_LAT * geo::DEG2RAD));
+    lt.changeGates(line(SF_LAT, SF_LON, 0, HeadingFrom::Set), {line(SF_LAT, splitLon, 180, HeadingFrom::Set),
+                                                               line(SF_LAT, splitLon, 180, HeadingFrom::Set)});
+    CHECK(lt.lapCount() == 1 && lt.lapRunning(), "laps kept");
+  }
+}
+
+// --- end-to-end: a venue with several layouts, driven by simulated GPS ------
+
+// Position s metres along a polyline (local metres), wrapping round.
+static geo::XY posOnLoop(const std::vector<geo::XYf>& pts, double s) {
+  double total = 0;
+  for (size_t i = 0; i + 1 < pts.size(); i++) total += hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+  s = fmod(fmod(s, total) + total, total);
+  for (size_t i = 0; i + 1 < pts.size(); i++) {
+    double len = hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+    if (s <= len) return {pts[i].x + (pts[i + 1].x - pts[i].x) * s / len, pts[i].y + (pts[i + 1].y - pts[i].y) * s / len};
+    s -= len;
+  }
+  return {pts[0].x, pts[0].y};
+}
+
+static double loopLength(const std::vector<geo::XYf>& pts) {
+  double total = 0;
+  for (size_t i = 0; i + 1 < pts.size(); i++) total += hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+  return total;
+}
+
+struct SimLayout {
+  const char* name;
+  TrackPoint sf;  // lat/lon line
+  std::vector<TrackPoint> splits;
+  layout::Lines map;
+  geo::XY sfAt;  // local metres from the venue reference (SF_LAT, SF_LON)
+};
+
+static TrackPoint lineAt(double x, double y, float heading, HeadingFrom from) {
+  double lat, lon;
+  geo::fromLocal(x, y, SF_LAT, SF_LON, lat, lon);
+  return line(lat, lon, heading, from);
+}
+
+// What main.cpp does: time laps with the selected layout; after the first lap
+// (or every 2 km before any line is crossed) compare the path with the other
+// layouts and switch if one clearly fits. Returns the layout it ends on.
+struct SimResult {
+  int finalLayout;
+  int switches;
+  size_t lapsAfter;
+  uint32_t lastLapMs;
+  bool lapsKept;
+};
+
+static SimResult simulateSession(const std::vector<SimLayout>& layouts, int selected,
+                                 const std::vector<geo::XYf>& driven, double startS, double seconds,
+                                 std::vector<geo::XYf> leadIn = {}, double noiseM = 0) {
+  const double v = 20;  // m/s, 10 Hz
+  LapTimer lt;
+  lt.begin(layouts[selected].sf, layouts[selected].splits);
+  bool checked = false, lapsKept = true;
+  int switches = 0;
+  std::vector<geo::XYf> drivenPath;
+  float drivenM = 0, nextCheck = 2000;
+  double leadLen = leadIn.size() > 1 ? loopLength(leadIn) : 0;  // an open path onto the driven loop
+
+  auto check = [&](const std::vector<geo::XYf>& pathVenue, bool afterLap) {
+    // main works in the selected layout's frame (metres from its S/F)
+    geo::XY o = layouts[selected].sfAt;
+    std::vector<geo::XYf> path;
+    for (const geo::XYf& p : pathVenue) path.push_back({(float)(p.x - o.x), (float)(p.y - o.y)});
+    std::vector<layout::Lines> maps;
+    std::vector<layout::Candidate> cands;
+    std::vector<int> idx;
+    for (size_t i = 0; i < layouts.size(); i++) {
+      if ((int)i == selected) continue;
+      layout::Lines m = layouts[i].map;
+      for (auto& l : m)
+        for (auto& p : l) p.x -= (float)o.x, p.y -= (float)o.y;
+      maps.push_back(m);
+      idx.push_back(i);
+    }
+    for (size_t k = 0; k < idx.size(); k++)
+      cands.push_back({{layouts[idx[k]].sfAt.x - o.x, layouts[idx[k]].sfAt.y - o.y}, layouts[idx[k]].sf, &maps[k]});
+    layout::Lines curMap = layouts[selected].map;
+    for (auto& l : curMap)
+      for (auto& p : l) p.x -= (float)o.x, p.y -= (float)o.y;
+    float cur = afterLap ? layout::score(path, curMap).value() : 0;
+    int k = layout::pickLayout(path, cur, cands);
+    if (k < 0) return false;
+    int next = idx[k];
+    bool sameLine = hypot(layouts[next].sfAt.x - o.x, layouts[next].sfAt.y - o.y) < 5 &&
+                    cosf((layouts[next].sf.heading - layouts[selected].sf.heading) * (float)geo::DEG2RAD) >= 0;
+    size_t before = lt.lapCount();
+    if (sameLine && lt.lapRunning()) lt.changeGates(layouts[next].sf, layouts[next].splits);
+    else lt.begin(layouts[next].sf, layouts[next].splits);
+    if (lt.lapCount() != before) lapsKept = false;
+    selected = next;
+    switches++;
+    return true;
+  };
+
+  int n = (int)(seconds * 10);
+  for (int i = 0; i < n; i++) {
+    double s = v * 0.1 * i;
+    geo::XY p = s < leadLen ? posOnLoop(leadIn, s) : posOnLoop(driven, startS + s - leadLen);
+    p.x += noiseM * ((rand() % 2001) - 1000) / 1000.0;  // GPS wander
+    p.y += noiseM * ((rand() % 2001) - 1000) / 1000.0;
+    double lat, lon;
+    geo::fromLocal(p.x, p.y, SF_LAT, SF_LON, lat, lon);
+    LapEvent ev = lt.onFix(lat, lon, v * 3.6f, 3600000 + 100 * i, 100 * i);
+    if (ev.type == LapEventType::LapCompleted && !checked && lt.lapCount() == 1) {
+      checked = true;
+      std::vector<geo::XYf> path;  // the lap, every 5 m, back in venue metres
+      geo::XY o = layouts[selected].sfAt;
+      for (const LapTimer::TracePt& tp : lt.bestPath())
+        if (path.empty() || hypot(tp.x + o.x - path.back().x, tp.y + o.y - path.back().y) >= 5)
+          path.push_back({(float)(tp.x + o.x), (float)(tp.y + o.y)});
+      check(path, true);
+    }
+    if (!checked && !lt.lapRunning() && lt.lapCount() == 0) {  // main.cpp trackDrivenPath
+      if (drivenPath.empty() || hypot(p.x - drivenPath.back().x, p.y - drivenPath.back().y) >= 5) {
+        if (!drivenPath.empty()) drivenM += hypot(p.x - drivenPath.back().x, p.y - drivenPath.back().y);
+        drivenPath.push_back({(float)p.x, (float)p.y});
+        if (drivenM >= nextCheck) {
+          nextCheck += 2000;
+          if (check(drivenPath, false)) checked = true;
+        }
+      }
+    }
+  }
+  return {selected, switches, lt.lapCount(), lt.lastLap() ? lt.lastLap()->timeMs : 0, lapsKept};
+}
+
+static void testLayoutSimulation() {
+  // Full: 300 x 200 m, clockwise, S/F at (0, 0) heading north. Short cuts
+  // through at x = 100 and shares the S/F. Reverse is Full driven the other
+  // way. The kart track is a separate 150 x 100 m loop 300 m east.
+  std::vector<geo::XYf> full = loop({{0, -100}, {0, 100}, {300, 100}, {300, -100}});
+  std::vector<geo::XYf> shortL = loop({{0, -100}, {0, 100}, {100, 100}, {100, -100}});
+  std::vector<geo::XYf> reverse = loop({{0, -100}, {300, -100}, {300, 100}, {0, 100}});
+  std::vector<geo::XYf> kart = loop({{600, -50}, {600, 50}, {750, 50}, {750, -50}});
+  std::vector<SimLayout> venue = {
+      {"Full", lineAt(0, 0, 0, HeadingFrom::Set), {lineAt(300, 0, 180, HeadingFrom::Set)}, {full}, {0, 0}},
+      {"Short", lineAt(0, 0, 0, HeadingFrom::Set), {lineAt(100, 0, 180, HeadingFrom::Set)}, {shortL}, {0, 0}},
+      {"Reverse", lineAt(0, 0, 180, HeadingFrom::Set), {lineAt(300, 0, 0, HeadingFrom::Set)}, {full}, {0, 0}},
+      {"Kart", lineAt(600, 0, 0, HeadingFrom::Set), {}, {kart}, {600, 0}},
+  };
+  const double v = 20;
+
+  {  // Full picked, Short driven: switches after lap 1, keeps it (shared line), times Short laps
+    SimResult r = simulateSession(venue, 0, shortL, 50, 5.3 * 600 / v);
+    double expect = 600 / v * 1000;
+    CHECK(r.finalLayout == 1 && r.switches == 1 && r.lapsKept, "short: ended on %s, %d switches, kept %d",
+          venue[r.finalLayout].name, r.switches, r.lapsKept);
+    CHECK(r.lapsAfter == 5 && fabs(r.lastLapMs - expect) <= 2, "short: %zu laps, last %u ms (expected %.0f)",
+          r.lapsAfter, r.lastLapMs, expect);
+    printf("  sim: Full picked, Short driven -> %s after lap 1, %zu laps of %u ms, lap 1 kept\n",
+           venue[r.finalLayout].name, r.lapsAfter, r.lastLapMs);
+  }
+  {  // Full picked, Full driven: stays (Short doesn't fit, Reverse is crossed the wrong way)
+    SimResult r = simulateSession(venue, 0, full, 50, 4.3 * 1000 / v);
+    CHECK(r.finalLayout == 0 && r.switches == 0 && r.lapsAfter == 4, "full: ended on %s, %d switches, %zu laps",
+          venue[r.finalLayout].name, r.switches, r.lapsAfter);
+    printf("  sim: Full picked, Full driven -> stays on %s, %zu laps\n", venue[r.finalLayout].name, r.lapsAfter);
+  }
+  {  // Short picked, Full driven: switches to Full
+    SimResult r = simulateSession(venue, 1, full, 50, 4.3 * 1000 / v);
+    CHECK(r.finalLayout == 0 && r.switches == 1 && fabs(r.lastLapMs - 1000 / v * 1000) <= 2,
+          "short->full: ended on %s, last lap %u", venue[r.finalLayout].name, r.lastLapMs);
+    printf("  sim: Short picked, Full driven -> %s\n", venue[r.finalLayout].name);
+  }
+  {  // Full picked, Reverse driven: no Full lap ever counts; after 2 km it finds Reverse and times it
+    SimResult r = simulateSession(venue, 0, reverse, 50, 6.3 * 1000 / v);
+    CHECK(r.finalLayout == 2 && r.switches == 1 && r.lapsAfter >= 3 && fabs(r.lastLapMs - 1000 / v * 1000) <= 2,
+          "reverse: ended on %s, %zu laps, last %u", venue[r.finalLayout].name, r.lapsAfter, r.lastLapMs);
+    printf("  sim: Full picked, driven backwards -> %s after 2 km, %zu laps\n", venue[r.finalLayout].name,
+           r.lapsAfter);
+  }
+  {  // Full picked, kart track next door driven (after leaving the paddock): finds Kart
+    std::vector<geo::XYf> leadIn = {{450, -150}, {600, -150}, {600, -50}};  // paddock road onto the kart track
+    SimResult r = simulateSession(venue, 0, kart, 0, 250 / v + 10 * 500 / v, leadIn);
+    CHECK(r.finalLayout == 3 && r.switches == 1 && r.lapsAfter >= 3 && fabs(r.lastLapMs - 500 / v * 1000) <= 2,
+          "kart: ended on %s, %zu laps, last %u", venue[r.finalLayout].name, r.lapsAfter, r.lastLapMs);
+    printf("  sim: Full picked, kart track next door driven -> %s, %zu laps of %u ms\n", venue[r.finalLayout].name,
+           r.lapsAfter, r.lastLapMs);
+  }
+  {  // failure path: driving a loop no layout fits (a car park) never switches
+    std::vector<geo::XYf> carPark = loop({{-400, -400}, {-400, -300}, {-250, -300}, {-250, -400}});
+    SimResult r = simulateSession(venue, 0, carPark, 0, 8000 / v);
+    CHECK(r.finalLayout == 0 && r.switches == 0 && r.lapsAfter == 0, "car park: switched to %s",
+          venue[r.finalLayout].name);
+    printf("  sim: driving somewhere else entirely -> stays on %s, no laps\n", venue[r.finalLayout].name);
+  }
+  {  // with 2 m of GPS wander on every fix the right layout is still found
+    srand(11);
+    SimResult r = simulateSession(venue, 0, shortL, 50, 4.3 * 600 / v, {}, 2.0);
+    CHECK(r.finalLayout == 1 && r.lapsKept && r.lapsAfter == 4 && fabs(r.lastLapMs - 600 / v * 1000) < 300,
+          "noisy short: ended on %s, %zu laps, last %u", venue[r.finalLayout].name, r.lapsAfter, r.lastLapMs);
+    srand(12);
+    r = simulateSession(venue, 0, full, 50, 3.3 * 1000 / v, {}, 2.0);
+    CHECK(r.finalLayout == 0 && r.switches == 0, "noisy full: switched to %s", venue[r.finalLayout].name);
+    printf("  sim with 2 m GPS wander: Short found, Full kept\n");
+  }
+  {  // the right layout but without directions: Reverse can't be told from Full, so it stays
+    std::vector<SimLayout> noDir = venue;
+    for (SimLayout& l : noDir) l.sf.headingFrom = HeadingFrom::None;
+    SimResult r = simulateSession(noDir, 0, full, 50, 3.3 * 1000 / v);
+    CHECK(r.finalLayout == 0 && r.switches == 0, "no directions: switched to %s", noDir[r.finalLayout].name);
+  }
+}
+
 int main() {
   printf("LapTimer tests\n");
   testConstantSpeed(10, 3600000);
@@ -391,6 +745,10 @@ int main() {
   testParallelStraight();
   testGuessedDirection();
   testLayoutMatch();
+  testGuessHeadings();
+  testMatchEdgeCases();
+  testLapTimerDirectionEdges();
+  testLayoutSimulation();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }
