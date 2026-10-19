@@ -605,5 +605,4 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
 web/       the Wi-Fi page (gzipped into data/web when building)
 data/      tracks.json
 test/      host-side tests (check.h: shared by all of them)
-legacy/    the original Raspberry Pi / Python prototype
 ```
