@@ -6,6 +6,13 @@
  * (see geo::crossesGate), and interpolates the crossing time between the two
  * GPS timestamps. Lap times therefore come from GPS time, not the ESP32 clock.
  *
+ * One segment between fixes can cross several lines (a split just before or
+ * after the start/finish, or any lines after a gap in fixes). Every crossing
+ * is applied in the order it happened along the segment, and onFix returns
+ * all the resulting events, oldest first. A split before the start/finish
+ * belongs to the lap that's ending, a split after it to the new lap. A split
+ * at exactly the same point as the start/finish counts as before it.
+ *
  * A line with a heading only counts crossings within 90 degrees of it. If the
  * start/finish heading was guessed from the map (HeadingFrom::Map) and the
  * car crosses it the "wrong" way twice in the same place before ever
@@ -45,6 +52,27 @@ struct LapEvent {
   bool isBest = false;
 };
 
+// The events from one fix, oldest first. A fixed-size list: onFix runs 20
+// times a second and shouldn't allocate.
+struct LapEvents {
+  static constexpr size_t CAPACITY = 8;  // if a segment ever crosses more, the newest replaces the last
+  LapEvent items[CAPACITY];
+  size_t count = 0;
+
+  void add(const LapEvent& e) { items[count < CAPACITY ? count++ : CAPACITY - 1] = e; }
+  bool empty() const { return count == 0; }
+  const LapEvent* begin() const { return items; }
+  const LapEvent* end() const { return items + count; }
+  // The newest event, or an empty one (type None) if there were none.
+  LapEvent last() const { return count ? items[count - 1] : LapEvent(); }
+  // The first event of this type, or nullptr.
+  const LapEvent* find(LapEventType type) const {
+    for (const LapEvent& e : *this)
+      if (e.type == type) return &e;
+    return nullptr;
+  }
+};
+
 class LapTimer {
 public:
   // Start/finish crossings sooner than minLapMs after the last are ignored (GPS jitter).
@@ -60,7 +88,7 @@ public:
 
   // rxMillis is the device clock when the fix arrived; only used to run the
   // live on-screen clock between fixes.
-  LapEvent onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis);
+  LapEvents onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis);
 
   // Start lap 1 now (the driver just marked the start/finish line here).
   void startLapNow(uint32_t gpsTimeMs, uint32_t rxMillis);
@@ -131,6 +159,7 @@ private:
 
   int64_t continuousTime(uint32_t gpsTimeMs);
   bool startFinishCounts(geo::XY a, geo::XY b, double frac);
+  void crossSplits(double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out);
   void startLap(int64_t t, uint32_t startMillis);
   int32_t matchBestTrace(float x, float y, int32_t elapsed);
 };

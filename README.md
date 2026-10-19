@@ -495,6 +495,7 @@ It checks that the timer:
 
 - measures known-length laps to within 2 ms at both 10 Hz and 1 Hz, including laps that run past UTC midnight
 - times splits correctly
+- when one GPS fix crosses a split and the start/finish (a split just before or after the line, lap 1's start, several splits at once), reports every crossing in the order it happened, with a split before the line in the lap that ends and one after it in the new lap
 - tracks the best lap and computes deltas
 - computes the live diff to within about 40 ms of the true value
 - doesn't record false laps while parked on the line with GPS jitter

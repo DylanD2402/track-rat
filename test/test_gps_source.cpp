@@ -445,8 +445,8 @@ static RunResult run(SimGps& g, Receiver& r, double seconds, bool stalls, Hook h
     link.deliver(r, now + 3, stalls);
     for (; fed < r.fixes.size(); fed++) {
       const GpsFix& f = r.fixes[fed];
-      LapEvent e = lt.onFix(f.lat, f.lon, f.speedKmh, f.gpsTimeMs, f.rxMillis);
-      if (e.type == LapEventType::LapCompleted) {
+      for (const LapEvent& e : lt.onFix(f.lat, f.lon, f.speedKmh, f.gpsTimeMs, f.rxMillis)) {
+        if (e.type != LapEventType::LapCompleted) continue;
         res.laps++;
         double err = fabs(e.timeMs - expectedMs);
         if (err > res.worstLapErrMs) res.worstLapErrMs = err;

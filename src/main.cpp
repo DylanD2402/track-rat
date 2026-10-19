@@ -874,9 +874,10 @@ void loop() {
     if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) noteActivity(now);  // moving: never sleep
     if (state == AppState::Running) {
       recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
-      LapEvent ev;
-      if (!settingLine) ev = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis);
-      onLapEvent(ev);
+      if (!settingLine) {
+        LapEvents evs = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis);
+        for (const LapEvent& ev : evs) onLapEvent(ev);
+      }
       trackDrivenPath(fix);
     } else if (state == AppState::FreeRoam) {
       recordFix(fix, 0);

@@ -63,8 +63,44 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
   liveDelta = NO_DELTA;
 }
 
-LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis) {
-  LapEvent ev;
+// Records the splits crossed on the segment from the previous fix to (lat, lon), whose crossing
+// fraction is above `after` and at most `upTo`, in the order they were crossed. Called once for the
+// part of the segment before the start/finish and once for the part after it.
+void LapTimer::crossSplits(double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out) {
+  for (;;) {
+    int next = -1;
+    double nextFrac = 0;
+    for (size_t i = 0; i < splitPts.size(); i++) {
+      if (lapSplits[i] >= 0) continue;  // already crossed this lap
+      const TrackPoint& sp = splitPts[i];
+      geo::XY a = geo::toLocal(prevLat, prevLon, sp.lat, sp.lon);
+      geo::XY b = geo::toLocal(lat, lon, sp.lat, sp.lon);
+      double frac;
+      if (!geo::crossesGate(a, b, sp.radius, frac) || frac <= after || frac > upTo) continue;
+      if (sp.hasHeading() && !geo::travelsWith(a, b, sp.heading)) continue;
+      if (next < 0 || frac < nextFrac) {  // equal fractions: the lower split first
+        next = (int)i;
+        nextFrac = frac;
+      }
+    }
+    if (next < 0) return;
+
+    int64_t tc = prevT + (int64_t)(nextFrac * dt + 0.5);
+    lapSplits[next] = (int32_t)(tc - lapStartT);
+    LapEvent ev;
+    ev.type = LapEventType::SplitCrossed;
+    ev.splitIndex = next;
+    ev.timeMs = lapSplits[next];
+    const Lap* best = bestLap();
+    if (best && (size_t)next < best->splitMs.size() && best->splitMs[next] >= 0) {
+      ev.deltaMs = lapSplits[next] - best->splitMs[next];
+    }
+    out.add(ev);
+  }
+}
+
+LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis) {
+  LapEvents evs;
   int64_t t = continuousTime(gpsTimeMs);
 
   if (speedKmh > sessionMaxSpeed) sessionMaxSpeed = speedKmh;
@@ -75,46 +111,35 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
   if (usable) {
     bool moving = (speedKmh >= MIN_CROSSING_SPEED_KMH || prevSpeed >= MIN_CROSSING_SPEED_KMH);
 
+    // A segment can cross splits and the start/finish together, so find where the line is first:
+    // splits up to it belong to the lap that's ending (with the directions as they were),
+    // splits after it to the lap that starts (with the directions as the line left them).
+    geo::XY a = geo::toLocal(prevLat, prevLon, sf.lat, sf.lon);
+    geo::XY b = geo::toLocal(lat, lon, sf.lat, sf.lon);
+    double frac = 0;
+    bool lineCrossed = moving && geo::crossesGate(a, b, sf.radius, frac);
+
     if (running) {
       if (speedKmh > lapMaxSpeed) lapMaxSpeed = speedKmh;
       lapSpeedSum += speedKmh;
       lapSpeedCount++;
-
-      for (size_t i = 0; i < splitPts.size() && moving; i++) {
-        if (lapSplits[i] >= 0) continue;  // already crossed this lap
-        const TrackPoint& sp = splitPts[i];
-        geo::XY a = geo::toLocal(prevLat, prevLon, sp.lat, sp.lon);
-        geo::XY b = geo::toLocal(lat, lon, sp.lat, sp.lon);
-        double frac;
-        if (geo::crossesGate(a, b, sp.radius, frac) && (!sp.hasHeading() || geo::travelsWith(a, b, sp.heading))) {
-          int64_t tc = prevT + (int64_t)(frac * dt + 0.5);
-          lapSplits[i] = (int32_t)(tc - lapStartT);
-          ev.type = LapEventType::SplitCrossed;
-          ev.splitIndex = i;
-          ev.timeMs = lapSplits[i];
-          const Lap* best = bestLap();
-          if (best && i < best->splitMs.size() && best->splitMs[i] >= 0) {
-            ev.deltaMs = lapSplits[i] - best->splitMs[i];
-          }
-        }
-      }
+      // A split at the very same point as the line counts as before it: it was checked first before this too.
+      if (moving) crossSplits(lat, lon, dt, -1.0, lineCrossed ? frac : 2.0, evs);
     }
 
-    geo::XY a = geo::toLocal(prevLat, prevLon, sf.lat, sf.lon);
-    geo::XY b = geo::toLocal(lat, lon, sf.lat, sf.lon);
-    double frac;
-    if (moving && geo::crossesGate(a, b, sf.radius, frac) && startFinishCounts(a, b, frac)) {
+    if (lineCrossed && startFinishCounts(a, b, frac)) {
       int64_t tc = prevT + (int64_t)(frac * dt + 0.5);
       uint32_t tcMillis = rxMillis - (uint32_t)(t - tc);
 
       if (!running) {
         startLap(tc, tcMillis);
-        ev = LapEvent();
+        LapEvent ev;
         ev.type = LapEventType::LapStarted;
+        evs.add(ev);
       } else {
         int64_t elapsed = tc - lapStartT;
         if (elapsed >= minLap) {
-          ev = LapEvent();
+          LapEvent ev;
           if (elapsed <= MAX_LAP_TIME_MS && laps.size() < MAX_LAPS_STORED) {
             Lap lap;
             lap.number = lapNumber;
@@ -137,11 +162,15 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
           } else {
             ev.type = LapEventType::LapStarted;  // too long (pit stop etc.) - not recorded
           }
+          evs.add(ev);
           startLap(tc, tcMillis);
         }
         // else: crossed again too soon (GPS jitter at the line) - ignore
       }
     }
+
+    // The rest of the segment, in whichever lap is running now (the same one if the line didn't count).
+    if (lineCrossed && running && moving) crossSplits(lat, lon, dt, frac, 2.0, evs);
   }
 
   if (running) {
@@ -156,7 +185,7 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
   prevLon = lon;
   prevT = t;
   prevSpeed = speedKmh;
-  return ev;
+  return evs;
 }
 
 // Direction check for a start/finish crossing (see LapTimer.h).
