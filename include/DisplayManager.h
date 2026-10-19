@@ -25,6 +25,7 @@ struct RunningOverlay {
   int32_t deltaMs = NO_DELTA;  // lap delta vs best, or split delta
   int splitIndex = -1;         // >= 0: delta box shows a split
   uint32_t splitMs = 0;
+  String notice;  // e.g. "Layout: Short" after switching layout
 };
 
 class DisplayManager {
@@ -42,7 +43,9 @@ public:
   void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk, bool statusOnly);
   void drawTrackSelect(const Track& track, int index, int count, double distanceM, const GPSHandler& gps,
                        bool touchOk);
-  void drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk);
+  // layoutNumber is 0-based; layoutCount > 1 offers "tap the top bar for the next layout"
+  void drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk, int layoutNumber = 0,
+                        int layoutCount = 1);
   void drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                    const RunningOverlay& overlay, uint32_t holdMs);
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
@@ -74,7 +77,7 @@ private:
   };
   bool drawMapArea(int x, int y, int w, int h, const std::vector<std::vector<geo::XYf>>& lines, MapPath path,
                    bool showCar, geo::XY car, bool carFix, bool showStartFinish);
-  void runningOverlays(const GPSHandler& gps, uint32_t holdMs);
+  void runningOverlays(const GPSHandler& gps, uint32_t holdMs, const RunningOverlay* ov = nullptr);
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);
   void centered(const String& s, int y, int font, uint16_t color);

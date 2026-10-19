@@ -262,7 +262,9 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
   centered(track.location + (track.country.length() ? ", " + track.country : String("")), 82, 2, C_TEXT);
   if (track.length > 0) {
     snprintf(buf, sizeof(buf), "%.2f km", track.length / 1000.0);
-    centered(buf, 108, 4, C_TEXT);
+    centered(track.layoutName.length() ? track.layoutName + "  " + buf : String(buf), 108, 4, C_TEXT);
+  } else if (track.layoutName.length()) {
+    centered(track.layoutName, 108, 4, C_TEXT);
   }
   if (distanceM >= 0) centered(distanceText(distanceM) + " from you", 146, 2, C_DIM);
   if (!track.hasStartFinish && !track.bench) {
@@ -281,11 +283,19 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
   endFrame();
 }
 
-void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk) {
+void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk,
+                                      int layoutNumber, int layoutCount) {
   beginFrame();
-  header("READY", nullptr);
+  char buf[48];
+  if (layoutCount > 1 && touchOk) {
+    snprintf(buf, sizeof(buf), "READY   layout %d/%d - tap here for next", layoutNumber + 1, layoutCount);
+    header(buf, nullptr);
+  } else {
+    header("READY", nullptr);
+  }
 
   centered(track.name, 40, 4, C_TEXT);
+  if (track.layoutName.length()) centered(track.layoutName + " layout", 66, 2, C_GOOD);
   const char* what = track.hasStartFinish ? "Start/finish" : "Track";
   if (track.bench) {
     centered("Simulated car - no GPS needed", 84, 2, C_WARN);
@@ -349,14 +359,23 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   // --- live diff box (y 156..236) ---
   diffBox(timer.liveDeltaMs(), timer.lapRunning(), ov);
 
-  runningOverlays(gps, holdMs);
+  runningOverlays(gps, holdMs, &ov);
   endFrame();
 }
 
-void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs) {
+void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs, const RunningOverlay* ov) {
   if (!gps.hasFix()) {
     gfx->fillRect(0, H - 30, W, 30, C_BAD);
     centered("NO GPS FIX", H - 26, 4, C_TEXT);
+  }
+
+  if (ov && ov->notice.length() && holdMs <= 150) {
+    gfx->fillRoundRect(10, 148, W - 20, 62, 8, C_WARN);  // below the lap-time flash
+    gfx->setTextColor(TFT_BLACK);
+    gfx->setTextDatum(TC_DATUM);
+    gfx->drawString(ov->notice, W / 2, 154, 4);
+    gfx->drawString("matched your lap - switched", W / 2, 186, 2);
+    gfx->setTextDatum(TL_DATUM);
   }
 
   if (holdMs > 150) {
@@ -368,10 +387,10 @@ void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs) {
 }
 
 String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
-  if (!timer.lapRunning()) return track.name;
+  if (!timer.lapRunning()) return track.displayName();
   char buf[16];
   snprintf(buf, sizeof(buf), "LAP %d   ", timer.currentLapNumber());
-  return buf + track.name;  // lap number first so a long name gets truncated, not the lap
+  return buf + track.displayName();  // lap number first so a long name gets truncated, not the lap
 }
 
 // ---------------------------------------------------------------------------
@@ -523,7 +542,7 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
   gfx->setTextColor(C_DIM);
   gfx->drawString("tap: timing", PANEL_X, H - 12, 1);
 
-  runningOverlays(gps, holdMs);
+  runningOverlays(gps, holdMs, &ov);
   endFrame();
 }
 
@@ -696,7 +715,7 @@ void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs
 
 void DisplayManager::drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs) {
   beginFrame();
-  header(track.name, &gps);
+  header(track.displayName(), &gps);
 
   gfx->fillRoundRect(6, HEADER_H + 8, W - 12, 120, 10, C_BUTTON);
   centered("SET START/FINISH", HEADER_H + 18, 4, C_WARN);
@@ -719,7 +738,7 @@ void DisplayManager::drawSetLine(const Track& track, const GPSHandler& gps, uint
 
 void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, const String& savedPath) {
   beginFrame();
-  header("SESSION SUMMARY - " + track.name, nullptr);
+  header("SESSION SUMMARY - " + track.displayName(), nullptr);
 
   char buf[48];
   const Lap* best = timer.bestLap();

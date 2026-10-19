@@ -11,6 +11,12 @@
  * "center", and the line is set on the device the first time it's driven.
  * Changes made on the device (new tracks, start/finish lines, maps) are
  * written back to tracks.json.
+ *
+ * A venue in tracks.json can have a "layouts" array (Full, Short, Reverse,
+ * the kart track...), each with its own start/finish, splits and map. Each
+ * layout is a separate Track here, listed next to the venue's other layouts,
+ * with an id of "<venue id>.<layout id>" so anything kept per track (maps,
+ * best laps) is kept per layout. A venue without "layouts" is one Track.
  */
 
 #ifndef TRACK_DATABASE_H
@@ -22,10 +28,14 @@
 #include <functional>
 #include <vector>
 #include "GeoMath.h"
+#include "LayoutMatch.h"
 
 struct Track {
-  String id;
-  String name;
+  String id;       // unique per layout: the venue id, or "<venue id>.<layout id>"
+  String venueId;  // "id" of the entry in tracks.json
+  String name;     // venue name
+  String layoutName;     // empty for a venue without layouts
+  int layoutIndex = -1;  // position in the venue's "layouts", -1 = none
   String location;
   String country;
   float length = 0;  // metres
@@ -41,6 +51,7 @@ struct Track {
 
   double refLat() const { return hasStartFinish ? startFinish.lat : centerLat; }
   double refLon() const { return hasStartFinish ? startFinish.lon : centerLon; }
+  String displayName() const { return layoutName.length() ? name + " - " + layoutName : name; }
 };
 
 class TrackDatabase {
@@ -59,13 +70,32 @@ public:
   // In-memory only (the bench track). Kept last in the list.
   void add(const Track& track) { tracks.push_back(track); }
 
-  // Load the map for this track (frees the others).
+  // Load the map for this track (frees the others). Lines with no direction
+  // get one from the map near them, if it passes close by (HeadingFrom::Map).
   void loadMap(int index);
+  // The same, with map lines already read (metres from this track's refLat/refLon).
+  void setLoadedMap(int index, layout::Lines&& map);
+  // Keep, in memory, guessed directions that LapTimer turned round, so the
+  // next session doesn't have to find out again.
+  void keepGuessedHeadings(int index, const TrackPoint& startFinish, const std::vector<TrackPoint>& splits);
+
+  // Layouts of the same venue: how many, which one this is (0-based), and
+  // the index of the next one (wrapping round; itself if there's only one).
+  int layoutCount(int index) const;
+  int layoutNumber(int index) const;
+  int nextLayout(int index) const;
+
+  // Tracks that could be the one being driven instead of `index`: every
+  // other layout or track with a start/finish and a map within maxDistanceM.
+  std::vector<int> layoutCandidates(int index, double maxDistanceM) const;
+  // Read these tracks' maps from tracks.json, in metres from refLat/refLon.
+  bool readMaps(const std::vector<int>& indices, double refLat, double refLon, std::vector<layout::Lines>& out);
 
   // These change tracks.json (SD if present, else flash) as well as memory.
   // createTrack returns the new index, or -1.
   int createTrack(double centerLat, double centerLon);
-  bool setStartFinish(int index, double lat, double lon);
+  // headingDeg < 0: no direction (crossings either way count).
+  bool setStartFinish(int index, double lat, double lon, float headingDeg = -1);
   bool saveMap(int index, const std::vector<geo::XYf>& line);  // line in metres from refLat/refLon
 
 private:
@@ -78,6 +108,7 @@ private:
   fs::FS* writableFs();
   bool editFile(size_t extraBytes, std::function<bool(JsonArray tracks)> change);
   int insertIndex() const;  // before the bench track
+  bool readFile(std::function<void(JsonArray tracks)> use);  // parse tracks.json, read only
 };
 
 #endif  // TRACK_DATABASE_H

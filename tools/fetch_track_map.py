@@ -13,6 +13,12 @@ Example (Calabogie):
 
     --sf is the start/finish line. Get it from Google Maps: right-click the
     start/finish line on the satellite view and click the coordinates to copy.
+    --heading is the direction of travel across it (0 = north, 90 = east), so
+    crossing the line the other way (a straight alongside, the pit lane) is
+    ignored. The script prints which way the map runs at the line to help.
+
+A venue with several layouts (Full, Short, the kart track): run it once per
+layout with the same --id and a different --layout name.
 
 Then copy data/tracks.json to the root of the SD card.
 
@@ -47,6 +53,32 @@ def to_local(lat, lon, ref_lat, ref_lon):
     x = math.radians(lon - ref_lon) * EARTH_R * math.cos(math.radians(ref_lat))
     y = math.radians(lat - ref_lat) * EARTH_R
     return x, y
+
+
+def bearing(dx, dy):
+    return math.degrees(math.atan2(dx, dy)) % 360
+
+
+COMPASS = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
+
+
+def map_direction(lines, ref):
+    """Direction of the map line nearest the start/finish, in the order its
+    points are listed, or None. OpenStreetMap usually draws circuits in the
+    racing direction, but not always."""
+    best = None
+    for l in lines:
+        xy = [to_local(p[0], p[1], *ref) for p in l]
+        for (ax, ay), (bx, by) in zip(xy, xy[1:]):
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy
+            if L2 < 1e-6:
+                continue
+            u = max(0.0, min(1.0, -(ax * dx + ay * dy) / L2))
+            d = math.hypot(ax + u * dx, ay + u * dy)
+            if best is None or d < best[0]:
+                best = (d, bearing(dx, dy))
+    return best[1] if best and best[0] <= 30 else None
 
 
 def simplify(points, tol_m, ref):
@@ -220,6 +252,9 @@ def main():
     ap.add_argument("--length", type=float, default=0, help="track length in metres")
     ap.add_argument("--sf", required=True, help="start/finish line as LAT,LON")
     ap.add_argument("--gate", type=float, default=15, help="start/finish gate half-width in metres")
+    ap.add_argument("--heading", type=float, help="direction of travel across the start/finish, degrees "
+                    "(0 = north, 90 = east). Without it, crossings either way count")
+    ap.add_argument("--layout", help="layout name (e.g. Full, Short, Kart): adds or updates that layout of the venue")
     ap.add_argument("--file", help="read the layout from a .geojson/.gpx/.kml file instead of OpenStreetMap")
     ap.add_argument("--radius", type=int, default=2500, help="OpenStreetMap search radius around the S/F, metres")
     ap.add_argument("--no-pit", action="store_true", help="leave out ways tagged as pit lanes")
@@ -256,6 +291,17 @@ def main():
     preview, (w, h) = ascii_preview(lines, ref)
     print(f"\nPreview ({w:.0f} m x {h:.0f} m, S = start/finish):\n{preview}\n")
 
+    direction = map_direction(lines, ref)
+    if direction is not None:
+        print(f"The map runs {COMPASS[int((direction + 22.5) // 45) % 8]} ({direction:.0f} deg) at the start/finish.")
+        if args.heading is None:
+            print(f"  If that's the racing direction, add --heading {direction:.0f} "
+                  f"(the other way is --heading {(direction + 180) % 360:.0f}).")
+    if args.heading is not None:
+        print(f"Start/finish direction: {args.heading % 360:.0f} deg "
+              f"({COMPASS[int((args.heading % 360 + 22.5) // 45) % 8]}).")
+    print()
+
     nearest = min(math.hypot(*to_local(p[0], p[1], *ref)) for l in lines for p in l)
     if nearest > 30:
         print(f"WARNING: the start/finish is {nearest:.0f} m from the nearest point of the layout. "
@@ -265,23 +311,59 @@ def main():
         db = json.load(open(args.db, encoding="utf-8"))
     else:
         db = {"tracks": []}
+    sf = {"lat": sf_lat, "lon": sf_lon, "radius": args.gate}
+    if args.heading is not None:
+        sf["heading"] = round(args.heading % 360, 1)
     entry = {
         "id": args.id,
         "name": args.name,
         "location": args.location,
         "country": args.country,
         "length": args.length,
-        "startFinish": {"lat": sf_lat, "lon": sf_lon, "radius": args.gate},
+        "startFinish": sf,
         "map": lines,
     }
     tracks = db.setdefault("tracks", [])
-    for i, t in enumerate(tracks):
-        if t.get("id") == args.id:
-            if "splits" in t:
-                entry["splits"] = t["splits"]  # keep any splits already set up
-            tracks[i] = entry
-            print(f"Updated '{args.id}' in {args.db}")
-            break
+    existing = next((t for t in tracks if t.get("id") == args.id), None)
+
+    if args.layout:
+        layout = {"name": args.layout, "startFinish": sf, "map": lines}
+        if args.length:
+            layout["length"] = args.length
+        venue = existing
+        if venue is None:
+            venue = {k: entry[k] for k in ("id", "name", "location", "country", "length")}
+            tracks.insert(0, venue)
+        layouts = venue.setdefault("layouts", [])
+        if not layouts and ("startFinish" in venue or "map" in venue):
+            # The venue had one layout, stored the old way: keep it as the first layout
+            old = {"name": "Main"}
+            for k in ("startFinish", "splits", "map"):
+                if k in venue:
+                    old[k] = venue.pop(k)
+            layouts.append(old)
+            print(f"Moved the existing layout of '{args.id}' into a layout called 'Main'")
+        for k in ("startFinish", "splits", "map"):
+            venue.pop(k, None)  # ignored once a venue has layouts
+        for i, lo in enumerate(layouts):
+            if lo.get("name", "").lower() == args.layout.lower():
+                if "splits" in lo:
+                    layout["splits"] = lo["splits"]
+                if "id" in lo:
+                    layout["id"] = lo["id"]
+                layouts[i] = layout
+                print(f"Updated layout '{args.layout}' of '{args.id}' in {args.db}")
+                break
+        else:
+            layouts.append(layout)
+            print(f"Added layout '{args.layout}' to '{args.id}' in {args.db}")
+    elif existing is not None:
+        if existing.get("layouts"):
+            raise SystemExit(f"'{args.id}' has layouts: say which one with --layout NAME.")
+        if "splits" in existing:
+            entry["splits"] = existing["splits"]  # keep any splits already set up
+        tracks[tracks.index(existing)] = entry
+        print(f"Updated '{args.id}' in {args.db}")
     else:
         tracks.insert(0, entry)
         print(f"Added '{args.id}' to {args.db}")

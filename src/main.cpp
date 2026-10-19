@@ -56,6 +56,15 @@ static bool showMap = false;  // timing screen: false = big clock, true = track 
 static uint32_t lapOverlayUntil = 0;
 static uint32_t splitOverlayUntil = 0;
 
+// Layout check: after the first lap (or 2 km without crossing the line),
+// is the driver on a different layout than the one picked? See checkLayout.
+static const double LAYOUT_SEARCH_RADIUS_M = 3000;
+static const float LINE_HEADING_MIN_KMH = 15;  // slower than this the GPS course is too rough to save with a line
+static bool layoutChecked = false;
+static std::vector<geo::XYf> drivenPath;  // before timing starts: metres from the track's reference point
+static float drivenM = 0, nextLayoutCheckM = 0;
+static uint32_t layoutNoticeUntil = 0;
+
 // Free Roam
 static String freeRoamPath;
 static uint32_t freeRoamDurationMs = 0;
@@ -128,11 +137,17 @@ static void enterState(AppState next) {
     sessionStamp = gps.timestampString();
     sessionPath = "";
     startSessionFiles();
+    layoutChecked = t.bench;
+    drivenPath.clear();
+    drivenM = 0;
+    nextLayoutCheckM = 2000;
     if (settingLine) {
-      DEBUG_PRINTF("Session at %s: waiting for the start/finish line to be marked\n", t.name.c_str());
+      DEBUG_PRINTF("Session at %s: waiting for the start/finish line to be marked\n", t.displayName().c_str());
     } else {
-      DEBUG_PRINTF("Session started at %s (S/F %.6f, %.6f, gate +/-%.0f m, %d splits)\n", t.name.c_str(),
-                   t.startFinish.lat, t.startFinish.lon, t.startFinish.radius, (int)t.splits.size());
+      static const char* FROM[] = {"either way", "set", "from the map"};
+      DEBUG_PRINTF("Session started at %s (S/F %.6f, %.6f, gate +/-%.0f m, direction %.0f %s, %d splits)\n",
+                   t.displayName().c_str(), t.startFinish.lat, t.startFinish.lon, t.startFinish.radius,
+                   t.startFinish.heading, FROM[(int)t.startFinish.headingFrom], (int)t.splits.size());
     }
   }
 
@@ -145,6 +160,7 @@ static void enterState(AppState next) {
     }
     SessionLog::endLog();
     logPending = false;
+    trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
     gps.setSimulated(false);
     settingLine = false;
   }
@@ -176,11 +192,121 @@ static void markStartFinish() {
     return;
   }
   const GpsFix& f = gps.lastFix();
-  trackDB.setStartFinish(selectedIndex, f.lat, f.lon);
+  // The direction of travel is saved with the line, so crossing it the other way doesn't count
+  bool courseOk = f.courseValid && f.speedKmh >= LINE_HEADING_MIN_KMH;
+  trackDB.setStartFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
   settingLine = false;
   beginLapTiming(selectedTrack());
   lapTimer.startLapNow(f.gpsTimeMs, f.rxMillis);
+  layoutChecked = true;  // the driver just put the line here
   DEBUG_PRINTLN("Start/finish set - lap 1 started");
+}
+
+// Change to another layout mid-session (checkLayout found a better match).
+// `map` is its map in metres from the current track's reference point.
+static void switchLayout(int index, layout::Lines& map) {
+  const Track& from = selectedTrack();
+  const Track& to = *trackDB.get(index);
+  bool opposite = from.startFinish.headingFrom == HeadingFrom::Set && to.startFinish.headingFrom == HeadingFrom::Set &&
+                  cosf((from.startFinish.heading - to.startFinish.heading) * (float)geo::DEG2RAD) < 0;
+  bool sameLine = !opposite && geo::distanceM(from.startFinish.lat, from.startFinish.lon, to.startFinish.lat,
+                                              to.startFinish.lon) < 5.0;
+  DEBUG_PRINTF("Layout: switching from '%s' to '%s'%s\n", from.displayName().c_str(), to.displayName().c_str(),
+               sameLine ? " (same start/finish, laps kept)" : "");
+
+  // Move the map to the new track's reference point (saves reading tracks.json again)
+  geo::XY shift = geo::toLocal(to.refLat(), to.refLon(), from.refLat(), from.refLon());
+  for (std::vector<geo::XYf>& line : map)
+    for (geo::XYf& p : line) {
+      p.x -= (float)shift.x;
+      p.y -= (float)shift.y;
+    }
+  trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
+  selectedIndex = index;
+  trackDB.setLoadedMap(index, std::move(map));
+  const Track& t = selectedTrack();
+  if (sameLine && lapTimer.lapRunning()) {
+    lapTimer.changeGates(t.startFinish, t.splits);  // the laps so far were timed at this line too
+    if (sessionBase.length()) {  // carry on in the same files, renamed for this layout
+      String renamedBase = SessionLog::newSessionBase(sessionStamp, t.id);
+      fs::FS* fs = Storage::sessionFS();
+      String oldJson = sessionBase + ".json";
+      String oldVbo = sessionBase + ".vbo";
+      String newJson = renamedBase + ".json";
+      String newVbo = renamedBase + ".vbo";
+      bool renamedVbo = false;
+      if (fs && renamedBase.length() && fs->exists(oldVbo)) {
+        renamedVbo = fs->rename(oldVbo, newVbo);
+        if (!renamedVbo) DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldVbo.c_str(), newVbo.c_str());
+      }
+      bool renamedJson = fs && renamedBase.length() && (!fs->exists(oldJson) || fs->rename(oldJson, newJson));
+      if (renamedJson) {
+        sessionBase = renamedBase;
+        sessionPath = newJson;
+        sessionLog = renamedVbo ? SessionLog::fileName(newVbo) : String();
+        SessionLog::save(sessionPath, t, sessionStamp, lapTimer, sessionLog, false);
+      } else {
+        if (renamedVbo) {
+          fs->rename(newVbo, oldVbo);
+          DEBUG_PRINTF("Layout: restored %s after JSON rename failed\n", oldVbo.c_str());
+        }
+        DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldJson.c_str(), newJson.c_str());
+      }
+    }
+  } else {
+    beginLapTiming(t);  // timing starts again at this layout's line
+    sessionPath = "";   // in a new session file
+  }
+  overlay.notice = "Layout: " + (t.layoutName.length() ? t.layoutName : t.name);
+  layoutNoticeUntil = millis() + 6000;
+}
+
+// Compare the path driven with the map of each layout here (and any other
+// track close by with a map). If another clearly fits better, and its
+// start/finish was crossed the right way, switch to it. Returns true if it switched.
+static bool checkLayout(const std::vector<geo::XYf>& path, bool afterLap) {
+  const Track& cur = selectedTrack();
+  std::vector<int> idx = trackDB.layoutCandidates(selectedIndex, LAYOUT_SEARCH_RADIUS_M);
+  if (idx.empty() || path.size() < 10) return false;
+
+  uint32_t startMs = millis();
+  std::vector<layout::Lines> maps;
+  if (!trackDB.readMaps(idx, cur.refLat(), cur.refLon(), maps)) return false;
+  // Before any lap the current line hasn't been crossed, so it scores nothing
+  float curScore = afterLap && !cur.map.empty() ? layout::score(path, cur.map).value() : 0;
+  std::vector<layout::Candidate> cands;
+  for (size_t k = 0; k < idx.size(); k++) {
+    const Track& t = *trackDB.get(idx[k]);
+    cands.push_back({geo::toLocal(t.startFinish.lat, t.startFinish.lon, cur.refLat(), cur.refLon()), t.startFinish,
+                     &maps[k]});
+  }
+  float bestScore = 0;
+  int k = layout::pickLayout(path, curScore, cands, &bestScore);
+  DEBUG_PRINTF("Layout check (%s): '%s' scores %.2f, best other %.2f (%lu ms)%s\n",
+               afterLap ? "first lap" : "no line crossed yet", cur.displayName().c_str(), curScore, bestScore,
+               (unsigned long)(millis() - startMs), k >= 0 ? "" : " - staying");
+  if (k < 0) return false;
+  switchLayout(idx[k], maps[k]);
+  return true;
+}
+
+// Before timing has started: keep the path, and every 2 km check whether
+// the driver is on a layout whose line isn't the one picked.
+static void trackDrivenPath(const GpsFix& f) {
+  if (layoutChecked || lapTimer.lapRunning() || lapTimer.lapCount() > 0) return;
+  if (f.speedKmh < 10) return;  // parked or crawling: GPS wander isn't distance driven
+  const Track& t = selectedTrack();
+  geo::XY p = geo::toLocal(f.lat, f.lon, t.refLat(), t.refLon());
+  if (!drivenPath.empty()) {
+    float d = hypotf((float)p.x - drivenPath.back().x, (float)p.y - drivenPath.back().y);
+    if (d < 5.0f) return;
+    drivenM += d;
+  }
+  if (drivenPath.size() < 4000) drivenPath.push_back({(float)p.x, (float)p.y});
+  if (drivenM >= nextLayoutCheckM) {
+    nextLayoutCheckM += 2000;
+    if (checkLayout(drivenPath, false) || drivenPath.size() >= 4000) layoutChecked = true;
+  }
 }
 
 // After a lap on a track with no map, save the lap's path as its map.
@@ -218,7 +344,15 @@ static void onLapEvent(const LapEvent& ev) {
       if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer, sessionLog, false)) {
         DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
       }
-      if (ev.isBest) saveMapFromLap();
+      bool switched = false;
+      if (!layoutChecked && lapTimer.lapCount() == 1) {  // first full lap: right layout?
+        layoutChecked = true;
+        std::vector<geo::XYf> path;
+        for (const LapTimer::TracePt& p : lapTimer.bestPath())
+          if (path.empty() || hypotf(p.x - path.back().x, p.y - path.back().y) >= 5.0f) path.push_back({p.x, p.y});
+        switched = checkLayout(path, true);
+      }
+      if (ev.isBest && !switched) saveMapFromLap();
       break;
     }
 
@@ -299,6 +433,9 @@ static void handleInput(InputEvent ev) {
         settingLine = true;  // mark a new start/finish (replaces the old one)
       } else if (ev == InputEvent::TapLeft || ev == InputEvent::BootShort) {
         enterState(AppState::TrackSelect);
+      } else if (ev == InputEvent::TapHeader) {  // next layout of this venue
+        selectedIndex = trackDB.nextLayout(selectedIndex);
+        lastRender = 0;
       }
       break;
 
@@ -347,7 +484,8 @@ static void render() {
       break;
     case AppState::TrackConfirm:
       display.drawTrackConfirm(selectedTrack(), distanceToTrack(selectedIndex), gps.hasFix(),
-                               input.touchAvailable());
+                               input.touchAvailable(), trackDB.layoutNumber(selectedIndex),
+                               trackDB.layoutCount(selectedIndex));
       break;
     case AppState::Running:
       if (settingLine) {
@@ -356,6 +494,7 @@ static void render() {
       }
       if (overlay.showLap && now > lapOverlayUntil) overlay.showLap = false;
       if (overlay.splitIndex >= 0 && now > splitOverlayUntil) overlay.splitIndex = -1;
+      if (overlay.notice.length() && now > layoutNoticeUntil) overlay.notice = "";
       if (showMap) display.drawRunningMap(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       else display.drawRunning(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       break;
@@ -399,11 +538,11 @@ static void addBenchTrack() {
   sim.location = "Simulated car - no GPS needed";
   sim.bench = true;
   sim.length = 2 * M_PI * SIM_RADIUS_M;
-  sim.startFinish = {SIM_SF_LAT, SIM_SF_LON, (float)DEFAULT_GATE_HALF_WIDTH_M};
+  sim.startFinish = {SIM_SF_LAT, SIM_SF_LON, (float)DEFAULT_GATE_HALF_WIDTH_M, 0, HeadingFrom::Set};  // north
   sim.hasStartFinish = true;
   sim.centerLat = SIM_SF_LAT;
   sim.centerLon = SIM_SF_LON;
-  sim.splits.push_back({SIM_SPLIT_LAT, SIM_SPLIT_LON, (float)DEFAULT_GATE_HALF_WIDTH_M});
+  sim.splits.push_back({SIM_SPLIT_LAT, SIM_SPLIT_LON, (float)DEFAULT_GATE_HALF_WIDTH_M, 180, HeadingFrom::Set});
   std::vector<geo::XYf> outline;  // the circle, for the map screen
   for (int i = 0; i <= 72; i++) {
     float a = i * 2 * M_PI / 72;
@@ -464,13 +603,14 @@ void loop() {
     RaceBoxBle::sendFix(fix, gps);
 #endif
     if (state == AppState::Running) {
+      recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
       LapEvent ev;
       if (!settingLine) ev = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis);
-      recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
       onLapEvent(ev);
+      trackDrivenPath(fix);
     } else if (state == AppState::FreeRoam) {
-      freeRoam.onFix(fix.lat, fix.lon, fix.speedKmh);
       recordFix(fix, 0);
+      freeRoam.onFix(fix.lat, fix.lon, fix.speedKmh);
     }
   }
 
