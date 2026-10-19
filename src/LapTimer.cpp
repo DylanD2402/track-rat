@@ -12,6 +12,14 @@ void LapTimer::begin(const TrackPoint& startFinish, const std::vector<TrackPoint
   reset();
 }
 
+void LapTimer::changeGates(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits) {
+  sf = startFinish;
+  splitPts = splits;
+  sfHeadingConfirmed = false;
+  sfWrongWay = false;
+  if (running) lapSplits.assign(splitPts.size(), -1);
+}
+
 void LapTimer::reset() {
   laps.clear();
   laps.reserve(64);
@@ -26,6 +34,8 @@ void LapTimer::reset() {
   bestTrace.clear();
   matchIdx = 0;
   liveDelta = NO_DELTA;
+  sfHeadingConfirmed = false;
+  sfWrongWay = false;
 }
 
 int64_t LapTimer::continuousTime(uint32_t gpsTimeMs) {
@@ -73,9 +83,10 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
       for (size_t i = 0; i < splitPts.size() && moving; i++) {
         if (lapSplits[i] >= 0) continue;  // already crossed this lap
         const TrackPoint& sp = splitPts[i];
+        geo::XY a = geo::toLocal(prevLat, prevLon, sp.lat, sp.lon);
+        geo::XY b = geo::toLocal(lat, lon, sp.lat, sp.lon);
         double frac;
-        if (geo::crossesGate(geo::toLocal(prevLat, prevLon, sp.lat, sp.lon),
-                             geo::toLocal(lat, lon, sp.lat, sp.lon), sp.radius, frac)) {
+        if (geo::crossesGate(a, b, sp.radius, frac) && (!sp.hasHeading() || geo::travelsWith(a, b, sp.heading))) {
           int64_t tc = prevT + (int64_t)(frac * dt + 0.5);
           lapSplits[i] = (int32_t)(tc - lapStartT);
           ev.type = LapEventType::SplitCrossed;
@@ -89,9 +100,10 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
       }
     }
 
+    geo::XY a = geo::toLocal(prevLat, prevLon, sf.lat, sf.lon);
+    geo::XY b = geo::toLocal(lat, lon, sf.lat, sf.lon);
     double frac;
-    if (moving && geo::crossesGate(geo::toLocal(prevLat, prevLon, sf.lat, sf.lon),
-                                   geo::toLocal(lat, lon, sf.lat, sf.lon), sf.radius, frac)) {
+    if (moving && geo::crossesGate(a, b, sf.radius, frac) && startFinishCounts(a, b, frac)) {
       int64_t tc = prevT + (int64_t)(frac * dt + 0.5);
       uint32_t tcMillis = rxMillis - (uint32_t)(t - tc);
 
@@ -145,6 +157,31 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
   prevT = t;
   prevSpeed = speedKmh;
   return ev;
+}
+
+// Direction check for a start/finish crossing (see LapTimer.h).
+bool LapTimer::startFinishCounts(geo::XY a, geo::XY b, double frac) {
+  if (!sf.hasHeading()) return true;
+  if (geo::travelsWith(a, b, sf.heading)) {
+    sfHeadingConfirmed = true;
+    sfWrongWay = false;
+    return true;
+  }
+  if (sf.headingFrom != HeadingFrom::Map || sfHeadingConfirmed) return false;
+
+  geo::XY at = {a.x + frac * (b.x - a.x), a.y + frac * (b.y - a.y)};
+  bool samePlace = sfWrongWay && hypot(at.x - sfWrongAt.x, at.y - sfWrongAt.y) < 6.0;
+  sfWrongWay = true;
+  sfWrongAt = at;
+  if (!samePlace) return false;
+
+  // Crossed the line itself the wrong way twice, with a guessed direction: it's backwards.
+  sf.heading = fmodf(sf.heading + 180.0f, 360.0f);
+  for (TrackPoint& sp : splitPts)
+    if (sp.headingFrom == HeadingFrom::Map) sp.heading = fmodf(sp.heading + 180.0f, 360.0f);
+  sfHeadingConfirmed = true;
+  sfWrongWay = false;
+  return true;
 }
 
 void LapTimer::startLapNow(uint32_t gpsTimeMs, uint32_t rxMillis) {

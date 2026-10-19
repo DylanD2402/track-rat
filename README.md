@@ -81,7 +81,9 @@ The board resets itself before and after uploading, so no buttons are needed. On
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap is saved as the track's map. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand, including **Bench Test**.
 
-**Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place.
+**Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count.
+
+**Layouts:** a venue with several layouts (Full, Short, the kart track) lists each one separately, and its Ready screen shows which layout is picked. Tap the top bar of the Ready screen for the next layout. You don't have to get it right: after your first full lap, the timer compares your lap with the map of each layout there (and any other track within 3 km that has a map). If another one clearly fits better, it switches to it and shows **Layout: ...** on screen. If you haven't crossed the picked layout's line after 2 km, it checks the same way.
 
 | Screen | Touch | BOOT button |
 |---|---|---|
@@ -89,7 +91,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Menu | tap a mode; top bar: GPS status | press: next, hold 1 s: choose |
 | Track list | left / right third: previous / next, centre: select, hold: menu | press: next, hold 1 s: select |
 | GPS Status (top bar of the menu or track list) | tap: back | press: back |
-| Ready | centre: start, left: back, right: set line | hold 1 s: start, press: back |
+| Ready | centre: start, left: back, right: set line, top bar: next layout | hold 1 s: start, press: back |
 | Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
@@ -126,21 +128,46 @@ The easiest way to add your own track is to edit the file on the SD card.
       "location": "Town, State",
       "country": "USA",
       "length": 2400,
-      "startFinish": { "lat": 40.123456, "lon": -74.123456, "radius": 15 },
+      "startFinish": { "lat": 40.123456, "lon": -74.123456, "radius": 15, "heading": 90 },
       "splits": [
-        { "lat": 40.124500, "lon": -74.120100, "radius": 15 }
+        { "lat": 40.124500, "lon": -74.120100, "radius": 15, "heading": 180 }
       ]
     }
   ]
 }
 ```
 
-- **`startFinish` and `splits`:** a point on the racing line. A lap or split counts when your path passes through that point, within `radius` metres either side, travelling in any direction.
+- **`startFinish` and `splits`:** a point on the racing line. A lap or split counts when your path passes through that point, within `radius` metres either side.
+- **`heading`:** the direction of travel across the line, in degrees (0 = north, 90 = east, 180 = south). A crossing counts only if you're heading within 90° of it, so a straight alongside the line or the pit lane, running the other way, doesn't end a lap. This matters most on compact kart tracks. Optional: without it, crossings either way count. If the track has a map, the direction is taken from the map near the line instead, and if that turns out backwards (you cross the line the "wrong" way twice in the same place), it's turned round.
 - **`radius`:** about half the track width plus a few metres. 10–20 m is typical.
-- **Placement:** put splits where no other part of the track passes within `radius`.
+- **Placement:** put splits where no other part of the track passes within `radius`, or give them a `heading`.
 - **`splits`:** optional.
 - **No start/finish yet:** a track can have a `"center": {"lat": .., "lon": ..}` instead of `startFinish`. It's still found automatically, and the timer asks you to tap at the line the first time.
-- **Saved by the timer:** new tracks, start/finish lines marked on track, and maps from your first lap are written back into `tracks.json` on the SD card.
+- **Saved by the timer:** new tracks, start/finish lines marked on track (with their direction), and maps from your first lap are written back into `tracks.json` on the SD card.
+
+### Layouts
+
+A venue with more than one layout lists them in `layouts`. Each has a `name`, and its own `startFinish`, `splits`, `map` and (optionally) `length`; the venue's own `startFinish`, `splits` and `map` are then ignored. Venues without `layouts` work as before.
+
+```json
+{
+  "id": "my-kart-park",
+  "name": "My Kart Park",
+  "center": { "lat": 40.123, "lon": -74.123 },
+  "layouts": [
+    { "name": "Full", "length": 1200,
+      "startFinish": { "lat": 40.123456, "lon": -74.123456, "radius": 12, "heading": 90 } },
+    { "name": "Reverse", "length": 1200,
+      "startFinish": { "lat": 40.123456, "lon": -74.123456, "radius": 12, "heading": 270 } },
+    { "name": "Short", "length": 700,
+      "startFinish": { "lat": 40.123456, "lon": -74.123456, "radius": 12, "heading": 90 } }
+  ]
+}
+```
+
+- **Records are kept per layout.** Each layout's id is `<venue id>.<layout id>` (here `my-kart-park.full`), used for session file names. A layout's id is its name in lower case with dashes, unless you give it an `"id"`.
+- **Telling layouts apart:** the timer needs a `map` for each layout to recognise it from your lap (see Track maps). A Reverse layout with the same map is told apart by the `heading` of its line.
+- **Switching mid-session:** if the new layout shares the start/finish line, your laps so far are kept. Otherwise timing starts again at the new layout's line, in a new session file.
 
 ### All Canadian tracks
 
@@ -196,6 +223,8 @@ python tools/fetch_track_map.py --id calabogie --name "Calabogie Motorsports Par
 - **What it does:** downloads every `highway=raceway` way within 2.5 km, simplifies it, prints a text preview of the shape, and adds or updates the entry in `data/tracks.json`. Copy that file to the SD card.
 - **Pit lane:** add `--no-pit` to leave it out.
 - **Your own layout:** `--file layout.geojson` (or `.gpx` / `.kml`) uses a file you've drawn or exported instead.
+- **`--heading`:** the direction of travel across the start/finish (0 = north, 90 = east). The script prints which way the map runs at the line, which is usually, but not always, the racing direction. Without `--heading`, the timer works the direction out from the map.
+- **`--layout NAME`:** adds or updates one layout of a venue. Run the script once per layout with the same `--id`. If the venue already had a single layout, it's kept as a layout called `Main`.
 
 ## Phone apps (Bluetooth)
 
@@ -213,7 +242,7 @@ Track Rat isn't affiliated with RaceBox. The device name is used only so apps re
 
 ## Session logs
 
-Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. The file holds:
+Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the file also names the layout. The file holds:
 
 - every lap time
 - every split time
@@ -247,12 +276,18 @@ The lap-timing logic has no Arduino dependencies and is tested on a PC:
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_laptimer.cpp src/LapTimer.cpp -o /tmp/lt && /tmp/lt
 ```
 
+On Windows, add `-D_USE_MATH_DEFINES` (any of these test commands needs it there).
+
 It checks that the timer:
 
 - measures known-length laps to within 2 ms at both 10 Hz and 1 Hz, including laps that run past UTC midnight
 - times splits correctly
 - tracks the best lap and computes deltas
 - computes the live diff to within about 40 ms of the true value
+- ignores a start/finish or split crossed the wrong way, still times one crossed the right way, and treats a line with no direction as before
+- on a kart track whose return straight passes 10 m from the line, times full laps instead of half laps
+- turns round a direction guessed backwards from the map, but never one that was set
+- recognises which layout was driven by comparing the lap with each layout's map
 
 `test/test_racebox.cpp` checks the Bluetooth packet's fields, checksum and GPS time-of-week:
 
@@ -271,7 +306,7 @@ g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 ## Layout
 
 ```
-include/   Config.h, GeoMath.h (gate maths), headers
+include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition), headers
 src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
            DisplayManager, InputManager, Storage, SessionLog
 data/      tracks.json

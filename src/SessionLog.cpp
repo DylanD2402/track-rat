@@ -55,6 +55,7 @@ bool save(const String& path, const Track& track, const String& stamp, const Lap
   DynamicJsonDocument doc(4096 + timer.lapCount() * 256);
   doc["track"] = track.id;
   doc["trackName"] = track.name;
+  if (track.layoutName.length()) doc["layout"] = track.layoutName;
   doc["started"] = stamp;
   doc["lapCount"] = timer.lapCount();
   if (const Lap* best = timer.bestLap()) {
