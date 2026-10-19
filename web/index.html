@@ -167,6 +167,7 @@ const SIM_NAME_RE = /^SIM_(\d+)_(.+?)(?:\.(json|vbo)(?:\.(.+))?)?$/;
 function trackName(id) {
   if (id === "freeroam") return "Free Roam";
   if (id === "bench") return "Bench Test";
+  if (id === "perf") return "Performance";
   return id.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

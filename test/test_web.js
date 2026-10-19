@@ -63,6 +63,9 @@ check(trackName("calabogie") === "Calabogie", "track name");
 check(trackName("nurburgring-gp") === "Nurburgring Gp", "hyphens");
 check(trackName("my-track-3") === "My Track 3", "my-track-3");
 check(trackName("freeroam") === "Free Roam" && trackName("bench") === "Bench Test", "special names");
+check(trackName("perf") === "Performance", "perf is Performance");
+p = parseFile(file("SIM_12_perf.json"));
+check(p && p.track === "perf" && trackName(p.track) === "Performance", "simulated performance demo");
 check(trackName("-x-") === "X", "stray hyphens");
 
 // Grouping
