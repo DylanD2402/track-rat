@@ -99,6 +99,10 @@
 // ---------------------------------------------------------------------------
 #define TRACK_DATABASE_FILE "/tracks.json"
 #define SESSION_DIR "/sessions"
+// Full-rate session logs (.vbo, SD card only): every fix is buffered in PSRAM
+// and written from core 0 about once a second
+#define LOG_BUFFER_BYTES (256 * 1024)    // power of two; ~2 min of 20 Hz fixes
+#define LOG_FLUSH_MS 1000
 
 // ---------------------------------------------------------------------------
 // Debug output (USB serial)

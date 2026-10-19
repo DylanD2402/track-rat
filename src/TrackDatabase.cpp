@@ -87,6 +87,12 @@ const Track* TrackDatabase::get(int index) const {
   return &tracks[index];
 }
 
+const Track* TrackDatabase::find(const String& id) const {
+  for (const Track& t : tracks)
+    if (t.id == id) return &t;
+  return nullptr;
+}
+
 int TrackDatabase::findNearest(double lat, double lon, double maxDistanceM, double* distanceOut) const {
   int best = -1;
   double bestDist = maxDistanceM;
