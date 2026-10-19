@@ -68,7 +68,8 @@ static bool tracksOk = false;
 static String tracksError;
 
 // ---------------------------------------------------------------------------
-// Time zone from the phone. The page sends it every time it loads.
+// Time zone from the phone. The page sends it every time it loads, and
+// session files are named in this local time (see GPSHandler::timestampString).
 // The Settings module (separate branch) should take this over: replace the
 // body with a call into it and keep the /api/time handler as it is.
 
@@ -76,7 +77,12 @@ static const char* TZ_PREFS_NAMESPACE = "trackrat";
 static const char* TZ_PREFS_KEY = "tz_min";
 
 // minutesEastOfUtc: e.g. -240 for EDT, 60 for CET
+static volatile int tzCache = 0;
+static volatile bool tzLoaded = false;
+
 static void saveTimeZoneOffset(int minutesEastOfUtc) {
+  tzCache = minutesEastOfUtc;
+  tzLoaded = true;
   Preferences prefs;
   if (!prefs.begin(TZ_PREFS_NAMESPACE, false)) return;
   if (!prefs.isKey(TZ_PREFS_KEY) || prefs.getShort(TZ_PREFS_KEY, 0) != minutesEastOfUtc) {
@@ -87,12 +93,19 @@ static void saveTimeZoneOffset(int minutesEastOfUtc) {
 }
 
 static int savedTimeZoneOffset() {
+  if (tzLoaded) return tzCache;
   Preferences prefs;
-  if (!prefs.begin(TZ_PREFS_NAMESPACE, true)) return 0;
-  int tz = prefs.getShort(TZ_PREFS_KEY, 0);
-  prefs.end();
+  int tz = 0;
+  if (prefs.begin(TZ_PREFS_NAMESPACE, true)) {
+    tz = prefs.getShort(TZ_PREFS_KEY, 0);
+    prefs.end();
+  }
+  tzCache = tz;
+  tzLoaded = true;
   return tz;
 }
+
+int timeZoneOffset() { return savedTimeZoneOffset(); }
 
 // ---------------------------------------------------------------------------
 
@@ -388,7 +401,9 @@ static void setupRoutes() {
     bool first = true;
     if (Storage::sdMounted()) listSessions(SD_MMC, "sd", out, first);
     if (Storage::flashMounted()) listSessions(LittleFS, "flash", out, first);
-    out += "]}";
+    out += "],\"tzMin\":";  // the time zone file names are written in
+    out += savedTimeZoneOffset();
+    out += "}";
     req->send(200, "application/json", out);
   });
 

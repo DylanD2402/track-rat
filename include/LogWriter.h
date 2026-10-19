@@ -27,6 +27,10 @@ bool running();
 bool open(const String& path, const char* header, size_t headerLen);
 bool append(const char* data, size_t len);
 void close();  // also writes out what's buffered straight away
+// Renames a file in order with the queued writes. If it's the one being
+// written, it's closed first and logging carries on under the new name.
+// The rename itself happens on the writer task; false if it couldn't be queued.
+bool rename(const String& from, const String& to);
 void poll();   // call from the main loop: finishes a close() the full buffer held up
 
 // Statistics, for the log

@@ -50,8 +50,9 @@ public:
   void setSimulated(bool on, SimMode mode = SimMode::Circuit);
   const GpsFix& lastFix() const { return last; }
 
-  // "YYYYMMDD_HHMMSS" from GPS date/time, or empty if unknown.
+  // "YYYYMMDD_HHMMSS" from GPS date/time for file names (empty if unknown): UTC, or local time once setUtcOffsetMinutes() is given one.
   String timestampString();
+  void setUtcOffsetMinutes(int minutesEast) { utcOffsetMin = minutesEast; }
 
 private:
   TinyGPSPlus gps;
@@ -90,6 +91,7 @@ private:
   void handleUbxFrame(uint32_t now);
   void onPvt(const UbxPvt& v, uint32_t now);
   void onSourceEvent(GpsEvent e);
+  int utcOffsetMin = 0;           // time zone for timestampString(), minutes east of UTC
   bool pvtTimeValid = false;      // latest NAV-PVT date and time, for timestampString()
   UbxPvt pvtTime = {};
   static const int SIGNAL_KEYS = 5;

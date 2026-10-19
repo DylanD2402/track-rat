@@ -399,7 +399,7 @@ What the page does:
 - **Device:** firmware version, free space on the card and in flash, GPS status and memory.
 - **Settings:** not there yet.
 
-Each time the page opens it tells Track Rat your phone's time zone, which is kept for when file names use local time.
+Each time the page opens it tells Track Rat your phone's time zone. From then on, session files are named in your local time instead of UTC. Daylight saving time changes the zone, so it's correct again the next time a phone opens the page.
 
 Good to know:
 
@@ -421,11 +421,12 @@ Without it, the board shows a plain page with the session list, `tracks.json` an
 
 ## Session logs
 
-Sessions are saved in `/sessions` on the SD card, as two files with the same name:
-Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the file also names the layout. The file holds:
+Sessions are saved in `/sessions` on the SD card, as two files with the same name. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the summary also names the layout.
 
-- **`<UTC date>_<time>_<track id>.vbo`:** every GPS fix, 20 a second: UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, and lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up). About 6.5 MB per hour of driving.
-- **`<UTC date>_<time>_<track id>.json`:** the summary: every lap and split time, max and average speed per lap, the best lap, and the name of its `.vbo`.
+- **`<date>_<time>_<track id>.vbo`:** every GPS fix, 20 a second: UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, and lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up). About 6.5 MB per hour of driving.
+- **`<date>_<time>_<track id>.json`:** the summary: every lap and split time, max and average speed per lap, the best lap, and the name of its `.vbo`.
+
+File names use UTC until a phone has opened the Wi-Fi page, then your local time. Times inside the `.vbo` are always UTC.
 
 Free Roam drives are saved the same way, as `<date>_<time>_freeroam.vbo` and `.json`. The summary holds the duration, distance, and top and average speed.
 
@@ -505,6 +506,12 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 ```
 - doesn't record false laps while parked on the line with GPS jitter
 - ignores a line crossing that happens during a GPS dropout
+
+`test/test_localtime.cpp` checks that session file names in local time roll the date over correctly: either side of midnight, across months, years and leap days, and in half-hour time zones:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
+```
 
 `test/test_portal.cpp` checks the Wi-Fi page's request rules: which file names can be downloaded, time zones, the captive-portal host check, the network name, upload progress, the `tracks.json` check, one upload at a time and the upload code:
 

@@ -281,22 +281,19 @@ static void switchLayout(int index, layout::Lines& map) {
       String oldVbo = sessionBase + ".vbo";
       String newJson = renamedBase + ".json";
       String newVbo = renamedBase + ".vbo";
-      bool renamedVbo = false;
-      if (fs && renamedBase.length() && fs->exists(oldVbo)) {
-        renamedVbo = fs->rename(oldVbo, newVbo);
-        if (!renamedVbo) DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldVbo.c_str(), newVbo.c_str());
-      }
+      // The JSON summary isn't held open, so it's renamed here. The .vbo is
+      // open in the log writer, and FAT mustn't rename an open file, so the
+      // writer task closes, renames and reopens it in order with its writes.
       bool renamedJson = fs && renamedBase.length() && (!fs->exists(oldJson) || fs->rename(oldJson, newJson));
       if (renamedJson) {
+        bool renamedVbo = sessionLog.length() && SessionLog::logging() && LogWriter::rename(oldVbo, newVbo);
+        if (sessionLog.length() && !renamedVbo)
+          DEBUG_PRINTF("Layout: could not queue renaming %s - the log keeps its old name\n", oldVbo.c_str());
         sessionBase = renamedBase;
         sessionPath = newJson;
-        sessionLog = renamedVbo ? SessionLog::fileName(newVbo) : String();
+        if (renamedVbo) sessionLog = SessionLog::fileName(newVbo);
         SessionLog::save(sessionPath, t, sessionStamp, lapTimer, sessionLog, false);
       } else {
-        if (renamedVbo) {
-          fs->rename(newVbo, oldVbo);
-          DEBUG_PRINTF("Layout: restored %s after JSON rename failed\n", oldVbo.c_str());
-        }
         DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldJson.c_str(), newJson.c_str());
       }
     }
@@ -826,6 +823,7 @@ void setup() {
 
   display.drawBoot("Detecting GPS...");
   gps.begin();
+  gps.setUtcOffsetMinutes(WifiPortal::timeZoneOffset());  // files named in local time once a phone has set it
   input.beginExtButton(gps.rxPinUsed(), gps.txPinUsed());  // big button and LEDs sit on header pins the GPS may use
   LedBar::begin(gps.rxPinUsed(), gps.txPinUsed());
 #if BLE_ENABLED
@@ -885,12 +883,22 @@ void loop() {
 
   autoPickTrack();
   WifiPortal::loop(gps);
+  gps.setUtcOffsetMinutes(WifiPortal::timeZoneOffset());  // the page may have just sent a new one
 
   Power::update(now);
   display.setBatteryPercent(Power::batteryPercent());
   if (Power::batteryLow(now)) lowBatterySleep();
 #if AUTO_SLEEP_ENABLED
-  switch (sleepTimer.update(now, false)) {
+  // A phone on the Wi-Fi page counts as using the board, even with no taps:
+  // don't turn the screen (and its upload code) off or sleep mid-download.
+  static uint32_t lastWifiCheck = 0;
+  static bool phoneOnWifi = false;
+  if (now - lastWifiCheck >= 1000) {  // asking the Wi-Fi driver every loop is wasteful
+    lastWifiCheck = now;
+    phoneOnWifi = WifiPortal::active() && (WifiPortal::clientCount() > 0 || WifiPortal::busy());
+  }
+  if (phoneOnWifi && sleepTimer.screenOff()) noteActivity(now);
+  switch (sleepTimer.update(now, phoneOnWifi)) {
     case SleepAction::ScreenOff:
       DEBUG_PRINTLN("Parked and idle: backlight off");
       display.setBacklight(false);

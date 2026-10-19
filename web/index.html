@@ -153,11 +153,12 @@ function post(url, body, onProgress) {
   });
 }
 
-// ---- time zone: the device names files in UTC; this lets it use local time ----
+// ---- time zone: once the phone has sent it, the device names files in local time ----
 post("/api/time", new URLSearchParams({tz: String(-new Date().getTimezoneOffset())}));
 
 // ---- session names (begin: tested by test/test_web.js) ----
-// Names look like 20261018_093012_calabogie.json (UTC date and time, track id),
+// Names look like 20261018_093012_calabogie.json (date and time, track id), in the
+// device's local time: tzMin minutes east of UTC (0 = UTC, before any phone set it).
 // or SIM_12_bench.vbo for simulated sessions.
 // Files from the same session (.json, .vbo, _perf.json, .json.bak...) are shown together.
 const NAME_RE = /^(\d{8})_(\d{6})_(.+?)(?:\.(json|vbo)(?:\.(.+))?)?$/;
@@ -169,7 +170,7 @@ function trackName(id) {
   return id.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function parseFile(f) {
+function parseFile(f, tzMin = 0) {
   const m = f.name.match(NAME_RE);
   const sim = m ? null : f.name.match(SIM_NAME_RE);
   if (!m && !sim) return null;
@@ -189,6 +190,7 @@ function parseFile(f) {
                                  +t.slice(0, 2), +t.slice(2, 4), +t.slice(4, 6)));
   // Not a real date or time (e.g. 20261340): leave it in "Other files"
   if (when.getUTCDate() !== +d.slice(6, 8) || +t.slice(0, 2) > 23 || +t.slice(2, 4) > 59) return null;
+  when.setTime(when.getTime() - tzMin * 60000);  // the moment it happened
   let rest = rest0, label = (ext ? ext + (suffix ? "." + suffix : "") : "file").toUpperCase();
   const extra = rest.match(/_(perf)$/i);
   if (extra) { rest = rest.slice(0, -extra[0].length); label = "PERF " + label; }
@@ -199,10 +201,10 @@ function parseFile(f) {
 
 // files -> {days: [[day, [[track, [session...]]...]]...], other: [file...]}, newest first.
 // dayOf(date) names the day; the page uses the phone's local date.
-function groupSessions(files, dayOf) {
+function groupSessions(files, dayOf, tzMin = 0) {
   const sessions = new Map(), other = [];
   for (const f of files) {
-    const p = parseFile(f);
+    const p = parseFile(f, tzMin);
     if (!p) { other.push(f); continue; }
     if (!sessions.has(p.key)) sessions.set(p.key, {when: p.when, track: p.track, fs: f.fs, files: []});
     sessions.get(p.key).files.push({f, label: p.label});
@@ -227,9 +229,11 @@ function fileLink(f, label) {
 
 async function loadSessions() {
   const box = $("sessionList");
-  let files;
+  let files, tzMin = 0;
   try {
-    files = (await (await fetch("/api/sessions")).json()).files;
+    const list = await (await fetch("/api/sessions")).json();
+    files = list.files;
+    tzMin = list.tzMin || 0;
   } catch (e) {
     box.innerHTML = `<p class="err">Couldn't read the session list.</p>`;
     return;
@@ -240,7 +244,7 @@ async function loadSessions() {
   }
 
   const {days, other} = groupSessions(files, (when) =>
-    when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"}));
+    when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"}), tzMin);
 
   let html = "";
   for (const [day, tracks] of days) {

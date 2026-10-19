@@ -5,6 +5,7 @@
 #include "GPSHandler.h"
 #include "Config.h"
 #include "SimTrack.h"
+#include "LocalTime.h"
 
 static HardwareSerial& gpsSerial = Serial1;
 
@@ -428,13 +429,13 @@ String GPSHandler::timestampString() {
   char buf[24];
   if (source.pvtActive()) {
     if (!pvtTimeValid) return String();
-    snprintf(buf, sizeof(buf), "%04d%02d%02d_%02d%02d%02d", pvtTime.year, pvtTime.month, pvtTime.day,
-             pvtTime.hour, pvtTime.minute, pvtTime.second);
+    localtime_::stamp(pvtTime.year, pvtTime.month, pvtTime.day, pvtTime.hour, pvtTime.minute, pvtTime.second,
+                      utcOffsetMin, buf, sizeof(buf));
     return String(buf);
   }
   if (!gps.date.isValid() || !gps.time.isValid() || gps.date.year() < 2020) return String();
-  snprintf(buf, sizeof(buf), "%04d%02d%02d_%02d%02d%02d", gps.date.year(), gps.date.month(),
-           gps.date.day(), gps.time.hour(), gps.time.minute(), gps.time.second());
+  localtime_::stamp(gps.date.year(), gps.date.month(), gps.date.day(), gps.time.hour(), gps.time.minute(),
+                    gps.time.second(), utcOffsetMin, buf, sizeof(buf));
   return String(buf);
 }
 

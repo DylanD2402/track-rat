@@ -94,6 +94,13 @@ check(empty.days.length === 0 && empty.other.length === 0, "no files");
 // Time zones: a session at 02:00 UTC is the previous day in Ontario
 const local = groupSessions([file("20261018_020000_calabogie.json")], (d) => new Date(d - 4 * 3600e3).toISOString().slice(0, 10));
 check(local.days[0][0] === "2026-10-17", "day uses the phone's time zone");
+// Names written in local time (device told UTC-4): 22:00 local on the 17th is 02:00 UTC on the 18th
+p = parseFile(file("20261017_220000_calabogie.json"), -240);
+check(p && p.when.toISOString() === "2026-10-18T02:00:00.000Z", "local name to UTC " + (p && p.when.toISOString()));
+const named = groupSessions([file("20261017_220000_calabogie.json")], (d) => new Date(d - 4 * 3600e3).toISOString().slice(0, 10), -240);
+check(named.days[0][0] === "2026-10-17", "local name stays on its own day");
+p = parseFile(file("20261340_220000_calabogie.json"), -240);
+check(p === null, "bad date with a time zone still rejected");
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);

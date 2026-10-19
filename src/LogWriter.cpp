@@ -13,7 +13,7 @@
 
 namespace LogWriter {
 
-enum : uint8_t { REC_OPEN = 1, REC_DATA = 2, REC_CLOSE = 3 };
+enum : uint8_t { REC_OPEN = 1, REC_DATA = 2, REC_CLOSE = 3, REC_RENAME = 4 };
 static const size_t BATCH_BYTES = 16384;  // one card write; bigger than any record
 static const size_t MAX_RECORD = LogRing::MAX_RECORD;
 
@@ -89,6 +89,30 @@ static void drain() {
     } else if (type == REC_CLOSE) {
       closeFile();
       wrote = false;
+    } else if (type == REC_RENAME) {
+      // Payload "old\0new". FAT can't rename a file that's open, so write out
+      // what's buffered, close, rename, and carry on appending to it.
+      char paths[2 * sizeof(filePath)];
+      size_t n = len < sizeof(paths) - 1 ? len : sizeof(paths) - 1;
+      ring.copyPayload(paths, n);
+      paths[n] = 0;
+      const char* from = paths;
+      const char* to = paths + strlen(paths) + 1;
+      bool wasOpen = fileOk && strcmp(filePath, from) == 0;
+      if (wasOpen) {
+        writeBatch();
+        file.close();
+        fileOk = false;
+      }
+      bool ok = to < paths + n && fsys->rename(from, to);
+      if (ok) DEBUG_PRINTF("Log: renamed %s to %s\n", from, to);
+      else DEBUG_PRINTF("Log: could not rename %s to %s - still logging to the old name\n", from, to);
+      if (wasOpen) {
+        if (ok) strlcpy(filePath, to, sizeof(filePath));
+        file = fsys->open(filePath, FILE_APPEND);
+        fileOk = (bool)file;
+        if (!fileOk) DEBUG_PRINTF("Log: could not reopen %s\n", filePath);
+      }
     }
     ring.pop();
   } while (ring.next(type, len));
@@ -170,6 +194,18 @@ bool append(const char* data, size_t len) {
   if (!task) return false;
   retryClose();
   return push(REC_DATA, data, len);
+}
+
+bool rename(const String& from, const String& to) {
+  if (!task) return false;
+  retryClose();
+  String payload = from;
+  payload += '\0';
+  payload += to;
+  if (payload.length() > MAX_RECORD) return false;
+  if (!ring.push(REC_RENAME, payload.c_str(), payload.length())) return false;
+  xTaskNotifyGive(task);  // rename now rather than at the next flush
+  return true;
 }
 
 void close() {

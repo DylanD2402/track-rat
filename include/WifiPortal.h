@@ -43,6 +43,10 @@ bool restarting();
 // tracks.json, so only someone who can see the screen can. New each time.
 int uploadCodeValue();
 
+// The phone's time zone, minutes east of UTC (0 until a phone has sent one).
+// Session files are named in this local time.
+int timeZoneOffset();
+
 }  // namespace WifiPortal
 
 #endif  // WIFI_PORTAL_H

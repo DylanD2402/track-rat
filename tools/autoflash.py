@@ -6,7 +6,10 @@ Watch GitHub for new commits, then build, flash and capture the board's log.
 
 Leave it running with the board plugged in. Every --interval seconds it
 fetches the branch; when there's a new commit it pulls, flashes the board
-(pio run -t upload) and saves the start-up log to logs/.
+(pio run -t upload) and saves the start-up log to logs/. When the commit
+changes the Wi-Fi page (web/) or data/, it also uploads the file system
+(pio run -t uploadfs). That wipes sessions saved in flash (not the SD card),
+so it only happens when those files change; --uploadfs forces it.
 
 --push-logs also commits each log to a "device-logs" branch so it can be
 read without copying it by hand. Logs contain GPS positions (where the
@@ -73,6 +76,32 @@ def flash(env, port):
     return False, out
 
 
+# The file system holds the Wi-Fi page (built from web/ into data/web) and data/.
+FS_PATHS = ("web", "data", "tools/build_web.py")
+
+
+def fs_changed(old, new):
+    """True if anything that goes into the file system image changed between two commits."""
+    if not old:
+        return False
+    r = run(["git", "diff", "--name-only", old, new, "--", *FS_PATHS], check=False)
+    return r.returncode != 0 or bool(r.stdout.strip())
+
+
+def upload_fs(env, port):
+    cmd = pio_cmd() + ["run", "-e", env, "-t", "uploadfs", "--upload-port", port]
+    for attempt in (1, 2):
+        say(f"uploading the file system: Wi-Fi page and data/ (attempt {attempt})...")
+        r = run(cmd, check=False)
+        out = (r.stdout or "") + (r.stderr or "")
+        if r.returncode == 0:
+            say("file system uploaded OK (sessions saved in flash were wiped; the SD card is untouched)")
+            return True, out
+        say("file system upload failed:\n" + "\n".join(out.splitlines()[-8:]))
+        time.sleep(3)
+    return False, out
+
+
 def capture(port, seconds):
     from serial_log import open_quiet, restart_board  # noqa: E402
     lines = []
@@ -124,8 +153,12 @@ def push_log(path, sha):
     say(f"log pushed to branch {LOG_BRANCH}")
 
 
-def handle(sha, args):
+def handle(sha, args, old=None):
     ok, build_out = flash(args.env, args.port)
+    if ok and (args.uploadfs or fs_changed(old, sha)):
+        fs_ok, fs_out = upload_fs(args.env, args.port)
+        if not fs_ok:
+            ok, build_out = False, fs_out
     os.makedirs(LOG_DIR, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     path = os.path.join(LOG_DIR, f"{stamp}_{sha[:7]}.log")
@@ -157,6 +190,8 @@ def main():
     ap.add_argument("--seconds", type=int, default=30, help="how long to capture the log after flashing")
     ap.add_argument("--push-logs", action="store_true", help="commit logs to the device-logs branch (private repos only)")
     ap.add_argument("--now", action="store_true", help="flash the current commit right away")
+    ap.add_argument("--uploadfs", action="store_true",
+                    help="also upload the file system (Wi-Fi page, data/) every time, not just when it changed")
     args = ap.parse_args()
 
     branch = git("rev-parse", "--abbrev-ref", "HEAD")
@@ -180,7 +215,7 @@ def main():
                     msg = git("log", "-1", "--format=%s", f"origin/{branch}")
                     say(f"new commit {remote[:7]}: {msg}")
                     git("pull", "--ff-only", "--quiet", "origin", branch)
-                    handle(remote, args)
+                    handle(remote, args, old=local)
         except KeyboardInterrupt:
             raise
         except Exception as e:
