@@ -18,6 +18,7 @@
 #include "GeoMath.h"
 #include "InputManager.h"
 #include "LapTimer.h"
+#include "LogWriter.h"
 #include "RaceBoxBle.h"
 #include "SessionLog.h"
 #include "SimTrack.h"
@@ -44,8 +45,12 @@ static bool noTrackNearby = false;
 
 // Lap-timing session
 static bool settingLine = false;  // waiting for the driver to tap at the start/finish line
-static String sessionPath;
+static String sessionPath;        // its summary (.json)
 static String sessionStamp;
+// Lap-timing and Free Roam sessions: every fix goes to a .vbo log (SD card)
+static String sessionBase;        // "/sessions/<stamp>_<track>", shared by the .json and .vbo
+static String sessionLog;         // the .vbo's file name, "" if not logging
+static bool logPending = false;   // open the log at the next fix
 static RunningOverlay overlay;
 static bool showMap = false;  // timing screen: false = big clock, true = track map
 static uint32_t lapOverlayUntil = 0;
@@ -66,10 +71,49 @@ static double distanceToTrack(int index) {
   return geo::distanceM(gps.lastFix().lat, gps.lastFix().lon, t->refLat(), t->refLon());
 }
 
+static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : MIN_LAP_TIME_MS; }
+
 static void beginLapTiming(const Track& t) {
-  lapTimer.begin(t.startFinish, t.splits, t.bench ? SIM_MIN_LAP_MS : MIN_LAP_TIME_MS);
+  lapTimer.begin(t.startFinish, t.splits, minLapMs(t));
   overlay = RunningOverlay();
   lapOverlayUntil = splitOverlayUntil = 0;
+}
+
+// A new session's files: no name until it's needed (the first fix, or the
+// first lap without an SD card), so it can use the GPS date.
+static void startSessionFiles() {
+  sessionBase = "";
+  sessionLog = "";
+  logPending = SessionLog::fullLogAvailable();
+}
+
+// The summary's path: next to the log, or a new name if there's no log.
+static String summaryPath(const String& name) {
+  if (sessionBase.length() == 0) sessionBase = SessionLog::newSessionBase(sessionStamp, name);
+  return sessionBase.length() ? sessionBase + ".json" : String();
+}
+
+// First fix of a session: start its full-rate log. The header (and so any
+// Circuit Tools timing line) is decided now: settingLine is final by then.
+static void openSessionLog(const GpsFix& f) {
+  logPending = false;
+  if (sessionStamp.length() == 0) sessionStamp = gps.timestampString();
+  const bool roam = state == AppState::FreeRoam;
+  String base = SessionLog::newSessionBase(sessionStamp, roam ? String("freeroam") : selectedTrack().id);
+  if (base.length() == 0) return;
+  String path = base + ".vbo";
+  bool ok = roam ? SessionLog::beginFreeRoamLog(path, sessionStamp, f)
+                 : SessionLog::beginTrackLog(path, selectedTrack(), sessionStamp, !settingLine,
+                                             minLapMs(selectedTrack()), f);
+  if (ok) {
+    sessionBase = base;
+    sessionLog = SessionLog::fileName(path);
+  }
+}
+
+static void recordFix(const GpsFix& f, uint16_t lap) {
+  if (logPending) openSessionLog(f);
+  SessionLog::logFix(f, lap);
 }
 
 static void enterState(AppState next) {
@@ -83,6 +127,7 @@ static void enterState(AppState next) {
     beginLapTiming(t);
     sessionStamp = gps.timestampString();
     sessionPath = "";
+    startSessionFiles();
     if (settingLine) {
       DEBUG_PRINTF("Session at %s: waiting for the start/finish line to be marked\n", t.name.c_str());
     } else {
@@ -91,11 +136,15 @@ static void enterState(AppState next) {
     }
   }
 
-  if (state == AppState::Running && next == AppState::Summary && lapTimer.lapCount() > 0) {
-    if (sessionPath.length() == 0) sessionPath = SessionLog::newSessionPath(selectedTrack(), sessionStamp);
-    SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer);
-  }
   if (state == AppState::Running && next != AppState::Running) {
+    // The finished summary. With a log there's always one, laps or not, so
+    // the log isn't taken for an unfinished session at the next boot.
+    if (lapTimer.lapCount() > 0 || SessionLog::logging()) {
+      if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
+      SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer, sessionLog, true);
+    }
+    SessionLog::endLog();
+    logPending = false;
     gps.setSimulated(false);
     settingLine = false;
   }
@@ -103,11 +152,16 @@ static void enterState(AppState next) {
   if (next == AppState::FreeRoam) {
     freeRoam.start(millis());
     sessionStamp = gps.timestampString();
+    startSessionFiles();
     DEBUG_PRINTLN("Free roam started");
   }
-  if (state == AppState::FreeRoam && next == AppState::FreeRoamSummary) {
+  if (state == AppState::FreeRoam && next != AppState::FreeRoam) {
     freeRoamDurationMs = freeRoam.elapsedMs(millis());
-    freeRoamPath = SessionLog::saveFreeRoam(sessionStamp, freeRoam, freeRoamDurationMs);
+    String path = summaryPath("freeroam");
+    freeRoamPath =
+        SessionLog::saveFreeRoam(path, sessionStamp, freeRoam, freeRoamDurationMs, sessionLog) ? path : String();
+    SessionLog::endLog();
+    logPending = false;
   }
 
   if (next == AppState::GpsStatus) statusReturn = state;
@@ -160,8 +214,8 @@ static void onLapEvent(const LapEvent& ev) {
       lapOverlayUntil = now + 4000;
 
       // Save after every lap so a power cut doesn't lose the session.
-      if (sessionPath.length() == 0) sessionPath = SessionLog::newSessionPath(selectedTrack(), sessionStamp);
-      if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer)) {
+      if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
+      if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer, sessionLog, false)) {
         DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
       }
       if (ev.isBest) saveMapFromLap();
@@ -375,6 +429,7 @@ void setup() {
   Storage::begin();
 
   trackDB.begin();
+  SessionLog::begin();
   input.begin();
 
   display.drawBoot("Detecting GPS...");
@@ -384,6 +439,7 @@ void setup() {
 #endif
 
   addBenchTrack();
+  SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut
 
   // Keep reading the GPS while the logo plays, so a fix found in the
   // meantime skips the waiting-for-GPS screen entirely.
@@ -407,23 +463,35 @@ void loop() {
 #if BLE_ENABLED
     RaceBoxBle::sendFix(fix, gps);
 #endif
-    if (state == AppState::Running && !settingLine) {
-      onLapEvent(lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis));
+    if (state == AppState::Running) {
+      LapEvent ev;
+      if (!settingLine) ev = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis);
+      recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
+      onLapEvent(ev);
     } else if (state == AppState::FreeRoam) {
       freeRoam.onFix(fix.lat, fix.lon, fix.speedKmh);
+      recordFix(fix, 0);
     }
   }
 
+  LogWriter::poll();
   handleInput(input.poll());
 
   autoPickTrack();
 
   if (now - lastStatusLog > 5000) {
     lastStatusLog = now;
-    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s\n",
+    char logInfo[128] = "";
+    if (SessionLog::logging()) {
+      snprintf(logInfo, sizeof(logInfo), " log=%lu fixes, %lu KB on card, %lu B queued, slowest write %lu ms",
+               (unsigned long)SessionLog::fixesLogged(), (unsigned long)(LogWriter::bytesWritten() / 1024),
+               (unsigned long)LogWriter::bufferedBytes(), (unsigned long)LogWriter::slowestWriteMs());
+    }
+    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s%s\n",
                  gps.receivingData() ? "yes" : "NO", gps.usingUbx() ? "UBX" : "NMEA", gps.satellites(),
                  gps.usingUbx() ? "pdop" : "hdop", gps.hdop(), gps.accuracyM(), gps.hasFix() ? "yes" : "no",
-                 gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "");
+                 gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "",
+                 logInfo);
   }
 
   if (lastRender == 0 || now - lastRender >= 1000 / DISPLAY_FPS) {

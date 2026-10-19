@@ -49,6 +49,7 @@ public:
 
   int count() const { return tracks.size(); }
   const Track* get(int index) const;
+  const Track* find(const String& id) const;  // nullptr if there's no such track
   const char* source() const { return sourceName; }
 
   // Index of the closest track within maxDistanceM (start/finish, or centre
