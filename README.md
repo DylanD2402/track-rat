@@ -6,6 +6,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Picks the nearest track automatically (within 5 km), or you choose one on the touchscreen.
 - Lap and split times come from GPS timestamps. The crossing is interpolated between fixes, so timing resolution is a few milliseconds even at 1 Hz.
 - Each session is saved to the SD card (or internal flash) after every lap.
+- Optional battery with a percentage gauge; sleeps by itself when parked. Firmware can be updated from the SD card.
 
 First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and checking each part of the hardware.
 
@@ -211,6 +212,37 @@ Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**,
 
 Track Rat isn't affiliated with RaceBox. The device name is used only so apps recognise the data format.
 
+## Battery and sleep
+
+Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit keeps running when the car's USB power goes off. The board charges it from USB.
+
+- **Battery percentage:** shown in the top bar next to the GPS bars. It turns yellow at 30% and red at 15%. With no battery fitted, nothing is shown.
+- **It's an estimate.** The percentage comes from the battery voltage, which reads high while charging and dips under load.
+- **How it's measured:** the board feeds half the battery voltage to IO9 (two 200 k resistors, from the board's schematic). The firmware averages 16 readings a second and smooths them. If the figure is off from a multimeter, set `BATTERY_CAL_OFFSET_MV`.
+- **No battery fitted:** a reading under 2.5 V, or over 4.23 V (the charger holds an empty socket at about 4.2 V), counts as "no battery". If a missing battery still shows a percentage, or a full one disappears, adjust `BATTERY_PRESENT_MAX_MV`. The serial log prints the readings every 10 s.
+- **Low battery:** at 3.30 V or below for 10 s, Track Rat saves the session, shows **BATTERY LOW** for 5 s, then goes to sleep. Charge it, then touch the screen or press BOOT.
+
+**Auto-sleep:** parked with no touch and no BOOT press for 20 minutes, the backlight goes off. A minute later the board goes into deep sleep. Moving at 5 km/h or more counts as activity, so it never sleeps during a session.
+
+- **Waking:** touch the screen or press BOOT. From backlight-off, the press only turns the screen on. From deep sleep, the board restarts as if just powered on, so it finds the GPS again.
+- **Saving:** a session in progress is saved before sleeping, the same as ending it.
+- **Not measured yet:** how much current the board draws asleep, and whether the GPS module stays powered.
+- **Turning it off:** set `AUTO_SLEEP_ENABLED` to `0` in `include/Config.h`.
+
+## Updating the firmware from the SD card
+
+You can update without PlatformIO or a USB cable.
+
+1. Build with `pio run -e es3c28p` (or get a `firmware.bin` from whoever built it).
+2. Copy `.pio/build/es3c28p/firmware.bin` to the root of the SD card and rename it `trackrat.bin`. Don't use `bootloader.bin` or `partitions.bin`.
+3. Put the card in and switch on. After the logo, a screen offers to install it. Tap **INSTALL** (or hold BOOT for 1 s). Anything else skips, and so does waiting 30 s.
+4. A progress bar shows while it writes (a few seconds). Don't switch it off. Then the board restarts on the new firmware.
+
+- **After installing:** the file is renamed `trackrat.installed.bin` (replacing any older one), so it isn't offered again.
+- **Wrong file:** a file that isn't an ESP32-S3 app image, or is too big, is refused with a message and left on the card.
+- **Safety:** it writes to the second app slot, and the board only switches to it once the whole image has been written and checked. If the write fails, the old firmware keeps running. Sessions and tracks are not touched.
+- **If a new build won't start,** flash over USB with `pio run -e es3c28p -t upload`.
+
 ## Session logs
 
 Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. The file holds:
@@ -238,6 +270,15 @@ Everything else is in `include/Config.h`. The settings you're most likely to cha
 | `TOUCH_SWAP_XY`, `TOUCH_INVERT_X/Y` | 1, 0, 1 | Fix touch orientation if taps land in the wrong place |
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
+| `BATTERY_ENABLED` | 1 | 0 = ignore the battery pin completely |
+| `BATTERY_CAL_OFFSET_MV` | 0 | Added to the battery voltage reading, to match a multimeter |
+| `BATTERY_PRESENT_MIN_MV` / `_MAX_MV` | 2500 / 4230 | Readings outside this range mean no battery is fitted |
+| `BATTERY_LOW_MV`, `BATTERY_LOW_HOLD_MS` | 3300, 10000 | Save and sleep at or below this voltage for this long |
+| `AUTO_SLEEP_ENABLED` | 1 | 0 = never sleep by itself |
+| `AUTO_SLEEP_IDLE_MS` | 20 minutes | Parked and untouched this long: backlight off |
+| `AUTO_SLEEP_DEEP_AFTER_MS` | 60 s | Backlight off this long: deep sleep |
+| `AUTO_SLEEP_MOVING_KMH` | 5 | At or above this speed the car counts as moving |
+| `FIRMWARE_FILE` | `/trackrat.bin` | File on the SD card offered as a firmware update |
 
 ## Tests
 
@@ -268,12 +309,19 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 ```
 
+`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), and that firmware files are accepted only if they're an ESP32-S3 app image:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
+```
+
 ## Layout
 
 ```
 include/   Config.h, GeoMath.h (gate maths), headers
 src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
-           DisplayManager, InputManager, Storage, SessionLog
+           DisplayManager, InputManager, Storage, SessionLog,
+           Power (battery, sleep), FirmwareUpdate (SD card update)
 data/      tracks.json
 test/      host-side lap timer tests
 legacy/    the original Raspberry Pi / Python prototype

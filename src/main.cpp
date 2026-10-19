@@ -13,14 +13,17 @@
 #include <Arduino.h>
 #include "Config.h"
 #include "DisplayManager.h"
+#include "FirmwareUpdate.h"
 #include "FreeRoam.h"
 #include "GPSHandler.h"
 #include "GeoMath.h"
 #include "InputManager.h"
 #include "LapTimer.h"
+#include "Power.h"
 #include "RaceBoxBle.h"
 #include "SessionLog.h"
 #include "SimTrack.h"
+#include "SleepTimer.h"
 #include "Storage.h"
 #include "TrackDatabase.h"
 
@@ -57,6 +60,8 @@ static uint32_t freeRoamDurationMs = 0;
 
 static uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
+
+static SleepTimer sleepTimer(AUTO_SLEEP_IDLE_MS, AUTO_SLEEP_DEEP_AFTER_MS);
 
 static const Track& selectedTrack() { return *trackDB.get(selectedIndex); }
 
@@ -360,6 +365,96 @@ static void addBenchTrack() {
   trackDB.add(sim);
 }
 
+// ---------------------------------------------------------------------------
+// Sleep and battery
+// ---------------------------------------------------------------------------
+
+// Close and save whatever is open, so power can go. Anything else that must be
+// flushed before sleep (e.g. an open log file) belongs here too.
+static void saveForSleep() {
+  if (state == AppState::Running) enterState(AppState::Summary);  // saves the laps so far
+  else if (state == AppState::FreeRoam) enterState(AppState::FreeRoamSummary);
+}
+
+// Something happened (a touch, a press, the car moving). Returns true if the screen was off.
+static bool noteActivity(uint32_t now) {
+  if (!sleepTimer.activity(now)) return false;
+  display.setBacklight(true);
+  lastRender = 0;
+  return true;
+}
+
+static void lowBatterySleep() {
+  DEBUG_PRINTF("Battery low (%d mV): saving and sleeping\n", Power::batteryMillivolts());
+  saveForSleep();
+  display.setBacklight(true);
+  display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", TFT_YELLOW);
+  delay(BATTERY_LOW_SCREEN_MS);
+  display.powerDown();
+  Power::deepSleep();
+}
+
+// ---------------------------------------------------------------------------
+// Firmware update from the SD card
+// ---------------------------------------------------------------------------
+
+static void drawInstallProgress(size_t done, size_t total) {
+  static int lastPct = -1;
+  int pct = total ? (int)(done * 100 / total) : 0;
+  if (pct == lastPct) return;
+  lastPct = pct;
+  display.drawFirmwareProgress(pct);
+}
+
+// If /trackrat.bin is on the card, offer to install it: tap the centre or hold
+// BOOT to confirm; anything else (or no answer) skips.
+static void offerFirmwareUpdate() {
+  FirmwareUpdate::Offer offer;
+  if (!FirmwareUpdate::find(offer)) return;
+
+  if (offer.check != firmware::Check::Ok) {
+    display.drawMessage("FIRMWARE FILE SKIPPED", "Can't use trackrat.bin", firmware::describe(offer.check), TFT_RED);
+    delay(4000);
+    return;
+  }
+
+  char modified[24] = "";
+  if (offer.modified > 0) {
+    struct tm t;
+    gmtime_r(&offer.modified, &t);  // FAT stores local time, so no zone conversion
+    strftime(modified, sizeof(modified), "%Y-%m-%d %H:%M", &t);
+  }
+  display.drawFirmwarePrompt(modified, offer.size, input.touchAvailable());
+  bool install = false;
+  uint32_t start = millis();
+  while (millis() - start < FIRMWARE_PROMPT_TIMEOUT_MS) {
+    gps.update();  // keep draining the GPS while waiting
+    InputEvent ev = input.poll();
+    if (ev == InputEvent::None) {
+      delay(5);
+      continue;
+    }
+    install = ev == InputEvent::TapCenter || ev == InputEvent::BootLong;
+    break;
+  }
+  if (!install) {
+    DEBUG_PRINTLN("Firmware: update skipped");
+    return;
+  }
+
+  DEBUG_PRINTLN("Firmware: installing");
+  const char* error = FirmwareUpdate::install(offer, drawInstallProgress);
+  if (error) {
+    DEBUG_PRINTF("Firmware: install failed: %s\n", error);
+    display.drawMessage("UPDATE FAILED", error, "The old firmware is unchanged", TFT_RED);
+    delay(5000);
+    return;
+  }
+  display.drawMessage("UPDATE INSTALLED", "Restarting...", "", TFT_GREEN);
+  delay(1500);
+  ESP.restart();
+}
+
 void setup() {
   Serial.begin(115200);
 #if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
@@ -369,6 +464,7 @@ void setup() {
   DEBUG_PRINTLN("\n=== Track Rat - ES3C28P ===");
   DEBUG_PRINTF("PSRAM: %u bytes free\n", ESP.getFreePsram());
 
+  Power::begin();
   display.begin();
   display.startSplash();  // plays on the other core while the rest of setup runs
   display.drawBoot("Mounting storage...");
@@ -392,10 +488,12 @@ void setup() {
     delay(5);
   }
   display.finishSplash();
+  offerFirmwareUpdate();
   gps.update();
   state = AppState::GpsWait;
   autoPickTrack();
   if (state == AppState::GpsWait) enterState(AppState::GpsWait);
+  sleepTimer.begin(millis());
 }
 
 void loop() {
@@ -407,6 +505,7 @@ void loop() {
 #if BLE_ENABLED
     RaceBoxBle::sendFix(fix, gps);
 #endif
+    if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) noteActivity(now);  // moving: never sleep
     if (state == AppState::Running && !settingLine) {
       onLapEvent(lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis));
     } else if (state == AppState::FreeRoam) {
@@ -414,9 +513,30 @@ void loop() {
     }
   }
 
-  handleInput(input.poll());
+  InputEvent ev = input.poll();
+  if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
+  handleInput(ev);
 
   autoPickTrack();
+
+  Power::update(now);
+  display.setBatteryPercent(Power::batteryPercent());
+  if (Power::batteryLow(now)) lowBatterySleep();
+#if AUTO_SLEEP_ENABLED
+  switch (sleepTimer.update(now, false)) {
+    case SleepAction::ScreenOff:
+      DEBUG_PRINTLN("Parked and idle: backlight off");
+      display.setBacklight(false);
+      break;
+    case SleepAction::DeepSleep:
+      saveForSleep();
+      display.powerDown();
+      Power::deepSleep();
+      break;
+    default:
+      break;
+  }
+#endif
 
   if (now - lastStatusLog > 5000) {
     lastStatusLog = now;
@@ -425,7 +545,7 @@ void loop() {
                  gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "");
   }
 
-  if (lastRender == 0 || now - lastRender >= 1000 / DISPLAY_FPS) {
+  if (!sleepTimer.screenOff() && (lastRender == 0 || now - lastRender >= 1000 / DISPLAY_FPS)) {
     lastRender = now;
     render();
   }

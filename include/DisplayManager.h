@@ -54,6 +54,14 @@ public:
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
   void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
 
+  // Battery, sleep and firmware update screens (DisplayPower.cpp)
+  void setBatteryPercent(int percent) { batteryPct = percent; }  // shown in the header; -1 = no battery fitted
+  void setBacklight(bool on);
+  void powerDown();  // blank the panel and put it to sleep (before deep sleep)
+  void drawMessage(const char* title, const char* line1, const char* line2, uint16_t color);
+  void drawFirmwarePrompt(const char* modified, uint32_t sizeBytes, bool touchOk);
+  void drawFirmwareProgress(int percent);
+
 private:
   TFT_eSPI tft;
   TFT_eSprite spr = TFT_eSprite(&tft);
@@ -61,6 +69,7 @@ private:
   TFT_eSPI* gfx = &tft;  // sprite if available, else the panel directly
   uint16_t* shown = nullptr;  // copy of the panel contents (PSRAM)
   bool shownValid = false;
+  int batteryPct = -1;
 
   void beginFrame();
   void endFrame();

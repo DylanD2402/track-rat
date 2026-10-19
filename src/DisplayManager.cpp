@@ -132,7 +132,7 @@ void DisplayManager::gpsBadge(const GPSHandler& gps) {
 void DisplayManager::header(const String& title, const GPSHandler* gps) {
   gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
 
-  // Status tags right to left: signal bars, BENCH, BT
+  // Status tags right to left: signal bars, battery, BENCH, BT
   int right = W;
   auto tag = [&](const char* text, int w, uint16_t bg, uint16_t fg) {
     right -= w + 4;
@@ -145,6 +145,13 @@ void DisplayManager::header(const String& title, const GPSHandler* gps) {
   if (gps) {
     gpsBadge(*gps);
     right = W - 44;
+  }
+  if (batteryPct >= 0) {
+    char b[8];
+    snprintf(b, sizeof(b), "%d%%", batteryPct);
+    tag(b, 40, C_BUTTON, batteryPct <= 15 ? C_BAD : batteryPct <= 30 ? C_WARN : C_TEXT);
+  }
+  if (gps) {
     if (gps->isSimulated()) tag("BENCH", 48, C_WARN, C_BG);  // simulated timing must be obvious
 #if BLE_ENABLED
     if (RaceBoxBle::connected()) tag("BT", 26, 0x041F, C_TEXT);  // a phone app is receiving GPS
