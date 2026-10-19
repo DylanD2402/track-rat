@@ -48,7 +48,7 @@ bool save(const String& path, const String& stamp, const perf::PerfRun& runs) {
   if (!fs || path.length() == 0) return false;
 
   const std::vector<PerfResult>& results = runs.results();
-  DynamicJsonDocument doc(2048 + results.size() * 640);
+  DynamicJsonDocument doc(2048 + results.size() * 1024);
   doc["type"] = "performance";
   doc["started"] = stamp;
   doc["runCount"] = results.size();

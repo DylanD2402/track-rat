@@ -67,7 +67,7 @@ static bool perfDemo = false;       // bench test: a simulated car launches and 
 static String perfPath;
 static String perfStamp;
 static const perf::SpeedUnit PERF_UNITS = PERF_UNITS_MPH ? perf::SpeedUnit::Mph : perf::SpeedUnit::Kmh;
-static const int MENU_PERF_ROW_Y = 144;  // taps below this on the menu hit the Performance button (see drawMenu)
+static const int MENU_PERF_ROW_Y = 144;  // taps from here to +48 on the menu hit the Performance button (see drawMenu)
 
 static uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
@@ -283,7 +283,7 @@ static void handleInput(InputEvent ev) {
     case AppState::Menu:
       if (ev == InputEvent::TapHeader) enterState(AppState::GpsStatus);
       else if ((ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight) &&
-               input.lastTapY() >= MENU_PERF_ROW_Y) chooseMenuItem(3);
+               input.lastTapY() >= MENU_PERF_ROW_Y && input.lastTapY() < MENU_PERF_ROW_Y + 48) chooseMenuItem(3);
       else if (ev == InputEvent::TapLeft) chooseMenuItem(0);
       else if (ev == InputEvent::TapCenter) chooseMenuItem(1);
       else if (ev == InputEvent::TapRight) chooseMenuItem(2);
@@ -329,7 +329,8 @@ static void handleInput(InputEvent ev) {
       break;
 
     case AppState::Performance: {
-      const bool busy = perfRun.state() == perf::PerfRun::State::Go || perfRun.speedKmh() > 5.0f;
+      // Taps are ignored while the car is moving, so a bump can't leave a run. (No fix: the speed is stale.)
+      const bool busy = gps.hasFix() && (perfRun.state() == perf::PerfRun::State::Go || perfRun.speedKmh() > 5.0f);
       const int runs = (int)perfRun.results().size();
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) {
         enterState(AppState::Menu);

@@ -83,7 +83,7 @@ void DisplayManager::drawPerfLive(const PerfRun& pr, const GPSHandler& gps, Spee
   gfx->drawString(text, W / 2, by + bh / 2 + 1, 4);
   if (pr.rollout()) {
     gfx->setTextDatum(MR_DATUM);
-    gfx->drawString("1 FT ROLLOUT", W - 14, by + bh / 2 + 1, 2);
+    gfx->drawString("ROLLOUT", W - 14, by + bh / 2 + 1, 2);
   }
   gfx->setTextDatum(TL_DATUM);
 
@@ -109,7 +109,7 @@ void DisplayManager::drawPerfLive(const PerfRun& pr, const GPSHandler& gps, Spee
   } else if (pr.state() == PerfRun::State::Armed) {
     centered("Pull away when you're ready", dy + 4, 2, C_TEXT);
   } else if (fix) {
-    centered("Stop for 1 s to arm. Brake from 100 to time braking.", dy + 4, 1, C_DIM);
+    centered("Stop for 1 s to arm", dy + 4, 2, C_DIM);
   }
 
   if (!pr.results().empty()) {
@@ -129,6 +129,20 @@ void DisplayManager::drawPerfLive(const PerfRun& pr, const GPSHandler& gps, Spee
   if (touchOk) footerButtons(leftButton, "RESULTS", "MENU");
   else centered("BOOT: tap = results, hold = menu", 212, 2, C_DIM);
   endFrame();
+}
+
+// A big number (font 6 has digits only) with its unit after it in a smaller font, centred.
+static void bigValue(TFT_eSPI* gfx, float value, int decimals, const char* unit, int y, uint16_t color) {
+  char num[16];
+  if (value < 0) snprintf(num, sizeof(num), "--");
+  else snprintf(num, sizeof(num), "%.*f", decimals, value);
+  const int gap = 8;
+  int total = gfx->textWidth(num, 6) + (value < 0 ? 0 : gap + gfx->textWidth(unit, 4));
+  int x = (W - total) / 2;
+  gfx->setTextDatum(TL_DATUM);
+  gfx->setTextColor(color);
+  gfx->drawString(num, x, y, 6);
+  if (value >= 0) gfx->drawString(unit, x + gfx->textWidth(num, 6) + gap, y + 22, 4);
 }
 
 // One line of a result card: label, value, and a smaller extra on the right (trap speed).
@@ -176,7 +190,7 @@ void DisplayManager::drawPerfCard(const PerfRun& pr, int index, SpeedUnit u, boo
     if (!isBest && r.kind == RunKind::Brake) {
       gfx->setTextColor(C_DIM);
       gfx->drawString("BRAKING 100-0 km/h", 10, y0 + 4, 2);
-      centered(metres(r.brakeM), y0 + 30, 6, r.valid ? vc : C_DIM);
+      bigValue(gfx, r.brakeM, 1, "m", y0 + 30, r.valid ? vc : C_DIM);
       if (mph && r.brakeM >= 0) {
         snprintf(buf, sizeof(buf), "%.0f ft", r.brakeM / perf::METRES_PER_FOOT);
         centered(buf, y0 + 84, 4, C_DIM);
@@ -185,7 +199,7 @@ void DisplayManager::drawPerfCard(const PerfRun& pr, int index, SpeedUnit u, boo
     } else if (!isBest && r.kind == RunKind::Roll) {
       gfx->setTextColor(C_DIM);
       gfx->drawString("ROLLING 100-200 km/h", 10, y0 + 4, 2);
-      centered(seconds(r.t100to200), y0 + 30, 6, r.valid ? vc : C_DIM);
+      bigValue(gfx, r.t100to200, 2, "s", y0 + 30, r.valid ? vc : C_DIM);
     } else {
       int y = y0;
       if (mph) {

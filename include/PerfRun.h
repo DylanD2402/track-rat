@@ -26,6 +26,7 @@
 #define PERF_RUN_H
 
 #include <math.h>
+#include <cmath>
 #include <stdint.h>
 #include <stddef.h>
 #include <vector>
@@ -94,6 +95,8 @@ public:
   // Feed one GPS fix. Returns how many results this fix completed (0 usually).
   size_t onFix(uint32_t gpsTimeMs, float speedKmh, float altM) {
     const size_t before = results_.size();
+    if (!std::isfinite(speedKmh)) return 0;  // a corrupt fix: skip it (a long skip shows up as a gap)
+    if (!std::isfinite(altM)) altM = haveAlt_ ? (float)altF_ : 0.0f;
     const double kmh = speedKmh < 0 ? 0 : speedKmh;
 
     bool gap = false;
@@ -101,7 +104,10 @@ public:
       uint32_t d = (gpsTimeMs + DAY_MS - lastGpsMs_) % DAY_MS;
       if (d == 0 || d > DAY_MS / 2) return 0;  // duplicate or out-of-order fix
       clock_ += d / 1000.0;
-      gap = d > MAX_GAP_MS;
+      if (d < minInterval_) minInterval_ = d;
+      // Fixes normally come at the GPS update rate; a much longer wait is a gap. (A 1 Hz GPS isn't all gaps.)
+      uint32_t limit = 3 * minInterval_;
+      gap = d > (limit > MAX_GAP_MS ? limit : MAX_GAP_MS);
     }
     lastGpsMs_ = gpsTimeMs;
 
@@ -214,6 +220,7 @@ private:
   bool haveLast_ = false, haveAlt_ = false;
   bool rollout_ = false;
   uint32_t lastGpsMs_ = 0;
+  uint32_t minInterval_ = 0xFFFFFFFFu;  // shortest time between fixes seen so far
   double clock_ = 0;
   Pt last_ = {0, 0, 0};
   double altF_ = 0;

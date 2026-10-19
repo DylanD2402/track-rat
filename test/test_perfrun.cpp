@@ -347,6 +347,128 @@ static void testBenchDemoCar() {
          rs[0].t100to200, rs[0].et4, rs[0].trap4Kmh, rs[1].brakeM);
 }
 
+static int countKind(const PerfRun& pr, RunKind k, bool validOnly = false) {
+  int n = 0;
+  for (const PerfResult& r : pr.results()) n += (r.kind == k && (!validOnly || r.valid));
+  return n;
+}
+
+static void testFailurePaths() {
+  const double a = 5.0, tl = 2.5;
+
+  // A slow GPS (1 Hz) isn't "all gaps": the run is valid, just coarser
+  PerfRun slow;
+  drive(slow, launchProfile(tl + 0.3, a, 70), flat(), 40, 1, 0, 3600000);
+  CHECK(slow.results().size() == 1 && slow.results()[0].valid, "1 Hz GPS run valid (%zu results)", slow.results().size());
+  if (!slow.results().empty()) CHECK_S(slow.results()[0].t0to100, 100 / 3.6 / a, 400.0, "1 Hz 0-100 is coarse but close");
+
+  // Corrupt, duplicate and out-of-order fixes are ignored
+  PerfRun junk;
+  uint32_t base = 3600000;
+  int n = 0;
+  for (int ms = 0; ms <= 22000; ms += 50) {
+    double t = ms / 1000.0;
+    float kmh = (float)(launchProfile(tl, a, 70)(t) * 3.6);
+    junk.onFix(base + ms, kmh, 100);
+    if (++n % 17 == 0) junk.onFix(base + ms, kmh, 100);                     // duplicate
+    if (n % 23 == 0) junk.onFix(base + ms - 500, 0.0f, 100);                // an old fix arriving late
+    if (n % 29 == 0) junk.onFix(base + ms + 1, std::nanf(""), 100);         // NaN speed
+    if (n % 31 == 0) junk.onFix(base + ms + 1, kmh, std::nanf(""));         // NaN height
+  }
+  CHECK(junk.results().size() == 1 && junk.results()[0].valid, "junk fixes ignored: %zu results", junk.results().size());
+  if (!junk.results().empty()) CHECK_S(junk.results()[0].t0to100, 100 / 3.6 / a, 1.5, "0-100 with junk fixes");
+
+  // Negative speed counts as stopped
+  PerfRun neg;
+  neg.onFix(1000, -3.0f, 100);
+  CHECK(neg.speedKmh() == 0.0f, "negative speed read as 0");
+
+  // The fix feed stops mid-run (no GPS) and comes back: invalid launch, and the next run is fine
+  PerfRun lost;
+  drive(lost, launchProfile(tl, a, 70), flat(), 22, 20, 0, 3600000, [](double t) { return t > 6.0 && t < 15.0; });
+  CHECK(countKind(lost, RunKind::Launch, true) == 0, "no valid launch from a run with the feed lost");
+  CHECK(lost.results().size() >= 1 && !lost.results()[0].valid, "lost feed gives an invalid result");
+
+  // Gap during a braking run: invalid brake. Gap during a rolling 100-200: invalid roll.
+  const double v0 = 130 / 3.6, dec = 9.0, tb = 2.0;
+  auto brakeVel = [=](double t) { return t <= tb ? v0 : std::fmax(0.0, v0 - dec * (t - tb)); };
+  PerfRun bg;
+  drive(bg, brakeVel, flat(), 10, 20, 0, 3600000, [](double t) { return t > 3.0 && t < 3.8; });
+  CHECK(countKind(bg, RunKind::Brake, true) == 0 && countKind(bg, RunKind::Brake) == 1, "gap in braking is invalid");
+  auto rollVel = [=](double t) { return std::fmin(60 / 3.6 + 2.5 * std::fmax(0.0, t - 3.0), 220 / 3.6); };
+  PerfRun rg;
+  drive(rg, rollVel, flat(), 40, 20, 0, 3600000, [](double t) { return t > 9.0 && t < 10.0; });
+  CHECK(countKind(rg, RunKind::Roll, true) == 0 && countKind(rg, RunKind::Roll) == 1, "gap in rolling 100-200 is invalid");
+
+  // Slowing to 60 km/h and speeding up again isn't a braking run
+  auto lift = [=](double t) {
+    if (t < 2.0) return 130 / 3.6;
+    if (t < 6.0) return 130 / 3.6 - 4.0 * (t - 2.0);       // down to ~86 km/h
+    return 86 / 3.6 + 3.0 * (t - 6.0) > 130 / 3.6 ? 130 / 3.6 : 86 / 3.6 + 3.0 * (t - 6.0);
+  };
+  PerfRun rebound;
+  drive(rebound, lift, flat(), 20, 20, 0);
+  CHECK(countKind(rebound, RunKind::Brake) == 0, "slow then speed up is not a braking run (%zu results)", rebound.results().size());
+
+  // Rollout toggled during a run doesn't change that run; it applies to the next
+  PerfRun tog;
+  tog.setRollout(false);
+  drive(tog, launchProfile(tl, a, 70), [&](double t) { if (t > 4.0) tog.setRollout(true); return 100.0; }, 22, 20, 0);
+  CHECK(tog.results().size() == 1 && !tog.results()[0].rollout, "rollout switch mid-run is deferred");
+  tog.clear();
+  CHECK(tog.rollout() && tog.results().empty(), "clear() empties the results and keeps the rollout setting");
+
+  // Slow attempts that hit a gap are dropped; creeping away and stopping gives nothing
+  PerfRun tiny;
+  drive(tiny, [](double t) { return t < 2.0 ? 0.0 : (t < 3.0 ? 1.0 * (t - 2.0) : 0.0); }, flat(), 10, 20, 0);
+  CHECK(tiny.results().empty(), "a 3.6 km/h shuffle is not a run");
+
+  // Speed too slow to ever get 0-60: only the earlier numbers are filled in, nothing invented
+  PerfRun partial;
+  drive(partial, [=](double t) { return t < 2.5 ? 0.0 : (t < 8.5 ? 3.0 * (t - 2.5) : 0.0); }, flat(), 30, 20, 0);
+  CHECK(partial.results().size() == 0 || partial.results()[0].t0to100 < 0, "a run that never reaches 100 km/h has no 0-100");
+  // (peak 18 m/s = 65 km/h)
+  CHECK(!partial.results().empty() && partial.results()[0].t0to60 > 0, "0-60 recorded for a run to 65 km/h");
+
+  // The history is capped (oldest dropped)
+  PerfRun many;
+  auto cycle = [=](double t) {  // 4 s stopped, 3 s of 6 m/s^2 to 65 km/h, 3 s braking to 0 -> 0-60 each cycle
+    double c = std::fmod(t, 10.0);
+    if (c < 4.0) return 0.0;
+    if (c < 7.0) return 6.0 * (c - 4.0);
+    return std::fmax(0.0, 18.0 - 6.0 * (c - 7.0));
+  };
+  drive(many, cycle, flat(), 10 * 50, 20, 0);
+  CHECK(many.results().size() == PerfRun::MAX_RESULTS, "history capped at %zu (got %zu)", PerfRun::MAX_RESULTS,
+        many.results().size());
+  printf("  failure paths: 1 Hz GPS, junk fixes, lost feed, gaps in braking and rolling, rebound, history cap\n");
+}
+
+// Everything the screens read while a run goes on: state, live clock, distance, best.
+static void testLiveValues() {
+  PerfRun pr;
+  const double a = 5.0, tl = 2.5;
+  auto vel = launchProfile(tl, a, 70);
+  bool sawGo = false, sawArmed = false;
+  float lastElapsed = 0, lastDist = 0;
+  for (int ms = 0; ms <= 8000; ms += 50) {
+    pr.onFix(7200000 + ms, (float)(vel(ms / 1000.0) * 3.6), 100);
+    if (pr.state() == PerfRun::State::Armed) sawArmed = true;
+    if (pr.state() == PerfRun::State::Go) {
+      sawGo = true;
+      CHECK(pr.liveElapsedS() >= lastElapsed && pr.liveDistanceM() >= lastDist, "live clock and distance only grow");
+      lastElapsed = pr.liveElapsedS();
+      lastDist = pr.liveDistanceM();
+    }
+  }
+  CHECK(sawArmed && sawGo, "armed and go were shown");
+  // at t = 8 s the car has been going 5.5 s: 0.5 * 5 * 5.5^2 = 75.6 m
+  CHECK(std::fabs(lastDist - 75.6) < 1.0, "live distance %.1f m (want 75.6)", lastDist);
+  CHECK(std::fabs(lastElapsed - 5.5) < 0.01, "live elapsed %.3f s (want 5.5)", lastElapsed);
+  CHECK(pr.best().t0to100 < 0 && pr.results().empty(), "nothing finished yet");
+  printf("  live values: state, clock %.2f s and distance %.1f m track the run\n", lastElapsed, lastDist);
+}
+
 static void testUnits() {
   CHECK(std::fabs(perf::speedInUnit(160.9344f, perf::SpeedUnit::Mph) - 100.0f) < 0.001f, "km/h to mph");
   CHECK(perf::speedInUnit(100.0f, perf::SpeedUnit::Kmh) == 100.0f, "km/h unchanged");
@@ -369,6 +491,8 @@ int main() {
   testStartRules();
   testMidnight();
   testBenchDemoCar();
+  testFailurePaths();
+  testLiveValues();
   testUnits();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
