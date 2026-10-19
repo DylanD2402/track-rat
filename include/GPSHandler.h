@@ -23,6 +23,8 @@ struct GpsFix {
   float courseDeg;      // direction of travel, 0 = north, clockwise
   bool courseValid;
   float altM;           // metres above sea level
+  uint8_t sats;         // satellites used
+  float hdop;
   uint16_t year;        // UTC date, 0 if not known yet
   uint8_t month, day;
   uint32_t gpsTimeMs;   // UTC milliseconds since midnight, from the GPS

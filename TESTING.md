@@ -31,7 +31,7 @@ Expected:
    - At each lap end, the lap time shows full-screen. It's green when it's a new best.
    - The serial log shows `LAP n: m:ss.mmm` and `Saved SD:/sessions/...`.
 8. Hold the screen for 2 s. A progress bar fills, then the **summary** appears and lists your laps.
-9. If you have an SD card in, look for `/sessions/SIM_..._bench.json` on it.
+9. If you have an SD card in, look for `/sessions/SIM_..._bench.json` and `SIM_..._bench.vbo` on it. The `.vbo` opens in Racelogic's Circuit Tools (see "Session logs" in the README).
 
 The **BOOT** button also works on every screen: press = next/back, hold 1 s = select/start/end.
 

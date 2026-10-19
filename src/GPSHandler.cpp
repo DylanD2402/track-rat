@@ -284,6 +284,8 @@ void GPSHandler::readSerial(uint32_t now) {
       last.gpsTimeMs = gps.time.hour() * 3600000UL + gps.time.minute() * 60000UL +
                        gps.time.second() * 1000UL + gps.time.centisecond() * 10UL;
       last.rxMillis = now;
+      last.sats = sats;
+      last.hdop = hdopVal;
       queueFix(last);
       everFixed = true;
       countFixForRate(now);
@@ -378,6 +380,8 @@ void GPSHandler::simulateStep() {
   last.rxMillis = now;
   sats = 12;
   hdopVal = 0.8f;
+  last.sats = sats;
+  last.hdop = hdopVal;
   queueFix(last);
   everFixed = true;
   countFixForRate(now);

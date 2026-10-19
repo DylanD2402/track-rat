@@ -5,7 +5,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Works completely offline. Track start/finish coordinates live on the device.
 - Picks the nearest track automatically (within 5 km), or you choose one on the touchscreen.
 - Lap and split times come from GPS timestamps. The crossing is interpolated between fixes, so timing resolution is a few milliseconds even at 1 Hz.
-- Each session is saved to the SD card (or internal flash) after every lap.
+- Every GPS fix is logged to the SD card in Racelogic's VBO format, which the free Circuit Tools opens. Lap times are saved after every lap, with or without a card.
 
 First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and checking each part of the hardware.
 
@@ -213,16 +213,30 @@ Track Rat isn't affiliated with RaceBox. The device name is used only so apps re
 
 ## Session logs
 
-Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. The file holds:
+Sessions are saved in `/sessions` on the SD card, as two files with the same name:
 
-- every lap time
-- every split time
-- max and average speed per lap
-- the best lap
+- **`<UTC date>_<time>_<track id>.vbo`:** every GPS fix, 20 a second: UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, and lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up). About 6.5 MB per hour of driving.
+- **`<UTC date>_<time>_<track id>.json`:** the summary: every lap and split time, max and average speed per lap, the best lap, and the name of its `.vbo`.
 
-The file is rewritten after every lap.
+Free Roam drives are saved the same way, as `<date>_<time>_freeroam.vbo` and `.json`. The summary holds the duration, distance, and top and average speed.
 
-Free Roam drives are saved as `/sessions/<date>_<time>_freeroam.json`, with the duration, distance, top and average speed, and the route as GPS points about 10 m apart.
+**Without an SD card,** only the summaries are kept, in flash (a full log fills it in about half an hour). Free Roam then saves its route as GPS points about 10 m apart in the summary. The log at boot says when there's no card.
+
+### Opening a session in Circuit Tools
+
+[Circuit Tools](https://vboxmotorsport.co.uk/us/circuit-tools) is Racelogic's free analysis software for Windows, macOS and iOS. It shows lap overlays and speed and time-gap graphs.
+
+1. Copy the `.vbo` from the card's `sessions` folder to your computer.
+2. Open it in Circuit Tools.
+3. **If the track has a map** in `tracks.json`, the file includes the start/finish line and any splits, so the laps appear straight away. **Otherwise** (new tracks, a line you marked during the session), set the start/finish line in Circuit Tools. Everything you drove is in the file either way.
+
+### If the power goes off
+
+The ignition can cut the power at any moment, so nothing needs to be ended to be kept:
+
+- **The log** is written about once a second, so a power cut loses at most the last second.
+- **The summary** is rewritten after every lap without ever being half written: the new copy goes to a temporary file, which then replaces the old one.
+- **At the next boot,** any session that wasn't ended gets its summary rebuilt from its log, by timing the log again with the same lap timer. The log at boot shows `Session: recovered ...`.
 
 ## Configuration
 
@@ -268,13 +282,30 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 ```
 
+`test/test_vbo.cpp` checks the session log:
+
+```bash
+g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat.cpp src/SessionReplay.cpp src/LapTimer.cpp -o /tmp/vbo && /tmp/vbo
+```
+
+- positions in all four hemispheres and across the Greenwich meridian, UTC time across midnight, and the file's sections, channels and line endings
+- g-forces from the GPS on a straight and in a turn
+- the timing lines written for Circuit Tools
+- that a logged session, read back and timed again, gives the same laps to within 1 ms, in Free Roam too
+- recovery after a power cut: a last line cut short, zeros left on the card, a line marked during the session
+- the log writer's buffer, with two threads, wrapping and filling up
+
+**On Windows** without g++, the `ziglang` Python package has a C++ compiler that needs no install: `pip install ziglang`, then use `python -m ziglang c++` in place of `g++`, add `-D_USE_MATH_DEFINES`, and write the output to a `.exe`.
+
 ## Layout
 
 ```
-include/   Config.h, GeoMath.h (gate maths), headers
+include/   Config.h, GeoMath.h (gate maths), LogRing.h (log buffer), headers
 src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
-           DisplayManager, InputManager, Storage, SessionLog
+           DisplayManager, InputManager, Storage, SessionLog,
+           VboFormat (log format), LogWriter (writes the log on core 0),
+           SessionReplay (times a session again from its log)
 data/      tracks.json
-test/      host-side lap timer tests
+test/      host-side tests
 legacy/    the original Raspberry Pi / Python prototype
 ```
