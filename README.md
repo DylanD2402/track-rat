@@ -14,7 +14,7 @@ First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and c
 | Part | Notes |
 |---|---|
 | ES3C28P board | ESP32-S3 N16R8, ILI9341V 240x320 IPS, FT6336G capacitive touch, SDIO microSD |
-| Beitian BE-252Q | UART NMEA, factory default 115200 baud (auto-detected) |
+| Beitian BE-252Q | u-blox M10 over UART, factory default 115200 baud (auto-detected) |
 | microSD card | Optional, FAT32. Holds `tracks.json` and session logs |
 
 ### Wiring
@@ -24,6 +24,14 @@ Plug the BE-252Q into the board's **UART** connector (GPIO 43/44): GPS TX and RX
 At boot the firmware tries both places and both orientations, so it doesn't matter if TX and RX are crossed. The GPS screen shows which GPIO it found the GPS on.
 
 The BE-252Q's compass wires (SDA/SCL) aren't used.
+
+### GPS data
+
+The BE-252Q is built on a u-blox M10. At boot Track Rat asks it for 20 fixes a second as binary **UBX-NAV-PVT** messages, and once those arrive it turns the NMEA text sentences off. Each message carries the time to the millisecond, position, speed, vertical speed, and the GPS's own estimate of how accurate the position and speed are.
+
+- **Other GPS modules:** if no UBX-NAV-PVT arrives within 3 seconds, Track Rat reads NMEA text instead (GGA and RMC) as before. There are no accuracy figures then, only HDOP.
+- **Settings stay in the GPS's RAM:** nothing is saved to the module. If the GPS loses power and comes back sending NMEA, Track Rat asks for UBX-NAV-PVT again.
+- **GPS Status screen:** the Data line says `UBX` or `NMEA`. With a u-blox GPS the Fix line shows position and speed accuracy, for example `LOCKED   ±1.2 m   ±0.5 km/h   3D`.
 
 Everything else (display, touch, SD) is built into the board. The pins are set in `include/Config.h` and `platformio.ini`.
 
@@ -102,6 +110,7 @@ While timing, the screen shows:
 - **Live diff:** how far ahead (green, `-`) or behind (red, `+`) your best lap you are right now, at the same point on track. It appears once you have a best lap.
 - **Split time:** for 5 s after each split, the split time and its gap to your best lap's split.
 - **GPS signal bars** in the top right: green with a fix, yellow while searching, red outline with no data.
+- **GPS accuracy** beside the bars, such as `±1.2m`: how far off the GPS thinks its position could be. Green up to 2 m, yellow up to 5 m, red beyond that. It only shows with a u-blox GPS.
 
 When you complete a lap, its time shows full-screen for 4 s, in green if it's a new best.
 
@@ -205,7 +214,7 @@ Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**,
 - **Connecting:** in the app, add a RaceBox Mini device. The board shows up as `RaceBox Mini` followed by 10 digits (the log prints the exact name at boot). While a phone is connected, a blue **BT** tag shows in the header.
 - **Update rate:** one packet per GPS fix, so up to 10 a second.
 - **Accelerometer:** this board has none, so the motion values read as a device lying still. Apps still calculate G-forces from the GPS.
-- **Accuracy figures:** the accuracy fields are estimates from the satellite precision value (HDOP), because the GPS sends NMEA text rather than u-blox binary data.
+- **Accuracy figures:** the position, speed and heading accuracy fields come straight from the GPS (UBX-NAV-PVT). With a GPS that only sends NMEA they're estimates from the satellite precision value (HDOP).
 - **Bench Test:** a bench session streams the simulated car, which is handy for setting up an app at a desk.
 - **Turning it off:** set `BLE_ENABLED` to `0` in `include/Config.h`.
 
@@ -233,7 +242,8 @@ Everything else is in `include/Config.h`. The settings you're most likely to cha
 | `GPS_PIN_PAIRS` | 44/43, 43/44, 14/21, 21/14 | Pins searched for the GPS at boot |
 | `GPS_TARGET_RATE_HZ` | 20 | Requested update rate (u-blox only). The GPS Status screen shows the rate actually reached |
 | `GPS_USE_GALILEO` / `_GLONASS` / `_BEIDOU` | 1 / 0 / 0 | Satellite systems besides GPS. More systems = more satellites but a lower top rate (4 systems: 10 Hz, 2: 20 Hz) |
-| `GPS_ECHO_NMEA` | 0 | 1 = copy raw GPS output to the serial monitor |
+| `GPS_USE_UBX` | 1 | Read a u-blox GPS as binary UBX-NAV-PVT. 0 = always read NMEA |
+| `GPS_ECHO_NMEA` | 0 | 1 = copy raw GPS output to the serial monitor, and leave NMEA on alongside UBX |
 | `DISPLAY_INVERT` | 1 | Set to 0 if colours look inverted (white background) |
 | `TOUCH_SWAP_XY`, `TOUCH_INVERT_X/Y` | 1, 0, 1 | Fix touch orientation if taps land in the wrong place |
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
@@ -268,11 +278,23 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 ```
 
+`test/test_ubx.cpp` checks the UBX reader: checksums, every NAV-PVT field from sample messages, millisecond time (including either side of midnight), messages split across reads with NMEA in between, and messages too long to keep:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_ubx.cpp src/UbxParser.cpp -o /tmp/ubx && /tmp/ubx
+```
+
+`test/test_gps_source.cpp` checks the choice between UBX and NMEA, and runs a simulated GPS through the UBX reader into the lap timer: switching on from power-up, after a board reset, after the GPS restarts, a GPS plugged in late, a GPS that isn't u-blox, damaged messages, a busy main loop, and laps across midnight:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_gps_source.cpp src/GpsSource.cpp src/UbxParser.cpp src/LapTimer.cpp -o /tmp/gs && /tmp/gs
+```
+
 ## Layout
 
 ```
 include/   Config.h, GeoMath.h (gate maths), headers
-src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
+src/       main.cpp (state machine), GPSHandler, UbxParser, LapTimer, TrackDatabase,
            DisplayManager, InputManager, Storage, SessionLog
 data/      tracks.json
 test/      host-side lap timer tests

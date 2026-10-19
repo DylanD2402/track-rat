@@ -31,7 +31,14 @@ struct RaceBoxFix {
   float speedMs;
   float headingDeg;       // direction of travel
   bool headingValid;
-  float hdop;
+  float hdop;             // PDOP when accuracyKnown
+  // The GPS's own accuracy figures (u-blox UBX-NAV-PVT). Without them
+  // (NMEA-only GPS) accuracy is estimated from hdop.
+  bool accuracyKnown;
+  uint8_t fixType;        // 2 = 2D, 3 = 3D, 4 = GNSS + dead reckoning
+  float hAccM, vAccM;     // +/- metres
+  float speedAccMs;       // +/- m/s
+  float headingAccDeg;    // +/- degrees
   // Accelerometer (milli-g) and gyro (centi-degrees/s). No IMU on this
   // board: 0, 0, +1000 is a device lying still.
   int16_t gX, gY, gZ;
