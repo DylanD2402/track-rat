@@ -20,6 +20,7 @@ static const size_t MAX_RECORD = LogRing::MAX_RECORD;
 static LogRing ring;
 static std::atomic<uint32_t> written{0};
 static std::atomic<uint32_t> slowest{0};
+static std::atomic<bool> busy{false};  // the writer task is between taking records and its last flush
 static fs::FS* fsys = nullptr;
 static TaskHandle_t task = nullptr;
 
@@ -115,7 +116,12 @@ static void drain() {
 static void writerTask(void*) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(LOG_FLUSH_MS));
+    // Set before drain() reads the ring and cleared after its last flush (both
+    // sequentially consistent), so waitIdle() seeing an empty ring and no busy
+    // can't miss a record that was taken but not yet written.
+    busy = true;
     drain();
+    busy = false;
   }
 }
 
@@ -204,6 +210,20 @@ void close() {
 
 void poll() {
   if (task) retryClose();
+}
+
+bool waitIdle(uint32_t timeoutMs) {
+  if (!task) return true;
+  uint32_t start = millis();
+  xTaskNotifyGive(task);  // write now rather than at the next flush
+  for (;;) {
+    retryClose();  // a close the full buffer held up
+    // Order matters: the ring is read first. Records are only popped while busy
+    // is set, so an empty ring followed by a clear busy means everything is on the card.
+    if (!closePending && ring.used() == 0 && !busy) return true;
+    if (millis() - start >= timeoutMs) return false;
+    delay(5);
+  }
 }
 
 uint32_t bytesWritten() { return written; }

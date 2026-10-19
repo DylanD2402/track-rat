@@ -32,6 +32,9 @@ void close();  // also writes out what's buffered straight away
 // The rename itself happens on the writer task; false if it couldn't be queued.
 bool rename(const String& from, const String& to);
 void poll();   // call from the main loop: finishes a close() the full buffer held up
+// Blocks until everything queued is written (and a queued close is done), or
+// the timeout passes. For just before deep sleep. True if it finished.
+bool waitIdle(uint32_t timeoutMs);
 
 // Statistics, for the log
 uint32_t bytesWritten();      // to the current file

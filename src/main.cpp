@@ -724,6 +724,8 @@ static void addBenchTrack() {
 // Sleep and battery
 // ---------------------------------------------------------------------------
 
+static const uint32_t SLEEP_LOG_WAIT_MS = 3000;  // an SD write can take a few hundred ms
+
 // Close and save whatever is open, so power can go. Anything else that must be
 // flushed before sleep (e.g. an open log file) belongs here too.
 static void saveForSleep() {
@@ -731,6 +733,8 @@ static void saveForSleep() {
   else if (state == AppState::FreeRoam) enterState(AppState::FreeRoamSummary);
   SessionLog::endLog();
   LogWriter::poll();
+  // The writer task only closes the file when it next runs, and deep sleep would stop it first.
+  if (!LogWriter::waitIdle(SLEEP_LOG_WAIT_MS)) DEBUG_PRINTLN("Log: card write still pending at sleep");
 }
 
 // Something happened (a touch, a press, the car moving). Returns true if the screen was off.
