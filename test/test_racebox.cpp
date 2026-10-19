@@ -81,6 +81,33 @@ int main() {
   CHECK((int16_t)u16(p + 72) == 1000, "gZ");
   printf("  packet fields and checksum: ok\n");
 
+  // No accuracy figures (NMEA): estimated from HDOP 0.9
+  CHECK(u32(p + 40) == 2250 && u32(p + 44) == 3600, "estimated hAcc/vAcc %u %u", u32(p + 40), u32(p + 44));
+  CHECK(u32(p + 56) == 200 && u32(p + 60) == 100000, "estimated sAcc/headAcc %u %u", u32(p + 56), u32(p + 60));
+  printf("  accuracy estimated from HDOP: ok\n");
+
+  // The GPS's own accuracy figures (UBX-NAV-PVT) go in as they are
+  f.accuracyKnown = true;
+  f.fixType = 3;
+  f.hAccM = 1.234f;
+  f.vAccM = 2.1f;
+  f.speedAccMs = 0.18f;
+  f.headingAccDeg = 0.52f;
+  f.hdop = 1.35f;  // PDOP
+  buildRaceBoxPacket(f, pk);
+  CHECK(u32(p + 40) == 1234 && u32(p + 44) == 2100, "hAcc/vAcc %u %u", u32(p + 40), u32(p + 44));
+  CHECK(u32(p + 56) == 180 && u32(p + 60) == 52000, "sAcc/headAcc %u %u", u32(p + 56), u32(p + 60));
+  CHECK(u16(p + 64) == 135 && p[20] == 3, "pdop %u fix %u", u16(p + 64), p[20]);
+  f.fixType = 2;
+  f.hAccM = 5e6f;  // absurd: capped, not wrapped
+  buildRaceBoxPacket(f, pk);
+  CHECK(p[20] == 2, "2D fix type %u", p[20]);
+  CHECK(u32(p + 40) == 0xFFFFFFFF, "capped hAcc %u", u32(p + 40));
+  a = b = 0;
+  for (int i = 2; i < 86; i++) { a += pk[i]; b += a; }
+  CHECK(pk[86] == a && pk[87] == b, "checksum");
+  printf("  real accuracy figures: ok\n");
+
   // No fix: position flagged invalid, fix type 0
   f.hasFix = false;
   f.satellites = 0;

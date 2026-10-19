@@ -24,6 +24,14 @@ static void put32(uint8_t* p, size_t off, uint32_t v) {
   for (int i = 0; i < 4; i++) p[off + i] = (v >> (8 * i)) & 0xFF;
 }
 
+// A non-negative accuracy figure in the packet's units, capped at the u32 maximum.
+static uint32_t scaled(float v, float scale) {
+  double x = (double)v * scale;
+  if (!(x > 0)) return 0;
+  if (x >= 4294967295.0) return 0xFFFFFFFF;
+  return (uint32_t)(x + 0.5);
+}
+
 // Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's algorithm).
 static int32_t daysFromCivil(int32_t y, uint32_t m, uint32_t d) {
   y -= m <= 2;
@@ -60,8 +68,9 @@ void buildRaceBoxPacket(const RaceBoxFix& f, uint8_t* out) {
   put32(p, 12, f.timeValid ? 50 : 0xFFFFFFFF);  // time accuracy, ns (estimate)
   put32(p, 16, (uint32_t)(int32_t)(f.millis * 1000000L));
 
-  bool fix3d = f.hasFix && f.satellites >= 4;
-  put8(p, 20, fix3d ? 3 : (f.hasFix ? 2 : 0));
+  uint8_t fixType = 0;
+  if (f.hasFix) fixType = f.accuracyKnown ? f.fixType : (f.satellites >= 4 ? 3 : 2);
+  put8(p, 20, fixType);
   put8(p, 21, (f.hasFix ? 0x01 : 0) | (f.headingValid ? 0x20 : 0));
   put8(p, 22, (f.timeValid ? 0x20 : 0) | (f.dateValid ? 0x40 : 0) | (dateTime ? 0x80 : 0));
   put8(p, 23, f.satellites);
@@ -72,17 +81,26 @@ void buildRaceBoxPacket(const RaceBoxFix& f, uint8_t* out) {
   put32(p, 32, (uint32_t)altMm);  // NMEA has no ellipsoid height here; MSL used for both
   put32(p, 36, (uint32_t)altMm);
 
-  // NMEA gives HDOP, not accuracy: estimate it with a typical 2.5 m range error.
   float hdop = f.hdop > 0 && f.hdop < 50 ? f.hdop : 50;
-  put32(p, 40, f.hasFix ? (uint32_t)(hdop * 2500.0f) : 0xFFFFFFFF);
-  put32(p, 44, f.hasFix ? (uint32_t)(hdop * 4000.0f) : 0xFFFFFFFF);
+  if (f.accuracyKnown) {  // the GPS's own figures
+    put32(p, 40, f.hasFix ? scaled(f.hAccM, 1000.0f) : 0xFFFFFFFF);
+    put32(p, 44, f.hasFix ? scaled(f.vAccM, 1000.0f) : 0xFFFFFFFF);
+  } else {  // NMEA gives HDOP, not accuracy: estimate it with a typical 2.5 m range error
+    put32(p, 40, f.hasFix ? (uint32_t)(hdop * 2500.0f) : 0xFFFFFFFF);
+    put32(p, 44, f.hasFix ? (uint32_t)(hdop * 4000.0f) : 0xFFFFFFFF);
+  }
   put32(p, 48, (uint32_t)(int32_t)lroundf(f.speedMs * 1000.0f));
   float heading = fmodf(f.headingDeg, 360.0f);
   if (heading < 0) heading += 360.0f;
   put32(p, 52, (uint32_t)(int32_t)lround(heading * 1e5));
-  put32(p, 56, 200);                                           // speed accuracy, mm/s (estimate)
-  put32(p, 60, f.headingValid ? 100000 : 18000000);            // heading accuracy, 1e-5 deg
-  put16(p, 64, (uint16_t)lroundf(hdop * 100.0f));              // PDOP ~ HDOP
+  if (f.accuracyKnown) {
+    put32(p, 56, scaled(f.speedAccMs, 1000.0f));      // speed accuracy, mm/s
+    put32(p, 60, scaled(f.headingAccDeg, 1e5f));      // heading accuracy, 1e-5 deg
+  } else {
+    put32(p, 56, 200);                                          // estimates
+    put32(p, 60, f.headingValid ? 100000 : 18000000);
+  }
+  put16(p, 64, (uint16_t)lroundf(hdop * 100.0f));               // PDOP (HDOP with NMEA)
   put8(p, 66, f.hasFix ? 0 : 0x01);                            // bit 0: position invalid
   put8(p, 67, f.batteryPercent);
   put16(p, 68, (uint16_t)f.gX);

@@ -84,14 +84,20 @@ void sendFix(const GpsFix& fix, const GPSHandler& gps) {
   f.second = (fix.gpsTimeMs / 1000) % 60;
   f.millis = fix.gpsTimeMs % 1000;
   f.hasFix = gps.hasFix();
-  f.satellites = gps.satellites();
+  f.satellites = fix.sats;
   f.lat = fix.lat;
   f.lon = fix.lon;
   f.altMslM = fix.altM;
   f.speedMs = fix.speedKmh / 3.6f;
   f.headingDeg = fix.courseDeg;
   f.headingValid = fix.courseValid;
-  f.hdop = gps.hdop();
+  f.hdop = fix.pdop;
+  f.accuracyKnown = fix.accuracyKnown();  // u-blox: the GPS's own figures
+  f.fixType = fix.fixType;
+  f.hAccM = fix.hAccM;
+  f.vAccM = fix.vAccM;
+  f.speedAccMs = fix.speedAccMs;
+  f.headingAccDeg = fix.headingAccDeg;
   f.gZ = 1000;  // no IMU: report a device at rest
   f.batteryPercent = 100;
 

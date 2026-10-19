@@ -129,6 +129,48 @@ void DisplayManager::gpsBadge(const GPSHandler& gps) {
   }
 }
 
+// Font 2 has no ± sign, so text is drawn with '#' standing for one.
+// Returns the x just past the text.
+static int drawPmText(TFT_eSPI* g, const char* s, int x, int y, uint16_t color) {
+  g->setTextColor(color);
+  char seg[48];
+  while (*s) {
+    if (*s == '#') {
+      g->drawFastVLine(x + 3, y + 3, 7, color);   // +
+      g->drawFastHLine(x, y + 6, 7, color);
+      g->drawFastHLine(x, y + 11, 7, color);      // -
+      x += 8;
+      s++;
+      continue;
+    }
+    size_t n = 0;
+    while (s[n] && s[n] != '#' && n < sizeof(seg) - 1) n++;
+    memcpy(seg, s, n);
+    seg[n] = 0;
+    x += g->drawString(seg, x, y, 2);
+    s += n;
+  }
+  return x;
+}
+
+static int pmTextWidth(TFT_eSPI* g, const char* s) {
+  int w = 0;
+  String rest;
+  for (; *s; s++) {
+    if (*s == '#') w += 8;
+    else rest += *s;
+  }
+  return w + g->textWidth(rest, 2);
+}
+
+// GPS accuracy colour: green to 2 m, yellow to 5 m, red beyond
+static uint16_t accuracyColor(float m) { return m <= 2.0f ? C_GOOD : m <= 5.0f ? C_WARN : C_BAD; }
+
+static void accuracyText(char* buf, size_t len, float m, const char* space) {
+  if (m < 10) snprintf(buf, len, "#%.1f%sm", m, space);
+  else snprintf(buf, len, "#%.0f%sm", m < 99 ? m : 99, space);
+}
+
 void DisplayManager::header(const String& title, const GPSHandler* gps) {
   gfx->fillRect(0, 0, W, HEADER_H, C_HEADER);
 
@@ -145,6 +187,12 @@ void DisplayManager::header(const String& title, const GPSHandler* gps) {
   if (gps) {
     gpsBadge(*gps);
     right = W - 44;
+    if (gps->hasFix() && gps->accuracyM() >= 0) {  // u-blox: GPS accuracy beside the bars
+      char acc[16];
+      accuracyText(acc, sizeof(acc), gps->accuracyM(), "");
+      right -= pmTextWidth(gfx, acc) + 4;
+      drawPmText(gfx, acc, right, 5, accuracyColor(gps->accuracyM()));
+    }
     if (gps->isSimulated()) tag("BENCH", 48, C_WARN, C_BG);  // simulated timing must be obvious
 #if BLE_ENABLED
     if (RaceBoxBle::connected()) tag("BT", 26, 0x041F, C_TEXT);  // a phone app is receiving GPS
@@ -203,7 +251,8 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
   gfx->drawString("Data", 10, y, 2);
   if (gps.receivingData()) {
     if (gps.isSimulated()) snprintf(buf, sizeof(buf), "SIMULATED - no GPS detected");
-    else snprintf(buf, sizeof(buf), "NMEA OK @ %lu, GPIO %d", (unsigned long)gps.baud(), gps.rxPinUsed());
+    else snprintf(buf, sizeof(buf), "%s OK @ %lu, GPIO %d", gps.usingUbx() ? "UBX" : "NMEA",
+                  (unsigned long)gps.baud(), gps.rxPinUsed());
     gfx->setTextColor(C_GOOD);
   } else {
     snprintf(buf, sizeof(buf), "NO DATA - check GPS wiring, press RST");
@@ -215,12 +264,22 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
   gfx->setTextColor(C_DIM);
   gfx->drawString("Fix", 10, y, 2);
   gfx->setTextColor(gps.hasFix() ? C_GOOD : C_WARN);
-  gfx->drawString(gps.hasFix() ? "LOCKED" : "searching...", 90, y, 2);
+  int x = 90 + gfx->drawString(gps.hasFix() ? "LOCKED" : "searching...", 90, y, 2);
+  const GpsFix& lf = gps.lastFix();
+  if (gps.hasFix() && lf.accuracyKnown()) {  // u-blox: position and speed accuracy
+    char acc[16];
+    accuracyText(acc, sizeof(acc), lf.hAccM, " ");
+    x = drawPmText(gfx, "   ", x, y, C_TEXT);
+    x = drawPmText(gfx, acc, x, y, accuracyColor(lf.hAccM));
+    snprintf(buf, sizeof(buf), "   #%.1f km/h   %s", lf.speedAccMs * 3.6f, lf.fixType == 2 ? "2D" : "3D");
+    drawPmText(gfx, buf, x, y, C_TEXT);
+  }
 
   y += 24;
   gfx->setTextColor(C_DIM);
   gfx->drawString("Satellites", 10, y, 2);
-  snprintf(buf, sizeof(buf), "%d   HDOP %.1f   %.1f Hz", gps.satellites(), gps.hdop(), gps.fixRateHz());
+  snprintf(buf, sizeof(buf), "%d   %s %.1f   %.1f Hz", gps.satellites(), gps.usingUbx() ? "PDOP" : "HDOP",
+           gps.hdop(), gps.fixRateHz());
   gfx->setTextColor(C_TEXT);
   gfx->drawString(buf, 90, y, 2);
 

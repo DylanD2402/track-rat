@@ -28,6 +28,8 @@
 #define GPS_USE_GLONASS 0
 #define GPS_USE_BEIDOU 0
 #define GPS_CONFIGURE_UBLOX 1        // send UBX config (RAM only, never saved to the module)
+#define GPS_USE_UBX 1                // u-blox: read binary UBX-NAV-PVT instead of NMEA (0 = always NMEA)
+#define GPS_PVT_WAIT_MS 3000         // no NAV-PVT this long after asking = not u-blox, stay on NMEA
 #define GPS_ECHO_NMEA 0              // 1 = copy raw NMEA to the USB serial monitor
 #define GPS_RX_BUFFER_BYTES 16384     // ~5 s of NMEA at 20 Hz
 #define GPS_MIN_SATELLITES 4

@@ -1,9 +1,12 @@
 /**
  * Track Rat - GPS Handler
  *
- * Reads NMEA from the Beitian BE-252Q over UART1 using TinyGPS++.
+ * Reads the Beitian BE-252Q over UART1.
  * - Finds which pins the module is on and its baud rate at startup.
- * - Optionally asks a u-blox based module for 10 Hz updates (RAM only).
+ * - Asks a u-blox based module for 20 Hz updates and binary UBX-NAV-PVT
+ *   messages (RAM only). Once those arrive the NMEA sentences are turned
+ *   off. A GPS that never sends them (not u-blox) is read as NMEA through
+ *   TinyGPS++.
  * - Delivers each new position fix exactly once via takeFix().
  *
  * In bench-test mode (setSimulated) it instead generates a car lapping a
@@ -15,6 +18,7 @@
 
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
+#include "UbxParser.h"
 
 struct GpsFix {
   double lat;
@@ -27,6 +31,17 @@ struct GpsFix {
   uint8_t month, day;
   uint32_t gpsTimeMs;   // UTC milliseconds since midnight, from the GPS
   uint32_t rxMillis;    // millis() when the fix was received
+  // Quality, from UBX-NAV-PVT. With an NMEA-only GPS the accuracies are -1
+  // (unknown), vertSpeedMs is 0 and pdop holds the HDOP.
+  float hAccM;          // horizontal accuracy, +/- metres
+  float vAccM;          // vertical accuracy, +/- metres
+  float speedAccMs;     // speed accuracy, +/- m/s
+  float headingAccDeg;  // direction of travel accuracy, +/- degrees
+  float vertSpeedMs;    // + = climbing
+  float pdop;
+  uint8_t fixType;      // 2 = 2D, 3 = 3D, 4 = GNSS + dead reckoning
+  uint8_t sats;         // satellites used in the fix
+  bool accuracyKnown() const { return hAccM >= 0; }
 };
 
 class GPSHandler {
@@ -38,9 +53,13 @@ public:
   bool takeFix(GpsFix& out);
 
   bool hasFix() const;
-  bool receivingData() const;     // valid NMEA seen in the last 2 s
+  bool receivingData() const;     // valid NMEA or UBX seen in the last 2 s
+  bool usingUbx() const { return pvtActive; }  // fixes come from UBX-NAV-PVT
   uint8_t satellites() const { return sats; }
-  float hdop() const { return hdopVal; }
+  float hdop() const { return hdopVal; }  // PDOP when using UBX
+  // Horizontal accuracy of the latest fix, +/- metres; -1 if not known
+  // (NMEA-only GPS, or no fix yet).
+  float accuracyM() const { return last.rxMillis ? last.hAccM : -1.0f; }
   float fixRateHz() const { return rateHz; }
   uint32_t baud() const { return baudRate; }
   int rxPinUsed() const { return rxPin; }
@@ -79,11 +98,22 @@ private:
   void sendUbx(uint8_t cls, uint8_t id, const uint8_t* payload, size_t len);
   void sendUbxValset(uint8_t layers, const uint8_t* cfg, size_t len);
 
-  // UBX reply parsing (only the CFG-VALGET response is used)
-  void feedUbx(uint8_t c);
-  uint8_t ubxState = 0, ubxCls = 0, ubxId = 0, ubxCkA = 0;
-  uint16_t ubxLen = 0, ubxPos = 0;
-  uint8_t ubxBuf[64];
+  void sendBaseConfig();
+  void setNmeaOutput(bool on);
+
+  // UBX messages from the GPS: NAV-PVT fixes and the CFG-VALGET reply
+  UbxParser ubx;
+  void handleUbxFrame(uint32_t now);
+  void onPvt(const UbxPvt& v, uint32_t now);
+  bool pvtActive = false;         // NAV-PVT arriving; NMEA sentences turned off
+  bool pvtGaveUp = false;         // asked for NAV-PVT, none came: NMEA only
+  bool configuredWithData = false;  // config sent while the GPS was talking
+  uint32_t pvtAskedMillis = 0;
+  uint32_t lastPvtMillis = 0;
+  uint32_t lastNmeaMillis = 0;
+  uint32_t lastPvtTow = 0xFFFFFFFF;
+  bool pvtTimeValid = false;      // latest NAV-PVT date and time, for timestampString()
+  UbxPvt pvtTime = {};
   static const int SIGNAL_KEYS = 5;
   static uint32_t signalKey(int k);
   uint8_t signalValue[SIGNAL_KEYS] = {};
