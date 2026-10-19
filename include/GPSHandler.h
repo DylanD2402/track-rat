@@ -46,6 +46,7 @@ public:
   float fixRateHz() const { return rateHz; }
   uint32_t baud() const { return baudRate; }
   int rxPinUsed() const { return rxPin; }
+  int txPinUsed() const { return txPin; }
   bool isSimulated() const { return simulating; }
   uint32_t droppedFixCount() const { return droppedFixes; }
   void setSimulated(bool on);

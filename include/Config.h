@@ -72,6 +72,22 @@
 #define END_SESSION_HOLD_MS 2000     // hold (touch or BOOT) to end a running session
 
 // ---------------------------------------------------------------------------
+// Optional add-ons on the expansion header (see README, "Big button and LED bar").
+// Each add-on is switched off at boot if the GPS was found on its pin.
+// ---------------------------------------------------------------------------
+#define EXT_BUTTON_ENABLED 1         // momentary push button, IO21 to GND; same as BOOT
+#define EXT_BUTTON_PIN 21
+#define LED_BAR_ENABLED 1            // WS2812B strip delta bar
+#define LED_BAR_PIN 2
+#define LED_BAR_COUNT 10             // LEDs on the strip (2 to 64)
+#define LED_BAR_BRIGHTNESS 64        // 0-255; a full strip at 255 can draw over 500 mA
+#define LED_BAR_REVERSED 0           // 1 = flip the bar if "ahead" grows to the left
+#define LED_BAR_FULL_SCALE_MS 1000   // the whole bar side lights at this much delta
+#define BOARD_LED_ENABLED 1          // mirror the delta colour on the board's own WS2812
+#define BOARD_LED_PIN 42
+#define BOARD_LED_BRIGHTNESS 40      // 0-255
+
+// ---------------------------------------------------------------------------
 // SD card (SDIO 4-bit)
 // ---------------------------------------------------------------------------
 #define SD_CLK 38

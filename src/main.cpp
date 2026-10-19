@@ -18,6 +18,7 @@
 #include "GPSHandler.h"
 #include "GeoMath.h"
 #include "InputManager.h"
+#include "LedBar.h"
 #include "LapTimer.h"
 #include "LogWriter.h"
 #include "Power.h"
@@ -357,7 +358,10 @@ static void onLapEvent(const LapEvent& ev) {
           if (path.empty() || hypotf(p.x - path.back().x, p.y - path.back().y) >= 5.0f) path.push_back({p.x, p.y});
         switched = checkLayout(path, true);
       }
-      if (ev.isBest && !switched) saveMapFromLap();
+      if (ev.isBest && !switched) {
+        saveMapFromLap();
+        LedBar::onBestLap();
+      }
       break;
     }
 
@@ -368,6 +372,7 @@ static void onLapEvent(const LapEvent& ev) {
       overlay.splitMs = ev.timeMs;
       overlay.deltaMs = ev.deltaMs;
       splitOverlayUntil = now + 5000;
+      LedBar::onSplit();
       break;
 
     default:
@@ -671,6 +676,8 @@ void setup() {
 
   display.drawBoot("Detecting GPS...");
   gps.begin();
+  input.beginExtButton(gps.rxPinUsed(), gps.txPinUsed());  // big button and LEDs sit on header pins the GPS may use
+  LedBar::begin(gps.rxPinUsed(), gps.txPinUsed());
 #if BLE_ENABLED
   RaceBoxBle::begin();
 #endif
@@ -719,6 +726,10 @@ void loop() {
   InputEvent ev = input.poll();
   if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
   handleInput(ev);
+
+  bool timing = state == AppState::Running && !settingLine && lapTimer.lapRunning();
+  int32_t liveDelta = lapTimer.liveDeltaMs();
+  LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
 
   autoPickTrack();
 
