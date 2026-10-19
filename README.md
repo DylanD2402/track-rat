@@ -42,6 +42,25 @@ To store `data/tracks.json` in internal flash instead of on the SD card:
 pio run -e es3c28p -t uploadfs
 ```
 
+### Automatic flashing
+
+`tools/autoflash.py` watches GitHub and puts every new commit on the board by itself:
+
+```bash
+python tools/autoflash.py --port COM4
+```
+
+Leave it running with the board plugged in. Every 30 s it checks the current branch for new commits. When there's one, it:
+
+1. pulls the commit
+2. builds and flashes the board
+3. restarts the board and saves 30 s of its log to `logs/`
+
+A failed build is reported and nothing is flashed. If you have uncommitted edits to the code, it won't pull until you commit or stash them.
+
+- **`--now`:** also flash the current commit at startup.
+- **`--push-logs`:** commits each log to a `device-logs` branch, so whoever made the change can read the result without you copying it. **The logs contain GPS positions, including where the board is when you're testing at home, so only use this if the repository is private.**
+
 ### Bench test
 
 The last entry in the track list is **Bench Test**. Pick it and press START to run a simulated car around a small circuit, with real lap timing, splits, live diff and map, all at your desk. No GPS is needed, and if one is connected it's ignored for that session.
