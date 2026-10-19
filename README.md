@@ -518,7 +518,7 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 ```
 
-`test/test_portal.cpp` checks the Wi-Fi page's request rules: which file names can be downloaded, time zones, the captive-portal host check, the network name, upload progress, the `tracks.json` check, one upload at a time and the upload code:
+`test/test_portal.cpp` checks the Wi-Fi page's request rules: which file names can be downloaded, the session list sent a piece at a time, time zones, the captive-portal host check, the network name, upload progress, the `tracks.json` check, one upload at a time and the upload code:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp

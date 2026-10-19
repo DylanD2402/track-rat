@@ -59,6 +59,73 @@ void appendJsonString(Str& out, const char* s) {
   out += '"';
 }
 
+// The session list: {"files":[{"name":"a.json","size":1234,"fs":"sd"},...],"tzMin":-240}
+// A card can hold thousands of files, so the reply is built a few files at a
+// time as it's sent (fill()), never all at once. Str: Arduino String or std::string.
+template <class Str>
+class SessionListJson {
+public:
+  SessionListJson() { text += "{\"files\":["; }
+
+  // fsName: "sd" or "flash"
+  void addFile(const char* name, uint32_t size, const char* fsName) {
+    char num[12];
+    snprintf(num, sizeof(num), "%lu", (unsigned long)size);
+    if (count++) text += ',';
+    text += "{\"name\":";
+    appendJsonString(text, name);
+    text += ",\"size\":";
+    text += num;
+    text += ",\"fs\":\"";
+    text += fsName;
+    text += "\"}";
+  }
+
+  // tzMin: the time zone the file names are written in
+  void finish(int tzMin) {
+    char num[12];
+    snprintf(num, sizeof(num), "%d", tzMin);
+    text += "],\"tzMin\":";
+    text += num;
+    text += '}';
+    finished = true;
+  }
+
+  // The reply's next piece: up to maxLen (> 0) bytes into buf. next() reads
+  // one directory entry and adds it (or nothing, for a folder), or calls
+  // finish() when there are none left; it's called until buf is full or
+  // maxReads times. 0 ends the reply, so it's returned only once everything
+  // has been sent: until then this reads on until it has something.
+  template <class Next>
+  size_t fill(uint8_t* buf, size_t maxLen, int maxReads, Next next) {
+    size_t n = take(buf, maxLen);
+    for (int reads = 0; n < maxLen && !finished && (n == 0 || reads < maxReads); reads++) {
+      next();
+      n += take(buf + n, maxLen - n);
+    }
+    return n;
+  }
+
+private:
+  // What's waiting to be sent, as much as fits
+  size_t take(uint8_t* buf, size_t maxLen) {
+    size_t n = text.length() - sent;
+    if (n > maxLen) n = maxLen;
+    memcpy(buf, text.c_str() + sent, n);
+    sent += n;
+    if (sent == text.length()) {  // all sent: reuse the space
+      text = "";
+      sent = 0;
+    }
+    return n;
+  }
+
+  Str text;
+  size_t sent = 0;
+  uint32_t count = 0;
+  bool finished = false;
+};
+
 // The phone's time zone, in minutes east of UTC ("-240", "+330", "0").
 // Real zones run from UTC-12 to UTC+14. Anything else is refused.
 inline bool parseTimeZone(const char* text, int* minutes) {

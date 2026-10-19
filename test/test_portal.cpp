@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include "PortalLogic.h"
 #include "check.h"
 
@@ -18,6 +19,58 @@ static int tz(const char* s, bool* ok) {
   int v = 12345;
   *ok = parseTimeZone(s, &v);
   return v;
+}
+
+// A directory entry, as the session list reads it
+struct Entry {
+  const char* name;
+  uint32_t size;
+  const char* fs;
+  bool folder;
+};
+
+struct ListRun {
+  std::string text;
+  bool ok = true;  // no piece too big, every entry read, ended by a 0
+  int pieces = 0;
+  int mostReads = 0;       // in one piece
+  int readsAfterText = 0;  // reads past the limit in a piece that already had something to send
+};
+
+// Sends the list as the web server does: a piece of up to `piece` bytes at a time until it gets 0
+static ListRun sendList(const std::vector<Entry>& folder, int tzMin, size_t piece, int maxReads) {
+  SessionListJson<std::string> json;
+  ListRun r;
+  size_t i = 0;
+  int reads = 0;
+  bool added = false;
+  auto next = [&]() {
+    if (++reads > maxReads && added) r.readsAfterText++;
+    if (i == folder.size()) {
+      json.finish(tzMin);
+      added = true;
+      return;
+    }
+    const Entry& e = folder[i++];
+    if (!e.folder) {
+      json.addFile(e.name, e.size, e.fs);
+      added = true;
+    }
+  };
+  std::vector<uint8_t> buf(piece + 1);
+  for (;;) {
+    reads = 0;
+    added = false;
+    buf[piece] = 0xEE;
+    size_t n = json.fill(buf.data(), piece, maxReads, next);
+    if (n > piece || buf[piece] != 0xEE) r.ok = false;
+    if (reads > r.mostReads) r.mostReads = reads;
+    if (n == 0) break;
+    r.text.append((const char*)buf.data(), n);
+    if (++r.pieces > 1000000) break;
+  }
+  if (i != folder.size() || r.pieces > 1000000) r.ok = false;
+  return r;
 }
 
 int main() {
@@ -58,6 +111,49 @@ int main() {
   appendJsonString(j, "caf\xC3\xA9");  // UTF-8 passes through
   CHECK(j == "\"caf\xC3\xA9\"", "utf8: %s", j.c_str());
   printf("  JSON strings: ok\n");
+
+  // Session list, sent in pieces of every size: always the same JSON
+  std::vector<Entry> folder = {{"20261018_093012_calabogie.json", 1234, "sd", false},
+                               {"System Volume Information", 0, "sd", true},
+                               {"20261018_093012_calabogie.vbo", 3500000, "sd", false},
+                               {"a\"b\\c", 0, "sd", false},
+                               {"20261019_101500_calabogie.full_2.json.bak", 4294967295u, "flash", false}};
+  const std::string want =
+      "{\"files\":[{\"name\":\"20261018_093012_calabogie.json\",\"size\":1234,\"fs\":\"sd\"},"
+      "{\"name\":\"20261018_093012_calabogie.vbo\",\"size\":3500000,\"fs\":\"sd\"},"
+      "{\"name\":\"a\\\"b\\\\c\",\"size\":0,\"fs\":\"sd\"},"
+      "{\"name\":\"20261019_101500_calabogie.full_2.json.bak\",\"size\":4294967295,\"fs\":\"flash\"}],\"tzMin\":-240}";
+  for (size_t piece : {1, 2, 7, 64, 100, 2864}) {
+    for (int reads : {1, 3, 32}) {
+      ListRun r = sendList(folder, -240, piece, reads);
+      CHECK(r.text == want, "piece %zu, %d reads: %s", piece, reads, r.text.c_str());
+      CHECK(r.ok, "piece %zu, %d reads: a piece too big, or the list cut short", piece, reads);
+    }
+  }
+  ListRun empty = sendList({}, 0, 1000, 32);
+  CHECK(empty.text == "{\"files\":[],\"tzMin\":0}" && empty.ok, "no files: %s", empty.text.c_str());
+  ListRun onlyFolder = sendList({{"x", 1, "sd", true}}, 330, 5, 1);
+  CHECK(onlyFolder.text == "{\"files\":[],\"tzMin\":330}" && onlyFolder.ok, "only a folder: %s",
+        onlyFolder.text.c_str());
+
+  // A big folder: a piece stops reading once it has something to send and its reads are used up
+  std::vector<std::string> names;
+  for (int i = 0; i < 3000; i++) names.push_back("20261018_" + std::to_string(100000 + i) + "_track.vbo");
+  std::vector<Entry> big;
+  std::string bigWant = "{\"files\":[";
+  for (int i = 0; i < 3000; i++) {
+    big.push_back({names[i].c_str(), (uint32_t)i, "sd", false});
+    bigWant += "{\"name\":\"" + names[i] + "\",\"size\":" + std::to_string(i) + ",\"fs\":\"sd\"},";
+  }
+  for (int i = 0; i < 200; i++) big.push_back({"subfolder", 0, "sd", true});  // nothing to send for a while
+  big.push_back({"last.json", 7, "flash", false});
+  bigWant += "{\"name\":\"last.json\",\"size\":7,\"fs\":\"flash\"}],\"tzMin\":60}";
+  ListRun r = sendList(big, 60, 2864, 32);
+  CHECK(r.ok && r.text == bigWant, "big folder (%zu bytes)", r.text.size());
+  CHECK(r.readsAfterText == 0, "%d reads past the limit with text to send", r.readsAfterText);
+  CHECK(r.mostReads <= 200 + 2, "most reads in one piece: %d", r.mostReads);
+  CHECK(r.pieces >= 3000 / 32, "pieces: %d", r.pieces);
+  printf("  session list: ok\n");
 
   bool ok;
   CHECK(tz("-240", &ok) == -240 && ok, "EDT");
