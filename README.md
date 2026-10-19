@@ -10,6 +10,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Optional battery with a percentage gauge; sleeps by itself when parked. Firmware can be updated from the SD card.
 - Acceleration and braking runs (0-100 km/h, 1/4 mile, 100-0 braking) with a result card for each run.
 - A Wi-Fi page on your phone downloads sessions, swaps the track list and installs firmware. No app needed.
+- Speed units, screen direction, brightness and more are set on the device or on the Wi-Fi page and kept in flash: see [Settings](#settings).
 
 First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and checking each part of the hardware.
 
@@ -31,7 +32,7 @@ The BE-252Q's compass wires (SDA/SCL) aren't used.
 
 ### GPS data
 
-The BE-252Q is built on a u-blox M10. At boot Track Rat asks it for 20 fixes a second as binary **UBX-NAV-PVT** messages, and once those arrive it turns the NMEA text sentences off. Each message carries the time to the millisecond, position, speed, vertical speed, and the GPS's own estimate of how accurate the position and speed are.
+The BE-252Q is built on a u-blox M10. At boot Track Rat asks it for 20 fixes a second (10 if the [GPS mode setting](#settings) is on all systems) as binary **UBX-NAV-PVT** messages, and once those arrive it turns the NMEA text sentences off. Each message carries the time to the millisecond, position, speed, vertical speed, and the GPS's own estimate of how accurate the position and speed are.
 
 - **Other GPS modules:** if no UBX-NAV-PVT arrives within 3 seconds, Track Rat reads NMEA text instead (GGA and RMC) as before. There are no accuracy figures then, only HDOP.
 - **Settings stay in the GPS's RAM:** nothing is saved to the module. If the GPS loses power and comes back sending NMEA, Track Rat asks for UBX-NAV-PVT again.
@@ -95,11 +96,12 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 **Away from a track:** you get a menu:
 
-- **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card.
+- **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card, unless **Record road drives** is off in [Settings](#settings). Then the drive is shown but not saved.
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand. The nearest track comes first, then the rest in order of distance, each with how far away it is. Layouts of one venue stay together. Without a GPS fix the list is in `tracks.json` order, and it sorts itself as soon as there is a fix. **Bench Test** is always last.
-- **PERFORMANCE:** the wide button under the three modes. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
-- **WI-FI:** turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)).
+- **PERFORMANCE:** the left button of the second row. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
+- **SETTINGS:** the middle button of the second row. Units, brightness and the rest; see [Settings](#settings).
+- **WI-FI:** the right button of the second row. Turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)).
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count. This needs you to be doing at least 15 km/h when you tap; slower than that the GPS direction is too rough, and the line is saved without one.
 
@@ -108,7 +110,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Screen | Touch | BOOT button (or big button) |
 |---|---|---|
 | Waiting for GPS | tap: menu | press: menu |
-| Menu | tap a mode or WI-FI; top bar: GPS status | press: next, hold 1 s: choose |
+| Menu | tap a mode, or PERFORMANCE / SETTINGS / WI-FI in the second row; top bar: GPS status | press: next (in the order on screen), hold 1 s: choose |
 | Track list | left / right third: previous / next, centre: select, hold: menu | press: next, hold 1 s: select |
 | GPS Status (top bar of the menu or track list) | tap: back | press: back |
 | Ready | centre: start, left: back, right: set line, top bar: next layout | hold 1 s: start, press: back |
@@ -118,12 +120,14 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Performance | left: rollout / demo, centre: results, right: menu, hold 2 s: menu | press: next screen, hold 1 s: menu |
 | Summaries | tap: continue; WI-FI button: Wi-Fi page | press: continue, hold 1 s: Wi-Fi page |
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
+| Settings | left / right third: − / +, centre: next item, top bar or hold 2 s: menu | press: next item, hold 1 s: change the value |
+| First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
 
 While timing, the screen shows:
 
-- **Current lap**, in large digits.
+- **A big number** in large digits. The **Big number** setting picks it: the current lap time (the default), the live diff, or the predicted lap time. The diff and the predicted lap need a best lap; until there is one the big number is the lap time.
 - **Last and best lap.**
-- **Live diff:** how far ahead (green, `-`) or behind (red, `+`) your best lap you are right now, at the same point on track. It appears once you have a best lap.
+- **Live diff:** how far ahead (green, `-`) or behind (red, `+`) your best lap you are right now, at the same point on track. It appears once you have a best lap. With the diff as the big number, the current lap time moves to the box below.
 - **Split time:** for 5 s after each split, the split time and its gap to your best lap's split.
 - **GPS signal bars** in the top right: green with a fix, yellow while searching, red outline with no data.
 - **GPS accuracy** beside the bars, such as `±1.2m`: how far off the GPS thinks its position could be. Green up to 2 m, yellow up to 5 m, red beyond that. It only shows with a u-blox GPS.
@@ -131,6 +135,34 @@ While timing, the screen shows:
 When you complete a lap, its time shows full-screen for 4 s, in green if it's a new best.
 
 The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
+
+## Settings
+
+The choices a driver makes live in **Settings**, not in the code. Change them on the device or on the Wi-Fi page. They are kept in the board's flash (NVS, apart from the program and the SD card), so they survive switching off and re-flashing.
+
+**On the device:** tap **SETTINGS** on the menu. The screen shows one item at a time, with its value in a box.
+
+- **Touch:** left third is −, right third is +, centre goes to the next item. The top bar, or holding the screen for 2 s, goes back to the menu. After the last item a **done** page shows; the centre button there goes back to the menu.
+- **BOOT (or the big button):** press goes to the next item, hold for 1 s changes the value. Choices go round and start again after the last one. On the done page, hold goes back to the menu and press starts again at the first item.
+- **Saved as you go:** there is no save button. A change takes effect at once, except **GPS mode**, which is used from the next restart.
+
+| Item | Choices | What it does |
+|---|---|---|
+| Speed units | km/h (default), mph | Every speed on the screens, including Performance, and on the Wi-Fi page. Saved files stay in km/h |
+| Screen | Normal (default), upside down | For a unit mounted upside down. Draws the screen and reads touch turned round |
+| Brightness | 10% to 100% in steps of 10 (default 100%) | Dims the backlight. Auto-sleep still turns it fully off |
+| Compare with | Best of the day, best ever, this session (default) | **Stored for later.** The live diff only compares with this session's best lap so far, whatever is picked |
+| Big number | Lap time (default), delta, predicted lap | The largest number on the timing screen. Delta and predicted lap show the lap time until there is a best lap |
+| GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
+| Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
+| Time zone | UTC−12:00 to UTC+14:00 in 30-minute steps | For session file names. Shows the local time now once the GPS has a fix. A phone opening the Wi-Fi page sets it |
+| Record road drives | On (default), off | Off: Free Roam drives are shown but not saved |
+
+**First boot:** a new board asks two questions after the logo, before anything else. First, **which way up**: the question is printed at the top and again upside down at the bottom, with an arrow on each side. Tap the arrow that points up, whichever way the unit is mounted; the screen turns round at once if it was the other one. Then **km/h or mph**. With BOOT, press picks the other choice and hold chooses it. Both can be changed later in Settings.
+
+**On the Wi-Fi page:** the **Settings** tab has the same items except the time zone, which it shows but takes from the phone. Changing anything asks for the 4-digit upload code on Track Rat's Wi-Fi screen once. A GPS mode change offers a **Restart now** button. The Bluetooth item is missing from the page on a build with Bluetooth left out.
+
+**What a new board starts with** is set by the `DEFAULT_*` lines in `include/Config.h` (see [Configuration](#configuration)). Pins and everything else stay there.
 
 ## Big button and LED bar
 
@@ -194,9 +226,11 @@ Input: big button disabled - the GPS is on IO21
 
 The same check covers every add-on pin: any add-on on a pin the GPS ended up on stays off. The LED bar on IO2 and the board LED are unaffected by a GPS on IO14/IO21.
 
-### Settings
+### Add-on options
 
-| Setting | Default | What it does |
+These are set in `include/Config.h`.
+
+| Option | Default | What it does |
 |---|---|---|
 | `EXT_BUTTON_ENABLED`, `EXT_BUTTON_PIN` | 1, 21 | The big button |
 | `LED_BAR_ENABLED`, `LED_BAR_PIN` | 1, 2 | The LED strip |
@@ -205,6 +239,7 @@ The same check covers every add-on pin: any add-on on a pin the GPS ended up on 
 | `LED_BAR_REVERSED` | 0 | 1 = flip left and right |
 | `LED_BAR_FULL_SCALE_MS` | 1000 | Delta that lights a whole side of the bar |
 | `BOARD_LED_ENABLED`, `BOARD_LED_PIN`, `BOARD_LED_BRIGHTNESS` | 1, 42, 40 | The board's own LED |
+
 ## Acceleration and braking
 
 Pick **PERFORMANCE** on the menu. Use a flat, straight road or a drag strip.
@@ -217,7 +252,7 @@ Pick **PERFORMANCE** on the menu. Use a flat, straight road or a drag strip.
 - **Result cards:** a run ends when you lift (speed drops 10 km/h below its peak), stop, or hold a steady speed for 3 s. Its card then appears, with the times that were reached and `--` for the rest. PREV steps back through the runs, BEST shows the best of each measurement this session, and LIVE goes back to the speed screen. The next launch switches back to live by itself.
 - **INVALID:** the GPS dropped fixes during the run (more than 0.4 s apart), so the times can't be trusted. The card says so and the run doesn't count towards the best.
 - **NOT LEVEL:** the height changed by 3 m or more, and by 1.5% or more of the distance, so the road wasn't flat. GPS height is only good to a few metres, so gentle slopes aren't flagged. Times are not corrected for slope, and a not-level run still counts towards the best.
-- **Units:** km/h. Set `PERF_UNITS_MPH` to 1 in `include/Config.h` for mph on screen. Turn on `PERF_ROLLOUT_DEFAULT` to start with the rollout on.
+- **Units:** the **Speed units** [setting](#settings) (km/h or mph) drives these screens too. Turn on `PERF_ROLLOUT_DEFAULT` in `include/Config.h` to start with the rollout on.
 - **Buttons are ignored while moving** (over 5 km/h), so a bump can't end a run. Hold the screen or BOOT to leave.
 - **Demo:** with no GPS fix, the left button reads DEMO. It starts a simulated car that stands for 4 s, launches to 215 km/h, brakes to a stop and repeats, so you can try the screens at a desk. The yellow BENCH tag shows while it runs.
 
@@ -364,11 +399,11 @@ Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**,
 
 - **Apps with RaceBox Mini support:** RaceChrono and RaceChrono Pro, Solostorm, NMEAconnect, AutoX DL and the RaceBox app. This list comes from the [RaceBox Mini emulator project](https://github.com/anchit92/Open-Source-RaceBox-mini-Emulator) that inspired this feature; I've not tested each app.
 - **Connecting:** in the app, add a RaceBox Mini device. The board shows up as `RaceBox Mini` followed by 10 digits (the log prints the exact name at boot). While a phone is connected, a blue **BT** tag shows in the header.
-- **Update rate:** one packet per GPS fix, so up to 20 a second (`GPS_TARGET_RATE_HZ`).
+- **Update rate:** one packet per GPS fix, so up to 20 a second (10 in the 10 Hz [GPS mode](#settings)).
 - **Accelerometer:** this board has none, so the motion values read as a device lying still. Apps still calculate G-forces from the GPS.
 - **Accuracy figures:** the position, speed and heading accuracy fields come straight from the GPS (UBX-NAV-PVT). With a GPS that only sends NMEA they're estimates from the satellite precision value (HDOP).
 - **Bench Test:** a bench session streams the simulated car, which is handy for setting up an app at a desk.
-- **Turning it off:** set `BLE_ENABLED` to `0` in `include/Config.h`.
+- **Turning it off:** set **Bluetooth** to Off in [Settings](#settings). It stops at once and stays off until you turn it on. To leave Bluetooth out of the build altogether, set `BLE_ENABLED` to `0` in `include/Config.h`; the Bluetooth item then disappears from the Wi-Fi page.
 
 Track Rat isn't affiliated with RaceBox. The device name is used only so apps recognise the data format.
 
@@ -382,7 +417,7 @@ Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit
 - **No battery fitted:** a reading under 2.5 V, or over 4.23 V (the charger holds an empty socket at about 4.2 V), for 5 s in a row counts as "no battery". If a missing battery still shows a percentage, or a full one disappears, adjust `BATTERY_PRESENT_MAX_MV`. The serial log prints the readings every 10 s.
 - **Low battery:** at 3.30 V or below for 10 s, Track Rat saves the session, shows **BATTERY LOW** for 5 s, then goes to sleep. Charge it, then touch the screen or press BOOT.
 
-**Auto-sleep:** parked with no touch and no BOOT press for 20 minutes, the backlight goes off. A minute later the board goes into deep sleep. Moving at 5 km/h or more counts as activity, so it never sleeps during a session.
+**Auto-sleep:** parked with no touch and no BOOT press for 20 minutes, the backlight goes off. This is a full off, whatever the Brightness setting; the chosen level comes back when the screen wakes. A minute later the board goes into deep sleep. Moving at 5 km/h or more counts as activity, so it never sleeps during a session.
 
 - **Waking:** touch the screen or press BOOT. From backlight-off, the press only turns the screen on. From deep sleep, the board restarts as if just powered on, so it finds the GPS again.
 - **Saving:** a session in progress is saved before sleeping, the same as ending it.
@@ -417,16 +452,16 @@ What the page does:
 - **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list. If power is cut mid-save (here or on the device) and `tracks.json` is gone, the next boot puts back the newest complete copy it finds (`.tmp`, `.upload`, then `.bak`).
 - **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). The page and Track Rat both check the file first, as the SD card update does: it must be an ESP32-S3 app image that fits the slot, so a `bootloader.bin` or a file for another chip is refused before anything is written. A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
 - **Device:** firmware version, free space on the card and in flash, GPS status and memory.
-- **Settings:** not there yet.
+- **Settings:** the same items as the Settings screen on Track Rat; see [Settings](#settings). Changing one asks for the upload code and takes effect at once, except the GPS mode, which waits for a restart (the page offers one). The time zone is shown but not changed here.
 
-Each time the page opens it tells Track Rat your phone's time zone. From then on, session files are named in your local time instead of UTC. Daylight saving time changes the zone, so it's correct again the next time a phone opens the page.
+Each time the page opens it tells Track Rat your phone's time zone, which becomes the **Time zone** setting. From then on, session files are named in your local time instead of UTC. Daylight saving time changes the zone, so it's correct again the next time a phone opens the page. You can also set it on the Settings screen, but the next phone to open the page replaces it.
 
 Good to know:
 
 - **Wi-Fi is off while timing.** It's only on while the Wi-Fi screen shows, and starting a session turns it off. Bluetooth (RaceBox) keeps working while it's on.
 - **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open http://192.168.4.1 in Safari or Chrome while still on the TrackRat network.
 - **Mobile data:** some phones keep using mobile data for everything when a Wi-Fi network has no internet. If the page won't load, tell the phone to stay connected or turn mobile data off.
-- **Upload code:** installing firmware or replacing `tracks.json` asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
+- **Upload code:** installing firmware, replacing `tracks.json` or changing a setting asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
 - **Anyone nearby can join** and download sessions while it's on, so turn it off when you're done.
 
 ### Changing the page
@@ -437,18 +472,18 @@ The page is a single file, `web/index.html` (plain HTML and JavaScript, no libra
 pio run -e es3c28p -t uploadfs
 ```
 
-Without it, the board shows a plain page with the session list, `tracks.json` and firmware upload.
+Without it, the board shows a plain page with the session list, `tracks.json` and firmware upload. There is no Settings tab then; use the Settings screen on the board.
 
 ## Session logs
 
 Sessions are saved in `/sessions` on the SD card, as two files with the same name. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the summary also names the layout.
 
-- **`<date>_<time>_<track id>.vbo`:** every GPS fix, 20 a second: UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, and lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up). About 6.5 MB per hour of driving.
+- **`<date>_<time>_<track id>.vbo`:** every GPS fix, up to 20 a second (10 in the 10 Hz GPS mode): UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, and lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up). About 6.5 MB per hour of driving.
 - **`<date>_<time>_<track id>.json`:** the summary: every lap and split time, max and average speed per lap, the best lap, and the name of its `.vbo`.
 
-File names use UTC until a phone has opened the Wi-Fi page, then your local time. Times inside the `.vbo` are always UTC.
+File names use UTC until the **Time zone** setting is set, either on the Settings screen or by a phone opening the Wi-Fi page. Then they use your local time. Times inside the `.vbo` are always UTC. Speeds in the files are always km/h, whatever the Speed units setting.
 
-Free Roam drives are saved the same way, as `<date>_<time>_freeroam.vbo` and `.json`. The summary holds the duration, distance, and top and average speed.
+Free Roam drives are saved the same way, as `<date>_<time>_freeroam.vbo` and `.json`, unless **Record road drives** is off in [Settings](#settings): then nothing is saved. The summary holds the duration, distance, and top and average speed.
 
 **Without an SD card,** only the summaries are kept, in flash (a full log fills it in about half an hour). Free Roam then saves its route as GPS points about 10 m apart in the summary. The log at boot says when there's no card.
 
@@ -472,19 +507,26 @@ Performance runs are saved as `/sessions/<date>_<time>_perf.json`, with every ru
 
 ## Configuration
 
-Everything else is in `include/Config.h`. The settings you're most likely to change:
+What a driver chooses (units, brightness and so on) is a [setting](#settings), changed on the device, not here. The `DEFAULT_*` lines below are only what a new board starts with; after that the saved setting wins. Everything else is in `include/Config.h`. The options you're most likely to change:
 
-| Setting | Default | What it does |
+| Option | Default | What it does |
 |---|---|---|
+| `DEFAULT_SPEED_MPH` | 0 | Starting Speed units: 1 = mph |
+| `DEFAULT_BRIGHTNESS_PCT` | 100 | Starting Brightness, 10 to 100 |
+| `DEFAULT_COMPARE_TO` | 2 | Starting Compare with: 0 = best of the day, 1 = best ever, 2 = this session |
+| `DEFAULT_BIG_NUMBER` | 2 | Starting Big number: 0 = delta, 1 = predicted lap, 2 = lap time |
+| `DEFAULT_UTC_OFFSET_MIN` | 0 | Starting Time zone, in minutes east of UTC |
+| `DEFAULT_RECORD_ROAD_DRIVES` | 1 | Starting Record road drives: 0 = off |
+| `DISPLAY_ROTATION` | 1 | The "normal" screen direction (1 or 3); the Screen setting's upside down uses the other |
+| `BLE_ENABLED` | 1 | 0 = leave Bluetooth out of the build. Otherwise the Bluetooth setting starts on |
 | `GPS_PIN_PAIRS` | 44/43, 43/44, 14/21, 21/14 | Pins searched for the GPS at boot |
-| `GPS_TARGET_RATE_HZ` | 20 | Requested update rate (u-blox only). The GPS Status screen shows the rate actually reached |
-| `GPS_USE_GALILEO` / `_GLONASS` / `_BEIDOU` | 1 / 0 / 0 | Satellite systems besides GPS. More systems = more satellites but a lower top rate (4 systems: 10 Hz, 2: 20 Hz) |
+| `GPS_TARGET_RATE_HZ` | 20 | The "20 Hz" GPS mode: requested update rate (u-blox only). The GPS Status screen shows the rate actually reached |
+| `GPS_USE_GALILEO` / `_GLONASS` / `_BEIDOU` | 1 / 0 / 0 | The "20 Hz" GPS mode's satellite systems besides GPS. More systems = more satellites but a lower top rate (4 systems: 10 Hz, 2: 20 Hz). The "10 Hz" mode always uses all four |
 | `GPS_USE_UBX` | 1 | Read a u-blox GPS as binary UBX-NAV-PVT. 0 = always read NMEA |
 | `GPS_ECHO_NMEA` | 0 | 1 = copy raw GPS output to the serial monitor, and leave NMEA on alongside UBX |
 | `DISPLAY_INVERT` | 1 | Set to 0 if colours look inverted (white background) |
 | `TOUCH_SWAP_XY`, `TOUCH_INVERT_X/Y` | 1, 0, 1 | Fix touch orientation if taps land in the wrong place |
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
-| `PERF_UNITS_MPH` | 0 | 1 = show speeds on the Performance screens in mph |
 | `PERF_ROLLOUT_DEFAULT` | 0 | 1 = Performance starts with the 1-foot rollout on |
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
 | `BATTERY_ENABLED` | 1 | 0 = ignore the battery pin completely |
@@ -548,10 +590,16 @@ g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 ```
 
-`test/test_web.js` checks how the page groups session files by day and track, and that its firmware file check says the same as the board (needs Node.js):
+`test/test_web.js` checks how the page groups session files by day and track, that its firmware file check says the same as the board, and that its Settings tab uses the board's field names and values (needs Node.js):
 
 ```bash
 node test/test_web.js
+```
+
+`test/test_settings.cpp` checks the settings rules (defaults, limits, stepping, units, big number, predicted lap, brightness, time zone), how touch and BOOT move through the Settings screen and the first-boot questions, the field names the Wi-Fi page uses, and a simulated first boot followed by a lap session:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
 ```
 
 `test/test_freeroam.cpp` checks Free Roam's distance, top and average speed, that GPS jitter and position glitches add no distance, and that very long drives are capped:
@@ -625,7 +673,9 @@ g++ -std=c++17 -Iinclude test/test_jsontext.cpp -o /tmp/jt && /tmp/jt
 
 ```
 include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
-           LogRing.h (log buffer), UiTheme.h (screen size, colours), headers
+           LogRing.h (log buffer), UiTheme.h (screen size, colours),
+           SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
+           the Settings and first-boot screens), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
            DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
@@ -633,7 +683,9 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            Power (battery, sleep), FirmwareUpdate (SD card update)
            LedBar, DeltaLeds,
            PerfRun (acceleration/braking), PerfLog (performance summaries),
-           DisplayPerf (performance screens), DisplayPower (battery and update screens)
+           DisplayPerf (performance screens), DisplayPower (battery and update screens),
+           DisplaySettings (Settings and first-boot screens)
+           Settings (kept in flash)
            WifiPortal (Wi-Fi page)
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)

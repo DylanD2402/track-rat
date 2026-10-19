@@ -1,6 +1,8 @@
 // Host-side tests for the Wi-Fi page's session list (the "session names"
-// part of web/index.html: parsing file names and grouping by day and track)
-// and for its firmware file check (the "firmware check" part).
+// part of web/index.html: parsing file names and grouping by day and track),
+// its firmware file check (the "firmware check" part), and its Settings tab
+// (the "settings" part: the field list, the time zone and speed text, the
+// form body, and that the names and values agree with include/SettingsData.h).
 //
 //   node test/test_web.js
 
@@ -22,6 +24,14 @@ if (!fm) {
   process.exit(1);
 }
 const {checkFirmware, MAX_FIRMWARE} = new Function(fm[1] + "\nreturn {checkFirmware, MAX_FIRMWARE};")();
+
+const sm = html.match(/\/\/ ---- settings \(begin[^\n]*\n([\s\S]*?)\/\/ ---- settings \(end\) ----/);
+if (!sm) {
+  console.log("FAIL: settings section not found in web/index.html");
+  process.exit(1);
+}
+const {SETTINGS, tzText, speedText, settingBody} = new Function(sm[1] + "\nreturn {SETTINGS, tzText, speedText, settingBody};")();
+const header = fs.readFileSync(path.join(__dirname, "..", "include", "SettingsData.h"), "utf8");
 
 let failures = 0;
 function check(cond, msg) {
@@ -144,6 +154,101 @@ check(fw(image(4096, 0x0009, false)) === "not the app image (use firmware.bin)",
 const hi = image(4096);
 hi[35] = 0xAA;  // top byte of the descriptor magic: must not be a signed-shift accident
 check(fw(hi) === "not the app image (use firmware.bin)", "wrong top byte of the app descriptor magic accepted");
+
+// Settings tab: the page's own helpers
+check(tzText(0) === "UTC+0:00", "tzText(0): " + tzText(0));
+check(tzText(-240) === "UTC−4:00", "tzText(-240): " + tzText(-240));
+check(tzText(330) === "UTC+5:30", "tzText(330): " + tzText(330));
+check(tzText(-30) === "UTC−0:30", "tzText(-30): " + tzText(-30));
+check(tzText(840) === "UTC+14:00", "tzText(840): " + tzText(840));
+check(tzText(-720) === "UTC−12:00", "tzText(-720): " + tzText(-720));
+check(speedText(100, "kmh") === "100 km/h", "speedText 100 km/h: " + speedText(100, "kmh"));
+check(speedText(100, "mph") === "62 mph", "speedText 100 in mph: " + speedText(100, "mph"));
+check(speedText(160.934, "mph") === "100 mph", "speedText 160.934 in mph: " + speedText(160.934, "mph"));
+check(speedText(0, "kmh") === "0 km/h", "speedText 0: " + speedText(0, "kmh"));
+check(settingBody("units", "mph", "0042").toString() === "units=mph&code=0042",
+      "settingBody units: " + settingBody("units", "mph", "0042").toString());
+check(settingBody("upsideDown", true, "0042").toString() === "upsideDown=true&code=0042", "boolean true goes as \"true\"");
+check(settingBody("bluetooth", false, "0042").toString() === "bluetooth=false&code=0042", "boolean false goes as \"false\"");
+check(settingBody("brightness", 70, "0042").get("brightness") === "70", "number goes as text");
+check(settingBody("brightness", 70, "0042") instanceof URLSearchParams, "settingBody returns URLSearchParams");
+
+// Settings tab: the page's names and values against the device (include/SettingsData.h).
+// Each function's text is cut from the header: from its "inline" line to the closing brace at column 0.
+const functionText = (name) => {
+  const f = header.match(new RegExp("inline [\\w:*]+ " + name + "\\([\\s\\S]*?\\n\\}\\n"));
+  return f ? f[0] : "";
+};
+const setFieldSrc = functionText("setField");
+const toJsonSrc = functionText("toJson");
+const parseBoolSrc = functionText("parseBool");
+check(setFieldSrc !== "" && toJsonSrc !== "" && parseBoolSrc !== "", "setField, toJson and parseBool found in SettingsData.h");
+const headerInt = (name) => {
+  const m = header.match(new RegExp("\\b" + name + " = (-?\\d+)"));
+  return m ? Number(m[1]) : NaN;
+};
+// The part of setField for one key: from its "if" up to the next branch
+const setFieldBranch = (key) => {
+  const start = setFieldSrc.indexOf(`!strcmp(key, "${key}")`);
+  if (start < 0) return "";
+  const rest = setFieldSrc.slice(start);
+  const end = rest.slice(1).search(/\} else (if \(|\{)/);
+  return end < 0 ? rest : rest.slice(0, end + 1);
+};
+// The header writes a key inside a C string as \"name\":
+const jsonKey = (k) => '\\"' + k + '\\":';
+// Page range fields and the header constants that give their limits and step
+const RANGE_CONSTS = {brightness: ["BRIGHTNESS_MIN", "BRIGHTNESS_MAX", "BRIGHTNESS_STEP"]};
+
+check(parseBoolSrc.includes('"true"') && parseBoolSrc.includes('"false"'), "parseBool takes \"true\" and \"false\"");
+const fieldNames = SETTINGS.map((f) => f.name);
+check(new Set(fieldNames).size === fieldNames.length, "setting names are unique");
+for (const f of SETTINGS) {
+  const where = `"${f.name}"`;
+  check(setFieldSrc.includes(`!strcmp(key, "${f.name}")`), `setField takes ${where}`);
+  check(toJsonSrc.includes(jsonKey(f.name)), `toJson writes ${where}`);
+  if (f.options) {
+    const vals = f.options.map((o) => o[0]);
+    if (vals.every((v) => typeof v === "boolean")) {
+      check(vals.includes(true) && vals.includes(false), `${where} offers true and false`);
+      check(setFieldBranch(f.name).includes("parseBool(v, &b)"), `setField reads ${where} with parseBool`);
+      check(toJsonSrc.includes('"true"') && toJsonSrc.includes('"false"'), `toJson sends ${where} as true or false`);
+    } else {
+      for (const v of vals) {
+        check(typeof v === "string", `${where} option "${v}" is text or true/false`);
+        check(setFieldBranch(f.name).includes(`!strcmp(v, "${v}")`), `setField takes ${where} = "${v}"`);
+        check(toJsonSrc.includes(`"${v}"`), `toJson can send ${where} = "${v}"`);
+      }
+    }
+  }
+  if (f.range) {
+    const [lo, hi, step] = f.range;
+    const consts = RANGE_CONSTS[f.name] || [];
+    check(consts.length === 3 && lo === headerInt(consts[0]) && hi === headerInt(consts[1]) && step === headerInt(consts[2]),
+          `${where} range ${f.range} matches the header limits`);
+    check(setFieldBranch(f.name).includes("parseInt("), `setField reads ${where} as a number`);
+    check(toJsonSrc.includes(jsonKey(f.name) + "%d"), `toJson sends ${where} as a number`);
+  }
+}
+// Keys the page reads that aren't settings
+check(toJsonSrc.includes(jsonKey("tzMin") + "%d"), "toJson writes a number \"tzMin\" (the page shows it)");
+check(toJsonSrc.includes(jsonKey("bluetoothBuilt")), "toJson writes \"bluetoothBuilt\" (the page reads it)");
+
+// Settings tab: every entry has a label and either options (two or more, unique) or a range
+for (const f of SETTINGS) {
+  const where = `"${f.name}"`;
+  check(typeof f.label === "string" && f.label !== "", `${where} has a label`);
+  const hasOptions = f.options !== undefined, hasRange = f.range !== undefined;
+  check(hasOptions !== hasRange, `${where} has options or a range, not both`);
+  if (hasOptions) {
+    const vals = f.options.map((o) => String(o[0]));
+    check(f.options.length >= 2 && new Set(vals).size === vals.length, `${where} has two or more unique options`);
+    check(f.options.every((o) => typeof o[1] === "string" && o[1] !== ""), `${where} options all have text`);
+  }
+  if (hasRange) {
+    check(f.range.length === 3 && f.range.every((n) => typeof n === "number"), `${where} range is [lo, hi, step] numbers`);
+  }
+}
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);

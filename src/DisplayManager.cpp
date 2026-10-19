@@ -469,13 +469,13 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
     gfx->fillRoundRect(4, top, W - 8, 74, CORNER, liveDelta <= 0 ? C_GREEN : C_RED);
     String t = deltaText(liveDelta);
     Font f = textWidth(t, Font::NumXL) <= W - 24 ? Font::NumXL : Font::NumL;
-    text(t, W / 2, f == Font::NumXL ? top - 1 : top + 12, f, C_BG, TC_DATUM);
+    text(t, W / 2, f == Font::NumXL ? top + 8 : top + 20, f, C_BG, TC_DATUM);
   } else if (timer.lapRunning()) {
     const bool predicted = big == BigNumber::Predicted;
     String t = formatLapTime(predicted ? settings::predictedLapMs(timer.bestLap()->timeMs, liveDelta)
                                        : timer.currentLapMs(millis()), 1);
     Font f = textWidth(t, Font::NumXL) <= W - 10 ? Font::NumXL : Font::NumL;
-    text(t, W / 2, f == Font::NumXL ? top + 8 : top + 18, f, C_TEXT, TC_DATUM);
+    text(t, W / 2, f == Font::NumXL ? top + (predicted ? 17 : 8) : top + 18, f, C_TEXT, TC_DATUM);  // predicted: room for its label
     if (predicted) label("PREDICTED", 12, top);
   } else {
     centered("Out lap", top + 16, Font::Title, C_YELLOW);
@@ -750,8 +750,14 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
     text(items[i].d2, mid, top + 96, Font::Caption, C_TEXT2, TC_DATUM);
   }
   // The second row, in thirds like the taps: Performance, Settings, Wi-Fi
-  button(4, MENU_WIFI_Y, bw - 8, MENU_ROW_H, "Performance", false, highlight == 3);
-  button(bw + 4, MENU_WIFI_Y, bw - 8, MENU_ROW_H, "Settings", false, highlight == 4);
+  auto rowButton = [&](int x, const char* title, bool hl) {
+    if (textWidth(title, Font::Button) <= bw - 16) return button(x, MENU_WIFI_Y, bw - 8, MENU_ROW_H, title, false, hl);
+    gfx->fillRoundRect(x, MENU_WIFI_Y, bw - 8, MENU_ROW_H, CORNER, hl ? C_RAISED : C_SURFACE);  // too wide for the button font
+    if (hl) gfx->drawRoundRect(x, MENU_WIFI_Y, bw - 8, MENU_ROW_H, CORNER, C_TEXT);
+    text(title, x + (bw - 8) / 2, MENU_WIFI_Y + MENU_ROW_H / 2 + 1, Font::Body, C_TEXT, MC_DATUM);
+  };
+  rowButton(4, "Performance", highlight == 3);
+  rowButton(bw + 4, "Settings", highlight == 4);
   wifiButton(MENU_WIFI_Y, MENU_ROW_H, highlight == 5);
   if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 196, Font::Caption, C_YELLOW);
   centered(touchOk ? "Tap a mode   ·   top bar: GPS status" : "BOOT: press for next, hold to choose", 216, Font::Body,

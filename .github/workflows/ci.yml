@@ -26,6 +26,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
       - name: test_localtime
         run: g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
+      - name: test_settings
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
       - name: test_portal
         run: g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
       - name: test_web

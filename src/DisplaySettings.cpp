@@ -53,7 +53,7 @@ void DisplayManager::drawSettings(const SettingsData& s, int item, bool touchOk,
   }
 
   snprintf(buf, sizeof(buf), "%d of %d", item + 1, SETTING_ITEM_COUNT);
-  text(buf, W - 10, HEADER_H / 2, Font::Caption, C_TEXT2, MR_DATUM);
+  text(buf, W - 14, HEADER_H + 12, Font::Caption, C_TEXT3, TR_DATUM);  // below the status icons in the top bar
 
   const SettingItem it = (SettingItem)item;
   label(settings::itemName(it), W / 2, HEADER_H + 12, TC_DATUM);
@@ -66,8 +66,8 @@ void DisplayManager::drawSettings(const SettingsData& s, int item, bool touchOk,
     text("+", W - 30, cy + ch / 2, Font::Title, C_TEXT2, MC_DATUM);
   }
   settings::valueText(s, it, buf, sizeof(buf));
-  text(fit(buf, Font::Title, W - 100), W / 2, cy + ch / 2 + (it == SettingItem::Brightness ? -6 : 1), Font::Title,
-       C_TEXT, MC_DATUM);
+  const Font vf = textWidth(buf, Font::Title) <= W - 100 ? Font::Title : Font::Body;  // long values: smaller font
+  text(fit(buf, vf, W - 100), W / 2, cy + ch / 2 + (it == SettingItem::Brightness ? -6 : 1), vf, C_TEXT, MC_DATUM);
   if (it == SettingItem::Brightness) {  // a level bar under the percentage
     const int bx = 80, bw = W - 160, by = cy + ch - 18;
     gfx->fillRoundRect(bx, by, bw, 6, 3, C_LINE);
@@ -134,7 +134,8 @@ void DisplayManager::drawSetup(int step, int highlight, bool touchOk) {
     arrow(gfx, bx[1] + bw / 2, by + bh / 2, false, C_TEXT);
   } else {
     centered("Speed units", 10, Font::Title, C_TEXT);
-    centered(touchOk ? "Tap the one you want" : "BOOT: press for the other, hold to choose", 38, Font::Body, C_TEXT2);
+    if (touchOk) centered("Tap the one you want", 38, Font::Body, C_TEXT2);
+    else centered("BOOT: press for the other, hold to choose", 40, Font::Caption, C_TEXT2);
     const char* name[2] = {"km/h", "mph"};
     const char* example[2] = {"100 km/h", "62 mph"};
     for (int i = 0; i < 2; i++) {

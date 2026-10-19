@@ -332,16 +332,16 @@ int main(int argc, char** argv) {
   save(d, "29_firmware_progress");
 
   // --- Settings and the first-boot questions ---
-  SettingsData s = mockSettings;
-  s.utcOffsetMin = -240;
-  s.brightness = 70;
+  SettingsData sd = mockSettings;
+  sd.utcOffsetMin = -240;
+  sd.brightness = 70;
   for (int i = 0; i <= SETTING_ITEM_COUNT; i++) {
     char name[32];
     snprintf(name, sizeof(name), "3%d_settings_%d", i < 10 ? 0 : 1, i);
-    d.drawSettings(s, i, true, (int64_t)(14 * 3600 + 5 * 60) * 1000);
+    d.drawSettings(sd, i, true, (int64_t)(14 * 3600 + 5 * 60) * 1000);
     save(d, name);
   }
-  d.drawSettings(s, 1, false, -1);
+  d.drawSettings(sd, 1, false, -1);
   save(d, "32_settings_boot_only");
   d.drawSetup(0, 0, true);
   save(d, "40_setup_which_way_up");

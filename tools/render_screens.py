@@ -12,12 +12,13 @@ the same fonts; shapes are close but not pixel-identical.
     python tools/render_screens.py              # -> build/screens/*.png and contact_sheet.png
     python tools/render_screens.py --track calabogie --out somewhere
 
-Needs g++ (or set CXX).
+Needs g++ (or set CXX, e.g. CXX="zig c++ -D_USE_MATH_DEFINES" on Windows).
 """
 
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 
@@ -62,8 +63,8 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     write_track(args.track, args.out)
 
-    exe = os.path.join(args.out, "screens")
-    cmd = [os.environ.get("CXX", "g++"), "-std=c++17", "-O1", "-DDEBUG_MODE=0", "-DBLE_ENABLED=1",
+    exe = os.path.join(args.out, "screens.exe" if os.name == "nt" else "screens")
+    cmd = [*shlex.split(os.environ.get("CXX", "g++")), "-std=c++17", "-O1", "-DDEBUG_MODE=0", "-DBLE_ENABLED=1",
            "-I" + os.path.join(SCREENS, "mock"), "-I" + os.path.join(ROOT, "include"), "-I" + args.out,
            *SOURCES, "-o", exe]
     subprocess.run(cmd, check=True)
