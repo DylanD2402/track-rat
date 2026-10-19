@@ -481,6 +481,8 @@ Everything else is in `include/Config.h`. The settings you're most likely to cha
 
 ## Tests
 
+GitHub Actions (`.github/workflows/ci.yml`) runs all of the tests below on Linux for every push and pull request, and also builds the firmware and the filesystem image. The built `firmware.bin` is attached to the run. When you add a test, add its command to the workflow too.
+
 The lap-timing logic has no Arduino dependencies and is tested on a PC:
 
 ```bash

@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: Host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # Same commands as the README's Tests section, one step per test.
+      # GitHub runs each step with bash -e, so any failing test fails the job.
+      - name: test_laptimer
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_laptimer.cpp src/LapTimer.cpp -o /tmp/lt && /tmp/lt
+      - name: test_racebox
+        run: g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
+      - name: test_localtime
+        run: g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
+      - name: test_portal
+        run: g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
+      - name: test_web
+        run: node test/test_web.js
+      - name: test_freeroam
+        run: g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
+      - name: test_ubx
+        run: g++ -std=c++17 -Iinclude test/test_ubx.cpp src/UbxParser.cpp -o /tmp/ubx && /tmp/ubx
+      - name: test_gps_source
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_gps_source.cpp src/GpsSource.cpp src/UbxParser.cpp src/LapTimer.cpp -o /tmp/gs && /tmp/gs
+      - name: test_vbo
+        run: g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat.cpp src/SessionReplay.cpp src/LapTimer.cpp -o /tmp/vbo && /tmp/vbo
+      - name: test_power
+        run: g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
+      - name: test_deltaleds
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_deltaleds.cpp src/DeltaLeds.cpp src/LapTimer.cpp -o /tmp/dl && /tmp/dl
+      - name: test_perfrun
+        run: g++ -std=c++17 -Iinclude test/test_perfrun.cpp -o /tmp/pr && /tmp/pr
+
+  firmware:
+    name: Firmware build
+    runs-on: ubuntu-latest
+    steps:
+      # Full history so tools/build_web.py can stamp the version from `git describe`
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: platformio.ini
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run -e es3c28p
+
+      - name: Build filesystem image
+        run: pio run -e es3c28p -t buildfs
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firmware
+          path: .pio/build/es3c28p/firmware.bin
+          if-no-files-found: error
