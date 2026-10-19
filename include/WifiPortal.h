@@ -39,6 +39,10 @@ int updateProgress();
 bool busy();
 bool restarting();
 
+// Code to type on the phone before installing firmware or replacing
+// tracks.json, so only someone who can see the screen can. New each time.
+int uploadCodeValue();
+
 }  // namespace WifiPortal
 
 #endif  // WIFI_PORTAL_H

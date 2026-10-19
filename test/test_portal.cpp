@@ -143,6 +143,28 @@ int main() {
   CHECK(!slot.claim(nullptr) || !slot.busy(), "null request never holds the slot");
   printf("  one upload at a time: ok\n");
 
+  // Upload code shown on the screen
+  UploadCode code;
+  CHECK(!code.matches("0000") && !code.check("0000"), "no code before Wi-Fi starts");
+  code.reset(1234567);  // -> 4567
+  CHECK(code.value() == 4567, "value %d", code.value());
+  CHECK(code.matches("4567") && code.check("4567"), "right code");
+  CHECK(code.check("4567"), "right code again (second upload)");
+  code.reset(42);
+  CHECK(code.value() == 42 && code.check("0042"), "leading zeros");
+  CHECK(!code.matches("42") && !code.matches("00042") && !code.matches("004a") && !code.matches("") &&
+            !code.matches(nullptr) && !code.matches(" 042"),
+        "only exactly 4 digits");
+  code.reset(9999);
+  for (int i = 0; i < UploadCode::MAX_TRIES - 1; i++) CHECK(!code.check("1111"), "wrong %d", i);
+  CHECK(!code.locked() && code.check("9999"), "still open after %d wrong", UploadCode::MAX_TRIES - 1);
+  CHECK(!code.check("1111") && code.locked(), "locked after %d wrong", UploadCode::MAX_TRIES);
+  CHECK(!code.check("9999"), "right code refused once locked");
+  CHECK(code.matches("9999"), "matches() still tells the reply which message to give");
+  code.reset(5);
+  CHECK(!code.locked() && code.check("0005"), "new code when Wi-Fi turns on again unlocks");
+  printf("  upload code: ok\n");
+
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

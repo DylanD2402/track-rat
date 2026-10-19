@@ -82,7 +82,7 @@ input[type=file] { max-width: 100%; margin: 8px 0; }
   <div class="card">
     <h3>Replace the track list</h3>
     <p class="note">Upload a <code>tracks.json</code> you've edited. The old one is kept as <code>tracks.json.bak</code>.
-      Track Rat uses the new list after it restarts.</p>
+      You'll need the upload code on Track Rat's screen. It restarts to load the new list.</p>
     <input type="file" id="tracksFile" accept=".json,application/json">
     <div><button class="btn" id="tracksSend" disabled>Upload</button></div>
     <p id="tracksMsg" class="note"></p>
@@ -93,7 +93,8 @@ input[type=file] { max-width: 100%; margin: 8px 0; }
   <div class="card">
     <h3>Install firmware</h3>
     <p class="note">Pick a <code>firmware.bin</code> (from <code>.pio/build/es3c28p/</code> after a build).
-      Keep the board powered until it restarts. It comes back with Wi-Fi off.</p>
+      You'll need the upload code on Track Rat's screen. Keep the board powered until it restarts.
+      It comes back with Wi-Fi off.</p>
     <input type="file" id="fwFile" accept=".bin,application/octet-stream">
     <div><button class="btn" id="fwSend" disabled>Install</button></div>
     <p><progress id="fwBar" max="100" value="0" hidden></progress></p>
@@ -141,18 +142,13 @@ function size(bytes) {
   if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB";
   return (bytes / 1024 / 1024 / 1024).toFixed(1) + " GB";
 }
-function trackName(id) {
-  if (id === "freeroam") return "Free Roam";
-  if (id === "bench") return "Bench Test";
-  return id.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 function post(url, body, onProgress) {
   return new Promise((resolve) => {
     const x = new XMLHttpRequest();
     x.open("POST", url);
     if (onProgress) x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
-    x.onload = () => resolve({ok: x.status === 200, text: x.responseText});
-    x.onerror = () => resolve({ok: false, text: "Lost the connection to Track Rat"});
+    x.onload = () => resolve({ok: x.status === 200, status: x.status, text: x.responseText});
+    x.onerror = () => resolve({ok: false, status: 0, text: "Lost the connection to Track Rat"});
     x.send(body);
   });
 }
@@ -160,23 +156,56 @@ function post(url, body, onProgress) {
 // ---- time zone: the device names files in UTC; this lets it use local time ----
 post("/api/time", new URLSearchParams({tz: String(-new Date().getTimezoneOffset())}));
 
-// ---- sessions ----
+// ---- session names (begin: tested by test/test_web.js) ----
 // Names look like 20261018_093012_calabogie.json (UTC date and time, track id).
-// Files from the same session (.json, .vbo, _perf.json, ...) are shown together.
-const NAME_RE = /^(\d{8})_(\d{6})_(.+?)(?:\.([^.]+))?$/;
+// Files from the same session (.json, .vbo, _perf.json, .json.bak...) are shown together.
+// Track ids are slugs (letters, digits, - and _), never with a dot.
+const NAME_RE = /^(\d{8})_(\d{6})_([^.]+)(?:\.(.+))?$/;
+
+function trackName(id) {
+  if (id === "freeroam") return "Free Roam";
+  if (id === "bench") return "Bench Test";
+  return id.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 function parseFile(f) {
   const m = f.name.match(NAME_RE);
   if (!m) return null;
   const [, d, t, rest0, ext] = m;
+  const when = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8),
+                                 +t.slice(0, 2), +t.slice(2, 4), +t.slice(4, 6)));
+  // Not a real date or time (e.g. 20261340): leave it in "Other files"
+  if (when.getUTCDate() !== +d.slice(6, 8) || +t.slice(0, 2) > 23 || +t.slice(2, 4) > 59) return null;
   let rest = rest0, label = (ext || "file").toUpperCase();
   const extra = rest.match(/_(perf)$/i);
   if (extra) { rest = rest.slice(0, -extra[0].length); label = "PERF " + label; }
-  const track = rest.replace(/_\d+$/, "");  // _2, _3: a second session that minute
-  const when = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8),
-                                 +t.slice(0, 2), +t.slice(2, 4), +t.slice(4, 6)));
+  const track = rest.replace(/_\d+$/, "") || rest;  // _2, _3: a second session that minute
+  if (!track) return null;
   return {when, track, label, key: f.fs + ":" + d + t + rest};
 }
+
+// files -> {days: [[day, [[track, [session...]]...]]...], other: [file...]}, newest first.
+// dayOf(date) names the day; the page uses the phone's local date.
+function groupSessions(files, dayOf) {
+  const sessions = new Map(), other = [];
+  for (const f of files) {
+    const p = parseFile(f);
+    if (!p) { other.push(f); continue; }
+    if (!sessions.has(p.key)) sessions.set(p.key, {when: p.when, track: p.track, fs: f.fs, files: []});
+    sessions.get(p.key).files.push({f, label: p.label});
+  }
+  const days = new Map();
+  for (const s of [...sessions.values()].sort((a, b) => b.when - a.when)) {
+    s.files.sort((a, b) => a.label.localeCompare(b.label));
+    const day = dayOf(s.when);
+    if (!days.has(day)) days.set(day, new Map());
+    const tracks = days.get(day);
+    if (!tracks.has(s.track)) tracks.set(s.track, []);
+    tracks.get(s.track).push(s);
+  }
+  return {days: [...days].map(([day, tracks]) => [day, [...tracks]]), other};
+}
+// ---- session names (end) ----
 
 function fileLink(f, label) {
   const href = "/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name);
@@ -197,23 +226,8 @@ async function loadSessions() {
     return;
   }
 
-  const sessions = new Map(), other = [];
-  for (const f of files) {
-    const p = parseFile(f);
-    if (!p) { other.push(f); continue; }
-    if (!sessions.has(p.key)) sessions.set(p.key, {when: p.when, track: p.track, fs: f.fs, files: []});
-    sessions.get(p.key).files.push({f, label: p.label});
-  }
-
-  // day (phone's local time) -> track -> sessions, newest first
-  const days = new Map();
-  for (const s of [...sessions.values()].sort((a, b) => b.when - a.when)) {
-    const day = s.when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"});
-    if (!days.has(day)) days.set(day, new Map());
-    const tracks = days.get(day);
-    if (!tracks.has(s.track)) tracks.set(s.track, []);
-    tracks.get(s.track).push(s);
-  }
+  const {days, other} = groupSessions(files, (when) =>
+    when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"}));
 
   let html = "";
   for (const [day, tracks] of days) {
@@ -222,7 +236,6 @@ async function loadSessions() {
       html += `<div class="card"><h3>${esc(trackName(track))}</h3>`;
       for (const s of list) {
         const time = s.when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
-        s.files.sort((a, b) => a.label.localeCompare(b.label));
         html += `<div class="row"><span class="time">${esc(time)}</span>` +
                 s.files.map((x) => fileLink(x.f, x.label)).join("") +
                 (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") + `</div>`;
@@ -235,6 +248,19 @@ async function loadSessions() {
             other.map((f) => `<div class="row">${fileLink(f, f.name)}</div>`).join("") + `</div>`;
   }
   box.innerHTML = html;
+}
+
+// ---- uploads need the 4-digit code on Track Rat's Wi-Fi screen ----
+let uploadCode = "";
+function askCode(what) {
+  const c = prompt(`${what}\n\nType the 4-digit upload code shown on Track Rat's screen:`, uploadCode);
+  if (c === null) return null;
+  uploadCode = c.trim();
+  return uploadCode;
+}
+function uploadResult(r) {
+  if (r.status === 403) uploadCode = "";  // wrong code: ask again next time
+  return r;
 }
 
 // ---- tracks ----
@@ -257,15 +283,16 @@ $("tracksFile").addEventListener("change", async () => {
   }
 });
 $("tracksSend").addEventListener("click", async () => {
-  if (!tracksBody || !confirm("Replace Track Rat's track list with this file?")) return;
+  if (!tracksBody) return;
+  const code = askCode("Replace Track Rat's track list with this file? It restarts to load it.");
+  if (code === null) return;
   $("tracksSend").disabled = true;
   const form = new FormData();
   form.append("tracks", tracksBody, "tracks.json");
-  const r = await post("/api/tracks", form);
+  const r = uploadResult(await post("/api/tracks?code=" + encodeURIComponent(code), form));
   $("tracksMsg").className = r.ok ? "note" : "err";
-  $("tracksMsg").textContent = r.text;
-  if (r.ok) $("tracksMsg").insertAdjacentHTML("beforeend", ` <button class="btn plain" onclick="restart()">Restart now</button>`);
-  $("tracksSend").disabled = false;
+  $("tracksMsg").textContent = r.ok ? r.text + " Turn Wi-Fi on again from its menu to come back to this page." : r.text;
+  $("tracksSend").disabled = r.ok;
 });
 
 // ---- firmware ----
@@ -287,7 +314,9 @@ $("fwFile").addEventListener("change", async () => {
 });
 $("fwSend").addEventListener("click", async () => {
   const file = $("fwFile").files[0];
-  if (!file || !confirm("Install this firmware? Keep Track Rat powered until it restarts.")) return;
+  if (!file) return;
+  const code = askCode("Install this firmware? Keep Track Rat powered until it restarts.");
+  if (code === null) return;
   $("fwSend").disabled = true;
   $("fwFile").disabled = true;
   const bar = $("fwBar");
@@ -297,10 +326,10 @@ $("fwSend").addEventListener("click", async () => {
   $("fwMsg").textContent = "Sending…";
   const form = new FormData();
   form.append("firmware", file, file.name);
-  const r = await post("/api/firmware", form, (frac) => {
+  const r = uploadResult(await post("/api/firmware?code=" + encodeURIComponent(code), form, (frac) => {
     bar.value = Math.round(frac * 100);
     $("fwMsg").textContent = frac < 1 ? `Sending… ${bar.value}%` : "Installing…";
-  });
+  }));
   $("fwMsg").className = r.ok ? "note" : "err";
   $("fwMsg").textContent = r.ok ? r.text + " Turn Wi-Fi on again from its menu to come back to this page." : r.text;
   if (!r.ok) { bar.hidden = true; $("fwSend").disabled = false; }

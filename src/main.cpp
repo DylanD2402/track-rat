@@ -342,8 +342,8 @@ static void render() {
       break;
     case AppState::Wifi:
       display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),
-                       WifiPortal::clientCount(), WifiPortal::updateProgress(), WifiPortal::restarting(),
-                       input.touchAvailable());
+                       WifiPortal::clientCount(), WifiPortal::uploadCodeValue(), WifiPortal::updateProgress(),
+                       WifiPortal::restarting(), input.touchAvailable());
       break;
   }
 }

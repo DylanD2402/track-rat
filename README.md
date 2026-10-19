@@ -98,7 +98,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
 | Summaries | tap: continue; WI-FI button: Wi-Fi page | press: continue, hold 1 s: Wi-Fi page |
-| Wi-Fi | tap: Wi-Fi off | press: Wi-Fi off |
+| Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
 
 While timing, the screen shows:
 
@@ -220,7 +220,7 @@ Track Rat isn't affiliated with RaceBox. The device name is used only so apps re
 
 Get your sessions onto your phone without taking the SD card out.
 
-1. In the pits, tap **WI-FI** on the menu or on a session summary. The screen shows the network name and address.
+1. In the pits, tap **WI-FI** on the menu or on a session summary (or hold BOOT on a summary). The screen shows the network name, the address and an upload code.
 2. On your phone, join the Wi-Fi network **TrackRat-XXXX**. There's no password. The last 4 characters are different on each board.
 3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **http://192.168.4.1** in your browser.
 4. When you're done, tap the Track Rat screen (or press BOOT) to turn Wi-Fi off.
@@ -228,7 +228,7 @@ Get your sessions onto your phone without taking the SD card out.
 What the page does:
 
 - **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
-- **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`. Restart Track Rat to use the new list.
+- **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list.
 - **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
 - **Device:** firmware version, free space on the card and in flash, GPS status and memory.
 - **Settings:** not there yet.
@@ -240,7 +240,8 @@ Good to know:
 - **Wi-Fi is off while timing.** It's only on while the Wi-Fi screen shows, and starting a session turns it off. Bluetooth (RaceBox) keeps working while it's on.
 - **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open http://192.168.4.1 in Safari or Chrome while still on the TrackRat network.
 - **Mobile data:** some phones keep using mobile data for everything when a Wi-Fi network has no internet. If the page won't load, tell the phone to stay connected or turn mobile data off.
-- **Anyone nearby can join** while it's on, so turn it off when you're done.
+- **Upload code:** installing firmware or replacing `tracks.json` asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
+- **Anyone nearby can join** and download sessions while it's on, so turn it off when you're done.
 
 ### Changing the page
 
@@ -302,6 +303,18 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 ```
 - doesn't record false laps while parked on the line with GPS jitter
 - ignores a line crossing that happens during a GPS dropout
+
+`test/test_portal.cpp` checks the Wi-Fi page's request rules: which file names can be downloaded, time zones, the captive-portal host check, the network name, upload progress, the `tracks.json` check, one upload at a time and the upload code:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
+```
+
+`test/test_web.js` checks how the page groups session files by day and track (needs Node.js):
+
+```bash
+node test/test_web.js
+```
 
 `test/test_freeroam.cpp` checks Free Roam's distance, top and average speed, that GPS jitter and position glitches add no distance, and that very long drives are capped:
 

@@ -112,6 +112,44 @@ inline bool looksLikeJsonObject(const uint8_t* data, size_t len) {
   return false;
 }
 
+// The 4-digit code shown on Track Rat's screen, needed to install firmware
+// or replace tracks.json, so only someone looking at the screen can. After
+// MAX_TRIES wrong codes, uploads stay locked until Wi-Fi is turned on again.
+class UploadCode {
+public:
+  static const int MAX_TRIES = 5;
+
+  void reset(uint32_t random) {
+    code = random % 10000;
+    wrong = 0;
+  }
+  int value() const { return code; }
+  bool locked() const { return wrong >= MAX_TRIES; }
+
+  // given: exactly 4 digits, e.g. "0042". Doesn't count tries.
+  bool matches(const char* given) const {
+    if (!given || strlen(given) != 4) return false;
+    int v = 0;
+    for (int i = 0; i < 4; i++) {
+      if (given[i] < '0' || given[i] > '9') return false;
+      v = v * 10 + (given[i] - '0');
+    }
+    return v == code;
+  }
+
+  // An upload asking to start: counts wrong codes, refuses everything once locked.
+  bool check(const char* given) {
+    if (locked()) return false;
+    if (matches(given)) return true;
+    wrong++;
+    return false;
+  }
+
+private:
+  int code = -1;  // no code until reset(): nothing matches
+  int wrong = 0;
+};
+
 // One upload of each kind at a time. The request that sent the first piece
 // owns it until it finishes or its connection drops; any other is refused.
 class UploadSlot {

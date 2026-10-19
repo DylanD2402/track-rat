@@ -51,6 +51,9 @@ static GpsSnapshot gpsSnap = {};
 static portMUX_TYPE snapLock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t lastSnap = 0;
 
+// Firmware and tracks.json uploads need the code shown on the screen
+static portal::UploadCode uploadCode;
+
 // Firmware upload: one at a time (fwSlot holds the request sending it)
 static portal::UploadSlot fwSlot;
 static volatile int fwProgress = -1;
@@ -106,10 +109,30 @@ static fs::FS* tracksReadFs() {
   return nullptr;
 }
 
-static fs::FS* tracksWriteFs() {
-  if (Storage::sdMounted()) return &SD_MMC;
-  if (Storage::flashMounted()) return &LittleFS;
-  return nullptr;
+// Free space, for the Device tab. Working out what's used can mean reading
+// the card's whole FAT, so it's kept for 30 s rather than redone every poll.
+struct StorageSpace {
+  uint32_t sdTotalKB, sdUsedKB, flashTotalKB, flashUsedKB;
+};
+static StorageSpace space = {};
+static uint32_t spaceAt = 0;
+static bool spaceValid = false;
+
+static const StorageSpace& storageSpace() {
+  if (!spaceValid || millis() - spaceAt > 30000) {
+    space = {};
+    if (Storage::sdMounted()) {
+      space.sdTotalKB = SD_MMC.totalBytes() / 1024;
+      space.sdUsedKB = SD_MMC.usedBytes() / 1024;
+    }
+    if (Storage::flashMounted()) {
+      space.flashTotalKB = LittleFS.totalBytes() / 1024;
+      space.flashUsedKB = LittleFS.usedBytes() / 1024;
+    }
+    spaceAt = millis();
+    spaceValid = true;
+  }
+  return space;
 }
 
 // Every file in /sessions, on the SD card and in flash.
@@ -164,17 +187,18 @@ static void sendInfo(AsyncWebServerRequest* req) {
   doc["tzMin"] = savedTimeZoneOffset();
   doc["sessionsOn"] = Storage::sessionFSName();
 
+  const StorageSpace& sp = storageSpace();
   JsonObject sd = doc.createNestedObject("sd");
   sd["mounted"] = Storage::sdMounted();
   if (Storage::sdMounted()) {
-    sd["totalKB"] = (uint32_t)(SD_MMC.totalBytes() / 1024);
-    sd["usedKB"] = (uint32_t)(SD_MMC.usedBytes() / 1024);
+    sd["totalKB"] = sp.sdTotalKB;
+    sd["usedKB"] = sp.sdUsedKB;
   }
   JsonObject fl = doc.createNestedObject("flash");
   fl["mounted"] = Storage::flashMounted();
   if (Storage::flashMounted()) {
-    fl["totalKB"] = (uint32_t)(LittleFS.totalBytes() / 1024);
-    fl["usedKB"] = (uint32_t)(LittleFS.usedBytes() / 1024);
+    fl["totalKB"] = sp.flashTotalKB;
+    fl["usedKB"] = sp.flashUsedKB;
   }
 
   JsonObject gps = doc.createNestedObject("gps");
@@ -200,6 +224,18 @@ static void sendInfo(AsyncWebServerRequest* req) {
 // ---------------------------------------------------------------------------
 // tracks.json upload: written to a temp file, then swapped in, old one kept as .bak
 
+// Why an upload that didn't get to start was refused
+static void refuseUpload(AsyncWebServerRequest* req, const portal::UploadSlot& slot) {
+  if (uploadCode.locked())
+    req->send(403, "text/plain", "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code.");
+  else if (!uploadCode.matches(req->arg("code").c_str()))
+    req->send(403, "text/plain", "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
+  else if (slot.busy())
+    req->send(409, "text/plain", "Another upload is running. Try again when it's done.");
+  else
+    req->send(400, "text/plain", "No file received");
+}
+
 static void dropTracksUpload() {
   if (tracksFile) tracksFile.close();
   if (tracksFs) tracksFs->remove(TRACKS_UPLOAD_TMP);
@@ -208,9 +244,10 @@ static void dropTracksUpload() {
 static void onTracksUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                            size_t len, bool final) {
   if (index == 0) {
-    if (!tracksSlot.claim(req)) return;  // another upload is running: refused in the reply
+    if (!uploadCode.check(req->arg("code").c_str())) return;  // refused in the reply
+    if (!tracksSlot.claim(req)) return;                          // another upload is running
     tracksError = "";
-    tracksFs = tracksWriteFs();
+    tracksFs = Storage::sessionFS();  // the SD card, else flash: where TrackDatabase saves
     tracksOk = tracksFs != nullptr;
     if (!tracksOk) tracksError = "No SD card or flash to save to";
     // The page checks the JSON before sending it; here just make sure it's an object.
@@ -256,12 +293,17 @@ static void onTracksUpload(AsyncWebServerRequest* req, const String& filename, s
 
 static void onTracksDone(AsyncWebServerRequest* req) {
   if (!tracksSlot.owns(req)) {
-    if (tracksSlot.busy()) req->send(409, "text/plain", "Another upload is running. Try again when it's done.");
-    else req->send(400, "text/plain", "No file received");
+    refuseUpload(req, tracksSlot);
     return;
   }
-  if (tracksOk) req->send(200, "text/plain", "Saved. Restart Track Rat to use the new track list.");
-  else req->send(400, "text/plain", tracksError);
+  spaceValid = false;
+  if (tracksOk) {
+    // Restart so the track list in memory, and where it saves to, match the new file
+    req->send(200, "text/plain", "Saved. Track Rat is restarting to load the new list.");
+    rebootAt = millis() + 1500;
+  } else {
+    req->send(400, "text/plain", tracksError);
+  }
   tracksSlot.release(req);
 }
 
@@ -271,7 +313,8 @@ static void onTracksDone(AsyncWebServerRequest* req) {
 static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                              size_t len, bool final) {
   if (index == 0) {
-    if (!fwSlot.claim(req)) return;  // another upload is running: refused in the reply
+    if (!uploadCode.check(req->arg("code").c_str())) return;  // refused in the reply
+    if (!fwSlot.claim(req)) return;                              // another upload is running
     fwError = "";
     fwProgress = 0;
     fwOk = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
@@ -305,8 +348,7 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
 
 static void onFirmwareDone(AsyncWebServerRequest* req) {
   if (!fwSlot.owns(req)) {
-    if (fwSlot.busy()) req->send(409, "text/plain", "Another upload is running. Try again when it's done.");
-    else req->send(400, "text/plain", "No file received");
+    refuseUpload(req, fwSlot);
     return;
   }
   if (fwOk && fwProgress == 100) {
@@ -340,7 +382,9 @@ static void setupRoutes() {
   s.on("/api/info", HTTP_GET, sendInfo);
 
   s.on("/api/sessions", HTTP_GET, [](AsyncWebServerRequest* req) {
-    String out = "{\"files\":[";
+    String out;
+    out.reserve(4096);
+    out += "{\"files\":[";
     bool first = true;
     if (Storage::sdMounted()) listSessions(SD_MMC, "sd", out, first);
     if (Storage::flashMounted()) listSessions(LittleFS, "flash", out, first);
@@ -425,6 +469,8 @@ bool start() {
     WiFi.mode(WIFI_OFF);
     return false;
   }
+  uploadCode.reset(esp_random());
+  spaceValid = false;
   dns.setErrorReplyCode(DNSReplyCode::NoError);
   dns.start(53, "*", WiFi.softAPIP());
 
@@ -491,6 +537,8 @@ String address() { return on ? WiFi.softAPIP().toString() : String("192.168.4.1"
 int clientCount() { return on ? WiFi.softAPgetStationNum() : 0; }
 
 int updateProgress() { return fwProgress; }
+
+int uploadCodeValue() { return uploadCode.value(); }
 
 bool busy() { return (fwProgress >= 0 && fwProgress < 100) || rebootAt != 0; }
 

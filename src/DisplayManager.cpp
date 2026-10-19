@@ -669,7 +669,8 @@ void DisplayManager::drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uin
 
 void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath) {
   beginFrame();
-  header("DRIVE SUMMARY", nullptr);
+  // In the title, so it doesn't cover the route on the map
+  header(savedPath.length() ? "DRIVE SUMMARY - tap to continue" : "DRIVE NOT SAVED - tap to continue", nullptr);
   gfx->drawRoundRect(MAP_X, MAP_Y, MAP_W, MAP_H, 6, C_BUTTON);
   static const std::vector<std::vector<geo::XYf>> noLines;
   MapPath mp = {(const uint8_t*)fr.path.data(), fr.path.size(), sizeof(geo::XYf)};
@@ -692,10 +693,7 @@ void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs
     gfx->drawString(r.value, PANEL_X, y + 14, 4);
     y += 41;
   }
-  gfx->setTextColor(C_DIM);
-  gfx->drawString(savedPath.length() ? "saved" : "not saved", MAP_X + 6, MAP_Y + MAP_H - 22, 1);
-  gfx->drawString("tap to continue", MAP_X + 6, MAP_Y + MAP_H - 10, 1);
-  wifiButton(WIFI_BUTTON_Y, H - WIFI_BUTTON_Y - 4, false);
+  wifiButton(WIFI_BUTTON_Y, H - WIFI_BUTTON_Y - 4, false, true);
   endFrame();
 }
 
@@ -764,25 +762,30 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
   gfx->drawString("Tap or press BOOT", W / 3, WIFI_BUTTON_Y + 10, 2);
   gfx->drawString("to continue", W / 3, WIFI_BUTTON_Y + 28, 2);
   gfx->setTextDatum(TL_DATUM);
-  wifiButton(WIFI_BUTTON_Y, H - WIFI_BUTTON_Y - 4, false);
+  wifiButton(WIFI_BUTTON_Y, H - WIFI_BUTTON_Y - 4, false, true);
   endFrame();
 }
 
 // ---------------------------------------------------------------------------
 // Wi-Fi page
 
-void DisplayManager::wifiButton(int y, int h, bool highlight) {
+// holdHint: on the summaries, holding BOOT does the same (for boards without touch)
+void DisplayManager::wifiButton(int y, int h, bool highlight, bool holdHint) {
   const int bw = W / 3, x = 2 * bw + 4;
   gfx->fillRoundRect(x, y, bw - 8, h, 6, highlight ? 0x3186 : 0x0210);
   gfx->drawRoundRect(x, y, bw - 8, h, 6, highlight ? C_TEXT : 0x041F);
   gfx->setTextDatum(MC_DATUM);
   gfx->setTextColor(C_TEXT);
-  gfx->drawString("WI-FI", x + (bw - 8) / 2, y + h / 2, 4);
+  gfx->drawString("WI-FI", x + (bw - 8) / 2, holdHint ? y + h / 2 - 5 : y + h / 2, 4);
+  if (holdHint) {
+    gfx->setTextColor(C_DIM);
+    gfx->drawString("or hold BOOT", x + (bw - 8) / 2, y + h - 6, 1);
+  }
   gfx->setTextDatum(TL_DATUM);
 }
 
-void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& address, int phones, int progress,
-                              bool restarting, bool touchOk) {
+void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& address, int phones,
+                              int uploadCode, int progress, bool restarting, bool touchOk) {
   beginFrame();
   header(wifiOn ? "WI-FI ON" : "WI-FI", nullptr);
   if (!wifiOn) {
@@ -808,11 +811,12 @@ void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& 
     gfx->drawRect(20, 166, W - 40, 12, C_DIM);
     gfx->fillRect(22, 168, (W - 44) * progress / 100, 8, C_WARN);
     centered("Keep the power on", 186, 2, C_DIM);
-  } else if (phones > 0) {
-    snprintf(buf, sizeof(buf), phones == 1 ? "1 phone connected" : "%d phones connected", phones);
-    centered(buf, 150, 2, C_GOOD);
   } else {
-    centered("No phone connected yet", 150, 2, C_DIM);
+    if (phones > 0) snprintf(buf, sizeof(buf), phones == 1 ? "1 phone connected" : "%d phones connected", phones);
+    centered(phones > 0 ? buf : "No phone connected yet", 140, 2, phones > 0 ? C_GOOD : C_DIM);
+    // Typed on the phone to install firmware or replace the track list
+    snprintf(buf, sizeof(buf), "Upload code  %04d", uploadCode);
+    centered(buf, 164, 4, C_TEXT);
   }
 
   if (progress < 0 && !restarting) {
