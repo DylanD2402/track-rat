@@ -20,6 +20,7 @@
 #include <TinyGPSPlus.h>
 #include "GpsFix.h"
 #include "GpsSource.h"
+#include "SettingsData.h"
 #include "UbxParser.h"
 
 // What the simulated GPS does: lap a circle (lap timing) or repeat launch, top speed, brake (Performance).
@@ -82,6 +83,7 @@ private:
   void sendUbxValset(uint8_t layers, const uint8_t* cfg, size_t len);
 
   bool detected = false;          // a GPS was found at start-up
+  settings::GpsSystems systems = settings::gpsSystems(GpsMode::Fast20);  // rate and satellite systems: the GPS mode setting at begin()
   void sendBaseConfig(bool gpsTalking);
   void setNmeaOutput(bool on);
 

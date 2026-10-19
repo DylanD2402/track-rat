@@ -63,6 +63,15 @@ td { padding: 9px 0; border-top: 1px solid var(--line); vertical-align: top; }
 tr:first-child td { border-top: 0; }
 td:first-child { color: var(--dim); width: 40%; }
 input[type=file] { max-width: 100%; margin: 8px 0 12px; font: inherit; font-size: 14px; }
+.set { padding: 12px 0; border-top: 1px solid var(--line); }
+.set:first-child { border-top: 0; padding-top: 2px; }
+.set .name { font-weight: 600; margin-bottom: 8px; }
+.seg { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 10px; background: var(--chip); }
+.seg button { flex: 1 1 auto; border: 0; border-radius: 8px; background: none; color: var(--dim); font: inherit;
+              font-size: 14px; font-weight: 500; padding: 8px 6px; min-height: 36px; }
+.seg button.on { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.seg button:disabled { opacity: .5; }
+input[type=range] { width: 100%; accent-color: var(--good); }
 </style>
 </head>
 <body>
@@ -120,12 +129,10 @@ input[type=file] { max-width: 100%; margin: 8px 0 12px; font: inherit; font-size
 </section>
 
 <section id="settings">
-  <!-- Settings page stub: fill in once the device has /api/settings (units,
-       mounting, brightness, delta reference). -->
-  <div class="card">
-    <h3>Settings</h3>
-    <p class="note">Coming soon: units, upside-down mounting, brightness and what the live delta compares against.</p>
-  </div>
+  <p class="note">The same settings as on Track Rat's Settings screen. Changes take effect at once and are kept.
+    The first change asks for the upload code on Track Rat's screen.</p>
+  <div class="card" id="settingsForm"><p class="note">Loading…</p></div>
+  <p id="settingsMsg" class="note"></p>
 </section>
 
 </main>
@@ -140,6 +147,7 @@ function showTab(name) {
   for (const s of document.querySelectorAll("main section")) s.classList.toggle("on", s.id === name);
   clearInterval(infoTimer);
   if (name === "device") { loadInfo(); infoTimer = setInterval(loadInfo, 2000); }
+  if (name === "settings") loadSettings();
 }
 $("tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
 
@@ -408,12 +416,110 @@ async function loadInfo() {
     ["GPS", esc(gps)],
     ["Position", g.fix ? `${g.lat}, ${g.lon}` : "–"],
     ["GPS port", g.rxPin >= 0 ? `RX GPIO ${g.rxPin}, ${g.baud} baud` : "not found"],
-    ["Time zone", `UTC${tz < 0 ? "−" : "+"}${Math.floor(Math.abs(tz) / 60)}${tz % 60 ? ":" + String(Math.abs(tz) % 60).padStart(2, "0") : ""}`],
+    ["Speed", g.fix ? speedText(g.speedKmh, i.units) : "–"],
+    ["Time zone", tzText(tz)],
     ["Running for", `${Math.floor(i.uptimeS / 3600)} h ${Math.floor(i.uptimeS / 60) % 60} min`],
     ["Free memory", `${size(i.freeHeap)} RAM, ${size(i.freePsram)} PSRAM`],
   ];
   $("info").innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
 }
+
+// ---- settings (begin: tested by test/test_web.js) ----
+// The names and values are the device's (settings::setField in include/SettingsData.h).
+const SETTINGS = [
+  {name: "units", label: "Speed units", options: [["kmh", "km/h"], ["mph", "mph"]],
+   note: "Every speed on Track Rat's screen and on this page. Saved files stay in km/h."},
+  {name: "upsideDown", label: "Screen", options: [[false, "Normal"], [true, "Upside down"]],
+   note: "For mounting Track Rat upside down. Touch turns round with it."},
+  {name: "brightness", label: "Brightness", range: [10, 100, 10]},
+  {name: "bigNumber", label: "Big number", options: [["delta", "Delta"], ["predicted", "Predicted lap"], ["lap", "Lap time"]],
+   note: "The largest number on the timing screen. Delta and predicted lap show the lap time until there's a best lap."},
+  {name: "compareTo", label: "Compare with", options: [["day", "Best of the day"], ["ever", "Best ever"], ["session", "This session"]],
+   note: "Saved for later: only this session's best lap exists so far."},
+  {name: "gpsMode", label: "GPS mode", options: [["20hz", "20 Hz, GPS + Galileo"], ["10hz", "10 Hz, all systems"]],
+   note: "10 Hz with all four satellite systems helps on tracks lined with trees. Used from the next restart."},
+  {name: "bluetooth", label: "Bluetooth", options: [[true, "On"], [false, "Off"]], note: "RaceBox output for phone apps.",
+   shown: (s) => s.bluetoothBuilt},
+  {name: "recordRoadDrives", label: "Record road drives", options: [[true, "On"], [false, "Off"]],
+   note: "Off: Free Roam drives are shown on the screen but not saved."},
+];
+
+function tzText(min) {
+  const a = Math.abs(min);
+  return `UTC${min < 0 ? "−" : "+"}${Math.floor(a / 60)}:${String(a % 60).padStart(2, "0")}`;
+}
+function speedText(kmh, units) {
+  return units === "mph" ? `${Math.round(kmh / 1.609344)} mph` : `${Math.round(kmh)} km/h`;
+}
+// The form that changes one setting (values go as text: "true", "mph", "70")
+function settingBody(name, value, code) {
+  return new URLSearchParams({[name]: String(value), code: String(code)});  // sent as a form, which the device reads
+}
+// ---- settings (end) ----
+
+let settingsNow = null;
+function renderSettings() {
+  const s = settingsNow;
+  let html = "";
+  for (const f of SETTINGS) {
+    if (f.shown && !f.shown(s)) continue;
+    html += `<div class="set"><div class="name">${esc(f.label)}</div>`;
+    if (f.range) {
+      const [lo, hi, step] = f.range;
+      html += `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${s[f.name]}" data-set="${f.name}">` +
+              `<div class="note">${s[f.name]}%</div>`;
+    } else {
+      html += `<div class="seg">` + f.options.map(([v, text]) =>
+        `<button data-set="${f.name}" data-value="${esc(String(v))}" class="${s[f.name] === v ? "on" : ""}">${esc(text)}</button>`
+      ).join("") + `</div>`;
+    }
+    if (f.note) html += `<p class="note" style="margin:6px 0 0">${esc(f.note)}</p>`;
+    html += `</div>`;
+  }
+  html += `<div class="set"><div class="name">Time zone</div><div>${esc(tzText(s.tzMin))}</div>` +
+          `<p class="note" style="margin:6px 0 0">Set from this phone each time the page opens. File names use it.</p></div>`;
+  $("settingsForm").innerHTML = html;
+}
+
+async function loadSettings() {
+  try { settingsNow = await (await fetch("/api/settings")).json(); } catch (e) {
+    $("settingsForm").innerHTML = `<p class="err">Couldn't read the settings.</p>`;
+    return;
+  }
+  renderSettings();
+}
+
+async function changeSetting(name, value) {
+  const code = uploadCode || askCode("Change Track Rat's settings?");
+  if (code === null) { renderSettings(); return; }
+  const r = uploadResult(await post("/api/settings", settingBody(name, value, code)));
+  const msg = $("settingsMsg");
+  if (!r.ok) {
+    msg.className = "err";
+    msg.textContent = r.text;
+    renderSettings();  // back to what the device has
+    return;
+  }
+  settingsNow = JSON.parse(r.text);
+  renderSettings();
+  msg.className = "note";
+  msg.innerHTML = settingsNow.restartNeeded
+    ? `Saved. The GPS mode is used from the next restart. <button class="btn plain" id="settingsRestart">Restart now</button>`
+    : "Saved.";
+  if (settingsNow.restartNeeded) $("settingsRestart").addEventListener("click", restart);
+}
+
+$("settingsForm").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-set]");
+  if (!b || b.classList.contains("on")) return;
+  changeSetting(b.dataset.set, b.dataset.value);
+});
+$("settingsForm").addEventListener("change", (e) => {
+  if (e.target.dataset.set) changeSetting(e.target.dataset.set, e.target.value);
+});
+$("settingsForm").addEventListener("input", (e) => {
+  if (e.target.type === "range") e.target.nextElementSibling.textContent = e.target.value + "%";
+});
 
 async function restart() {
   if (!confirm("Restart Track Rat? It comes back with Wi-Fi off.")) return;

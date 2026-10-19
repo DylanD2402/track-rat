@@ -6,13 +6,15 @@
 #include "Config.h"
 #include "SimTrack.h"
 #include "LocalTime.h"
+#include "Settings.h"
 
 static HardwareSerial& gpsSerial = Serial1;
 
 void GPSHandler::begin() {
   gpsSerial.setRxBufferSize(GPS_RX_BUFFER_BYTES);  // rides out SD writes etc. without losing data
   // NAV-PVT silent for 3 fix intervals (at least 1 s) while NMEA arrives = the GPS restarted
-  const uint32_t pvtLostMs = 3000 / GPS_TARGET_RATE_HZ > 1000 ? 3000 / GPS_TARGET_RATE_HZ : 1000;
+  systems = settings::gpsSystems(Settings::get().gpsMode);  // the GPS mode setting, for this whole run
+  const uint32_t pvtLostMs = 3000 / systems.rateHz > 1000 ? 3000 / systems.rateHz : 1000;
   source = GpsSourceSwitch(GPS_USE_UBX, GPS_PVT_WAIT_MS, pvtLostMs);
   detected = detect();
   if (!detected) {
@@ -172,7 +174,7 @@ uint32_t GPSHandler::signalKey(int k) {
 // rejects a whole VALSET if it rejects any key in it: if it turns down the
 // message settings, the rate still goes through.
 void GPSHandler::sendBaseConfig(bool gpsTalking) {
-  const uint16_t measMs = 1000 / GPS_TARGET_RATE_HZ;
+  const uint16_t measMs = 1000 / systems.rateHz;
   const uint8_t cfg[] = {
     0x01, 0x00, 0x21, 0x30, (uint8_t)(measMs & 0xFF), (uint8_t)(measMs >> 8),  // CFG-RATE-MEAS
     0xC5, 0x00, 0x91, 0x20, 0x00,  // CFG-MSGOUT-NMEA_ID_GSV_UART1 = 0
@@ -189,7 +191,7 @@ void GPSHandler::sendBaseConfig(bool gpsTalking) {
   };
   sendUbxValset(0x01, msgs, sizeof(msgs));
   source.configSent(millis(), gpsTalking);
-  DEBUG_PRINTF("GPS: requested %d Hz%s (u-blox CFG-VALSET)\n", GPS_TARGET_RATE_HZ,
+  DEBUG_PRINTF("GPS: requested %d Hz%s (u-blox CFG-VALSET)\n", systems.rateHz,
                GPS_USE_UBX ? " and UBX-NAV-PVT" : "");
 }
 
@@ -209,7 +211,7 @@ void GPSHandler::configureUblox() {
 #if GPS_SET_CONSTELLATIONS
   // Changing satellite systems restarts tracking (the fix drops for a few
   // seconds), so read the current setting first and only change it if needed.
-  const uint8_t want[SIGNAL_KEYS] = {1, GPS_USE_GALILEO, GPS_USE_GLONASS, GPS_USE_BEIDOU, 1 /* QZSS goes with GPS */};
+  const uint8_t want[SIGNAL_KEYS] = {1, systems.galileo, systems.glonass, systems.beidou, 1 /* QZSS goes with GPS */};
   uint8_t get[4 + 4 * SIGNAL_KEYS] = {0x00, 0x00, 0x00, 0x00};  // version, layer RAM, position
   for (int k = 0; k < SIGNAL_KEYS; k++) {
     uint32_t key = signalKey(k);

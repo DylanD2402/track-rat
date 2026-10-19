@@ -17,6 +17,7 @@
 #undef private
 #include "Power.h"
 #include "RaceBoxBle.h"
+#include "Settings.h"
 #include "Storage.h"
 #include "UiTheme.h"
 #include "track_data.h"  // TRACK_NAME, TRACK_LOCATION, TRACK_LENGTH_M, SF_LAT, SF_LON, TRACK_PTS (lat, lon pairs)
@@ -31,6 +32,12 @@ bool DisplayManager::splashRunning() const { return false; }
 const char* Storage::sessionFSName() { return "SD"; }
 bool RaceBoxBle::connected() { return btConnected; }
 void Power::backlight(bool) {}
+static SettingsData mockSettings = [] {
+  SettingsData s = settings::defaults();
+  s.setupDone = true;
+  return s;
+}();
+SettingsData Settings::get() { return mockSettings; }
 
 // As in SessionLog.cpp
 String formatLapTime(uint32_t ms, int decimals) {
@@ -171,7 +178,7 @@ int main(int argc, char** argv) {
   d.drawMenu(-1, gps, true, true);
   save(d, "04_menu");
   setGps(gps, false, 0, 0, 0, 0);
-  d.drawMenu(4, gps, false, false);  // BOOT navigation, Wi-Fi highlighted, no fix
+  d.drawMenu(5, gps, false, false);  // BOOT navigation, Wi-Fi highlighted, no fix
   save(d, "05_menu_boot_nofix");
   setGps(gps, true, SF_LAT + 0.02, SF_LON, 0, 0);
   d.drawTrackSelect(track, 24, 131, 2210, gps, true);
@@ -211,6 +218,13 @@ int main(int argc, char** argv) {
   drive(loop.length * 2 + 900);  // into lap 3, on a faster pace than lap 2
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "09_running_ahead");
+  mockSettings.bigNumber = BigNumber::Delta;  // the Big number setting
+  d.drawRunning(track, timer, gps, ov, 0);
+  save(d, "09b_running_big_delta");
+  mockSettings.bigNumber = BigNumber::Predicted;
+  d.drawRunning(track, timer, gps, ov, 0);
+  save(d, "09c_running_big_predicted");
+  mockSettings.bigNumber = BigNumber::LapTime;
   d.drawRunningMap(track, timer, gps, ov, 0);
   save(d, "10_map");
   drive(loop.length * 4 + 1200);  // lap 5, slower
@@ -219,6 +233,10 @@ int main(int argc, char** argv) {
   ov.deltaMs = 380;
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "11_running_behind_split");
+  mockSettings.bigNumber = BigNumber::Delta;
+  d.drawRunning(track, timer, gps, ov, 0);
+  save(d, "11b_running_big_delta_behind");
+  mockSettings.bigNumber = BigNumber::LapTime;
   ov = RunningOverlay();
   const Lap* best = timer.bestLap();
   ov.showLap = true;
@@ -260,6 +278,12 @@ int main(int argc, char** argv) {
   save(d, "18_free_roam");
   d.drawFreeRoamSummary(fr, fr.elapsedMs(mockMillis), "/sessions/20261019_101500_freeroam.json");
   save(d, "19_free_roam_summary");
+  mockSettings.units = SpeedUnits::Mph;  // the Speed units setting
+  d.drawFreeRoam(fr, gps, 0);
+  save(d, "19b_free_roam_mph");
+  d.drawGpsWait(gps, 131, "SD", true, true);
+  save(d, "19c_gps_status_mph");
+  mockSettings.units = SpeedUnits::Kmh;
 
   // --- Performance: a launch to 205 km/h and a stop, through the real PerfRun ---
   perf::PerfRun pr;
@@ -287,6 +311,8 @@ int main(int argc, char** argv) {
   if (!pr.results().empty()) {
     d.drawPerfCard(pr, 0, perf::SpeedUnit::Kmh, true);
     save(d, "22_perf_card");
+    d.drawPerfCard(pr, 0, perf::SpeedUnit::Mph, true);  // what main.cpp passes with the Speed units setting on mph
+    save(d, "22b_perf_card_mph");
     d.drawPerfCard(pr, (int)pr.results().size() - 1, perf::SpeedUnit::Kmh, true);
     save(d, "23_perf_card_last");
   }
@@ -304,6 +330,30 @@ int main(int argc, char** argv) {
   save(d, "28_firmware_prompt");
   d.drawFirmwareProgress(42);
   save(d, "29_firmware_progress");
+
+  // --- Settings and the first-boot questions ---
+  SettingsData s = mockSettings;
+  s.utcOffsetMin = -240;
+  s.brightness = 70;
+  for (int i = 0; i <= SETTING_ITEM_COUNT; i++) {
+    char name[32];
+    snprintf(name, sizeof(name), "3%d_settings_%d", i < 10 ? 0 : 1, i);
+    d.drawSettings(s, i, true, (int64_t)(14 * 3600 + 5 * 60) * 1000);
+    save(d, name);
+  }
+  d.drawSettings(s, 1, false, -1);
+  save(d, "32_settings_boot_only");
+  d.drawSetup(0, 0, true);
+  save(d, "40_setup_which_way_up");
+  d.drawSetup(0, 1, false);
+  save(d, "41_setup_which_way_up_boot");
+  d.drawSetup(1, 0, true);
+  save(d, "42_setup_units");
+  d.drawSetup(1, 1, false);
+  save(d, "43_setup_units_boot");
+  setGps(gps, true, SF_LAT + 0.002, SF_LON, 0, 0);
+  d.drawMenu(4, gps, false, false);  // BOOT navigation, Settings highlighted
+  save(d, "44_menu_settings_highlighted");
   printf("render_screens: laps %d, best %s\n", (int)timer.lapCount(), formatLapTime(timer.bestLap()->timeMs).c_str());
   return 0;
 }

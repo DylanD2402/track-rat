@@ -7,6 +7,7 @@
 #include "SessionLog.h"
 #include "Storage.h"
 #include "RaceBoxBle.h"
+#include "Settings.h"
 #include "UiTheme.h"
 #include "fonts/InterBody.h"
 #include "fonts/InterButton.h"
@@ -35,7 +36,8 @@ static uint16_t readBackground(uint16_t x, uint16_t y) {
 
 bool DisplayManager::begin() {
   tft.init();
-  tft.setRotation(DISPLAY_ROTATION);
+  rotation = Settings::get().rotation;  // the Screen setting: normal or upside down
+  tft.setRotation(rotation);
   tft.invertDisplay(DISPLAY_INVERT);
   tft.fillScreen(C_BG);
   setBacklight(true);
@@ -330,7 +332,7 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
   int x = vx + text(gps.hasFix() ? "Locked" : "Searching…", vx, y, Font::Body, gps.hasFix() ? C_GREEN : C_YELLOW, ML_DATUM);
   if (gps.hasFix() && lf.accuracyKnown()) {
     x += 12 + text(accuracyText(lf.hAccM), x + 12, y, Font::Body, accuracyColor(lf.hAccM), ML_DATUM);
-    snprintf(buf, sizeof(buf), lf.fixType == 2 ? "±%.1f km/h  2D" : "±%.1f km/h", lf.speedAccMs * 3.6f);
+    snprintf(buf, sizeof(buf), lf.fixType == 2 ? "±%.1f %s  2D" : "±%.1f %s", Settings::speed(lf.speedAccMs * 3.6f), Settings::speedUnit());
     text(fit(buf, Font::Body, vx + vw - x - 12), x + 12, y, Font::Body, C_TEXT, ML_DATUM);
   }
   gfx->drawFastHLine(cx + 12, y + rowH / 2, cw - 24, C_LINE);
@@ -447,6 +449,12 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   char buf[40];
   header(runningTitle(track, timer), &gps);
 
+  // The Big number setting: what gets the largest digits. Delta and predicted
+  // lap need a live delta against a best lap; until then it's the lap time.
+  const int32_t liveDelta = gps.hasFix() ? timer.liveDeltaMs() : NO_DELTA;  // without a fix it's stale
+  const bool haveDelta = deltaShown(liveDelta, timer.lapRunning()) && timer.bestLap();
+  const BigNumber big = settings::bigNumberShown(Settings::get().bigNumber, haveDelta);
+
   // --- big time area (y 28..106) ---
   const int top = HEADER_H + 4;
   if (ov.showLap) {
@@ -456,10 +464,19 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
     snprintf(buf, sizeof(buf), ov.lapIsBest ? "LAP %d  ·  BEST LAP" : "LAP %d", ov.lapNumber);
     text(buf, W / 2, top + 8, Font::Caption, fg, TC_DATUM);
     text(formatLapTime(ov.lapMs, 3), W / 2, top + 26, Font::NumL, fg, TC_DATUM);
+  } else if (big == BigNumber::Delta) {
+    // The live diff on a full-width band, as the diff box below does it: green ahead, red behind
+    gfx->fillRoundRect(4, top, W - 8, 74, CORNER, liveDelta <= 0 ? C_GREEN : C_RED);
+    String t = deltaText(liveDelta);
+    Font f = textWidth(t, Font::NumXL) <= W - 24 ? Font::NumXL : Font::NumL;
+    text(t, W / 2, f == Font::NumXL ? top - 1 : top + 12, f, C_BG, TC_DATUM);
   } else if (timer.lapRunning()) {
-    String t = formatLapTime(timer.currentLapMs(millis()), 1);
+    const bool predicted = big == BigNumber::Predicted;
+    String t = formatLapTime(predicted ? settings::predictedLapMs(timer.bestLap()->timeMs, liveDelta)
+                                       : timer.currentLapMs(millis()), 1);
     Font f = textWidth(t, Font::NumXL) <= W - 10 ? Font::NumXL : Font::NumL;
     text(t, W / 2, f == Font::NumXL ? top + 8 : top + 18, f, C_TEXT, TC_DATUM);
+    if (predicted) label("PREDICTED", 12, top);
   } else {
     centered("Out lap", top + 16, Font::Title, C_YELLOW);
     centered("Cross the start/finish line to begin timing", top + 48, Font::Body, C_TEXT2);
@@ -476,8 +493,15 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   text(best ? formatLapTime(best->timeMs) : String("–"), W / 2 + 12, rowY + 15, Font::Title,
        best ? C_GREEN : C_TEXT3);
 
-  // --- live diff box (y 156..236) ---
-  diffBox(gps.hasFix() ? timer.liveDeltaMs() : NO_DELTA, timer.lapRunning(), ov);  // without a fix it's stale
+  // --- live diff box (y 156..236); with the delta as the big number, the lap time goes here ---
+  if (big == BigNumber::Delta && !ov.showLap) {
+    const int x = 4, y = 156, w = W - 8, h = H - 156 - 4;
+    gfx->fillRoundRect(x, y, w, h, CORNER + 2, C_SURFACE);
+    label("LAP TIME", x + 12, y + 9);
+    text(formatLapTime(timer.currentLapMs(millis()), 1), W / 2, y + 23, Font::NumL, C_TEXT, TC_DATUM);
+  } else {
+    diffBox(liveDelta, timer.lapRunning(), ov);
+  }
 
   runningOverlays(gps, holdMs, &ov);
   endFrame();
@@ -725,8 +749,10 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
     text(items[i].d1, mid, top + 82, Font::Caption, C_TEXT2, TC_DATUM);
     text(items[i].d2, mid, top + 96, Font::Caption, C_TEXT2, TC_DATUM);
   }
-  button(4, MENU_WIFI_Y, 2 * bw - 8, MENU_ROW_H, "Performance", false, highlight == 3);
-  wifiButton(MENU_WIFI_Y, MENU_ROW_H, highlight == 4);
+  // The second row, in thirds like the taps: Performance, Settings, Wi-Fi
+  button(4, MENU_WIFI_Y, bw - 8, MENU_ROW_H, "Performance", false, highlight == 3);
+  button(bw + 4, MENU_WIFI_Y, bw - 8, MENU_ROW_H, "Settings", false, highlight == 4);
+  wifiButton(MENU_WIFI_Y, MENU_ROW_H, highlight == 5);
   if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 196, Font::Caption, C_YELLOW);
   centered(touchOk ? "Tap a mode   ·   top bar: GPS status" : "BOOT: press for next, hold to choose", 216, Font::Body,
            C_TEXT3);
@@ -750,8 +776,8 @@ void DisplayManager::drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uin
   text(formatDuration(fr.elapsedMs(millis())), PANEL_X + 2, y + 14, Font::Title, C_TEXT);
 
   y += 50;
-  label("KM/H", PANEL_X + 2, y);
-  text(String((long)lroundf(gps.lastFix().speedKmh)), PANEL_X + 2, y + 16, Font::NumL, C_TEXT);
+  label(Settings::get().units == SpeedUnits::Mph ? "MPH" : "KM/H", PANEL_X + 2, y);
+  text(String((long)lroundf(Settings::speed(gps.lastFix().speedKmh))), PANEL_X + 2, y + 16, Font::NumL, C_TEXT);
 
   y += 66;
   label("DISTANCE", PANEL_X + 2, y);
@@ -759,7 +785,7 @@ void DisplayManager::drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uin
   snprintf(buf, sizeof(buf), "%.1f km", fr.distanceKm());
   text(buf, PANEL_X + 2, y + 14, Font::Title, C_TEXT);
 
-  snprintf(buf, sizeof(buf), "Top %.0f km/h", fr.topSpeedKmh());
+  snprintf(buf, sizeof(buf), "Top %.0f %s", Settings::speed(fr.topSpeedKmh()), Settings::speedUnit());
   text(buf, PANEL_X + 2, H - 24, Font::Caption, C_TEXT2, BL_DATUM);
   text("Hold to end", PANEL_X + 2, H - 6, Font::Caption, C_TEXT3, BL_DATUM);
 
@@ -779,9 +805,9 @@ void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs
   struct Row { const char* label; String value; };
   snprintf(buf, sizeof(buf), "%.2f km", fr.distanceKm());
   String dist = buf;
-  snprintf(buf, sizeof(buf), "%.0f km/h", fr.topSpeedKmh());
+  snprintf(buf, sizeof(buf), "%.0f %s", Settings::speed(fr.topSpeedKmh()), Settings::speedUnit());
   String top = buf;
-  snprintf(buf, sizeof(buf), "%.0f km/h", fr.avgMovingKmh());
+  snprintf(buf, sizeof(buf), "%.0f %s", Settings::speed(fr.avgMovingKmh()), Settings::speedUnit());
   String avg = buf;
   const Row rows[4] = {{"TIME", formatDuration(durationMs)}, {"DISTANCE", dist}, {"TOP SPEED", top}, {"AVERAGE", avg}};
   int y = MAP_Y + 4;
@@ -805,10 +831,10 @@ void DisplayManager::drawSetLine(const Track& track, const GPSHandler& gps, uint
   centered("Lap 1 starts at that moment", HEADER_H + 96, Font::Caption, C_TEXT2);
 
   char buf[24];
-  snprintf(buf, sizeof(buf), "%.0f", gps.lastFix().speedKmh);
+  snprintf(buf, sizeof(buf), "%.0f", Settings::speed(gps.lastFix().speedKmh));
   int w = textWidth(buf, Font::NumL);
   text(buf, W / 2 - 14, 154, Font::NumL, C_TEXT, TC_DATUM);
-  label("KM/H", W / 2 - 14 + w / 2 + 8, 154 + 37, BL_DATUM);
+  label(Settings::get().units == SpeedUnits::Mph ? "MPH" : "KM/H", W / 2 - 14 + w / 2 + 8, 154 + 37, BL_DATUM);
   text(gps.hasFix() ? "GPS ready" : "Waiting for a GPS fix…", 12, H - 8, Font::Caption,
        gps.hasFix() ? C_GREEN : C_YELLOW, BL_DATUM);
   text("Hold to end", W - 12, H - 8, Font::Caption, C_TEXT3, BR_DATUM);
@@ -845,7 +871,7 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
     text(buf, 20, y, Font::Body, C_TEXT2, ML_DATUM);
     text(formatLapTime(l.timeMs), 92, y, Font::Body, isBest ? C_GREEN : C_TEXT, ML_DATUM);
     if (isBest) text("BEST", 168, y, Font::Caption, C_GREEN, ML_DATUM);
-    snprintf(buf, sizeof(buf), "top %.0f km/h", l.maxSpeedKmh);
+    snprintf(buf, sizeof(buf), "top %.0f %s", Settings::speed(l.maxSpeedKmh), Settings::speedUnit());
     text(buf, W - 20, y, Font::Body, C_TEXT3, MR_DATUM);
     if (rows < maxRows - 1 && i > 0) gfx->drawFastHLine(20, y + rowH / 2, W - 40, C_LINE);
     y += rowH;

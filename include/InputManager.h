@@ -26,9 +26,12 @@ public:
   uint32_t touchHeldMs() const;
   // Screen y of the last tap, for screens with more than one row of buttons.
   int16_t lastTapY() const { return tapY; }
+  // The screen is upside down (rotation other than DISPLAY_ROTATION): turn touches round with it.
+  void setUpsideDown(bool on) { flipped = on; }
 
 private:
   bool touchOk = false;
+  bool flipped = false;
   uint32_t lastPoll = 0;
 
   bool touching = false;

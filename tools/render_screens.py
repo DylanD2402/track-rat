@@ -2,7 +2,7 @@
 Renders every screen to PNG on your PC, so screen changes can be checked
 without flashing the board.
 
-Builds the real display code (src/DisplayManager.cpp, DisplayPerf.cpp,
+Builds the real display code (src/DisplayManager.cpp, DisplayPerf.cpp, DisplaySettings.cpp,
 DisplayPower.cpp) against a stand-in for TFT_eSPI (tools/screens/mock), drives
 a simulated car round a track from data/tracks.json through the real
 LapTimer, and saves each screen. Text is drawn the way TFT_eSPI draws it, with
@@ -31,6 +31,7 @@ SOURCES = [
     os.path.join(ROOT, "src", "DisplayManager.cpp"),
     os.path.join(ROOT, "src", "DisplayPerf.cpp"),
     os.path.join(ROOT, "src", "DisplayPower.cpp"),
+    os.path.join(ROOT, "src", "DisplaySettings.cpp"),
     os.path.join(ROOT, "src", "LapTimer.cpp"),
     os.path.join(ROOT, "src", "GpsSource.cpp"),
     os.path.join(ROOT, "src", "UbxParser.cpp"),

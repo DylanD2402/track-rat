@@ -18,6 +18,8 @@ static NimBLECharacteristic* tx = nullptr;
 static volatile bool isConnected = false;
 static String name;
 static uint32_t sent = 0;
+static bool started = false;  // begin() has run
+static bool enabled = false;  // the Bluetooth setting is on
 
 // A read-only text characteristic. As a std::string: NimBLE's setValue(const T&)
 // would send a string literal with its terminating zero, and a char pointer
@@ -75,10 +77,34 @@ void begin() {
   adv->setScanResponse(true);
   adv->start();
   DEBUG_PRINTF("BLE: advertising as \"%s\"\n", name.c_str());
+  started = true;
+  enabled = true;
+}
+
+// Off disconnects the phone and stops advertising; on advertises again.
+// NimBLE is never shut down: restarting it isn't reliable on this core.
+void setEnabled(bool on) {
+  if (on == enabled) return;
+  if (on && !started) {
+    begin();
+    return;
+  }
+  if (!started) return;
+  enabled = on;
+  NimBLEServer* server = NimBLEDevice::getServer();
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  server->advertiseOnDisconnect(on);
+  if (on) {
+    adv->start();
+  } else {
+    adv->stop();
+    for (uint16_t handle : server->getPeerDevices()) server->disconnect(handle);
+  }
+  DEBUG_PRINTF("BLE: %s\n", on ? "on" : "off");
 }
 
 void sendFix(const GpsFix& fix, const GPSHandler& gps) {
-  if (!tx || !isConnected) return;
+  if (!enabled || !tx || !isConnected) return;
 
   RaceBoxFix f = {};
   f.dateValid = fix.year != 0;

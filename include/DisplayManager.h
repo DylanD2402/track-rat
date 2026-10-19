@@ -18,6 +18,7 @@
 #include "GPSHandler.h"
 #include "LapTimer.h"
 #include "PerfRun.h"
+#include "SettingsData.h"
 #include "TrackDatabase.h"
 
 struct RunningOverlay {
@@ -60,7 +61,7 @@ public:
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                       const RunningOverlay& overlay, uint32_t holdMs);
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath);
-  // Mode menu: highlight is for BOOT-button navigation (0..4, 3 = Performance, 4 = Wi-Fi)
+  // Mode menu: highlight is for BOOT-button navigation (0..5: the three tiles, then Performance, Settings, Wi-Fi)
   void drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk);
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
@@ -81,6 +82,13 @@ public:
   void drawWifi(bool wifiOn, const String& network, const String& address, int phones, int uploadCode,
                 int progress, bool restarting, bool touchOk);
 
+  // Settings (DisplaySettings.cpp). The screen turns round at once when the Screen setting changes.
+  void setRotation(uint8_t r);
+  // One item at a time; item == SETTING_ITEM_COUNT is the "done" page. localMs: local time of day, or -1.
+  void drawSettings(const SettingsData& s, int item, bool touchOk, int64_t localMs);
+  // First boot: step 0 asks which way up (highlight 0 = the left arrow, 1 = the right), step 1 km/h or mph.
+  void drawSetup(int step, int highlight, bool touchOk);
+
   // WI-FI buttons, in the right third: on the menu from MENU_WIFI_Y to
   // MENU_WIFI_Y + MENU_ROW_H, on the summaries from WIFI_BUTTON_Y to the bottom
   static constexpr int MENU_WIFI_Y = 154;
@@ -96,6 +104,8 @@ private:
   uint16_t* shown = nullptr;  // copy of the panel contents (PSRAM)
   bool shownValid = false;
   int batteryPct = -1;
+  uint8_t rotation = DISPLAY_ROTATION;
+  void flipBand(int y, int h);  // turns rows y..y+h-1 of the frame upside down (for the setup screen)
 
   int loadedFont = -1;
   void useFont(Font f);

@@ -12,12 +12,12 @@
 #include "Config.h"
 #include "FirmwareUpdate.h"
 #include "PortalLogic.h"
+#include "Settings.h"
 #include "Storage.h"
 #include <ArduinoJson.h>
 #include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
-#include <Preferences.h>
 #include <SD_MMC.h>
 #include <Update.h>
 #include <WiFi.h>
@@ -73,44 +73,60 @@ static bool tracksOk = false;
 static String tracksError;
 
 // ---------------------------------------------------------------------------
-// Time zone from the phone. The page sends it every time it loads, and
-// session files are named in this local time (see GPSHandler::timestampString).
-// The Settings module (separate branch) should take this over: replace the
-// body with a call into it and keep the /api/time handler as it is.
+// Time zone from the phone. The page sends it every time it loads; it is
+// the Time zone setting, which names session files in local time (see
+// GPSHandler::timestampString). Settings keeps it in flash.
 
-static const char* TZ_PREFS_NAMESPACE = "trackrat";
-static const char* TZ_PREFS_KEY = "tz_min";
-
-// minutesEastOfUtc: e.g. -240 for EDT, 60 for CET
-static volatile int tzCache = 0;
-static volatile bool tzLoaded = false;
+int timeZoneOffset() { return Settings::get().utcOffsetMin; }
 
 static void saveTimeZoneOffset(int minutesEastOfUtc) {
-  tzCache = minutesEastOfUtc;
-  tzLoaded = true;
-  Preferences prefs;
-  if (!prefs.begin(TZ_PREFS_NAMESPACE, false)) return;
-  if (!prefs.isKey(TZ_PREFS_KEY) || prefs.getShort(TZ_PREFS_KEY, 0) != minutesEastOfUtc) {
-    prefs.putShort(TZ_PREFS_KEY, (int16_t)minutesEastOfUtc);
-    DEBUG_PRINTF("Wi-Fi: time zone set to UTC%+d min\n", minutesEastOfUtc);
-  }
-  prefs.end();
+  SettingsData s = Settings::get();
+  if (s.utcOffsetMin == minutesEastOfUtc) return;
+  s.utcOffsetMin = (int16_t)minutesEastOfUtc;
+  Settings::set(s);
+  DEBUG_PRINTF("Wi-Fi: time zone set to UTC%+d min\n", Settings::get().utcOffsetMin);
 }
 
-static int savedTimeZoneOffset() {
-  if (tzLoaded) return tzCache;
-  Preferences prefs;
-  int tz = 0;
-  if (prefs.begin(TZ_PREFS_NAMESPACE, true)) {
-    tz = prefs.getShort(TZ_PREFS_KEY, 0);
-    prefs.end();
+// ---------------------------------------------------------------------------
+// Settings tab: GET /api/settings sends them, POST changes any of them by name
+// (the names and values are in SettingsData.h). Changing them needs the
+// upload code on the screen, like an upload: the network is open, and only
+// someone who can see Track Rat should be able to turn its screen upside down.
+
+static void sendSettings(AsyncWebServerRequest* req, int code, bool restartNeeded) {
+  char json[400];
+  size_t n = settings::toJson(Settings::get(), json, sizeof(json));
+  if (!n) {
+    req->send(500, "text/plain", "Settings didn't fit in the reply");
+    return;
   }
-  tzCache = tz;
-  tzLoaded = true;
-  return tz;
+  json[n - 1] = 0;  // drop the closing brace to add one more field
+  String out = json;
+  out += restartNeeded ? ",\"restartNeeded\":true}" : ",\"restartNeeded\":false}";
+  req->send(code, "application/json", out);
 }
 
-int timeZoneOffset() { return savedTimeZoneOffset(); }
+static void onSettingsPost(AsyncWebServerRequest* req) {
+  if (!uploadCode.check(req->arg("code").c_str())) {
+    req->send(403, "text/plain",
+              uploadCode.locked() ? "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code."
+                                  : "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
+    return;
+  }
+  const SettingsData before = Settings::get();
+  SettingsData s = before;
+  for (size_t i = 0; i < req->params(); i++) {
+    const AsyncWebParameter* p = req->getParam(i);
+    if (p->name() == "code") continue;
+    if (!settings::setField(s, p->name().c_str(), p->value().c_str())) {
+      req->send(400, "text/plain", "Can't set " + p->name() + " to \"" + p->value() + "\"");
+      return;
+    }
+  }
+  Settings::set(s);  // main.cpp's loop applies it (screen, backlight, Bluetooth)
+  DEBUG_PRINTLN("Wi-Fi: settings changed from the page");
+  sendSettings(req, 200, settings::needsRestart(before, s));
+}
 
 // ---------------------------------------------------------------------------
 
@@ -288,7 +304,7 @@ static void sendInfo(AsyncWebServerRequest* req) {
   doc["uptimeS"] = millis() / 1000;
   doc["freeHeap"] = ESP.getFreeHeap();
   doc["freePsram"] = ESP.getFreePsram();
-  doc["tzMin"] = savedTimeZoneOffset();
+  doc["tzMin"] = timeZoneOffset();
   doc["sessionsOn"] = Storage::sessionFSName();
 
   const StorageSpace& sp = storageSpace();
@@ -314,6 +330,7 @@ static void sendInfo(AsyncWebServerRequest* req) {
   gps["ubx"] = g.ubx;
   gps["rateHz"] = g.rateHz;
   gps["speedKmh"] = g.speedKmh;
+  doc["units"] = Settings::get().units == SpeedUnits::Mph ? "mph" : "kmh";  // the Speed units setting
   gps["rxPin"] = g.rxPin;
   gps["baud"] = g.baud;
   if (g.fix) {
@@ -515,7 +532,7 @@ static void setupRoutes() {
   // Sent a piece at a time (see SessionList). The reply holds the list, so its
   // folder is closed when the reply ends or the phone goes away.
   s.on("/api/sessions", HTTP_GET, [](AsyncWebServerRequest* req) {
-    std::shared_ptr<SessionList> list = std::make_shared<SessionList>(savedTimeZoneOffset());
+    std::shared_ptr<SessionList> list = std::make_shared<SessionList>(timeZoneOffset());
     req->sendChunked("application/json",
                      [list](uint8_t* buf, size_t maxLen, size_t) { return list->fill(buf, maxLen); });
   });
@@ -572,7 +589,9 @@ static void setupRoutes() {
     rebootAt = millis() + 1000;
   });
 
-  // Settings page: add GET/POST /api/settings here once the Settings module lands.
+  // The Settings tab
+  s.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest* req) { sendSettings(req, 200, false); });
+  s.on("/api/settings", HTTP_POST, onSettingsPost);
 
   s.onNotFound([](AsyncWebServerRequest* req) {
     if (redirectToPortal(req)) return;

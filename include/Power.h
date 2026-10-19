@@ -22,7 +22,10 @@ int batteryPercent();               // 0..100, or -1 when no battery is fitted
 int batteryMillivolts();            // 0 when no battery is fitted
 bool batteryLow(uint32_t nowMs);    // low for long enough to save and sleep
 
+// Backlight on (at the brightness set below) or off.
 void backlight(bool on);
+// Brightness for the backlight when it's on, 10..100 percent (the Brightness setting).
+void setBrightness(uint8_t percent);
 
 // Backlight off, then deep sleep until BOOT is pressed or the screen is touched. Does not return.
 // The caller has already saved any session.

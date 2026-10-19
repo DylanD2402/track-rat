@@ -5,6 +5,7 @@
 #include "Power.h"
 #include "Battery.h"
 #include "Config.h"
+#include "SettingsData.h"
 #include "driver/gpio.h"
 #include "esp_sleep.h"
 
@@ -78,13 +79,38 @@ int batteryPercent() { return BATTERY_ENABLED ? monitor.percent() : -1; }
 int batteryMillivolts() { return BATTERY_ENABLED ? monitor.millivolts() : 0; }
 bool batteryLow(uint32_t nowMs) { return BATTERY_ENABLED && monitor.low(nowMs); }
 
-void backlight(bool on) {
+// The backlight pin is PWM (LEDC) while it's on, so it can be dimmed, and a
+// plain low output while it's off, which deep sleep can hold.
+static uint8_t brightnessPct = 100;
+static bool backlightOn = false;
+
+static void writeBacklight() {
 #ifdef TFT_BL
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, on ? HIGH : LOW);
-#else
-  (void)on;
+  static bool ledcReady = false;
+  if (!ledcReady) {
+    ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_HZ, BACKLIGHT_PWM_BITS);
+    ledcReady = true;
+  }
+  if (backlightOn) {
+    ledcAttachPin(TFT_BL, BACKLIGHT_PWM_CHANNEL);
+    ledcWrite(BACKLIGHT_PWM_CHANNEL, settings::backlightDuty(brightnessPct, (1u << BACKLIGHT_PWM_BITS) - 1));
+  } else {
+    ledcDetachPin(TFT_BL);
+    pinMode(TFT_BL, OUTPUT);
+    digitalWrite(TFT_BL, LOW);
+  }
 #endif
+}
+
+void backlight(bool on) {
+  backlightOn = on;
+  writeBacklight();
+}
+
+void setBrightness(uint8_t percent) {
+  if (percent == brightnessPct) return;
+  brightnessPct = percent;
+  if (backlightOn) writeBacklight();  // off stays off (screen asleep): the new level shows when it wakes
 }
 
 void deepSleep() {

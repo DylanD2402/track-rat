@@ -26,6 +26,8 @@
 #include "PerfRun.h"
 #include "RaceBoxBle.h"
 #include "SessionLog.h"
+#include "Settings.h"
+#include "SettingsFlow.h"
 #include "SimTrack.h"
 #include "SleepTimer.h"
 #include "Storage.h"
@@ -34,10 +36,11 @@
 #include "UiTheme.h"
 #include "WifiPortal.h"
 
-enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi };
+enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
+                      Setup, SettingsScreen };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
-                                    "WIFI"};
+                                    "WIFI",     "SETUP",      "SETTINGS"};
 
 static DisplayManager display;
 static GPSHandler gps;
@@ -83,6 +86,7 @@ static uint32_t layoutNoticeUntil = 0;
 // Free Roam
 static String freeRoamPath;
 static uint32_t freeRoamDurationMs = 0;
+static bool freeRoamSaved = true;  // the Record road drives setting when the drive started
 
 // Performance runs (acceleration and braking)
 enum class PerfView { Live, Card, Best };
@@ -93,7 +97,12 @@ static bool perfRollout = PERF_ROLLOUT_DEFAULT;
 static bool perfDemo = false;       // bench test: a simulated car launches and brakes on repeat
 static String perfPath;
 static String perfStamp;
-static const perf::SpeedUnit PERF_UNITS = PERF_UNITS_MPH ? perf::SpeedUnit::Mph : perf::SpeedUnit::Kmh;
+static perf::SpeedUnit perfUnits() { return Settings::get().units == SpeedUnits::Mph ? perf::SpeedUnit::Mph : perf::SpeedUnit::Kmh; }
+
+// Settings screen and the first-boot questions (the rules are in SettingsFlow.h)
+static SettingsScreenState settingsUi;
+static SetupState setupUi;
+static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
 
 static uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
@@ -256,13 +265,16 @@ static void enterState(AppState next) {
     freeRoam.start(millis());
     sessionStamp = gps.timestampString();
     startSessionFiles();
-    DEBUG_PRINTLN("Free roam started");
+    freeRoamSaved = Settings::get().recordRoadDrives;  // Record road drives off: shown, but nothing saved
+    if (!freeRoamSaved) logPending = false;
+    DEBUG_PRINTF("Free roam started%s\n", freeRoamSaved ? "" : " (not saved: Record road drives is off)");
   }
   if (state == AppState::FreeRoam && next != AppState::FreeRoam) {
     freeRoamDurationMs = freeRoam.elapsedMs(millis());
-    String path = summaryPath("freeroam");
-    freeRoamPath =
-        SessionLog::saveFreeRoam(path, sessionStamp, freeRoam, freeRoamDurationMs, sessionLog) ? path : String();
+    String path = freeRoamSaved ? summaryPath("freeroam") : String();
+    freeRoamPath = path.length() && SessionLog::saveFreeRoam(path, sessionStamp, freeRoam, freeRoamDurationMs, sessionLog)
+                       ? path
+                       : String();
     SessionLog::endLog();
     logPending = false;
   }
@@ -525,10 +537,43 @@ static void chooseMenuItem(int item) {
       enterState(AppState::Performance);
       break;
     case 4:
+      settingsUi = SettingsScreenState();
+      enterState(AppState::SettingsScreen);
+      break;
+    case 5:
       enterState(AppState::Wifi);
       break;
   }
   lastRender = 0;
+}
+
+// Make the current settings take effect: the screen and touch the right way
+// up, the backlight, Bluetooth, and the time zone for file names. Called at
+// boot and whenever they change, from the screen or the Wi-Fi page.
+static void applySettings() {
+  const SettingsData s = Settings::get();
+  settingsApplied = Settings::changeCount();
+  display.setRotation(s.rotation);
+  input.setUpsideDown(settings::upsideDown(s));
+  Power::setBrightness(s.brightness);
+#if BLE_ENABLED
+  RaceBoxBle::setEnabled(s.bluetooth);
+#endif
+  gps.setUtcOffsetMinutes(s.utcOffsetMin);
+  lastRender = 0;
+}
+
+static Key toKey(InputEvent ev) {
+  switch (ev) {
+    case InputEvent::TapLeft: return Key::Left;
+    case InputEvent::TapCenter: return Key::Center;
+    case InputEvent::TapRight: return Key::Right;
+    case InputEvent::TapHeader: return Key::Header;
+    case InputEvent::Hold: return Key::Hold;
+    case InputEvent::BootShort: return Key::BootShort;
+    case InputEvent::BootLong: return Key::BootLong;
+    default: return Key::None;
+  }
 }
 
 // The WI-FI button, in the right third of the menu and summary screens
@@ -552,12 +597,12 @@ static void handleInput(InputEvent ev) {
       else if ((ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight) &&
                input.lastTapY() >= DisplayManager::MENU_WIFI_Y &&
                input.lastTapY() < DisplayManager::MENU_WIFI_Y + DisplayManager::MENU_ROW_H) {
-        chooseMenuItem(ev == InputEvent::TapRight ? 4 : 3);
+        chooseMenuItem(ev == InputEvent::TapLeft ? 3 : ev == InputEvent::TapCenter ? 4 : 5);  // Performance, Settings, Wi-Fi
       }
       else if (ev == InputEvent::TapLeft) chooseMenuItem(0);
       else if (ev == InputEvent::TapCenter) chooseMenuItem(1);
       else if (ev == InputEvent::TapRight) chooseMenuItem(2);
-      else if (ev == InputEvent::BootShort) menuHighlight = (menuHighlight + 1) % 5;
+      else if (ev == InputEvent::BootShort) menuHighlight = (menuHighlight + 1) % 6;
       else if (ev == InputEvent::BootLong) chooseMenuItem(menuHighlight);
       lastRender = 0;
       break;
@@ -659,6 +704,34 @@ static void handleInput(InputEvent ev) {
     case AppState::GpsStatus:
       if (ev != InputEvent::Hold) enterState(statusReturn);
       break;
+
+    case AppState::SettingsScreen: {
+      SettingsData s = Settings::get();
+      SettingsScreenState::Result r = settingsUi.handle(toKey(ev), s);
+      if (r == SettingsScreenState::Result::Changed) {
+        Settings::set(s);
+        applySettings();
+      } else if (r == SettingsScreenState::Result::Exit) {
+        enterState(AppState::Menu);
+      }
+      lastRender = 0;
+      break;
+    }
+
+    case AppState::Setup: {
+      SettingsData s = Settings::get();
+      if (setupUi.handle(toKey(ev), s)) {
+        Settings::set(s);
+        applySettings();  // the screen turns round as soon as the way up is chosen
+        if (s.setupDone) {
+          DEBUG_PRINTF("Setup: %s, %s\n", settings::upsideDown(s) ? "upside down" : "normal",
+                       s.units == SpeedUnits::Mph ? "mph" : "km/h");
+          enterState(AppState::GpsWait);
+        }
+      }
+      lastRender = 0;
+      break;
+    }
   }
 }
 
@@ -710,10 +783,19 @@ static void render() {
       if (perfRun.state() == perf::PerfRun::State::Go) perfView = PerfView::Live;  // a new run is on
       if (perfView == PerfView::Live) {
         const char* left = (!gps.hasFix() && !perfDemo) ? "Demo" : "1 ft";
-        display.drawPerfLive(perfRun, gps, PERF_UNITS, left, input.touchHeldMs(), input.touchAvailable());
+        display.drawPerfLive(perfRun, gps, perfUnits(), left, input.touchHeldMs(), input.touchAvailable());
       } else {
-        display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, PERF_UNITS, input.touchAvailable());
+        display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, perfUnits(), input.touchAvailable());
       }
+      break;
+    case AppState::SettingsScreen:
+      display.drawSettings(Settings::get(), settingsUi.item, input.touchAvailable(),
+                           gps.hasFix() ? (int64_t)settings::localTimeOfDayMs(gps.lastFix().gpsTimeMs,
+                                                                               Settings::get().utcOffsetMin)
+                                        : -1);
+      break;
+    case AppState::Setup:
+      display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());
       break;
     case AppState::Wifi:
       display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),
@@ -872,6 +954,8 @@ void setup() {
   DEBUG_PRINTF("PSRAM: %u bytes free\n", ESP.getFreePsram());
 
   Power::begin();
+  Settings::begin();  // before the display: it starts the right way up, at the saved brightness
+  Power::setBrightness(Settings::get().brightness);
   display.begin();
   display.startSplash();  // plays on the other core while the rest of setup runs
   display.drawBoot("Mounting storage...");
@@ -883,12 +967,9 @@ void setup() {
 
   display.drawBoot("Detecting GPS...");
   gps.begin();
-  gps.setUtcOffsetMinutes(WifiPortal::timeZoneOffset());  // files named in local time once a phone has set it
   input.beginExtButton(gps.rxPinUsed(), gps.txPinUsed());  // big button and LEDs sit on header pins the GPS may use
   LedBar::begin(gps.rxPinUsed(), gps.txPinUsed());
-#if BLE_ENABLED
-  RaceBoxBle::begin();
-#endif
+  applySettings();  // touch the right way up, Bluetooth if it's on, the time zone for file names
 
   addBenchTrack();
   SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut, in the background
@@ -903,7 +984,8 @@ void setup() {
   offerFirmwareUpdate();
   gps.update();
   state = AppState::GpsWait;
-  autoPickTrack();
+  if (!Settings::get().setupDone) enterState(AppState::Setup);  // first boot: which way up, km/h or mph
+  autoPickTrack();  // (waits for the setup questions: it only acts on the GPS wait and menu screens)
   if (state == AppState::GpsWait) enterState(AppState::GpsWait);
   sleepTimer.begin(millis());
 }
@@ -944,7 +1026,7 @@ void loop() {
 
   autoPickTrack();
   WifiPortal::loop(gps);
-  gps.setUtcOffsetMinutes(WifiPortal::timeZoneOffset());  // the page may have just sent a new one
+  if (Settings::changeCount() != settingsApplied) applySettings();  // e.g. changed on the Wi-Fi page
 
   Power::update(now);
   display.setBatteryPercent(Power::batteryPercent());

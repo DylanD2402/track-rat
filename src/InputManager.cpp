@@ -70,6 +70,12 @@ bool InputManager::readTouch(int16_t& x, int16_t& y) {
 #if TOUCH_INVERT_Y
   y = SCREEN_H - 1 - y;
 #endif
+  // The mapping above is for DISPLAY_ROTATION; with the screen turned the
+  // other way up (the Screen setting), the touch panel is too.
+  if (flipped) {
+    x = SCREEN_W - 1 - x;
+    y = SCREEN_H - 1 - y;
+  }
 
   static bool loggedThisTouch = false;
   if (!touching) loggedThisTouch = false;

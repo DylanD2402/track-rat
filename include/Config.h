@@ -21,7 +21,9 @@
 // Update rate vs satellite systems (u-blox M10 maximums): 4 systems 10 Hz,
 // 3: 16 Hz, 2: 20 Hz, GPS only: 25 Hz. More systems = more satellites = more
 // accurate fixes; faster = smoother map and live diff. 20 Hz + GPS/Galileo
-// is the usual lap-timer choice.
+// is the usual lap-timer choice. These are the GPS mode setting's "20 Hz"
+// (its default when GPS_TARGET_RATE_HZ is 20 or more); its other choice,
+// 10 Hz with all four systems, is for tracks lined with trees.
 #define GPS_TARGET_RATE_HZ 20
 #define GPS_SET_CONSTELLATIONS 1     // 0 = leave the module's satellite systems alone
 #define GPS_USE_GALILEO 1
@@ -43,9 +45,26 @@
 #endif
 
 // ---------------------------------------------------------------------------
+// Settings: changed on the device (Menu -> Settings) or the Wi-Fi page, and
+// kept in flash. These are what a new unit starts with. Rotation, GPS mode
+// and Bluetooth take theirs from DISPLAY_ROTATION, GPS_TARGET_RATE_HZ and
+// BLE_ENABLED (0 leaves Bluetooth out of the build). Pins stay in this file.
+// ---------------------------------------------------------------------------
+#define DEFAULT_SPEED_MPH 0          // 0 = km/h, 1 = mph (also on the Performance screens)
+#define DEFAULT_BRIGHTNESS_PCT 100   // 10..100
+#define DEFAULT_COMPARE_TO 2         // 0 = best of the day, 1 = best ever, 2 = this session
+#define DEFAULT_BIG_NUMBER 2         // 0 = delta, 1 = predicted lap, 2 = lap time
+#define DEFAULT_UTC_OFFSET_MIN 0     // minutes east of UTC, for file names
+#define DEFAULT_RECORD_ROAD_DRIVES 1 // 0 = Free Roam drives aren't saved
+
+// ---------------------------------------------------------------------------
 // Display (ILI9341V 240x320, used in landscape 320x240)
 // ---------------------------------------------------------------------------
-#define DISPLAY_ROTATION 1           // 1 or 3 for landscape
+#define DISPLAY_ROTATION 1           // 1 or 3 for landscape: "right way up". The Screen setting's
+                                     // "upside down" uses the other one; the touch mapping below is for this one
+#define BACKLIGHT_PWM_CHANNEL 7      // LEDC channel dimming the backlight pin (TFT_BL, IO45)
+#define BACKLIGHT_PWM_HZ 5000
+#define BACKLIGHT_PWM_BITS 10
 #define DISPLAY_INVERT 1             // IPS panel: if the background shows WHITE, set to 0
 #define DISPLAY_FPS 10
 #define SPLASH_ENABLED 1             // logo animation at start-up (BOOT skips it)
@@ -115,7 +134,6 @@
 // ---------------------------------------------------------------------------
 // Performance runs (acceleration and braking)
 // ---------------------------------------------------------------------------
-#define PERF_UNITS_MPH 0                 // 1 = show speeds in mph (the settings page will switch this)
 #define PERF_ROLLOUT_DEFAULT 0           // 1 = start the clock after 1 foot of rollout (drag-strip style)
 
 // ---------------------------------------------------------------------------
