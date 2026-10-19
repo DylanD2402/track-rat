@@ -4,6 +4,7 @@
 
 #include "SessionReplay.h"
 #include <stdlib.h>
+#include "LayoutMatch.h"
 
 void SessionReplay::setUpFromHeader() {
   setUp = true;
@@ -27,6 +28,18 @@ void SessionReplay::setUpFromHeader() {
     timed = true;
   } else if (lookup && lookup(trackId, sf, splits)) {
     timed = true;
+  }
+  // Switched to another layout at the same line: every lap is timed with its
+  // splits, as the layout check found the driver on it from the first lap.
+  TrackPoint toSf = {0, 0, 0, 0, HeadingFrom::None};
+  std::vector<TrackPoint> toSplits;
+  if (timed && summaryTrackId.size() && summaryTrackId != trackId && lookup &&
+      lookup(summaryTrackId, toSf, toSplits) && layout::sharesLine(sf, toSf)) {
+    sf = toSf;
+    splits = toSplits;
+    trackId = summaryTrackId;
+    trackName.clear();  // the header's is the old layout's; the track list has this one's
+    switchedLayout = true;
   }
   long minLap = atol(rdr.comment("Min lap ms").c_str());
   if (timed) timer.begin(sf, splits, minLap > 0 ? (uint32_t)minLap : (uint32_t)MIN_LAP_TIME_MS);

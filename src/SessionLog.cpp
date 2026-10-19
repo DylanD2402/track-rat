@@ -293,6 +293,19 @@ static bool summaryFinished(fs::FS& fs, const String& jsonPath) {
   return !err && (doc["finished"] | false);
 }
 
+// The track the summary names: empty if there's no summary or it can't be read.
+static std::string summaryTrack(fs::FS& fs, const String& jsonPath) {
+  if (!fs.exists(jsonPath)) return std::string();
+  File f = fs.open(jsonPath, "r");
+  if (!f) return std::string();
+  StaticJsonDocument<32> filter;
+  filter["track"] = true;
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+  f.close();
+  return err ? std::string() : std::string(doc["track"] | "");
+}
+
 static bool validJson(fs::FS& fs, const String& path) {
   File f = fs.open(path, "r");
   if (!f) return false;
@@ -320,6 +333,10 @@ static void recoverSession(fs::FS& fs, const String& vboPath) {
         splits = t->splits;
         return true;
       }));
+  // A session switched to another layout mid-session kept its laps, and its
+  // summary names that layout, but the log's header still names the first.
+  String base = vboPath.substring(0, vboPath.length() - 4);
+  replay->summaryTrackId = summaryTrack(fs, base + ".json");
   static char chunk[4096];
   for (;;) {
     int n = f.read((uint8_t*)chunk, sizeof(chunk));
@@ -329,7 +346,6 @@ static void recoverSession(fs::FS& fs, const String& vboPath) {
   f.close();
   replay->finish();
 
-  String base = vboPath.substring(0, vboPath.length() - 4);
   String stamp = replay->stamp.c_str();
   String logName = fileName(vboPath);
   bool ok;
@@ -343,10 +359,11 @@ static void recoverSession(fs::FS& fs, const String& vboPath) {
     ok = save(base + ".json", track, stamp, replay->timer, logName, true, true);
   }
   const Lap* best = replay->timer.bestLap();
-  DEBUG_PRINTF("Session: %s %s from its log: %lu fixes, %u laps%s%s, %lu bad lines%s (%lu ms)\n",
+  DEBUG_PRINTF("Session: %s %s from its log: %lu fixes, %u laps%s%s%s%s, %lu bad lines%s (%lu ms)\n",
                ok ? "recovered" : "could NOT recover", logName.c_str(), (unsigned long)replay->samples,
                (unsigned)replay->timer.lapCount(), best ? ", best " : "",
-               best ? formatLapTime(best->timeMs).c_str() : "", (unsigned long)replay->reader().badLines(),
+               best ? formatLapTime(best->timeMs).c_str() : "", replay->switchedLayout ? ", timed as " : "",
+               replay->switchedLayout ? replay->trackId.c_str() : "", (unsigned long)replay->reader().badLines(),
                replay->cutLine ? ", last line cut short" : "", (unsigned long)(millis() - startMs));
 }
 

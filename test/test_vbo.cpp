@@ -436,6 +436,76 @@ static void testRecovery() {
   printf("  recovery: cut mid-line / in the last number / before LF dropped, trailing zeros ignored, line from track list\n");
 }
 
+// A session switched mid-session to another layout at the same line (laps
+// kept) has a log whose header names the first layout and a summary naming
+// the second. Recovery times it with the second's lines, if they share the
+// header's start/finish; any other summary is ignored.
+static void testSwitchedLayoutRecovery() {
+  const double lat = 37.0, lon = -122.0, R = 150.0;  // makeSession's circle
+  SessionFile s, unmarked;
+  makeSession(s, lat, lon, 86400000 - 120000, true, 0, HeadingFrom::Set);  // as "test", split half way round
+  makeSession(unmarked, lat, lon, 86400000 - 120000, false, 0, HeadingFrom::Set);  // the same, line marked live
+  TrackPoint quarter = {lat + R / 111194.93, lon - R / metresPerDegLon(lat), 15};
+  TrackPoint farSf = s.sf;  // another line, 50 m away
+  farSf.lon += 50 / metresPerDegLon(lat);
+  TrackPoint reverseSf = s.sf;
+  reverseSf.heading = 180;
+  std::map<std::string, std::pair<TrackPoint, std::vector<TrackPoint>>> tracks = {
+    {"test", {s.sf, s.splits}},
+    {"test.short", {s.sf, {quarter}}},  // the same line, a split a quarter of the way round
+    {"test.far", {farSf, {quarter}}},
+    {"test.reverse", {reverseSf, {quarter}}},
+  };
+  auto lookup = [&](const std::string& id, TrackPoint& sf, std::vector<TrackPoint>& splits) {
+    auto t = tracks.find(id);
+    if (t == tracks.end()) return false;
+    sf = t->second.first;
+    splits = t->second.second;
+    return true;
+  };
+
+  // The same fixes timed at the second layout's lines
+  SessionReplay want([&](const std::string&, TrackPoint& sf, std::vector<TrackPoint>& splits) {
+    return lookup("test.short", sf, splits);
+  });
+  replay(want, unmarked.text, 4096);
+  CHECK(want.timer.lapCount() == 5, "second layout: %zu laps", want.timer.lapCount());
+  CHECK(abs(want.timer.lap(0).splitMs[0] - s.live.lap(0).splitMs[0]) > 5000, "the layouts' splits should differ");
+
+  {
+    SessionReplay r(lookup);
+    r.summaryTrackId = "test.short";
+    replay(r, s.text, 4096);
+    CHECK(r.switchedLayout && r.trackId == "test.short" && r.trackName.empty(), "switched: %s", r.trackId.c_str());
+    checkSameLaps(r.timer, want.timer, 5, "switched layout", 0);
+  }
+  {  // the line was marked during the session: the header has none, the track list has it
+    SessionReplay r(lookup);
+    r.summaryTrackId = "test.short";
+    replay(r, unmarked.text, 4096);
+    CHECK(r.switchedLayout && r.trackId == "test.short", "switched, line from the track list");
+    checkSameLaps(r.timer, want.timer, 5, "switched layout, line from the track list", 0);
+  }
+  // Timed as logged: no summary (or an unreadable one), the header's own
+  // track, a track not in the list, or one at another line or the other way
+  for (const char* id : {"", "test", "gone", "test.far", "test.reverse"}) {
+    SessionReplay r(lookup);
+    r.summaryTrackId = id;
+    replay(r, s.text, 4096);
+    CHECK(!r.switchedLayout && r.trackId == "test" && r.trackName == "Test Circle", "summary '%s': %s", id,
+          r.trackId.c_str());
+    checkSameLaps(r.timer, s.live, 5, id);
+  }
+  {  // no track list to look it up in
+    SessionReplay r;
+    r.summaryTrackId = "test.short";
+    replay(r, s.text, 4096);
+    CHECK(!r.switchedLayout && r.trackId == "test", "no track list");
+    checkSameLaps(r.timer, s.live, 5, "no track list");
+  }
+  printf("  switched layout: re-timed as the summary's layout at the same line; another line or Reverse ignored\n");
+}
+
 // The start/finish's direction is recorded in the log, so a session is timed
 // again as it was live: a line set the other way never counts, and one
 // guessed backwards from the map is turned round in the replay as it was live.
@@ -606,6 +676,7 @@ int main() {
   testGate();
   testHemispheres();
   testRecovery();
+  testSwitchedLayoutRecovery();
   testLineDirections();
   testFreeRoamRecovery();
   testLogRingThreads();

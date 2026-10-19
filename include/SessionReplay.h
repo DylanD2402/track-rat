@@ -27,12 +27,20 @@ public:
   using LineLookup = std::function<bool(const std::string& trackId, TrackPoint& sf, std::vector<TrackPoint>& splits)>;
   explicit SessionReplay(LineLookup lookup = nullptr) : lookup(lookup) {}
 
+  // The track the session's summary names, if any. Set before feeding. If
+  // it's another track than the header's, the session was switched to that
+  // layout mid-session and kept its laps (main.cpp switchLayout): it's timed
+  // with that track's lines (from the lookup) and named after it, as long as
+  // they share the start/finish the header's track was timed at.
+  std::string summaryTrackId;
+
   void feed(const char* data, size_t len);
   void finish();  // after the last byte
 
   // Results
   bool freeRoam = false;
   bool timed = false;            // a start/finish was known, so laps were timed
+  bool switchedLayout = false;   // timed as summaryTrackId: trackId is that, trackName is left empty
   uint32_t samples = 0;          // well-formed data lines
   uint32_t durationMs = 0;       // first fix to last, across midnight
   bool cutLine = false;          // the last line had no line ending (power cut) and was dropped

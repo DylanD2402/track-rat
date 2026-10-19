@@ -448,7 +448,7 @@ The ignition can cut the power at any moment, so nothing needs to be ended to be
 
 - **The log** is written about once a second, so a power cut loses at most the last second.
 - **The summary** is rewritten after every lap without ever being half written: the new copy goes to a temporary file, which then replaces the old one.
-- **At the next boot,** any session that wasn't ended gets its summary rebuilt from its log, by timing the log again with the same lap timer and the same lines (the log records each line's direction too). The log at boot shows `Session: recovered ...`.
+- **At the next boot,** any session that wasn't ended gets its summary rebuilt from its log, by timing the log again with the same lap timer and the same lines (the log records each line's direction too). A session that switched to another layout at the same start/finish is timed with that layout's lines and kept under its name, as its summary was. The log at boot shows `Session: recovered ...`.
 
 Performance runs are saved as `/sessions/<date>_<time>_perf.json`, with every run's times (seconds), trap speeds (km/h), braking distance (metres), peak speed, height change, and whether it was invalid or not level, plus the session's best. It's rewritten after every run the same safe way as the summary.
 
@@ -558,7 +558,7 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 - g-forces from the GPS on a straight and in a turn
 - the timing lines written for Circuit Tools
 - that a logged session, read back and timed again, gives the same laps to within 1 ms, in Free Roam too
-- recovery after a power cut: a last line cut short, zeros left on the card, a line marked during the session
+- recovery after a power cut: a last line cut short, zeros left on the card, a line marked during the session, a switch to another layout at the same line
 - that a line's direction is recorded and timed again the same way (set the wrong way, or guessed backwards from the map)
 - the log writer's buffer, with two threads, wrapping and filling up
 
