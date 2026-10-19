@@ -196,6 +196,7 @@ static void enterState(AppState next) {
   if (state == AppState::Running && next != AppState::Running) {
     finishSessionFiles();
     trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
+    trackDB.saveMaps();  // the map from this session's best lap: saved now that nothing is being timed
     gps.setSimulated(false);
     settingLine = false;
   }
@@ -374,7 +375,7 @@ static void saveMapFromLap() {
   if (t.hasMap || t.bench || lapTimer.bestPath().size() < 10) return;
   std::vector<geo::XYf> line = lapPath(lapTimer.bestPath(), 3.0f);
   line.push_back({0, 0});  // close the loop at the start/finish
-  trackDB.saveMap(selectedIndex, line);
+  trackDB.setMap(selectedIndex, line);  // written to tracks.json when the session ends
 }
 
 static void onLapEvent(const LapEvent& ev) {

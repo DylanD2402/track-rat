@@ -96,7 +96,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 **Away from a track:** you get a menu:
 
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card.
-- **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap is saved as the track's map. The track is saved to `tracks.json`, so next time it's picked automatically.
+- **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand, including **Bench Test**.
 - **PERFORMANCE:** the wide button under the three modes. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
 - **WI-FI:** turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)).
@@ -257,7 +257,7 @@ The easiest way to add your own track is to edit the file on the SD card.
 - **Placement:** put splits where no other part of the track passes within `radius`, or give them a `heading`.
 - **`splits`:** optional.
 - **No start/finish yet:** a track can have a `"center": {"lat": .., "lon": ..}` instead of `startFinish`. It's still found automatically, and the timer asks you to tap at the line the first time.
-- **Saved by the timer:** new tracks, start/finish lines marked on track (with their direction), and maps from your first lap are written back into `tracks.json` on the SD card.
+- **Saved by the timer:** new tracks, start/finish lines marked on track (with their direction), and maps from your first lap are written back into `tracks.json` on the SD card (maps when the session ends). It's saved compactly, one track per line.
 
 ### Layouts
 
@@ -590,6 +590,12 @@ It checks that:
 - a 5% hill is flagged not level, and noisy height on a flat road is not
 - the car must be stopped for 1 s before a launch counts, and a creep forward doesn't count as a run
 - a run that crosses UTC midnight is timed correctly
+
+`test/test_jsontext.cpp` checks the `tracks.json` text helpers: counting its values (to size the document it's parsed into), with strings, empty arrays and pretty-printing, and starting a line for each track when it's saved:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_jsontext.cpp -o /tmp/jt && /tmp/jt
+```
 
 ## Layout
 
