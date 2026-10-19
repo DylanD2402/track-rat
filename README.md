@@ -8,6 +8,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Every GPS fix is logged to the SD card in Racelogic's VBO format, which the free Circuit Tools opens. Lap times are saved after every lap, with or without a card.
 - Each session is saved to the SD card (or internal flash) after every lap.
 - Optional battery with a percentage gauge; sleeps by itself when parked. Firmware can be updated from the SD card.
+- Acceleration and braking runs (0-100 km/h, 1/4 mile, 100-0 braking) with a result card for each run.
 
 First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and checking each part of the hardware.
 
@@ -84,6 +85,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card.
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap is saved as the track's map. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand, including **Bench Test**.
+- **PERFORMANCE:** the wide button under the three modes. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count. This needs you to be doing at least 15 km/h when you tap; slower than that the GPS direction is too rough, and the line is saved without one.
 
@@ -99,6 +101,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
+| Performance | left: rollout / demo, centre: results, right: menu, hold 2 s: menu | press: next screen, hold 1 s: menu |
 | Summaries | tap: continue | press: continue |
 
 While timing, the screen shows:
@@ -186,6 +189,23 @@ The same check covers every add-on pin: any add-on on a pin the GPS ended up on 
 | `LED_BAR_REVERSED` | 0 | 1 = flip left and right |
 | `LED_BAR_FULL_SCALE_MS` | 1000 | Delta that lights a whole side of the bar |
 | `BOARD_LED_ENABLED`, `BOARD_LED_PIN`, `BOARD_LED_BRIGHTNESS` | 1, 42, 40 | The board's own LED |
+## Acceleration and braking
+
+Pick **PERFORMANCE** on the menu. Use a flat, straight road or a drag strip.
+
+- **READY / GO:** stop for 1 s (under 1 km/h) and the screen shows READY in green. Pull away and it shows GO, with the elapsed time and distance. Timing starts when the car starts to move, worked out from how fast speed is rising.
+- **What's timed:** 0-60 and 0-100 km/h, 0-60 mph, 100-200 km/h, and the 1/8 and 1/4 mile (elapsed time and the speed at the end of each). Times are worked out between GPS fixes, so they're good to a few milliseconds at 10 or 20 Hz. Distance comes from adding up GPS speed.
+- **100-200 km/h** is also timed from a rolling start, when you haven't stopped first.
+- **Braking:** the distance and time from the moment you slow through 100 km/h to a stop. It works from a rolling start, so you can brake whenever you like.
+- **1 FT:** the left button turns on a 1-foot rollout. The clock then starts once the car has moved a foot, as at a drag strip, so times come out about 0.3 s shorter. Distances are still measured from where the car started to move. A tag at the top of the screen shows when it's on.
+- **Result cards:** a run ends when you lift (speed drops 10 km/h below its peak), stop, or hold a steady speed for 3 s. Its card then appears, with the times that were reached and `--` for the rest. PREV steps back through the runs, BEST shows the best of each measurement this session, and LIVE goes back to the speed screen. The next launch switches back to live by itself.
+- **INVALID:** the GPS dropped fixes during the run (more than 0.4 s apart), so the times can't be trusted. The card says so and the run doesn't count towards the best.
+- **NOT LEVEL:** the height changed by 3 m or more, and by 1.5% or more of the distance, so the road wasn't flat. GPS height is only good to a few metres, so gentle slopes aren't flagged. Times are not corrected for slope, and a not-level run still counts towards the best.
+- **Units:** km/h. Set `PERF_UNITS_MPH` to 1 in `include/Config.h` for mph on screen. Turn on `PERF_ROLLOUT_DEFAULT` to start with the rollout on.
+- **Buttons are ignored while moving** (over 5 km/h), so a bump can't end a run. Hold the screen or BOOT to leave.
+- **Demo:** with no GPS fix, the left button reads DEMO. It starts a simulated car that stands for 4 s, launches to 215 km/h, brakes to a stop and repeats, so you can try the screens at a desk. The yellow BENCH tag shows while it runs.
+
+Each run is saved to `/sessions/<date>_<time>_perf.json`, rewritten after every run (see [Session logs](#session-logs)).
 
 ## Tracks
 
@@ -377,6 +397,8 @@ The ignition can cut the power at any moment, so nothing needs to be ended to be
 - **The summary** is rewritten after every lap without ever being half written: the new copy goes to a temporary file, which then replaces the old one.
 - **At the next boot,** any session that wasn't ended gets its summary rebuilt from its log, by timing the log again with the same lap timer. The log at boot shows `Session: recovered ...`.
 
+Performance runs are saved as `/sessions/<date>_<time>_perf.json`, with every run's times (seconds), trap speeds (km/h), braking distance (metres), peak speed, height change, and whether it was invalid or not level, plus the session's best.
+
 ## Configuration
 
 Everything else is in `include/Config.h`. The settings you're most likely to change:
@@ -390,6 +412,8 @@ Everything else is in `include/Config.h`. The settings you're most likely to cha
 | `DISPLAY_INVERT` | 1 | Set to 0 if colours look inverted (white background) |
 | `TOUCH_SWAP_XY`, `TOUCH_INVERT_X/Y` | 1, 0, 1 | Fix touch orientation if taps land in the wrong place |
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
+| `PERF_UNITS_MPH` | 0 | 1 = show speeds on the Performance screens in mph |
+| `PERF_ROLLOUT_DEFAULT` | 0 | 1 = Performance starts with the 1-foot rollout on |
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
 | `BATTERY_ENABLED` | 1 | 0 = ignore the battery pin completely |
 | `BATTERY_CAL_OFFSET_MV` | 0 | Added to the battery voltage reading, to match a multimeter |
@@ -456,11 +480,28 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
+```
 `test/test_deltaleds.cpp` checks the LED bar pattern: which side and how many LEDs light for a given delta, the clamping at a full side, the purple best-lap flash and white split blink (and their priority), a reversed or odd-length strip, that the LED clock handles `millis()` wrapping, and which add-on pins the GPS takes:
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_deltaleds.cpp src/DeltaLeds.cpp src/LapTimer.cpp -o /tmp/dl && /tmp/dl
 ```
+`test/test_perfrun.cpp` checks acceleration and braking runs with made-up GPS fixes at 10 and 20 Hz:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_perfrun.cpp -o /tmp/pr && /tmp/pr
+```
+
+It checks that:
+
+- known 0-60, 0-100, 100-200, 1/8 and 1/4 mile times and trap speeds come out within 1.5 ms for a constant acceleration, whichever moment the fixes fall on, and within a few ms for a car whose acceleration fades
+- the 1-foot rollout takes the right time off
+- 100-0 km/h braking distance and time are right to a few centimetres and milliseconds
+- a rolling 100-200 run is timed without a launch
+- a run across a 1.2 s GPS gap is invalid, and one across 150 ms is not
+- a 5% hill is flagged not level, and noisy height on a flat road is not
+- the car must be stopped for 1 s before a launch counts, and a creep forward doesn't count as a run
+- a run that crosses UTC midnight is timed correctly
 
 ## Layout
 
@@ -472,7 +513,9 @@ src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
            VboFormat (log format), LogWriter (writes the log on core 0),
            SessionReplay (times a session again from its log),
            Power (battery, sleep), FirmwareUpdate (SD card update)
-           LedBar, DeltaLeds
+           LedBar, DeltaLeds,
+           PerfRun (acceleration/braking), PerfLog (performance summaries),
+           DisplayPerf (performance screens)
 data/      tracks.json
 test/      host-side tests
 legacy/    the original Raspberry Pi / Python prototype

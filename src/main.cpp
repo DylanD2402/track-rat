@@ -22,6 +22,8 @@
 #include "LapTimer.h"
 #include "LogWriter.h"
 #include "Power.h"
+#include "PerfLog.h"
+#include "PerfRun.h"
 #include "RaceBoxBle.h"
 #include "SessionLog.h"
 #include "SimTrack.h"
@@ -29,9 +31,9 @@
 #include "Storage.h"
 #include "TrackDatabase.h"
 
-enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary };
+enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
-                                    "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY"};
+                                    "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE"};
 
 static DisplayManager display;
 static GPSHandler gps;
@@ -72,6 +74,18 @@ static uint32_t layoutNoticeUntil = 0;
 // Free Roam
 static String freeRoamPath;
 static uint32_t freeRoamDurationMs = 0;
+
+// Performance runs (acceleration and braking)
+enum class PerfView { Live, Card, Best };
+static perf::PerfRun perfRun;
+static PerfView perfView = PerfView::Live;
+static int perfCard = 0;            // run shown on the card screen
+static bool perfRollout = PERF_ROLLOUT_DEFAULT;
+static bool perfDemo = false;       // bench test: a simulated car launches and brakes on repeat
+static String perfPath;
+static String perfStamp;
+static const perf::SpeedUnit PERF_UNITS = PERF_UNITS_MPH ? perf::SpeedUnit::Mph : perf::SpeedUnit::Kmh;
+static const int MENU_PERF_ROW_Y = 144;  // taps from here to +48 on the menu hit the Performance button (see drawMenu)
 
 static uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
@@ -169,6 +183,21 @@ static void enterState(AppState next) {
     trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
     gps.setSimulated(false);
     settingLine = false;
+  }
+
+  if (next == AppState::Performance) {
+    perfRun.clear();
+    perfRun.setRollout(perfRollout);
+    perfView = PerfView::Live;
+    perfCard = 0;
+    perfDemo = false;
+    perfPath = "";
+    perfStamp = gps.timestampString();
+    DEBUG_PRINTLN("Performance mode started");
+  }
+  if (state == AppState::Performance && next != AppState::Performance) {
+    if (perfDemo) gps.setSimulated(false);
+    perfDemo = false;
   }
 
   if (next == AppState::FreeRoam) {
@@ -380,6 +409,39 @@ static void onLapEvent(const LapEvent& ev) {
   }
 }
 
+// Bench test for Performance mode: the simulated car launches, reaches 215 km/h, brakes and repeats.
+static void startPerfDemo() {
+  gps.setSimulated(true, SimMode::Launch);
+  perfDemo = true;
+  perfRun.clear();
+  perfRun.setRollout(perfRollout);
+  perfView = PerfView::Live;
+  perfPath = "";
+  perfStamp = gps.timestampString();
+}
+
+static void onPerfResult() {
+  const perf::PerfResult& r = perfRun.results().back();
+  if (!r.valid) {
+    DEBUG_PRINTF("PERF %s: INVALID (GPS gap)\n",
+                 r.kind == perf::RunKind::Brake ? "brake" : r.kind == perf::RunKind::Roll ? "roll" : "launch");
+  } else if (r.kind == perf::RunKind::Brake) {
+    DEBUG_PRINTF("PERF brake 100-0: %.1f m in %.2f s\n", r.brakeM, r.brakeS);
+  } else if (r.kind == perf::RunKind::Roll) {
+    DEBUG_PRINTF("PERF roll 100-200: %.2f s\n", r.t100to200);
+  } else {
+    DEBUG_PRINTF("PERF launch: 0-60 %.2f  0-100 %.2f  0-60mph %.2f  100-200 %.2f  1/8 %.2f @ %.0f  1/4 %.2f @ %.0f km/h%s\n",
+                 r.t0to60, r.t0to100, r.t0to60mph, r.t100to200, r.et8, r.trap8Kmh, r.et4, r.trap4Kmh,
+                 r.notLevel ? "  NOT LEVEL" : "");
+  }
+  if (perfPath.length() == 0) perfPath = PerfLog::newPath(perfStamp);
+  if (PerfLog::save(perfPath, perfStamp, perfRun)) {
+    DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), perfPath.c_str());
+  }
+  perfCard = (int)perfRun.results().size() - 1;
+  perfView = PerfView::Card;
+}
+
 static void chooseMenuItem(int item) {
   switch (item) {
     case 0:  // Free Roam
@@ -396,6 +458,9 @@ static void chooseMenuItem(int item) {
       break;
     case 2:
       enterState(AppState::TrackSelect);
+      break;
+    case 3:  // Performance: works without a fix too, for the bench demo
+      enterState(AppState::Performance);
       break;
   }
   lastRender = 0;
@@ -415,10 +480,12 @@ static void handleInput(InputEvent ev) {
 
     case AppState::Menu:
       if (ev == InputEvent::TapHeader) enterState(AppState::GpsStatus);
+      else if ((ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight) &&
+               input.lastTapY() >= MENU_PERF_ROW_Y && input.lastTapY() < MENU_PERF_ROW_Y + 48) chooseMenuItem(3);
       else if (ev == InputEvent::TapLeft) chooseMenuItem(0);
       else if (ev == InputEvent::TapCenter) chooseMenuItem(1);
       else if (ev == InputEvent::TapRight) chooseMenuItem(2);
-      else if (ev == InputEvent::BootShort) menuHighlight = (menuHighlight + 1) % 3;
+      else if (ev == InputEvent::BootShort) menuHighlight = (menuHighlight + 1) % 4;
       else if (ev == InputEvent::BootLong) chooseMenuItem(menuHighlight);
       lastRender = 0;
       break;
@@ -461,6 +528,46 @@ static void handleInput(InputEvent ev) {
     case AppState::FreeRoam:
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) enterState(AppState::FreeRoamSummary);
       break;
+
+    case AppState::Performance: {
+      // Taps are ignored while the car is moving, so a bump can't leave a run. (No fix: the speed is stale.)
+      const bool busy = gps.hasFix() && (perfRun.state() == perf::PerfRun::State::Go || perfRun.speedKmh() > 5.0f);
+      const int runs = (int)perfRun.results().size();
+      if (ev == InputEvent::Hold || ev == InputEvent::BootLong) {
+        enterState(AppState::Menu);
+      } else if (ev == InputEvent::BootShort) {  // Live -> latest run -> session best -> Live
+        if (perfView == PerfView::Live && !gps.hasFix() && !perfDemo) startPerfDemo();
+        else if (perfView == PerfView::Live) perfView = runs ? PerfView::Card : PerfView::Best;
+        else if (perfView == PerfView::Card) perfView = PerfView::Best;
+        else perfView = PerfView::Live;
+        if (perfView == PerfView::Card) perfCard = runs - 1;
+      } else if (!busy && (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight)) {
+        if (perfView == PerfView::Live) {
+          if (ev == InputEvent::TapLeft) {
+            if (!gps.hasFix() && !perfDemo) {
+              startPerfDemo();
+            } else {
+              perfRollout = !perfRollout;
+              perfRun.setRollout(perfRollout);
+            }
+          } else if (ev == InputEvent::TapCenter) {
+            perfView = runs ? PerfView::Card : PerfView::Best;
+            perfCard = runs - 1;
+          } else {
+            enterState(AppState::Menu);
+          }
+        } else if (perfView == PerfView::Card) {
+          if (ev == InputEvent::TapLeft && runs) perfCard = (perfCard + runs - 1) % runs;
+          else if (ev == InputEvent::TapCenter) perfView = PerfView::Best;
+          else if (ev == InputEvent::TapRight) perfView = PerfView::Live;
+        } else {
+          if (ev == InputEvent::TapLeft && runs) perfView = PerfView::Card, perfCard = runs - 1;
+          else if (ev == InputEvent::TapRight) perfView = PerfView::Live;
+        }
+      }
+      lastRender = 0;
+      break;
+    }
 
     case AppState::Summary:  // back to this track's Ready screen, to go out again
       if (ev != InputEvent::Hold) enterState(AppState::TrackConfirm);
@@ -516,6 +623,15 @@ static void render() {
       break;
     case AppState::FreeRoamSummary:
       display.drawFreeRoamSummary(freeRoam, freeRoamDurationMs, freeRoamPath);
+      break;
+    case AppState::Performance:
+      if (perfRun.state() == perf::PerfRun::State::Go) perfView = PerfView::Live;  // a new run is on
+      if (perfView == PerfView::Live) {
+        const char* left = (!gps.hasFix() && !perfDemo) ? "DEMO" : "1 FT";
+        display.drawPerfLive(perfRun, gps, PERF_UNITS, left, input.touchHeldMs(), input.touchAvailable());
+      } else {
+        display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, PERF_UNITS, input.touchAvailable());
+      }
       break;
   }
 }
@@ -719,6 +835,8 @@ void loop() {
     } else if (state == AppState::FreeRoam) {
       recordFix(fix, 0);
       freeRoam.onFix(fix.lat, fix.lon, fix.speedKmh);
+    } else if (state == AppState::Performance) {
+      if (perfRun.onFix(fix.gpsTimeMs, fix.speedKmh, fix.altM) > 0) onPerfResult();
     }
   }
 

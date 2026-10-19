@@ -27,9 +27,13 @@ void GPSHandler::begin() {
 
 // Bench test: replace the GPS with a simulated car (see SimTrack.h).
 // Switching either way clears the position so the two never mix.
-void GPSHandler::setSimulated(bool on) {
-  if (on == simulating) return;
+void GPSHandler::setSimulated(bool on, SimMode mode) {
+  if (on == simulating && (!on || mode == simMode)) return;
   simulating = on;
+  simMode = mode;
+  simPhase = 0;
+  simPhaseT = simV = simDist = 0;
+  simClockMs = 0;
   last = {};
   queueHead = queueCount = 0;
   everFixed = false;
@@ -40,7 +44,8 @@ void GPSHandler::setSimulated(bool on) {
   rateWindowFixes = 0;
   simLastStep = 0;
   simAngle = 0;
-  DEBUG_PRINTF("GPS: %s\n", on ? "BENCH TEST - simulated car" : "back to the real GPS");
+  DEBUG_PRINTF("GPS: %s\n", !on ? "back to the real GPS"
+                                : mode == SimMode::Launch ? "BENCH TEST - simulated launches" : "BENCH TEST - simulated car");
 }
 
 // Count bytes arriving on a pin in `ms` milliseconds. Bytes arrive (even if
@@ -233,7 +238,8 @@ void GPSHandler::update() {
 
   if (simulating) {
     while (gpsSerial.available()) gpsSerial.read();  // keep the real GPS's buffer drained
-    simulateStep();
+    if (simMode == SimMode::Launch) simulateLaunchStep();
+    else simulateStep();
   } else {
     readSerial(now);
   }
@@ -387,3 +393,46 @@ void GPSHandler::simulateStep() {
   countFixForRate(now);
 }
 
+
+// Performance bench test: a car going north along a straight road. It stands for 4 s, pulls away
+// like a quick car (about 4.4 s to 100 km/h, 14 s to 200), brakes hard from 215 km/h to a stop,
+// and repeats. 20 fixes a second on its own clock, so the numbers don't depend on how busy the
+// main loop is.
+void GPSHandler::simulateLaunchStep() {
+  uint32_t now = millis();
+  if (simLastStep == 0) simLastStep = now;
+  if (now - simLastStep < 50) return;
+  simLastStep += 50;
+
+  const double dt = 0.05, vmax = 70.0, a0 = 8.0, vEnd = 215 / 3.6, brake = 9.5;
+  simPhaseT += dt;
+  if (simPhase == 0) {
+    simV = 0;
+    if (simPhaseT >= 4.0) simPhase = 1, simPhaseT = 0;
+  } else if (simPhase == 1) {
+    simV = vmax * (1 - exp(-a0 * simPhaseT / vmax));
+    if (simV >= vEnd) simPhase = 2, simPhaseT = 0;
+  } else {
+    simV -= brake * dt;
+    if (simV <= 0) simV = 0, simPhase = 0, simPhaseT = 0;
+  }
+  simDist += simV * dt;
+  simClockMs += 50;
+
+  last.lat = SIM_SF_LAT + simDist / 111320.0;
+  last.lon = SIM_SF_LON;
+  last.speedKmh = simV * 3.6;
+  last.courseDeg = 0;
+  last.courseValid = simV > 0.5;
+  last.altM = 100.0f;
+  last.year = 2026;
+  last.month = 1;
+  last.day = 1;
+  last.gpsTimeMs = (simClockMs + 12UL * 3600000UL) % 86400000UL;
+  last.rxMillis = now;
+  sats = 12;
+  hdopVal = 0.8f;
+  queueFix(last);
+  everFixed = true;
+  countFixForRate(now);
+}
