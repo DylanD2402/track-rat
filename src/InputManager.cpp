@@ -3,6 +3,7 @@
  */
 
 #include "InputManager.h"
+#include "AddOns.h"
 #include "Config.h"
 #include <Wire.h>
 
@@ -24,6 +25,23 @@ void InputManager::begin() {
   Wire.beginTransmission(TOUCH_I2C_ADDR);
   touchOk = (Wire.endTransmission() == 0);
   DEBUG_PRINTF("Input: touch controller %s\n", touchOk ? "found" : "NOT found (use BOOT button)");
+}
+
+// The big button shares IO21 with one of the GPS pin pairs, so it can only
+// be used once the GPS has been found somewhere else.
+void InputManager::beginExtButton(int gpsRxPin, int gpsTxPin) {
+#if EXT_BUTTON_ENABLED
+  if (addOnPinTaken(EXT_BUTTON_PIN, gpsRxPin, gpsTxPin)) {
+    DEBUG_PRINTF("Input: big button disabled - the GPS is on IO%d\n", EXT_BUTTON_PIN);
+    return;
+  }
+  pinMode(EXT_BUTTON_PIN, INPUT_PULLUP);  // also undoes any GPS probe of this pin at boot
+  extPin = EXT_BUTTON_PIN;
+  DEBUG_PRINTF("Input: big button on IO%d (to GND)\n", EXT_BUTTON_PIN);
+#else
+  (void)gpsRxPin;
+  (void)gpsTxPin;
+#endif
 }
 
 bool InputManager::readTouch(int16_t& x, int16_t& y) {
@@ -62,23 +80,33 @@ bool InputManager::readTouch(int16_t& x, int16_t& y) {
   return true;
 }
 
+// One button's press state machine: BootLong fires while still held, BootShort on release.
+InputEvent InputManager::pollButton(Button& b, bool pressed, uint32_t now) {
+  if (pressed && !b.down) {
+    b.down = true;
+    b.longFired = false;
+    b.start = now;
+  } else if (pressed && b.down && !b.longFired && now - b.start >= LONG_PRESS_MS) {
+    b.longFired = true;
+    return InputEvent::BootLong;
+  } else if (!pressed && b.down) {
+    b.down = false;
+    if (!b.longFired && now - b.start >= 30) return InputEvent::BootShort;
+  }
+  return InputEvent::None;
+}
+
 InputEvent InputManager::poll() {
   uint32_t now = millis();
   if (now - lastPoll < 20) return InputEvent::None;
   lastPoll = now;
 
-  // BOOT button
-  bool down = digitalRead(BOOT_BUTTON_PIN) == LOW;
-  if (down && !bootDown) {
-    bootDown = true;
-    bootLongFired = false;
-    bootStart = now;
-  } else if (down && bootDown && !bootLongFired && now - bootStart >= LONG_PRESS_MS) {
-    bootLongFired = true;
-    return InputEvent::BootLong;
-  } else if (!down && bootDown) {
-    bootDown = false;
-    if (!bootLongFired && now - bootStart >= 30) return InputEvent::BootShort;
+  // BOOT button, then the big button: both give the same events
+  InputEvent be = pollButton(boot, digitalRead(BOOT_BUTTON_PIN) == LOW, now);
+  if (be != InputEvent::None) return be;
+  if (extPin >= 0) {
+    be = pollButton(ext, digitalRead(extPin) == LOW, now);
+    if (be != InputEvent::None) return be;
   }
 
   if (!touchOk) return InputEvent::None;

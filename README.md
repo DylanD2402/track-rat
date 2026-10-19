@@ -27,6 +27,8 @@ The BE-252Q's compass wires (SDA/SCL) aren't used.
 
 Everything else (display, touch, SD) is built into the board. The pins are set in `include/Config.h` and `platformio.ini`.
 
+An optional big button and LED delta bar can go on IO21 and IO2: see [Big button and LED bar](#big-button-and-led-bar).
+
 ## Build and flash
 
 Needs [PlatformIO](https://platformio.org/) (VS Code extension or `pip install platformio`).
@@ -83,7 +85,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place.
 
-| Screen | Touch | BOOT button |
+| Screen | Touch | BOOT button (or big button) |
 |---|---|---|
 | Waiting for GPS | tap: menu | press: menu |
 | Menu | tap a mode; top bar: GPS status | press: next, hold 1 s: choose |
@@ -106,6 +108,80 @@ While timing, the screen shows:
 When you complete a lap, its time shows full-screen for 4 s, in green if it's a new best.
 
 The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
+
+## Big button and LED bar
+
+Two optional add-ons on the expansion header. Both are off the screen, so they work with gloves and in sun. Neither is needed; the timer works the same without them.
+
+### Parts
+
+| Part | Notes |
+|---|---|
+| Push button | Momentary, normally open. A 25-30 mm panel-mount arcade button is good with gloves |
+| WS2812B LED strip | 10 LEDs by default (8-12 works). Any 5 V "NeoPixel" type strip |
+| 330-470 ohm resistor | In series with the strip's data line |
+| 1 kohm resistor | In series with the button |
+| 100 nF capacitor | Across the button (optional) |
+| 470-1000 uF capacitor | Across the strip's 5 V and GND, close to the strip |
+| 74AHCT125 or 74HCT245 | Optional 3.3 V to 5 V level shifter for the strip's data line |
+
+### Wiring
+
+| Add-on | Connect | Pin |
+|---|---|---|
+| Button | one side to IO21, the other to GND | IO21 |
+| LED bar data | strip DIN to IO2 | IO2 |
+| LED bar power | strip 5 V to a 5 V supply, strip GND to the board's GND | |
+
+- **Button:** no external pull-up is needed; the board's internal one is used. Put the 1 kohm resistor in series with the button. IO21 is also a GPS pin, and the board briefly drives it at start-up while it looks for the GPS, so the resistor stops a button held down at that moment from shorting the pin. The 100 nF across the button smooths contact bounce, but isn't required, as the firmware debounces too.
+- **LED bar power:** the strip needs 5 V, not 3.3 V. Each LED draws up to 60 mA at full white. The default brightness (`LED_BAR_BRIGHTNESS` 64 of 255) keeps 10 LEDs under about 200 mA. Power the strip from a 5 V supply that isn't the board's 3.3 V pin, and join its GND to the board's GND. Check your board's header pinout for a 5 V pin before using it for the strip.
+- **LED bar data:** the board's 3.3 V output is a little under what a WS2812B strictly wants (0.7 x 5 V = 3.5 V), but it normally works on a short wire. If the strip flickers or shows random colours, use the level shifter. Keep the data wire short, and put the 330-470 ohm resistor right at the strip's DIN end.
+- **Strip capacitor:** the 470-1000 uF capacitor stops the switch-on surge from upsetting the strip. Connect it before powering up, and always connect GND before 5 V.
+- **Mounting:** DIN is the end of the strip with the arrow pointing away from it. Mount it so the first LED is at the left (from the driver's seat). If "ahead" grows to the left on your strip, set `LED_BAR_REVERSED` to `1`.
+- **Board LED:** the board's own RGB LED (IO42) needs no wiring.
+
+### Button
+
+The button does exactly what BOOT does: a short press is "next / switch view" and a hold of 1 s is "select / start / end the session". See the BOOT column in the table under "Using it".
+
+### LED bar
+
+The bar lights up while a lap is running and the best lap's delta is known. The middle of the strip is zero:
+
+- **Ahead of your best lap:** green LEDs grow to the right from the middle.
+- **Behind your best lap:** red LEDs grow to the left from the middle.
+- **How many:** the whole side is lit at 1 s ahead or behind (`LED_BAR_FULL_SCALE_MS`), with at least one LED once you're more than 0.02 s out. A bigger gap clamps at a full side.
+- **On the pace** (within 0.02 s): a dim green marker in the middle.
+- **New best lap:** the whole bar flashes purple for about 2 s.
+- **Each split:** a short white blink (0.2 s).
+- **Timing but no delta yet** (before your first lap is done, or off the best lap's line): a dim amber marker in the middle.
+- **Not timing** (menus, summaries, no GPS fix): off.
+
+The board's own LED shows the same colour (green ahead, red behind, brighter for a bigger gap, purple and white for the same events), so you can test the logic without any strip. It's easiest to see with the bench test.
+
+The LEDs are updated 40 times a second, twice the GPS rate. The strip is driven by the ESP32-S3's RMT peripheral, which sends the colours by itself, so the main loop doesn't wait for it. With no strip fitted, nothing happens and nothing breaks.
+
+### If the GPS is on IO14/IO21
+
+The GPS can be plugged into the expansion header instead of the UART connector (see Wiring above). It then uses IO21, so the button can't be used, and the log says so:
+
+```
+Input: big button disabled - the GPS is on IO21
+```
+
+The same check covers every add-on pin: any add-on on a pin the GPS ended up on stays off. The LED bar on IO2 and the board LED are unaffected by a GPS on IO14/IO21.
+
+### Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `EXT_BUTTON_ENABLED`, `EXT_BUTTON_PIN` | 1, 21 | The big button |
+| `LED_BAR_ENABLED`, `LED_BAR_PIN` | 1, 2 | The LED strip |
+| `LED_BAR_COUNT` | 10 | LEDs on the strip (2 to 64) |
+| `LED_BAR_BRIGHTNESS` | 64 | 0-255. Turn it up in sun, down for less current |
+| `LED_BAR_REVERSED` | 0 | 1 = flip left and right |
+| `LED_BAR_FULL_SCALE_MS` | 1000 | Delta that lights a whole side of the bar |
+| `BOARD_LED_ENABLED`, `BOARD_LED_PIN`, `BOARD_LED_BRIGHTNESS` | 1, 42, 40 | The board's own LED |
 
 ## Tracks
 
@@ -268,11 +344,17 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 ```
 
+`test/test_deltaleds.cpp` checks the LED bar pattern: which side and how many LEDs light for a given delta, the clamping at a full side, the purple best-lap flash and white split blink (and their priority), a reversed or odd-length strip, that the LED clock handles `millis()` wrapping, and which add-on pins the GPS takes:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_deltaleds.cpp src/DeltaLeds.cpp -o /tmp/dl && /tmp/dl
+```
+
 ## Layout
 
 ```
 include/   Config.h, GeoMath.h (gate maths), headers
-src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
+src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase, LedBar,
            DisplayManager, InputManager, Storage, SessionLog
 data/      tracks.json
 test/      host-side lap timer tests
