@@ -598,7 +598,7 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
     {"NEW", "TRACK", "Tap the screen at", "the start/finish"},
     {"TRACK", "LIST", "Pick a track or", "Bench Test"},
   };
-  const int bw = W / 3, top = HEADER_H + 10, bh = 150;
+  const int bw = W / 3, top = HEADER_H + 8, bh = 114;  // the WI-FI button is below, y 154..186
   for (int i = 0; i < 3; i++) {
     int x = i * bw + 4;
     bool hl = (i == highlight);
@@ -606,14 +606,18 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
     if (hl) gfx->drawRoundRect(x, top, bw - 8, bh, 8, C_TEXT);
     gfx->setTextDatum(MC_DATUM);
     gfx->setTextColor(C_TEXT);
-    gfx->drawString(items[i].l1, x + (bw - 8) / 2, top + 40, 4);
-    gfx->drawString(items[i].l2, x + (bw - 8) / 2, top + 68, 4);
+    gfx->drawString(items[i].l1, x + (bw - 8) / 2, top + 30, 4);
+    gfx->drawString(items[i].l2, x + (bw - 8) / 2, top + 56, 4);
     gfx->setTextColor(C_DIM);
-    gfx->drawString(items[i].d1, x + (bw - 8) / 2, top + 108, 1);
-    gfx->drawString(items[i].d2, x + (bw - 8) / 2, top + 120, 1);
+    gfx->drawString(items[i].d1, x + (bw - 8) / 2, top + 88, 1);
+    gfx->drawString(items[i].d2, x + (bw - 8) / 2, top + 100, 1);
   }
+  gfx->setTextDatum(TR_DATUM);
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("sessions to your phone", 2 * bw - 8, MENU_WIFI_Y + 9, 2);
   gfx->setTextDatum(TL_DATUM);
-  if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 196, 2, C_WARN);
+  wifiButton(MENU_WIFI_Y, 32, highlight == 3);
+  if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 192, 2, C_WARN);
   centered(touchOk ? "tap a mode   -   top bar: GPS status" : "BOOT: tap = next, hold = choose", 218, 2, C_DIM);
   endFrame();
 }
@@ -680,17 +684,18 @@ void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs
   snprintf(buf, sizeof(buf), "%.0f km/h", fr.avgMovingKmh());
   String avg = buf;
   const Row rows[4] = {{"TIME", formatDuration(durationMs)}, {"DISTANCE", dist}, {"TOP SPEED", top}, {"AVERAGE", avg}};
-  int y = MAP_Y + 2;
+  int y = MAP_Y;
   for (const Row& r : rows) {
     gfx->setTextColor(C_DIM);
     gfx->drawString(r.label, PANEL_X, y, 2);
     gfx->setTextColor(C_TEXT);
-    gfx->drawString(r.value, PANEL_X, y + 15, 4);
-    y += 46;
+    gfx->drawString(r.value, PANEL_X, y + 14, 4);
+    y += 41;
   }
   gfx->setTextColor(C_DIM);
-  gfx->drawString(savedPath.length() ? "saved" : "not saved", PANEL_X, H - 22, 1);
-  gfx->drawString("tap to continue", PANEL_X, H - 10, 1);
+  gfx->drawString(savedPath.length() ? "saved" : "not saved", MAP_X + 6, MAP_Y + MAP_H - 22, 1);
+  gfx->drawString("tap to continue", MAP_X + 6, MAP_Y + MAP_H - 10, 1);
+  wifiButton(WIFI_BUTTON_Y, H - WIFI_BUTTON_Y - 4, false);
   endFrame();
 }
 
@@ -753,7 +758,58 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
 
   gfx->setTextColor(C_DIM);
   String saved = savedPath.length() ? "Saved: " + String(Storage::sessionFSName()) + ":" + savedPath : String("Not saved");
-  gfx->drawString(saved, 10, 186, 1);
-  centered("Tap or press BOOT to continue", 212, 2, C_TEXT);
+  gfx->drawString(saved, 10, 184, 1);
+  gfx->setTextDatum(MC_DATUM);
+  gfx->setTextColor(C_TEXT);
+  gfx->drawString("Tap or press BOOT", W / 3, WIFI_BUTTON_Y + 10, 2);
+  gfx->drawString("to continue", W / 3, WIFI_BUTTON_Y + 28, 2);
+  gfx->setTextDatum(TL_DATUM);
+  wifiButton(WIFI_BUTTON_Y, H - WIFI_BUTTON_Y - 4, false);
+  endFrame();
+}
+
+// ---------------------------------------------------------------------------
+// Wi-Fi page
+
+void DisplayManager::wifiButton(int y, int h, bool highlight) {
+  const int bw = W / 3, x = 2 * bw + 4;
+  gfx->fillRoundRect(x, y, bw - 8, h, 6, highlight ? 0x3186 : 0x0210);
+  gfx->drawRoundRect(x, y, bw - 8, h, 6, highlight ? C_TEXT : 0x041F);
+  gfx->setTextDatum(MC_DATUM);
+  gfx->setTextColor(C_TEXT);
+  gfx->drawString("WI-FI", x + (bw - 8) / 2, y + h / 2, 4);
+  gfx->setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::drawWifi(const String& network, const String& address, int phones, int progress,
+                              bool restarting, bool touchOk) {
+  beginFrame();
+  header("WI-FI ON", nullptr);
+
+  centered("On your phone, join the Wi-Fi network", HEADER_H + 10, 2, C_DIM);
+  centered(network, HEADER_H + 30, 4, C_TEXT);
+  centered("The page opens by itself, or go to", HEADER_H + 66, 2, C_DIM);
+  centered("http://" + address, HEADER_H + 86, 4, C_TEXT);
+
+  char buf[40];
+  if (restarting) {
+    centered("Restarting...", 150, 4, C_WARN);
+  } else if (progress >= 0) {
+    snprintf(buf, sizeof(buf), "Installing firmware  %d%%", progress);
+    centered(buf, 146, 2, C_WARN);
+    gfx->drawRect(20, 166, W - 40, 12, C_DIM);
+    gfx->fillRect(22, 168, (W - 44) * progress / 100, 8, C_WARN);
+    centered("Keep the power on", 186, 2, C_DIM);
+  } else if (phones > 0) {
+    snprintf(buf, sizeof(buf), phones == 1 ? "1 phone connected" : "%d phones connected", phones);
+    centered(buf, 150, 2, C_GOOD);
+  } else {
+    centered("No phone connected yet", 150, 2, C_DIM);
+  }
+
+  if (progress < 0 && !restarting) {
+    if (touchOk) footerButtons("", "WI-FI OFF", "");
+    else centered("press BOOT: Wi-Fi off", 212, 2, C_TEXT);
+  }
   endFrame();
 }

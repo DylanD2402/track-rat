@@ -6,6 +6,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Picks the nearest track automatically (within 5 km), or you choose one on the touchscreen.
 - Lap and split times come from GPS timestamps. The crossing is interpolated between fixes, so timing resolution is a few milliseconds even at 1 Hz.
 - Each session is saved to the SD card (or internal flash) after every lap.
+- A Wi-Fi page on your phone downloads sessions, swaps the track list and installs firmware. No app needed.
 
 First time? Follow **[TESTING.md](TESTING.md)**. It walks through flashing and checking each part of the hardware.
 
@@ -36,11 +37,13 @@ pio run -e es3c28p -t upload        # lap timer
 python tools/serial_log.py --port COM4 --seconds 20 --reset   # restart and capture the log
 ```
 
-To store `data/tracks.json` in internal flash instead of on the SD card:
+To copy `data/` into internal flash (the Wi-Fi page, and `tracks.json` for boards without an SD card):
 
 ```bash
 pio run -e es3c28p -t uploadfs
 ```
+
+Do this once, and again when the Wi-Fi page changes. It replaces everything in internal flash, including sessions and tracks saved there when there was no SD card.
 
 ### Automatic flashing
 
@@ -80,20 +83,22 @@ The board resets itself before and after uploading, so no buttons are needed. On
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card.
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap is saved as the track's map. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand, including **Bench Test**.
+- **WI-FI:** turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)).
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place.
 
 | Screen | Touch | BOOT button |
 |---|---|---|
 | Waiting for GPS | tap: menu | press: menu |
-| Menu | tap a mode; top bar: GPS status | press: next, hold 1 s: choose |
+| Menu | tap a mode or WI-FI; top bar: GPS status | press: next, hold 1 s: choose |
 | Track list | left / right third: previous / next, centre: select, hold: menu | press: next, hold 1 s: select |
 | GPS Status (top bar of the menu or track list) | tap: back | press: back |
 | Ready | centre: start, left: back, right: set line | hold 1 s: start, press: back |
 | Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
-| Summaries | tap: continue | press: continue |
+| Summaries | tap: continue; WI-FI button: Wi-Fi page | press: continue, hold 1 s: Wi-Fi page |
+| Wi-Fi | tap: Wi-Fi off | press: Wi-Fi off |
 
 While timing, the screen shows:
 
@@ -211,6 +216,42 @@ Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**,
 
 Track Rat isn't affiliated with RaceBox. The device name is used only so apps recognise the data format.
 
+## Wi-Fi page
+
+Get your sessions onto your phone without taking the SD card out.
+
+1. In the pits, tap **WI-FI** on the menu or on a session summary. The screen shows the network name and address.
+2. On your phone, join the Wi-Fi network **TrackRat-XXXX**. There's no password. The last 4 characters are different on each board.
+3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **http://192.168.4.1** in your browser.
+4. When you're done, tap the Track Rat screen (or press BOOT) to turn Wi-Fi off.
+
+What the page does:
+
+- **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
+- **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`. Restart Track Rat to use the new list.
+- **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
+- **Device:** firmware version, free space on the card and in flash, GPS status and memory.
+- **Settings:** not there yet.
+
+Each time the page opens it tells Track Rat your phone's time zone, which is kept for when file names use local time.
+
+Good to know:
+
+- **Wi-Fi is off while timing.** It's only on while the Wi-Fi screen shows, and starting a session turns it off. Bluetooth (RaceBox) keeps working while it's on.
+- **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open http://192.168.4.1 in Safari or Chrome while still on the TrackRat network.
+- **Mobile data:** some phones keep using mobile data for everything when a Wi-Fi network has no internet. If the page won't load, tell the phone to stay connected or turn mobile data off.
+- **Anyone nearby can join** while it's on, so turn it off when you're done.
+
+### Changing the page
+
+The page is a single file, `web/index.html` (plain HTML and JavaScript, no libraries). `tools/build_web.py` gzips it into `data/web/index.html.gz` every time PlatformIO runs; it also puts the git version on the Device tab. To put a new page on the board:
+
+```bash
+pio run -e es3c28p -t uploadfs
+```
+
+Without it, the board shows a plain page with the session list, `tracks.json` and firmware upload.
+
 ## Session logs
 
 Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD card, or in flash if there's no card. The file holds:
@@ -273,7 +314,8 @@ g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 ```
 include/   Config.h, GeoMath.h (gate maths), headers
 src/       main.cpp (state machine), GPSHandler, LapTimer, TrackDatabase,
-           DisplayManager, InputManager, Storage, SessionLog
+           DisplayManager, InputManager, Storage, SessionLog, WifiPortal
+web/       the Wi-Fi page (gzipped into data/web when building)
 data/      tracks.json
 test/      host-side lap timer tests
 legacy/    the original Raspberry Pi / Python prototype

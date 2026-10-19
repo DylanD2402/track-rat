@@ -53,8 +53,17 @@ public:
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
   void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
+  // Wi-Fi screen: network name and address. progress: firmware install, -1 = none
+  void drawWifi(const String& network, const String& address, int phones, int progress, bool restarting,
+                bool touchOk);
+
+  // WI-FI buttons, in the right third: on the menu from MENU_WIFI_Y to 186,
+  // on the summaries from WIFI_BUTTON_Y to the bottom
+  static constexpr int MENU_WIFI_Y = 154;
+  static constexpr int WIFI_BUTTON_Y = 196;
 
 private:
+  void wifiButton(int y, int h, bool highlight);
   TFT_eSPI tft;
   TFT_eSprite spr = TFT_eSprite(&tft);
   bool useSprite = false;
