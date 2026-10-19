@@ -14,6 +14,7 @@
 #include "FreeRoam.h"
 #include "GPSHandler.h"
 #include "LapTimer.h"
+#include "PerfRun.h"
 #include "TrackDatabase.h"
 
 struct RunningOverlay {
@@ -48,11 +49,15 @@ public:
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                       const RunningOverlay& overlay, uint32_t holdMs);
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath);
-  // Mode menu: highlight is for BOOT-button navigation (0..2)
+  // Mode menu: highlight is for BOOT-button navigation (0..3, 3 = Performance)
   void drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk);
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
   void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
+  // Performance mode (DisplayPerf.cpp). Card: a run by index, or the session's best when index < 0.
+  void drawPerfLive(const perf::PerfRun& pr, const GPSHandler& gps, perf::SpeedUnit units, const char* leftButton,
+                    uint32_t holdMs, bool touchOk);
+  void drawPerfCard(const perf::PerfRun& pr, int index, perf::SpeedUnit units, bool touchOk);
 
 private:
   TFT_eSPI tft;

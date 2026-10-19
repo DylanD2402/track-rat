@@ -21,6 +21,8 @@ public:
   bool touchAvailable() const { return touchOk; }
   // How long the screen has been held so far (0 if not touched). For UI feedback.
   uint32_t touchHeldMs() const;
+  // Screen y of the last tap, for screens with more than one row of buttons.
+  int16_t lastTapY() const { return tapY; }
 
 private:
   bool touchOk = false;
@@ -30,6 +32,7 @@ private:
   bool holdFired = false;
   uint32_t touchStart = 0;
   int16_t startX = 0, startY = 0;
+  int16_t tapY = 0;
 
   bool bootDown = false;
   bool bootLongFired = false;

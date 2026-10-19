@@ -598,7 +598,7 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
     {"NEW", "TRACK", "Tap the screen at", "the start/finish"},
     {"TRACK", "LIST", "Pick a track or", "Bench Test"},
   };
-  const int bw = W / 3, top = HEADER_H + 10, bh = 150;
+  const int bw = W / 3, top = HEADER_H + 8, bh = 104;
   for (int i = 0; i < 3; i++) {
     int x = i * bw + 4;
     bool hl = (i == highlight);
@@ -606,12 +606,21 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
     if (hl) gfx->drawRoundRect(x, top, bw - 8, bh, 8, C_TEXT);
     gfx->setTextDatum(MC_DATUM);
     gfx->setTextColor(C_TEXT);
-    gfx->drawString(items[i].l1, x + (bw - 8) / 2, top + 40, 4);
-    gfx->drawString(items[i].l2, x + (bw - 8) / 2, top + 68, 4);
+    gfx->drawString(items[i].l1, x + (bw - 8) / 2, top + 28, 4);
+    gfx->drawString(items[i].l2, x + (bw - 8) / 2, top + 54, 4);
     gfx->setTextColor(C_DIM);
-    gfx->drawString(items[i].d1, x + (bw - 8) / 2, top + 108, 1);
-    gfx->drawString(items[i].d2, x + (bw - 8) / 2, top + 120, 1);
+    gfx->drawString(items[i].d1, x + (bw - 8) / 2, top + 82, 1);
+    gfx->drawString(items[i].d2, x + (bw - 8) / 2, top + 94, 1);
   }
+  // Second row: Performance, full width
+  const int py = top + bh + 6, ph = 46;
+  gfx->fillRoundRect(4, py, W - 8, ph, 8, highlight == 3 ? 0x3186 : C_BUTTON);
+  if (highlight == 3) gfx->drawRoundRect(4, py, W - 8, ph, 8, C_TEXT);
+  gfx->setTextDatum(MC_DATUM);
+  gfx->setTextColor(C_TEXT);
+  gfx->drawString("PERFORMANCE", W / 2, py + 16, 4);
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("0-100, 1/4 mile, braking", W / 2, py + 36, 1);
   gfx->setTextDatum(TL_DATUM);
   if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 196, 2, C_WARN);
   centered(touchOk ? "tap a mode   -   top bar: GPS status" : "BOOT: tap = next, hold = choose", 218, 2, C_DIM);

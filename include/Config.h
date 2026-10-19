@@ -95,6 +95,12 @@
 #define LIVE_DELTA_MAX_OFFSET_M 40.0     // further than this from the best lap's line = no live diff
 
 // ---------------------------------------------------------------------------
+// Performance runs (acceleration and braking)
+// ---------------------------------------------------------------------------
+#define PERF_UNITS_MPH 0                 // 1 = show speeds in mph (the settings page will switch this)
+#define PERF_ROLLOUT_DEFAULT 0           // 1 = start the clock after 1 foot of rollout (drag-strip style)
+
+// ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
 #define TRACK_DATABASE_FILE "/tracks.json"
