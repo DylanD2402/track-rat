@@ -29,6 +29,7 @@
 #define GPS_USE_BEIDOU 0
 #define GPS_CONFIGURE_UBLOX 1        // send UBX config (RAM only, never saved to the module)
 #define GPS_ECHO_NMEA 0              // 1 = copy raw NMEA to the USB serial monitor
+#define GPS_RX_BUFFER_BYTES 16384     // ~5 s of NMEA at 20 Hz
 #define GPS_MIN_SATELLITES 4
 #define GPS_FIX_TIMEOUT_MS 3000      // no fresh fix for this long = fix lost
 

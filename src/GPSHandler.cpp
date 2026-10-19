@@ -9,7 +9,7 @@
 static HardwareSerial& gpsSerial = Serial1;
 
 void GPSHandler::begin() {
-  gpsSerial.setRxBufferSize(4096);
+  gpsSerial.setRxBufferSize(GPS_RX_BUFFER_BYTES);  // rides out SD writes etc. without losing data
   if (!detect()) {
     // Listen on the UART connector anyway, so a GPS plugged in later works.
     const int pairs[][2] = GPS_PIN_PAIRS;
@@ -31,7 +31,7 @@ void GPSHandler::setSimulated(bool on) {
   if (on == simulating) return;
   simulating = on;
   last = {};
-  fixPending = false;
+  queueHead = queueCount = 0;
   everFixed = false;
   lastTimeValue = 0xFFFFFFFF;
   sats = 0;
@@ -284,7 +284,7 @@ void GPSHandler::readSerial(uint32_t now) {
       last.gpsTimeMs = gps.time.hour() * 3600000UL + gps.time.minute() * 60000UL +
                        gps.time.second() * 1000UL + gps.time.centisecond() * 10UL;
       last.rxMillis = now;
-      fixPending = true;
+      queueFix(last);
       everFixed = true;
       countFixForRate(now);
     }
@@ -302,10 +302,23 @@ void GPSHandler::countFixForRate(uint32_t now) {
   }
 }
 
+// Fixes are queued so none are lost if the main loop is briefly busy
+// (drawing, writing to the SD card): every one reaches the lap timer.
+void GPSHandler::queueFix(const GpsFix& f) {
+  if (queueCount == FIX_QUEUE_LEN) {  // full: drop the oldest
+    queueHead = (queueHead + 1) % FIX_QUEUE_LEN;
+    queueCount--;
+    droppedFixes++;
+  }
+  fixQueue[(queueHead + queueCount) % FIX_QUEUE_LEN] = f;
+  queueCount++;
+}
+
 bool GPSHandler::takeFix(GpsFix& out) {
-  if (!fixPending) return false;
-  fixPending = false;
-  out = last;
+  if (queueCount == 0) return false;
+  out = fixQueue[queueHead];
+  queueHead = (queueHead + 1) % FIX_QUEUE_LEN;
+  queueCount--;
   return true;
 }
 
@@ -365,7 +378,7 @@ void GPSHandler::simulateStep() {
   last.rxMillis = now;
   sats = 12;
   hdopVal = 0.8f;
-  fixPending = true;
+  queueFix(last);
   everFixed = true;
   countFixForRate(now);
 }

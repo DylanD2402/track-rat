@@ -403,7 +403,7 @@ void loop() {
   gps.update();
 
   GpsFix fix;
-  if (gps.takeFix(fix)) {
+  while (gps.takeFix(fix)) {
 #if BLE_ENABLED
     RaceBoxBle::sendFix(fix, gps);
 #endif
@@ -420,9 +420,9 @@ void loop() {
 
   if (now - lastStatusLog > 5000) {
     lastStatusLog = now;
-    DEBUG_PRINTF("GPS: data=%s sats=%d hdop=%.1f fix=%s rate=%.1fHz%s\n", gps.receivingData() ? "yes" : "NO",
-                 gps.satellites(), gps.hdop(), gps.hasFix() ? "yes" : "no", gps.fixRateHz(),
-                 gps.isSimulated() ? " (bench test)" : "");
+    DEBUG_PRINTF("GPS: data=%s sats=%d hdop=%.1f fix=%s rate=%.1fHz dropped=%lu%s\n",
+                 gps.receivingData() ? "yes" : "NO", gps.satellites(), gps.hdop(), gps.hasFix() ? "yes" : "no",
+                 gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "");
   }
 
   if (lastRender == 0 || now - lastRender >= 1000 / DISPLAY_FPS) {

@@ -167,6 +167,7 @@ static void writeTrack(JsonObject o, const Track& t) {
 // Read tracks.json (or start one from the in-memory list), let `change`
 // modify it, and write it back safely (temp file, then rename).
 bool TrackDatabase::editFile(size_t extraBytes, std::function<bool(JsonArray)> change) {
+  uint32_t startMs = millis();
   fs::FS* fs = writableFs();
   if (!fs) {
     DEBUG_PRINTLN("Tracks: no storage to save to");
@@ -214,6 +215,8 @@ bool TrackDatabase::editFile(size_t extraBytes, std::function<bool(JsonArray)> c
   if (!fs->rename(tmp, TRACK_DATABASE_FILE)) return false;
   fileFs = fs;
   sourceName = (fs == &SD_MMC) ? "SD" : "flash";
+  DEBUG_PRINTF("Tracks: saved tracks.json (%u KB) in %lu ms\n", (unsigned)(written / 1024),
+               (unsigned long)(millis() - startMs));
   return true;
 }
 

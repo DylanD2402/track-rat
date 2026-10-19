@@ -34,7 +34,7 @@ public:
   void begin();
   void update();
 
-  // Returns true once per new position fix.
+  // Returns each new position fix once, oldest first (call until false).
   bool takeFix(GpsFix& out);
 
   bool hasFix() const;
@@ -45,6 +45,7 @@ public:
   uint32_t baud() const { return baudRate; }
   int rxPinUsed() const { return rxPin; }
   bool isSimulated() const { return simulating; }
+  uint32_t droppedFixCount() const { return droppedFixes; }
   void setSimulated(bool on);
   const GpsFix& lastFix() const { return last; }
 
@@ -55,7 +56,11 @@ private:
   TinyGPSPlus gps;
   uint32_t baudRate = 0;
   GpsFix last = {};
-  bool fixPending = false;
+  static const int FIX_QUEUE_LEN = 64;  // 3 s at 20 Hz
+  GpsFix fixQueue[FIX_QUEUE_LEN];
+  int queueHead = 0, queueCount = 0;
+  uint32_t droppedFixes = 0;
+  void queueFix(const GpsFix& f);
   bool everFixed = false;
   uint32_t lastTimeValue = 0xFFFFFFFF;
   uint32_t lastSentenceMillis = 0;
