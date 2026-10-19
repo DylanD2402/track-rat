@@ -10,6 +10,7 @@
 
 #include "WifiPortal.h"
 #include "Config.h"
+#include "FirmwareUpdate.h"
 #include "PortalLogic.h"
 #include "Storage.h"
 #include <ArduinoJson.h>
@@ -56,6 +57,7 @@ static portal::UploadCode uploadCode;
 
 // Firmware upload: one at a time (fwSlot holds the request sending it)
 static portal::UploadSlot fwSlot;
+static firmware::UploadGate fwGate;  // holds the start of the file until it has been checked
 static volatile int fwProgress = -1;
 static bool fwOk = false;
 static String fwError;
@@ -321,7 +323,17 @@ static void onTracksDone(AsyncWebServerRequest* req) {
 }
 
 // ---------------------------------------------------------------------------
-// Firmware upload: written straight into the other app slot by Update
+// Firmware upload: the first 128 bytes are checked the way an SD card file is (chip, app image)
+// before anything is written. Then it goes straight into the other app slot by Update.
+
+static void writeFirmware(const uint8_t* data, size_t len) {
+  if (!fwOk || !len) return;
+  if (Update.write(const_cast<uint8_t*>(data), len) != len) {
+    fwOk = false;
+    fwError = Update.errorString();
+    Update.abort();
+  }
+}
 
 static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                              size_t len, bool final) {
@@ -330,8 +342,8 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
     if (!fwSlot.claim(req)) return;                              // another upload is running
     fwError = "";
     fwProgress = 0;
-    fwOk = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
-    if (!fwOk) fwError = Update.errorString();
+    fwOk = true;
+    fwGate.reset(FirmwareUpdate::slotSize());
     DEBUG_PRINTF("Wi-Fi: firmware upload started (%s)\n", filename.c_str());
     req->onDisconnect([req]() {  // phone went away half way: nothing installed
       if (!fwSlot.owns(req)) return;
@@ -342,12 +354,24 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
     });
   }
   if (!fwSlot.owns(req)) return;
-  if (fwOk && len && Update.write(data, len) != len) {
-    fwOk = false;
-    fwError = Update.errorString();
-    Update.abort();
+  size_t got = len;  // this chunk's size, for the progress figure
+  if (fwOk && !fwGate.decided()) {
+    size_t used = fwGate.feed(data, len, final);  // held in the gate until it has seen the header
+    data += used;
+    len -= used;
+    if (fwGate.decided()) {
+      if (fwGate.ok()) {
+        fwOk = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
+        if (!fwOk) fwError = Update.errorString();
+        writeFirmware(fwGate.header(), fwGate.headerLen());
+      } else {
+        fwOk = false;
+        fwError = firmware::describe(fwGate.outcome());
+      }
+    }
   }
-  if (fwOk) fwProgress = portal::uploadPercent(index + len, req->contentLength());
+  if (fwGate.decided()) writeFirmware(data, len);  // before the decision the whole chunk is in the gate
+  if (fwOk) fwProgress = portal::uploadPercent(index + got, req->contentLength());
   if (!final) return;
 
   if (fwOk && !Update.end(true)) {
@@ -355,7 +379,7 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
     fwError = Update.errorString();
   }
   fwProgress = fwOk ? 100 : -1;
-  DEBUG_PRINTF("Wi-Fi: firmware %s (%u bytes)%s\n", fwOk ? "installed" : "NOT installed", (unsigned)(index + len),
+  DEBUG_PRINTF("Wi-Fi: firmware %s (%u bytes)%s\n", fwOk ? "installed" : "NOT installed", (unsigned)(index + got),
                fwOk ? "" : (" - " + fwError).c_str());
 }
 

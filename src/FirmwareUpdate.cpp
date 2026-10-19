@@ -11,8 +11,7 @@
 
 namespace FirmwareUpdate {
 
-// How much room the slot we'd write to has.
-static size_t slotSize() {
+size_t slotSize() {
   const esp_partition_t* p = esp_ota_get_next_update_partition(nullptr);
   return p ? p->size : 0;
 }

@@ -314,17 +314,40 @@ $("tracksSend").addEventListener("click", async () => {
 });
 
 // ---- firmware ----
+// ---- firmware check (begin: tested by test/test_web.js) ----
+// The same checks as firmware::check in include/FirmwareImage.h, with the same words, so the phone
+// and the board agree. head: the first bytes of the file (Uint8Array), fileSize: the whole file.
 const MAX_FIRMWARE = 6553600;  // one app slot
+const FW_HEADER_BYTES = 128;
+const FW_MESSAGES = {
+  tooShort: "file is too small to be firmware",
+  tooBig: "file is too big for the app slot",
+  badMagic: "not a firmware image",
+  wrongChip: "firmware is for a different chip",
+  notAnApp: "not the app image (use firmware.bin)",
+};
+// Returns null if the file is an ESP32-S3 app image, otherwise why it was refused.
+function checkFirmware(head, fileSize, slotSize = MAX_FIRMWARE) {
+  if (head.length < FW_HEADER_BYTES || fileSize < FW_HEADER_BYTES) return FW_MESSAGES.tooShort;
+  if (fileSize > slotSize) return FW_MESSAGES.tooBig;
+  if (head[0] !== 0xE9 || head[1] === 0 || head[1] > 16) return FW_MESSAGES.badMagic;
+  if ((head[12] | (head[13] << 8)) !== 0x0009) return FW_MESSAGES.wrongChip;  // ESP32-S3
+  const appDesc = (head[32] | (head[33] << 8) | (head[34] << 16) | (head[35] << 24)) >>> 0;
+  if (appDesc !== 0xABCD5432) return FW_MESSAGES.notAnApp;  // a bootloader has no app descriptor
+  return null;
+}
+// ---- firmware check (end) ----
 $("fwFile").addEventListener("change", async () => {
   const file = $("fwFile").files[0];
   $("fwSend").disabled = true;
   $("fwMsg").className = "note";
   $("fwMsg").textContent = "";
   if (!file) return;
-  const first = new Uint8Array(await file.slice(0, 1).arrayBuffer())[0];
-  if (first !== 0xE9 || file.size > MAX_FIRMWARE) {
+  const head = new Uint8Array(await file.slice(0, FW_HEADER_BYTES).arrayBuffer());
+  const why = checkFirmware(head, file.size);
+  if (why) {
     $("fwMsg").className = "err";
-    $("fwMsg").textContent = "That isn't a Track Rat firmware file (firmware.bin).";
+    $("fwMsg").textContent = "Not installed: " + why;
     return;
   }
   $("fwMsg").textContent = `${file.name}, ${size(file.size)}`;

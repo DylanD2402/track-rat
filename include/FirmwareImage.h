@@ -18,6 +18,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 namespace firmware {
 
@@ -43,6 +44,48 @@ inline Check check(const uint8_t* head, size_t headLen, size_t fileSize, size_t 
   if (readU32(head + APP_DESC_OFFSET) != APP_DESC_MAGIC) return Check::NotAnApp;
   return Check::Ok;
 }
+
+// Wi-Fi upload: the file arrives in chunks of any size and nothing may be written to flash before
+// the start of it has passed check(). The gate holds the first HEADER_BYTES, decides, and then
+// says how much of the chunk that completed the header is left over to write.
+class UploadGate {
+public:
+  void reset(size_t slotSize) {
+    slot = slotSize;
+    have = 0;
+    done = false;
+    result = Check::TooShort;
+  }
+
+  // Feed the next chunk. Returns how many of its bytes went into the header; the caller writes the
+  // rest (data + returned, len - returned) after the header, once decided() and ok(). final = this
+  // is the last chunk. The size of the whole file isn't known until then, so only the header's own
+  // bytes are measured against the slot; Update refuses whatever doesn't fit as it arrives.
+  size_t feed(const uint8_t* data, size_t len, bool final) {
+    if (done) return 0;
+    size_t take = HEADER_BYTES - have < len ? HEADER_BYTES - have : len;
+    if (take) memcpy(head + have, data, take);
+    have += take;
+    if (have == HEADER_BYTES || final) {
+      result = check(head, have, have, slot);
+      done = true;
+    }
+    return take;
+  }
+
+  bool decided() const { return done; }
+  bool ok() const { return done && result == Check::Ok; }
+  Check outcome() const { return result; }
+  const uint8_t* header() const { return head; }  // the bytes to write first
+  size_t headerLen() const { return have; }
+
+private:
+  uint8_t head[HEADER_BYTES];
+  size_t have = 0;
+  size_t slot = 0;
+  bool done = false;
+  Check result = Check::TooShort;
+};
 
 enum class Copy { Ok, ReadError, WriteError };
 

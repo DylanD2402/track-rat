@@ -20,6 +20,9 @@ struct Offer {
   time_t modified = 0;                                // the file's date on the card
 };
 
+// How much room the app slot we'd write to has (0 if there is none). The Wi-Fi upload uses it too.
+size_t slotSize();
+
 // Is there a firmware file on the SD card? Fills in what it is.
 bool find(Offer& offer);
 

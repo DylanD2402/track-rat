@@ -397,7 +397,7 @@ What the page does:
 
 - **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
 - **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list. If power is cut mid-save (here or on the device) and `tracks.json` is gone, the next boot puts back the newest complete copy it finds (`.tmp`, `.upload`, then `.bak`).
-- **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
+- **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). The page and Track Rat both check the file first, as the SD card update does: it must be an ESP32-S3 app image that fits the slot, so a `bootloader.bin` or a file for another chip is refused before anything is written. A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
 - **Device:** firmware version, free space on the card and in flash, GPS status and memory.
 - **Settings:** not there yet.
 
@@ -523,7 +523,7 @@ g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 ```
 
-`test/test_web.js` checks how the page groups session files by day and track (needs Node.js):
+`test/test_web.js` checks how the page groups session files by day and track, and that its firmware file check says the same as the board (needs Node.js):
 
 ```bash
 node test/test_web.js
@@ -563,7 +563,7 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 
 **On Windows** without g++, the `ziglang` Python package has a C++ compiler that needs no install: `pip install ziglang`, then use `python -m ziglang c++` in place of `g++`, add `-D_USE_MATH_DEFINES`, and write the output to a `.exe`.
 
-`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), and that firmware files are accepted only if they're an ESP32-S3 app image:
+`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), and that firmware files, from the SD card or sent over Wi-Fi in chunks of any size, are accepted only if they're an ESP32-S3 app image:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
