@@ -10,7 +10,40 @@
 #include <LittleFS.h>
 #include <SD_MMC.h>
 
+// True if the file parses as JSON and has a "tracks" array. The filter keeps nothing (the array comes out empty), but
+// the whole file's syntax is still checked.
+static bool validTracksFile(fs::FS& fs, const String& path) {
+  File f = fs.open(path, "r");
+  if (!f) return false;
+  StaticJsonDocument<64> filter;
+  filter["tracks"][0] = false;
+  StaticJsonDocument<64> doc;
+  DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+  f.close();
+  return !err && doc["tracks"].is<JsonArray>();
+}
+
+// A save or upload cut off after it removed or moved the old tracks.json leaves the new (or old) list under another
+// name and no tracks.json. Put the newest complete one back, or the next edit would start from the built-in list.
+// Leftovers next to an existing tracks.json are left alone: .tmp is overwritten by the next save, and an unfinished
+// .upload by the next upload (the old file is still the one in use).
+static void restoreTracksFile(fs::FS& fs, const char* name) {
+  if (fs.exists(TRACK_DATABASE_FILE)) return;
+  // Newest first: an on-device save, then an upload that got as far as moving the old file to .bak, then .bak itself
+  static const char* const suffixes[] = {".tmp", ".upload", ".bak"};
+  for (const char* suffix : suffixes) {
+    String path = String(TRACK_DATABASE_FILE) + suffix;
+    if (!fs.exists(path) || !validTracksFile(fs, path)) continue;
+    if (fs.rename(path, TRACK_DATABASE_FILE)) {
+      DEBUG_PRINTF("Tracks: restored %s%s from %s\n", name, TRACK_DATABASE_FILE, path.c_str());
+      return;
+    }
+  }
+}
+
 void TrackDatabase::begin() {
+  if (Storage::sdMounted()) restoreTracksFile(SD_MMC, "SD");
+  if (Storage::flashMounted()) restoreTracksFile(LittleFS, "flash");
   if (Storage::sdMounted() && loadFrom(SD_MMC, "SD")) return;
   if (Storage::flashMounted() && loadFrom(LittleFS, "flash")) return;
   loadBuiltIn();

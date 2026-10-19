@@ -396,7 +396,7 @@ Get your sessions onto your phone without taking the SD card out.
 What the page does:
 
 - **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
-- **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list.
+- **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list. If power is cut mid-save (here or on the device) and `tracks.json` is gone, the next boot puts back the newest complete copy it finds (`.tmp`, `.upload`, then `.bak`).
 - **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
 - **Device:** firmware version, free space on the card and in flash, GPS status and memory.
 - **Settings:** not there yet.
