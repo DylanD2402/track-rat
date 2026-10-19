@@ -18,11 +18,11 @@ void DeltaLedPattern::setDelta(bool isTiming, bool has, int32_t deltaMs) {
 }
 
 int DeltaLedPattern::litCount(int32_t deltaMs) const {
-  int32_t mag = deltaMs < 0 ? -deltaMs : deltaMs;
+  int64_t mag = deltaMs < 0 ? -(int64_t)deltaMs : deltaMs;
   if (mag < LED_DEADBAND_MS) return 0;
   int half = n / 2;
   // Round up, so any delta past the deadband shows at least one LED.
-  int lit = (int)(((int64_t)mag * half + fullScale - 1) / fullScale);
+  int lit = (int)((mag * half + fullScale - 1) / fullScale);
   return lit > half ? half : lit;
 }
 
@@ -81,8 +81,8 @@ void DeltaLedPattern::render(uint32_t nowMs, Rgb* bar, Rgb& board) {
   for (int i = 0; i < lit; i++) bar[toRight ? rightStart + i : leftEnd - i] = c;
 
   // Board LED: same colour, brighter the bigger the gap (30% to 100%).
-  int32_t mag = delta < 0 ? -delta : delta;
-  int32_t cap = mag > fullScale ? fullScale : mag;
-  int scale = 30 + (int)((int64_t)70 * cap / fullScale);
+  int64_t mag = delta < 0 ? -(int64_t)delta : delta;
+  int64_t cap = mag > fullScale ? fullScale : mag;
+  int scale = 30 + (int)(70 * cap / fullScale);
   board = {(uint8_t)(c.r * scale / 100), (uint8_t)(c.g * scale / 100), (uint8_t)(c.b * scale / 100)};
 }

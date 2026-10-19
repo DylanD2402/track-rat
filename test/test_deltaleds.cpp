@@ -1,13 +1,15 @@
 /**
  * Host-side tests for the LED delta pattern and add-on pin check.
  *
- *   g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_deltaleds.cpp src/DeltaLeds.cpp -o /tmp/dl && /tmp/dl
+ *   g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_deltaleds.cpp src/DeltaLeds.cpp src/LapTimer.cpp -o /tmp/dl && /tmp/dl
  */
 
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include "AddOns.h"
 #include "DeltaLeds.h"
+#include "LapTimer.h"
 
 static int failures = 0;
 #define CHECK(cond, ...)                         \
@@ -155,6 +157,71 @@ int main() {
   CHECK(addOnPinTaken(2, 2, 3), "GPS on IO2 takes IO2");
   CHECK(!addOnPinTaken(-1, 14, 21), "no pin is never taken");
   printf("  add-on pin collisions: ok\n");
+
+  // Failure paths: extreme and zero settings never crash or light a wrong LED
+  show(p, 0, true, true, INT32_MIN, pic);  CHECK(!strcmp(pic, ".....GGGGG"), "INT32_MIN: %s", pic);
+  show(p, 0, true, true, INT32_MAX, pic);  CHECK(!strcmp(pic, "RRRRR....."), "INT32_MAX: %s", pic);
+  DeltaLedPattern z;
+  z.begin(10, 0, false);
+  show(z, 0, true, true, 100, pic);        CHECK(strlen(pic) == 10, "zero full scale survives: %s", pic);
+  DeltaLedPattern two;
+  two.begin(2);
+  show(two, 0, true, true, -1000, pic);    CHECK(!strcmp(pic, ".G"), "2 LEDs ahead: %s", pic);
+  show(two, 0, true, true, 1000, pic);     CHECK(!strcmp(pic, "R."), "2 LEDs behind: %s", pic);
+  // Events fired before any render, and a stale flash after the session ends, are harmless
+  DeltaLedPattern s2;
+  s2.begin(10);
+  s2.split(5);
+  show(s2, 100000, false, false, 0, pic);  CHECK(!strcmp(pic, ".........."), "old split ignored: %s", pic);
+
+  // End to end: synthetic GPS laps -> LapTimer -> pattern, as main.cpp wires them.
+  {
+    const double lat0 = 37.0, lon0 = -122.0, R = 150.0;
+    const double mLat = 111194.93, mLon = 111194.93 * cos(lat0 * geo::DEG2RAD);
+    LapTimer lt;
+    lt.begin({lat0, lon0, 15}, {{lat0, lon0 - 2 * R / mLon, 15}});
+    DeltaLedPattern sim;
+    sim.begin(10);
+    double speeds[] = {30.0, 35.0, 25.0, 30.0};  // lap 2 faster, lap 3 slower
+    double angle = -0.2, t = 0;
+    uint32_t now = 1000;
+    bool sawPurple = false, sawWhite = false, sawGreenRight = false, sawRedLeft = false;
+    int purplesByLap[5] = {0}, whitesByLap[5] = {0};
+    while (lt.lapCount() < 4 && t < 400000) {
+      double v = speeds[lt.lapCount() < 4 ? lt.lapCount() : 3];
+      double lat = lat0 + R * sin(angle) / mLat, lon = lon0 + R * (cos(angle) - 1.0) / mLon;
+      LapEvent ev = lt.onFix(lat, lon, v * 3.6f, (uint32_t)t, now);
+      if (ev.type == LapEventType::LapCompleted && ev.isBest) sim.bestLap(now);
+      if (ev.type == LapEventType::SplitCrossed) sim.split(now);
+      int32_t d = lt.liveDeltaMs();
+      // render 5 frames per GPS fix (the driver runs faster than the GPS)
+      for (int k = 0; k < 5; k++) {
+        show(sim, now + k * 10, lt.lapRunning(), d != NO_DELTA, d, pic);
+        int lap = (int)lt.lapCount();
+        if (strchr(pic, 'P')) { sawPurple = true; purplesByLap[lap]++; }
+        if (strchr(pic, 'W')) { sawWhite = true; whitesByLap[lap]++; }
+        if (lt.lapCount() == 1 && d != NO_DELTA && d < -300 && pic[9] == 'G' && pic[0] == '.') sawGreenRight = true;
+        if (lt.lapCount() == 2 && d != NO_DELTA && d > 300 && pic[0] == 'R' && pic[9] == '.') sawRedLeft = true;
+        if (d != NO_DELTA && !strchr(pic, 'P') && !strchr(pic, 'W')) {
+          bool left = strchr(pic, 'R') != nullptr, right = strchr(pic, 'G') != nullptr;
+          CHECK(!(left && right), "both sides lit: %s (delta %d)", pic, d);
+          if (d <= -LED_DEADBAND_MS) CHECK(!left, "red while ahead: %s (delta %d)", pic, d);
+          if (d >= LED_DEADBAND_MS) CHECK(!right, "green while behind: %s (delta %d)", pic, d);
+        }
+      }
+      angle += v * 0.05 / R;
+      t += 50;
+      now += 50;
+    }
+    CHECK(lt.lapCount() == 4, "simulated %zu laps", lt.lapCount());
+    CHECK(sawPurple, "purple on a best lap");
+    CHECK(sawWhite, "white at a split");
+    CHECK(purplesByLap[3] == 0, "no purple on the slower lap 3 (flash window passed): %d", purplesByLap[3]);
+    CHECK(sawGreenRight, "green on the right while ahead on lap 2");
+    CHECK(sawRedLeft, "red on the left while behind on lap 3");
+    printf("  20 Hz synthetic laps through LapTimer: purple=%d white=%d green-right=%d red-left=%d\n", sawPurple,
+           sawWhite, sawGreenRight, sawRedLeft);
+  }
 
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
