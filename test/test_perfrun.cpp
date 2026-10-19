@@ -9,21 +9,11 @@
 #include <functional>
 #include <vector>
 #include "PerfRun.h"
+#include "check.h"
 
 using perf::PerfResult;
 using perf::PerfRun;
 using perf::RunKind;
-
-static int failures = 0;
-#define CHECK(cond, ...)                          \
-  do {                                            \
-    if (!(cond)) {                                \
-      failures++;                                 \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                        \
-      printf("\n");                               \
-    }                                             \
-  } while (0)
 
 // Within `tolMs` milliseconds of `expectS` seconds.
 #define CHECK_S(got, expectS, tolMs, what)                                                              \

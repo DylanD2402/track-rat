@@ -3,7 +3,8 @@
  */
 
 #include "PerfLog.h"
-#include "Config.h"
+#include "JsonFile.h"
+#include "SessionLog.h"
 #include "Storage.h"
 #include <ArduinoJson.h>
 
@@ -12,13 +13,8 @@ using perf::PerfResult;
 namespace PerfLog {
 
 String newPath(const String& stamp) {
-  fs::FS* fs = Storage::sessionFS();
-  if (!fs) return String();
-  if (!fs->exists(SESSION_DIR)) fs->mkdir(SESSION_DIR);
-  String base = String(SESSION_DIR) + "/" + (stamp.length() ? stamp : String("run")) + "_perf";
-  String path = base + ".json";
-  for (int n = 2; fs->exists(path) && n < 1000; n++) path = base + "_" + n + ".json";
-  return path;
+  String base = SessionLog::newSessionBase(stamp, "perf");
+  return base.length() ? base + ".json" : String();
 }
 
 // Adds only the measurements that were reached.
@@ -70,15 +66,7 @@ bool save(const String& path, const String& stamp, const perf::PerfRun& runs) {
     addMeasurements(o, r);
   }
   addMeasurements(doc.createNestedObject("best"), runs.best());
-
-  File f = fs->open(path, "w");
-  if (!f) {
-    DEBUG_PRINTF("Perf: could not open %s for writing\n", path.c_str());
-    return false;
-  }
-  serializeJsonPretty(doc, f);
-  f.close();
-  return true;
+  return writeJsonFile(*fs, path, doc, true) > 0;
 }
 
 }  // namespace PerfLog

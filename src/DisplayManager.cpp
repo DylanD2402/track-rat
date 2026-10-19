@@ -38,10 +38,7 @@ bool DisplayManager::begin() {
   tft.setRotation(DISPLAY_ROTATION);
   tft.invertDisplay(DISPLAY_INVERT);
   tft.fillScreen(C_BG);
-#ifdef TFT_BL
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, HIGH);
-#endif
+  setBacklight(true);
 
   spr.setColorDepth(16);
   useSprite = spr.createSprite(W, H) != nullptr;  // ~150 KB, lands in PSRAM
@@ -258,7 +255,7 @@ void DisplayManager::footerButtons(const char* left, const char* center, const c
 }
 
 // "Keep holding to end": a card with a bar that fills over END_SESSION_HOLD_MS.
-void DisplayManager::holdToEnd(uint32_t holdMs, const char* what) {
+void DisplayManager::holdBar(uint32_t holdMs, const char* what) {
   if (holdMs <= 150) return;
   const int x = 24, y = 80, w = W - 48, h = 64;
   int fill = (int)min((uint32_t)(w - 32), (uint32_t)((w - 32) * holdMs / END_SESSION_HOLD_MS));
@@ -498,7 +495,7 @@ void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs, con
     text("Matched your lap, switched", W / 2, 192, Font::Body, C_BG, TC_DATUM);
   }
 
-  holdToEnd(holdMs, "Keep holding to end the session");
+  holdBar(holdMs, "Keep holding to end the session");
 }
 
 String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
@@ -514,6 +511,7 @@ String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
 static const int MAP_X = 4, MAP_Y = HEADER_H + 4, MAP_W = 210, MAP_H = H - HEADER_H - 8;
 static const int PANEL_X = MAP_X + MAP_W + 8;
 static const int PANEL_W = W - PANEL_X - 4;
+static const layout::Lines NO_LINES;  // Free Roam has a path but no stored layout
 
 // Draws stored lines and/or a path (points whose first two members are float
 // x, y in metres) scaled to fit the box, north up, plus the start/finish
@@ -739,10 +737,9 @@ void DisplayManager::drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uin
   beginFrame();
   header("Free Roam", &gps);
 
-  static const std::vector<std::vector<geo::XYf>> noLines;
   MapPath mp = {(const uint8_t*)fr.path.data(), fr.path.size(), sizeof(geo::XYf)};
   geo::XY car = fr.hasPosition() ? geo::toLocal(gps.lastFix().lat, gps.lastFix().lon, fr.refLat, fr.refLon) : geo::XY{0, 0};
-  if (!drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, noLines, mp, fr.hasPosition(), car, gps.hasFix(), false)) {
+  if (!drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, NO_LINES, mp, fr.hasPosition(), car, gps.hasFix(), false)) {
     const int mx = MAP_X + MAP_W / 2, my = MAP_Y + MAP_H / 2;
     text(fr.hasPosition() ? "Start driving" : "Waiting for GPS", mx, my - 10, Font::Body, C_TEXT2, MC_DATUM);
     if (fr.hasPosition()) text("Your route draws here", mx, my + 12, Font::Caption, C_TEXT3, MC_DATUM);
@@ -774,9 +771,8 @@ void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs
   beginFrame();
   // In the title, so it doesn't cover the route on the map
   header(savedPath.length() ? "Drive saved   ·   tap to continue" : "Drive not saved   ·   tap to continue", nullptr);
-  static const std::vector<std::vector<geo::XYf>> noLines;
   MapPath mp = {(const uint8_t*)fr.path.data(), fr.path.size(), sizeof(geo::XYf)};
-  if (!drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, noLines, mp, false, geo::XY{0, 0}, true, false))
+  if (!drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, NO_LINES, mp, false, geo::XY{0, 0}, true, false))
     text("No route recorded", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2, Font::Body, C_TEXT3, MC_DATUM);
 
   char buf[24];

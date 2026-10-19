@@ -6,22 +6,13 @@
  */
 
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 #include <vector>
 #include "Battery.h"
 #include "FirmwareImage.h"
 #include "SleepTimer.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                          \
-  do {                                            \
-    if (!(cond)) {                                \
-      failures++;                                 \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                        \
-      printf("\n");                               \
-    }                                             \
-  } while (0)
+#include "check.h"
 
 // Same numbers as include/Config.h
 static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5}; }
@@ -244,6 +235,101 @@ static void testFirmwareImage() {
   printf("  firmware file: good image accepted; text, bootloader, wrong chip, too big, too small refused\n");
 }
 
+// Wi-Fi upload: the file comes in chunks of any size; nothing may reach flash until the first 128 bytes
+// have passed the check, and everything after that must arrive in order, none lost or repeated.
+struct GateRun {
+  firmware::Check check;
+  bool decided;
+  std::vector<uint8_t> written;  // what would have gone to flash
+};
+
+static GateRun runGate(const std::vector<uint8_t>& file, size_t chunk, size_t slot) {
+  firmware::UploadGate gate;
+  gate.reset(slot);
+  GateRun r = {};
+  size_t pos = 0;
+  do {
+    size_t n = std::min(chunk, file.size() - pos);
+    bool final = pos + n == file.size();
+    const uint8_t* data = file.data() + pos;
+    size_t len = n;
+    if (!gate.decided()) {
+      size_t used = gate.feed(data, len, final);
+      data += used;
+      len -= used;
+      if (gate.ok()) r.written.insert(r.written.end(), gate.header(), gate.header() + gate.headerLen());
+      CHECK(gate.decided() || len == 0, "gate left bytes behind before deciding");
+    }
+    if (gate.ok()) r.written.insert(r.written.end(), data, data + len);
+    CHECK(gate.ok() || r.written.empty(), "bytes written before the check passed");
+    pos += n;
+  } while (pos < file.size());
+  r.check = gate.outcome();
+  r.decided = gate.decided();
+  return r;
+}
+
+static void testUploadGate() {
+  using firmware::Check;
+  const size_t SLOT = 6553600;
+  const size_t sizes[] = {1, 7, 127, 128, 129, 4096};
+
+  auto good = makeImage(20000);
+  for (size_t i = 40; i < good.size(); i++) good[i] = (uint8_t)(i * 31 + i / 256);  // a lost or repeated byte shows
+  auto s3 = makeImage(20000, 0x0000);
+  auto boot = makeImage(20000, 0x0009, false);
+  auto text = makeImage(20000);
+  memcpy(text.data(), "Hello, this is not firmware", 27);
+
+  for (size_t c : sizes) {
+    GateRun r = runGate(good, c, SLOT);
+    CHECK(r.decided && r.check == Check::Ok, "good image refused with chunks of %u", (unsigned)c);
+    CHECK(r.written == good, "good image changed on the way with chunks of %u (%u of %u bytes)", (unsigned)c,
+          (unsigned)r.written.size(), (unsigned)good.size());
+
+    r = runGate(boot, c, SLOT);
+    CHECK(r.check == Check::NotAnApp && r.written.empty(), "bootloader let through with chunks of %u", (unsigned)c);
+    r = runGate(s3, c, SLOT);
+    CHECK(r.check == Check::WrongChip && r.written.empty(), "wrong chip let through with chunks of %u", (unsigned)c);
+    r = runGate(text, c, SLOT);
+    CHECK(r.check == Check::BadMagic && r.written.empty(), "text file let through with chunks of %u", (unsigned)c);
+  }
+
+  // Ends before 128 bytes: too short, nothing written, even when the last chunk is empty
+  for (size_t c : sizes) {
+    std::vector<uint8_t> shortFile(good.begin(), good.begin() + 100);
+    GateRun r = runGate(shortFile, c, SLOT);
+    CHECK(r.decided && r.check == Check::TooShort && r.written.empty(), "100-byte file with chunks of %u", (unsigned)c);
+  }
+  {
+    firmware::UploadGate gate;
+    gate.reset(SLOT);
+    CHECK(gate.feed(good.data(), 60, false) == 60 && !gate.decided(), "60 bytes should be held");
+    CHECK(gate.feed(good.data() + 60, 0, true) == 0 && gate.decided() && gate.outcome() == Check::TooShort,
+          "empty last chunk should end the upload as too short");
+  }
+
+  // Exactly 128 bytes is enough to decide; the header is all there is to write
+  {
+    std::vector<uint8_t> tiny(good.begin(), good.begin() + 128);
+    GateRun r = runGate(tiny, 7, SLOT);
+    CHECK(r.check == Check::Ok && r.written == tiny, "128-byte image");
+  }
+
+  // No app slot (size 0): refused rather than started
+  CHECK(runGate(good, 4096, 0).check == Check::TooBig, "upload accepted with no app slot");
+
+  // A new upload starts clean
+  firmware::UploadGate gate;
+  gate.reset(SLOT);
+  gate.feed(boot.data(), boot.size(), true);
+  CHECK(gate.decided() && !gate.ok(), "bootloader should leave the gate refused");
+  gate.reset(SLOT);
+  CHECK(!gate.decided() && !gate.ok() && gate.headerLen() == 0, "reset should clear the gate");
+
+  printf("  wi-fi upload: header held across chunks of 1..4096 bytes; bootloader, wrong chip, short file refused\n");
+}
+
 // ---------------------------------------------------------------------------
 // Chunked copy: the same loop the SD installer runs, with a fake file and fake flash
 // ---------------------------------------------------------------------------
@@ -456,6 +542,7 @@ int main() {
   testLow();
   testSleepTimer();
   testFirmwareImage();
+  testUploadGate();
   testCopyImage();
   testDrivingDay();
   testDrainToLow();

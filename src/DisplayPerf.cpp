@@ -97,7 +97,7 @@ void DisplayManager::drawPerfLive(const PerfRun& pr, const GPSHandler& gps, Spee
     centered("No runs yet", 176, Font::Caption, C_TEXT3);
   }
 
-  holdToEnd(holdMs, "Keep holding to leave");
+  holdBar(holdMs, "Keep holding to leave");
 
   if (touchOk) footerButtons(leftButton, "Results", "Menu");
   else centered("BOOT: press for results, hold for the menu", 212, Font::Body, C_TEXT3);

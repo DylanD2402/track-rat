@@ -8,17 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include "UbxParser.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 // Frames written out byte by byte, with checksums worked out separately
 // from the code under test. Layout as in the u-blox M10 interface manual.

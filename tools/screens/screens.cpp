@@ -15,6 +15,7 @@
 #include "DisplayManager.h"
 #include "SessionLog.h"
 #undef private
+#include "Power.h"
 #include "RaceBoxBle.h"
 #include "Storage.h"
 #include "UiTheme.h"
@@ -29,6 +30,7 @@ bool GPSHandler::receivingData() const { return simulating || lastSentenceMillis
 bool DisplayManager::splashRunning() const { return false; }
 const char* Storage::sessionFSName() { return "SD"; }
 bool RaceBoxBle::connected() { return btConnected; }
+void Power::backlight(bool) {}
 
 // As in SessionLog.cpp
 String formatLapTime(uint32_t ms, int decimals) {
@@ -189,7 +191,7 @@ int main(int argc, char** argv) {
   mockMillis = 1000;
   float kmh = 0;
   double la = SF_LAT, lo = SF_LON;
-  auto drive = [&](double untilS, std::function<void(const LapEvent&)> onEvent = nullptr) {
+  auto drive = [&](double untilS) {
     while (s < untilS) {
       int lap = (int)floor(s / loop.length) + 1;
       double pace = paces[std::min(std::max(lap, 0), 4)];
@@ -198,8 +200,7 @@ int main(int argc, char** argv) {
       gpsMs += 50;
       mockMillis += 50;
       loop.at(s, la, lo);
-      LapEvent ev = timer.onFix(la, lo, kmh, gpsMs, mockMillis);
-      if (onEvent && ev.type != LapEventType::None) onEvent(ev);
+      timer.onFix(la, lo, kmh, gpsMs, mockMillis);
     }
     setGps(gps, true, la, lo, kmh, gpsMs);
   };

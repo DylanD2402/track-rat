@@ -3,12 +3,8 @@
  */
 
 #include "SessionReplay.h"
-#include <stdio.h>
 #include <stdlib.h>
-
-static bool parsePoint(const std::string& s, TrackPoint& p) {
-  return sscanf(s.c_str(), "%lf %lf %f", &p.lat, &p.lon, &p.radius) == 3;
-}
+#include "LayoutMatch.h"
 
 void SessionReplay::setUpFromHeader() {
   setUp = true;
@@ -21,17 +17,29 @@ void SessionReplay::setUpFromHeader() {
   trackId = rdr.comment("Track");
   trackName = rdr.comment("Track name");
 
-  TrackPoint sf;
+  TrackPoint sf = {0, 0, 0, 0, HeadingFrom::None};
   std::vector<TrackPoint> splits;
-  if (parsePoint(rdr.comment("Start/finish"), sf)) {
+  if (vbo::parsePoint(rdr.comment("Start/finish"), sf)) {
     for (int i = 1;; i++) {
       TrackPoint sp;
-      if (!parsePoint(rdr.comment("Split " + std::to_string(i)), sp)) break;
+      if (!vbo::parsePoint(rdr.comment("Split " + std::to_string(i)), sp)) break;
       splits.push_back(sp);
     }
     timed = true;
   } else if (lookup && lookup(trackId, sf, splits)) {
     timed = true;
+  }
+  // Switched to another layout at the same line: every lap is timed with its
+  // splits, as the layout check found the driver on it from the first lap.
+  TrackPoint toSf = {0, 0, 0, 0, HeadingFrom::None};
+  std::vector<TrackPoint> toSplits;
+  if (timed && summaryTrackId.size() && summaryTrackId != trackId && lookup &&
+      lookup(summaryTrackId, toSf, toSplits) && layout::sharesLine(sf, toSf)) {
+    sf = toSf;
+    splits = toSplits;
+    trackId = summaryTrackId;
+    trackName.clear();  // the header's is the old layout's; the track list has this one's
+    switchedLayout = true;
   }
   long minLap = atol(rdr.comment("Min lap ms").c_str());
   if (timed) timer.begin(sf, splits, minLap > 0 ? (uint32_t)minLap : (uint32_t)MIN_LAP_TIME_MS);

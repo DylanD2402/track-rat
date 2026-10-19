@@ -121,7 +121,7 @@ private:
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);
   void button(int x, int y, int w, int h, const char* label, bool primary, bool highlight = false);
-  void holdToEnd(uint32_t holdMs, const char* what);
+  void holdBar(uint32_t holdMs, const char* what);  // progress while the screen is held
   // Centred on the screen; a Title too wide for the screen drops to Body, then is shortened
   void centered(const String& s, int y, Font f, uint16_t color);
   // Performance cards (DisplayPerf.cpp)

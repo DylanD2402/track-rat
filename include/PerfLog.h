@@ -2,7 +2,8 @@
  * Track Rat - Performance run log
  *
  * Writes the session's acceleration and braking runs to /sessions/<stamp>_perf.json
- * on the SD card (or internal flash if there is no card). Rewritten after every run.
+ * on the SD card (or internal flash if there is no card). Rewritten after every run,
+ * safely: a power cut leaves the last complete copy (see JsonFile.h).
  */
 
 #ifndef PERF_LOG_H

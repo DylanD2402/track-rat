@@ -23,7 +23,7 @@ bool begin(fs::FS& fs);
 bool running();
 
 // These only queue the work; the writer task does it. False if the buffer
-// is full (counted in droppedBytes()).
+// is full.
 bool open(const String& path, const char* header, size_t headerLen);
 bool append(const char* data, size_t len);
 void close();  // also writes out what's buffered straight away
@@ -32,10 +32,12 @@ void close();  // also writes out what's buffered straight away
 // The rename itself happens on the writer task; false if it couldn't be queued.
 bool rename(const String& from, const String& to);
 void poll();   // call from the main loop: finishes a close() the full buffer held up
+// Blocks until everything queued is written (and a queued close is done), or
+// the timeout passes. For just before deep sleep. True if it finished.
+bool waitIdle(uint32_t timeoutMs);
 
 // Statistics, for the log
 uint32_t bytesWritten();      // to the current file
-uint32_t droppedBytes();      // never reached the card (buffer full or write failed)
 uint32_t bufferedBytes();     // waiting to be written
 uint32_t slowestWriteMs();    // longest single write + flush so far
 

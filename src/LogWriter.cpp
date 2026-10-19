@@ -18,9 +18,9 @@ static const size_t BATCH_BYTES = 16384;  // one card write; bigger than any rec
 static const size_t MAX_RECORD = LogRing::MAX_RECORD;
 
 static LogRing ring;
-static std::atomic<uint32_t> dropped{0};
 static std::atomic<uint32_t> written{0};
 static std::atomic<uint32_t> slowest{0};
+static std::atomic<bool> busy{false};  // the writer task is between taking records and its last flush
 static fs::FS* fsys = nullptr;
 static TaskHandle_t task = nullptr;
 
@@ -31,12 +31,6 @@ static File file;
 static bool fileOk = false;
 static char filePath[160];
 
-static bool push(uint8_t type, const void* data, size_t len) {
-  if (ring.push(type, data, len)) return true;
-  dropped += len;
-  return false;
-}
-
 // --- writer task -------------------------------------------------------------
 
 static void writeBatch() {
@@ -46,12 +40,9 @@ static void writeBatch() {
     written += n;
     if (n != batchLen) {
       DEBUG_PRINTF("Log: write to %s failed (card full or removed?) - rest of this session not logged\n", filePath);
-      dropped += batchLen - n;
       file.close();
       fileOk = false;
     }
-  } else {
-    dropped += batchLen;
   }
   batchLen = 0;
 }
@@ -125,7 +116,12 @@ static void drain() {
 static void writerTask(void*) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(LOG_FLUSH_MS));
+    // Set before drain() reads the ring and cleared after its last flush (both
+    // sequentially consistent), so waitIdle() seeing an empty ring and no busy
+    // can't miss a record that was taken but not yet written.
+    busy = true;
     drain();
+    busy = false;
   }
 }
 
@@ -169,14 +165,12 @@ bool open(const String& path, const char* header, size_t headerLen) {
   retryClose();
   const size_t records = 1 + (headerLen + MAX_RECORD - 1) / MAX_RECORD;
   if (path.length() > MAX_RECORD ||
-      ring.freeSpace() < path.length() + headerLen + records * LogRing::RECORD_HEADER) {
-    dropped += headerLen;
+      ring.freeSpace() < path.length() + headerLen + records * LogRing::RECORD_HEADER)
     return false;
-  }
-  push(REC_OPEN, path.c_str(), path.length());
+  ring.push(REC_OPEN, path.c_str(), path.length());
   for (size_t off = 0; off < headerLen; off += MAX_RECORD) {
     size_t n = headerLen - off < MAX_RECORD ? headerLen - off : MAX_RECORD;
-    push(REC_DATA, header + off, n);
+    ring.push(REC_DATA, header + off, n);
   }
   return true;
 }
@@ -193,7 +187,7 @@ static void retryClose() {
 bool append(const char* data, size_t len) {
   if (!task) return false;
   retryClose();
-  return push(REC_DATA, data, len);
+  return ring.push(REC_DATA, data, len);
 }
 
 bool rename(const String& from, const String& to) {
@@ -218,8 +212,21 @@ void poll() {
   if (task) retryClose();
 }
 
+bool waitIdle(uint32_t timeoutMs) {
+  if (!task) return true;
+  uint32_t start = millis();
+  xTaskNotifyGive(task);  // write now rather than at the next flush
+  for (;;) {
+    retryClose();  // a close the full buffer held up
+    // Order matters: the ring is read first. Records are only popped while busy
+    // is set, so an empty ring followed by a clear busy means everything is on the card.
+    if (!closePending && ring.used() == 0 && !busy) return true;
+    if (millis() - start >= timeoutMs) return false;
+    delay(5);
+  }
+}
+
 uint32_t bytesWritten() { return written; }
-uint32_t droppedBytes() { return dropped; }
 uint32_t bufferedBytes() { return ring.used(); }
 uint32_t slowestWriteMs() { return slowest; }
 

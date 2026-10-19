@@ -21,6 +21,15 @@ constexpr uint8_t UBX_CLASS_NAV = 0x01;
 constexpr uint8_t UBX_ID_NAV_PVT = 0x07;
 constexpr uint16_t UBX_NAV_PVT_LEN = 92;
 
+// Adds `len` bytes to a UBX frame's 8-bit Fletcher checksum (class, id,
+// length and payload are covered). Start with a = b = 0.
+inline void ubxChecksum(const uint8_t* data, size_t len, uint8_t& a, uint8_t& b) {
+  for (size_t i = 0; i < len; i++) {
+    a += data[i];
+    b += a;
+  }
+}
+
 class UbxParser {
 public:
   // Larger frames are skipped. NAV-PVT is 92 bytes; CFG-VALGET replies

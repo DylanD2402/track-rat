@@ -62,14 +62,9 @@ Thumbs.db
 
 # Project specific
 *.log
-lap_data/
-session_data/
 *.csv
 *.db
 *.sqlite
-
-# Configuration overrides
-config_local.py
 
 # PlatformIO
 .pio/

@@ -18,7 +18,6 @@ void begin();
 // Call every loop. Reads the battery about once a second.
 void update(uint32_t nowMs);
 
-bool batteryPresent();
 int batteryPercent();               // 0..100, or -1 when no battery is fitted
 int batteryMillivolts();            // 0 when no battery is fitted
 bool batteryLow(uint32_t nowMs);    // low for long enough to save and sleep

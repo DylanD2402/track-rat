@@ -111,6 +111,7 @@ private:
   double simPhaseT = 0, simV = 0, simDist = 0;
   uint32_t simClockMs = 0;
   void simulateLaunchStep();
+  void publishSimFix(uint32_t now);
 };
 
 #endif  // GPS_HANDLER_H

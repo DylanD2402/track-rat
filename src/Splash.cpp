@@ -12,6 +12,7 @@
 #include "Config.h"
 #include "DisplayManager.h"
 #include "SplashSweep.h"
+#include "UiTheme.h"
 
 #if __has_include("logo_image.h")
 #include "logo_image.h"  // LOGO_W, LOGO_H, LOGO_PIXELS (RGB565)
@@ -20,8 +21,8 @@
 #define HAVE_LOGO_IMAGE 0
 #endif
 
-static const int SCREEN_W = 320;
-static const int SCREEN_H = 240;
+using ui::H;
+using ui::W;
 
 static volatile bool splashDone = true;
 
@@ -73,7 +74,7 @@ static void splashTask(void* arg) {
   drawPlaceholderLogo(logo);
 #endif
 
-  const int x0 = (SCREEN_W - w) / 2, y0 = (SCREEN_H - h) / 2;
+  const int x0 = (W - w) / 2, y0 = (H - h) / 2;
   const uint32_t FADE_MS = SPLASH_FADE_MS, HOLD_MS = SPLASH_HOLD_MS;
   const uint16_t* src = (const uint16_t*)logo.getPointer();
   uint16_t* dst = (uint16_t*)frame.getPointer();

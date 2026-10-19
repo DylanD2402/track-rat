@@ -6,19 +6,13 @@
 
 #include "DisplayManager.h"
 #include "Config.h"
+#include "Power.h"
 #include "UiTheme.h"
 
 using namespace ui;
 using Font = DisplayManager::Font;
 
-void DisplayManager::setBacklight(bool on) {
-#ifdef TFT_BL
-  pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, on ? HIGH : LOW);
-#else
-  (void)on;
-#endif
-}
+void DisplayManager::setBacklight(bool on) { Power::backlight(on); }
 
 void DisplayManager::powerDown() {
   beginFrame();

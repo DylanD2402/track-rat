@@ -10,17 +10,7 @@
 #include "AddOns.h"
 #include "DeltaLeds.h"
 #include "LapTimer.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 static bool isOff(const Rgb& c) { return c.r == 0 && c.g == 0 && c.b == 0; }
 
@@ -190,9 +180,10 @@ int main() {
     while (lt.lapCount() < 4 && t < 400000) {
       double v = speeds[lt.lapCount() < 4 ? lt.lapCount() : 3];
       double lat = lat0 + R * sin(angle) / mLat, lon = lon0 + R * (cos(angle) - 1.0) / mLon;
-      LapEvent ev = lt.onFix(lat, lon, v * 3.6f, (uint32_t)t, now);
-      if (ev.type == LapEventType::LapCompleted && ev.isBest) sim.bestLap(now);
-      if (ev.type == LapEventType::SplitCrossed) sim.split(now);
+      for (const LapEvent& ev : lt.onFix(lat, lon, v * 3.6f, (uint32_t)t, now)) {
+        if (ev.type == LapEventType::LapCompleted && ev.isBest) sim.bestLap(now);
+        if (ev.type == LapEventType::SplitCrossed) sim.split(now);
+      }
       int32_t d = lt.liveDeltaMs();
       // render 5 frames per GPS fix (the driver runs faster than the GPS)
       for (int k = 0; k < 5; k++) {

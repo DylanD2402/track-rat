@@ -22,10 +22,10 @@ Expected:
 2. The serial log shows `Display: 320x240, sprite buffer in PSRAM`.
    - If it says `NO sprite`, PSRAM isn't enabled. Check `board_build.arduino.memory_type = qio_opi` in `platformio.ini`.
 3. The serial log shows `Input: touch controller found`.
-4. With no GPS fix, the "waiting for GPS" screen stays up. With a fix, the track list opens.
-5. Tap the screen to open the track list. The serial log prints `Touch: raw=(..) screen=(..)`.
+4. With no GPS fix, the "waiting for GPS" screen stays up. With a fix, a session starts at once if a track is within 5 km; otherwise the menu opens.
+5. Tap the screen to open the menu. The serial log prints `Touch: raw=(..) screen=(..)`.
    - **Wrong button triggered:** adjust `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` until a tap at the left edge gives a small screen x and a tap at the top gives a small screen y.
-6. Tap **>** and **<** to browse tracks. Go to **Bench Test** (the last one), tap **SELECT**, then **START**. A yellow **BENCH** tag appears in the header.
+6. Tap **TRACK LIST**, then **>** and **<** to browse tracks. Go to **Bench Test** (the last one), tap **SELECT**, then **START**. A yellow **BENCH** tag appears in the header.
 7. The simulated car is already driving, so the out lap ends the next time it passes the start/finish, within about 15 s. Lap 1 starts then. Laps take about 15 s.
    - At the half-way split, "S1" and a split time appear. From lap 2 on, a +/- delta also appears.
    - At each lap end, the lap time shows full-screen. It's green when it's a new best.
@@ -47,13 +47,16 @@ Expected in the serial log:
 
 ```
 GPS: detected NMEA at 115200 baud (GPS TX -> GPIO 44, GPS RX -> GPIO 43)
-GPS: requested 10 Hz (u-blox VALSET, RAM only)
-GPS: data=yes sats=0 hdop=99.9 fix=no rate=0.0Hz
+GPS: requested 20 Hz and UBX-NAV-PVT (u-blox CFG-VALSET)
+GPS: UBX-NAV-PVT arriving - using it, NMEA sentences off
+GPS: data=yes src=UBX sats=0 pdop=99.9 acc=-1.0m fix=no rate=0.0Hz dropped=0
 ```
 
-The "waiting for GPS" screen should show **NMEA OK @ 115200, GPIO nn** in green.
+After pressing RST with the GPS still powered, the first line says `detected UBX`: the GPS kept its settings. A GPS that isn't a u-blox logs `no UBX-NAV-PVT (not a u-blox GPS?) - reading NMEA` and carries on with `src=NMEA`.
 
-- **`no NMEA detected` / NO DATA:**
+The "waiting for GPS" screen should show **UBX OK @ 115200, GPIO nn** (or **NMEA OK**) in green.
+
+- **`no GPS detected` / NO DATA:**
   - Make sure the GPS was plugged in **before** the board started. Press RST to re-detect.
   - Check that the module's LED is on, and that the plug is fully seated.
 - **To see the raw sentences:** set `GPS_ECHO_NMEA` to `1`.
@@ -64,10 +67,11 @@ Take it outside with a clear view of the sky. The first fix after power-up can t
 
 - **Sats** climbs and **Fix** turns green, LOCKED.
 - **Rate** shows the update rate.
-  - **10 Hz:** the module accepted the u-blox configuration.
-  - **1 Hz:** the chip ignored it, and timing still works.
-  - Either way, please report what you see. The BE-252Q's chipset isn't documented, and this tells us what it is.
-- If you're more than 5 km from every track, the track list opens. Otherwise the nearest track's Ready screen opens.
+  - **20 Hz** (`GPS_TARGET_RATE_HZ`): the module accepted the u-blox configuration.
+  - **1 Hz** or so: the module ignored it, and timing still works.
+  - Either way, please report what you see.
+- The Fix line shows the GPS's own accuracy, such as `LOCKED   ±1.2 m   ±0.5 km/h   3D`.
+- If you're more than 5 km from every track, the menu opens. Otherwise a session starts at the nearest track straight away.
 
 ## 4. Real lap test (car park or track)
 

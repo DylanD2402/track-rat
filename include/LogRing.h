@@ -29,7 +29,6 @@ public:
     head.store(0);
     tail.store(0);
   }
-  bool attached() const { return buf != nullptr; }
 
   // --- producer ---
   size_t freeSpace() const { return cap - (head.load(std::memory_order_relaxed) - tail.load(std::memory_order_acquire)); }

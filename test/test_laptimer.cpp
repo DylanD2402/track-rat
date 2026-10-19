@@ -9,17 +9,7 @@
 #include <cstdlib>
 #include "LapTimer.h"
 #include "LayoutMatch.h"
-
-static int failures = 0;
-#define CHECK(cond, ...)                         \
-  do {                                           \
-    if (!(cond)) {                               \
-      failures++;                                \
-      printf("FAIL %s:%d: ", __FILE__, __LINE__); \
-      printf(__VA_ARGS__);                       \
-      printf("\n");                              \
-    }                                            \
-  } while (0)
+#include "check.h"
 
 static const double SF_LAT = 37.0, SF_LON = -122.0, R = 150.0;
 
@@ -45,15 +35,16 @@ static void testConstantSpeed(double hz, uint32_t startTimeMs) {
     double lat, lon;
     circlePos(angle, lat, lon);
     uint32_t t = (uint32_t)llround(startTimeMs + i * dtMs) % 86400000u;
-    LapEvent ev = lt.onFix(lat, lon, v * 3.6f, t, i * (uint32_t)dtMs);
-    if (ev.type == LapEventType::LapCompleted) {
-      completed++;
-      double err = fabs(ev.timeMs - expectedMs);
-      CHECK(err <= 2.0, "%.0f Hz lap %d: got %u ms, expected %.1f ms", hz, completed, ev.timeMs, expectedMs);
-    }
-    if (ev.type == LapEventType::SplitCrossed) {
-      splitsSeen++;
-      CHECK(fabs(ev.timeMs - expectedMs / 2) <= 2.0, "split: got %u expected %.1f", ev.timeMs, expectedMs / 2);
+    for (const LapEvent& ev : lt.onFix(lat, lon, v * 3.6f, t, i * (uint32_t)dtMs)) {
+      if (ev.type == LapEventType::LapCompleted) {
+        completed++;
+        double err = fabs(ev.timeMs - expectedMs);
+        CHECK(err <= 2.0, "%.0f Hz lap %d: got %u ms, expected %.1f ms", hz, completed, ev.timeMs, expectedMs);
+      }
+      if (ev.type == LapEventType::SplitCrossed) {
+        splitsSeen++;
+        CHECK(fabs(ev.timeMs - expectedMs / 2) <= 2.0, "split: got %u expected %.1f", ev.timeMs, expectedMs / 2);
+      }
     }
     angle += v * (dtMs / 1000.0) / R;
   }
@@ -72,13 +63,12 @@ static void testConstantSpeed(double hz, uint32_t startTimeMs) {
 static void testParkedJitter() {
   LapTimer lt;
   lt.begin({SF_LAT, SF_LON, 15}, {});
-  srand(1);
+  testSeed(1);
   int events = 0;
   for (int i = 0; i < 6000; i++) {
-    double jitterN = ((rand() % 2001) - 1000) / 1000.0 * 3.0;  // +/- 3 m
-    double jitterE = ((rand() % 2001) - 1000) / 1000.0 * 3.0;
-    LapEvent ev = lt.onFix(SF_LAT + jitterN / 111194.93, SF_LON + jitterE / 88800.0, 1.0f, 100 * i, 100 * i);
-    if (ev.type != LapEventType::None) events++;
+    double jitterN = ((testRand() % 2001) - 1000) / 1000.0 * 3.0;  // +/- 3 m
+    double jitterE = ((testRand() % 2001) - 1000) / 1000.0 * 3.0;
+    events += (int)lt.onFix(SF_LAT + jitterN / 111194.93, SF_LON + jitterE / 88800.0, 1.0f, 100 * i, 100 * i).count;
   }
   CHECK(events == 0, "parked jitter produced %d events", events);
   printf("  parked on the line with GPS jitter: %d events\n", events);
@@ -95,8 +85,8 @@ static void testBestLapAndDelta() {
     double v = (lap == 1) ? 35.0 : 30.0;
     double lat, lon;
     circlePos(angle, lat, lon);
-    LapEvent ev = lt.onFix(lat, lon, v * 3.6f, (uint32_t)t, (uint32_t)t);
-    if (ev.type == LapEventType::LapCompleted) {
+    for (const LapEvent& ev : lt.onFix(lat, lon, v * 3.6f, (uint32_t)t, (uint32_t)t)) {
+      if (ev.type != LapEventType::LapCompleted) continue;
       last = ev;
       lap++;
       if (lap == 2) CHECK(ev.isBest && ev.deltaMs < -3000, "lap 2 should be best, delta %d", ev.deltaMs);
@@ -117,7 +107,7 @@ static void testDropoutAcrossLine() {
   circlePos(-0.3, lat, lon);
   lt.onFix(lat, lon, 100, 0, 0);
   circlePos(0.3, lat, lon);  // 3 s later, other side of the line
-  LapEvent ev = lt.onFix(lat, lon, 100, 3000, 3000);
+  LapEvent ev = lt.onFix(lat, lon, 100, 3000, 3000).last();
   CHECK(ev.type == LapEventType::None, "crossing during a 3 s gap should be ignored");
   printf("  crossing during GPS dropout ignored: %s\n", ev.type == LapEventType::None ? "yes" : "no");
 }
@@ -200,10 +190,11 @@ static int driveCircle(LapTimer& lt, bool forwards, double seconds, int* starts 
   for (int i = 0; i < (int)(seconds * 10); i++) {
     double lat, lon;
     circlePos(angle, lat, lon);
-    LapEvent ev = lt.onFix(lat, lon, v * 3.6f, 3600000 + 100 * i, 100 * i);
-    if (ev.type == LapEventType::LapCompleted) completed++;
-    if (ev.type == LapEventType::LapStarted && starts) (*starts)++;
-    if (ev.type == LapEventType::SplitCrossed && splits) (*splits)++;
+    for (const LapEvent& ev : lt.onFix(lat, lon, v * 3.6f, 3600000 + 100 * i, 100 * i)) {
+      if (ev.type == LapEventType::LapCompleted) completed++;
+      if (ev.type == LapEventType::LapStarted && starts) (*starts)++;
+      if (ev.type == LapEventType::SplitCrossed && splits) (*splits)++;
+    }
     angle += (forwards ? 1 : -1) * v * 0.1 / R;
   }
   return completed;
@@ -446,10 +437,10 @@ static void testMatchEdgeCases() {
   CHECK(layout::score(dup, map).value() > 0.95f, "repeated points %.2f", layout::score(dup, map).value());
 
   // within() must agree with the exact nearest distance
-  srand(7);
+  testSeed(7);
   int disagree = 0;
   for (int i = 0; i < 2000; i++) {
-    float x = (rand() % 4000) / 10.0f - 50, y = (rand() % 3000) / 10.0f - 150;
+    float x = (testRand() % 4000) / 10.0f - 50, y = (testRand() % 3000) / 10.0f - 150;
     bool exact = layout::nearestD2(map, x, y) <= 15.0f * 15.0f;
     disagree += exact != layout::within(map, x, y, 15.0f);
   }
@@ -483,12 +474,11 @@ static void testLapTimerDirectionEdges() {
   {  // parked on a line with a direction: GPS jitter makes no events
     LapTimer lt;
     lt.begin(line(SF_LAT, SF_LON, 0, HeadingFrom::Map), {});
-    srand(3);
+    testSeed(3);
     int events = 0;
     for (int i = 0; i < 3000; i++) {
-      double n = ((rand() % 2001) - 1000) / 1000.0 * 3.0, e = ((rand() % 2001) - 1000) / 1000.0 * 3.0;
-      if (lt.onFix(SF_LAT + n / 111194.93, SF_LON + e / 88800.0, 1.0f, 100 * i, 100 * i).type != LapEventType::None)
-        events++;
+      double n = ((testRand() % 2001) - 1000) / 1000.0 * 3.0, e = ((testRand() % 2001) - 1000) / 1000.0 * 3.0;
+      events += (int)lt.onFix(SF_LAT + n / 111194.93, SF_LON + e / 88800.0, 1.0f, 100 * i, 100 * i).count;
     }
     CHECK(events == 0 && lt.startFinish().heading == 0, "parked: %d events, heading %.0f", events,
           lt.startFinish().heading);
@@ -524,6 +514,16 @@ static void testLapTimerDirectionEdges() {
     lt.changeGates(line(SF_LAT, SF_LON, 0, HeadingFrom::Set), {line(SF_LAT, splitLon, 180, HeadingFrom::Set),
                                                                line(SF_LAT, splitLon, 180, HeadingFrom::Set)});
     CHECK(lt.lapCount() == 1 && lt.lapRunning(), "laps kept");
+  }
+  {  // layouts share a start/finish when it's in the same place and not set to run the other way
+    const double mLon = 111194.93 * cos(SF_LAT * geo::DEG2RAD);
+    TrackPoint north = line(SF_LAT, SF_LON, 0, HeadingFrom::Set);
+    CHECK(layout::sharesLine(north, line(SF_LAT, SF_LON + 3 / mLon, 10, HeadingFrom::Set)), "3 m apart, same way");
+    CHECK(!layout::sharesLine(north, line(SF_LAT, SF_LON + 6 / mLon, 0, HeadingFrom::Set)), "6 m apart");
+    CHECK(!layout::sharesLine(north, line(SF_LAT, SF_LON, 180, HeadingFrom::Set)), "Reverse on the same line");
+    CHECK(layout::sharesLine(north, line(SF_LAT, SF_LON, 180, HeadingFrom::Map)), "a guessed direction may be backwards");
+    CHECK(layout::sharesLine(TrackPoint{SF_LAT, SF_LON, 15}, line(SF_LAT, SF_LON, 180, HeadingFrom::Set)),
+          "a line with no direction");
   }
 }
 
@@ -610,8 +610,7 @@ static SimResult simulateSession(const std::vector<SimLayout>& layouts, int sele
     int k = layout::pickLayout(path, cur, cands);
     if (k < 0) return false;
     int next = idx[k];
-    bool sameLine = hypot(layouts[next].sfAt.x - o.x, layouts[next].sfAt.y - o.y) < 5 &&
-                    cosf((layouts[next].sf.heading - layouts[selected].sf.heading) * (float)geo::DEG2RAD) >= 0;
+    bool sameLine = layout::sharesLine(layouts[selected].sf, layouts[next].sf);
     size_t before = lt.lapCount();
     if (sameLine && lt.lapRunning()) lt.changeGates(layouts[next].sf, layouts[next].splits);
     else lt.begin(layouts[next].sf, layouts[next].splits);
@@ -625,12 +624,12 @@ static SimResult simulateSession(const std::vector<SimLayout>& layouts, int sele
   for (int i = 0; i < n; i++) {
     double s = v * 0.1 * i;
     geo::XY p = s < leadLen ? posOnLoop(leadIn, s) : posOnLoop(driven, startS + s - leadLen);
-    p.x += noiseM * ((rand() % 2001) - 1000) / 1000.0;  // GPS wander
-    p.y += noiseM * ((rand() % 2001) - 1000) / 1000.0;
+    p.x += noiseM * ((testRand() % 2001) - 1000) / 1000.0;  // GPS wander
+    p.y += noiseM * ((testRand() % 2001) - 1000) / 1000.0;
     double lat, lon;
     geo::fromLocal(p.x, p.y, SF_LAT, SF_LON, lat, lon);
-    LapEvent ev = lt.onFix(lat, lon, v * 3.6f, 3600000 + 100 * i, 100 * i);
-    if (ev.type == LapEventType::LapCompleted && !checked && lt.lapCount() == 1) {
+    bool completed = lt.onFix(lat, lon, v * 3.6f, 3600000 + 100 * i, 100 * i).find(LapEventType::LapCompleted);
+    if (completed && !checked && lt.lapCount() == 1) {
       checked = true;
       std::vector<geo::XYf> path;  // the lap, every 5 m, back in venue metres
       geo::XY o = layouts[selected].sfAt;
@@ -714,11 +713,11 @@ static void testLayoutSimulation() {
     printf("  sim: driving somewhere else entirely -> stays on %s, no laps\n", venue[r.finalLayout].name);
   }
   {  // with 2 m of GPS wander on every fix the right layout is still found
-    srand(11);
+    testSeed(11);
     SimResult r = simulateSession(venue, 0, shortL, 50, 4.3 * 600 / v, {}, 2.0);
     CHECK(r.finalLayout == 1 && r.lapsKept && r.lapsAfter == 4 && fabs(r.lastLapMs - 600 / v * 1000) < 300,
           "noisy short: ended on %s, %zu laps, last %u", venue[r.finalLayout].name, r.lapsAfter, r.lastLapMs);
-    srand(12);
+    testSeed(12);
     r = simulateSession(venue, 0, full, 50, 3.3 * 1000 / v, {}, 2.0);
     CHECK(r.finalLayout == 0 && r.switches == 0, "noisy full: switched to %s", venue[r.finalLayout].name);
     printf("  sim with 2 m GPS wander: Short found, Full kept\n");
@@ -729,6 +728,165 @@ static void testLayoutSimulation() {
     SimResult r = simulateSession(noDir, 0, full, 50, 3.3 * 1000 / v);
     CHECK(r.finalLayout == 0 && r.switches == 0, "no directions: switched to %s", noDir[r.finalLayout].name);
   }
+}
+
+// --- Splits and the start/finish crossed in the same segment ---
+// Fixes 21 m apart (700 ms at 30 m/s) on the circle, so a segment spans both sides of the line.
+// `s` is metres driven along the circle from the start/finish (negative: before it).
+
+static const double LAP_M = 2 * M_PI * R;
+static const double SEG_V = 30.0;  // m/s
+
+static TrackPoint splitAtS(double s) {
+  double lat, lon;
+  circlePos(s / R, lat, lon);
+  return {lat, lon, 15, 0, HeadingFrom::None};
+}
+
+static LapEvents fixAtS(LapTimer& lt, double s) {
+  double lat, lon;
+  circlePos(s / R, lat, lon);
+  uint32_t ms = 3600000 + (uint32_t)llround(s / SEG_V * 1000.0 + 1000.0);  // +1 s keeps s = -12 positive
+  return lt.onFix(lat, lon, SEG_V * 3.6f, ms, ms);
+}
+
+// Drives from s0 in 21 m steps up to s1 and returns the events of each fix that had any.
+static std::vector<LapEvents> driveSegments(LapTimer& lt, double s0, double s1) {
+  std::vector<LapEvents> out;
+  for (double s = s0; s <= s1; s += 21.0) {
+    LapEvents e = fixAtS(lt, s);
+    if (!e.empty()) out.push_back(e);
+  }
+  return out;
+}
+
+static double expectMs(double s) { return s / SEG_V * 1000.0; }
+
+// A split just before the line, in the same segment as the line: both are reported, the split first.
+static void testSplitBeforeLine() {
+  LapTimer lt;
+  lt.begin({SF_LAT, SF_LON, 15}, {splitAtS(-4)});
+  std::vector<LapEvents> evs = driveSegments(lt, -8, LAP_M + 40);
+  CHECK(evs.size() == 2, "expected 2 fixes with events, got %zu", evs.size());
+  if (evs.size() != 2) return;
+
+  // Lap 1 starts at the line; the split before it isn't a lap-1 split.
+  CHECK(evs[0].count == 1 && evs[0].items[0].type == LapEventType::LapStarted, "lap 1 start: %zu events", evs[0].count);
+
+  const LapEvents& e = evs[1];
+  CHECK(e.count == 2, "expected split + lap, got %zu events", e.count);
+  if (e.count != 2) return;
+  CHECK(e.items[0].type == LapEventType::SplitCrossed && e.items[0].splitIndex == 0, "first event %d",
+        (int)e.items[0].type);
+  CHECK(fabs(e.items[0].timeMs - expectMs(LAP_M - 4)) <= 5, "split time %u, expected %.0f", e.items[0].timeMs,
+        expectMs(LAP_M - 4));
+  CHECK(e.items[1].type == LapEventType::LapCompleted, "second event %d", (int)e.items[1].type);
+  CHECK(fabs(e.items[1].timeMs - expectMs(LAP_M)) <= 5, "lap time %u", e.items[1].timeMs);
+  CHECK(lt.lapCount() == 1 && lt.lap(0).splitMs[0] == (int32_t)e.items[0].timeMs, "split stored on the lap");
+  printf("  split just before the line, same segment: split %u ms, then lap %u ms\n", e.items[0].timeMs,
+         e.items[1].timeMs);
+}
+
+// A split just after the line belongs to the new lap, timed from the new lap's start. The lap that ended
+// (started with startLapNow, so it never crossed the split) keeps -1; the delta is against that lap.
+static void testSplitAfterLine() {
+  LapTimer lt;
+  lt.begin({SF_LAT, SF_LON, 15}, {splitAtS(4)});
+  fixAtS(lt, 98);
+  lt.startLapNow(3600000 + (uint32_t)llround(98 / SEG_V * 1000.0 + 1000.0), 0);
+  std::vector<LapEvents> evs = driveSegments(lt, 119, 2 * LAP_M + 40);
+  CHECK(evs.size() == 2, "expected 2 fixes with events, got %zu", evs.size());
+  if (evs.size() != 2) return;
+
+  const LapEvents& e = evs[0];
+  CHECK(e.count == 2, "expected lap + split, got %zu events", e.count);
+  if (e.count != 2) return;
+  CHECK(e.items[0].type == LapEventType::LapCompleted, "first event %d", (int)e.items[0].type);
+  CHECK(e.items[1].type == LapEventType::SplitCrossed && e.items[1].splitIndex == 0, "second event %d",
+        (int)e.items[1].type);
+  CHECK(fabs(e.items[1].timeMs - expectMs(4)) <= 5, "split time %u, expected %.0f", e.items[1].timeMs, expectMs(4));
+  CHECK(e.items[1].deltaMs == NO_DELTA, "the lap that ended never crossed the split: delta %d", e.items[1].deltaMs);
+  CHECK(lt.lap(0).splitMs[0] == -1, "lap 1 split %d, expected -1", lt.lap(0).splitMs[0]);
+
+  // The next lap end: lap 2 has the split at ~133 ms, and the split after that line is lap 3's.
+  const LapEvents& e2 = evs[1];
+  CHECK(e2.count == 2 && e2.items[0].type == LapEventType::LapCompleted &&
+            e2.items[1].type == LapEventType::SplitCrossed,
+        "lap 2 end: %zu events", e2.count);
+  CHECK(lt.lapCount() == 2 && fabs(lt.lap(1).splitMs[0] - expectMs(4)) <= 5, "lap 2 split %d",
+        lt.lapCount() > 1 ? lt.lap(1).splitMs[0] : -2);
+  printf("  split just after the line: lap 2 split %d ms, lap 1 split %d\n", lt.lap(1).splitMs[0],
+         lt.lap(0).splitMs[0]);
+}
+
+// The first lap starts at the line and a split just after it is in the same segment.
+// At the end of lap 1 the split after the line compares with lap 1, which has just been completed.
+static void testSplitAfterLapOneStart() {
+  LapTimer lt;
+  lt.begin({SF_LAT, SF_LON, 15}, {splitAtS(4)});
+  std::vector<LapEvents> evs = driveSegments(lt, -8, LAP_M + 40);
+  CHECK(evs.size() == 2, "expected 2 fixes with events, got %zu", evs.size());
+  if (evs.size() != 2) return;
+
+  const LapEvents& e = evs[0];
+  CHECK(e.count == 2 && e.items[0].type == LapEventType::LapStarted && e.items[1].type == LapEventType::SplitCrossed,
+        "lap 1 start: %zu events", e.count);
+  if (e.count != 2) return;
+  CHECK(fabs(e.items[1].timeMs - expectMs(4)) <= 5, "lap 1 split time %u", e.items[1].timeMs);
+  CHECK(e.items[1].deltaMs == NO_DELTA, "no best lap yet: delta %d", e.items[1].deltaMs);
+
+  const LapEvents& e2 = evs[1];
+  CHECK(e2.count == 2 && e2.items[0].type == LapEventType::LapCompleted &&
+            e2.items[1].type == LapEventType::SplitCrossed,
+        "lap 1 end: %zu events", e2.count);
+  if (e2.count != 2) return;
+  CHECK(e2.items[0].isBest, "lap 1 is the best lap");
+  CHECK(e2.items[1].deltaMs != NO_DELTA && abs(e2.items[1].deltaMs) <= 5, "delta vs the lap just completed: %d",
+        e2.items[1].deltaMs);
+  printf("  split just after the lap 1 start / next lap's split vs lap 1: delta %+d ms\n", e2.items[1].deltaMs);
+}
+
+// Two splits before the line and one after it in one segment: reported in the order they were crossed,
+// not in index order.
+static void testSeveralCrossingsOneSegment() {
+  LapTimer lt;
+  lt.begin({SF_LAT, SF_LON, 15}, {splitAtS(-2), splitAtS(-7), splitAtS(5)});
+  std::vector<LapEvents> evs = driveSegments(lt, -12, LAP_M + 40);
+  CHECK(evs.size() == 2, "expected 2 fixes with events, got %zu", evs.size());
+  if (evs.size() != 2) return;
+
+  CHECK(evs[0].count == 2 && evs[0].items[0].type == LapEventType::LapStarted &&
+            evs[0].items[1].type == LapEventType::SplitCrossed && evs[0].items[1].splitIndex == 2,
+        "lap 1 start: %zu events", evs[0].count);
+
+  const LapEvents& e = evs[1];
+  CHECK(e.count == 4, "expected 4 events, got %zu", e.count);
+  if (e.count != 4) return;
+  CHECK(e.items[0].type == LapEventType::SplitCrossed && e.items[0].splitIndex == 1, "event 0: split %d",
+        e.items[0].splitIndex);
+  CHECK(e.items[1].type == LapEventType::SplitCrossed && e.items[1].splitIndex == 0, "event 1: split %d",
+        e.items[1].splitIndex);
+  CHECK(e.items[2].type == LapEventType::LapCompleted, "event 2 type %d", (int)e.items[2].type);
+  CHECK(e.items[3].type == LapEventType::SplitCrossed && e.items[3].splitIndex == 2, "event 3: split %d",
+        e.items[3].splitIndex);
+  CHECK(e.items[0].timeMs < e.items[1].timeMs && e.items[1].timeMs < e.items[2].timeMs, "times out of order");
+  CHECK(fabs(e.items[0].timeMs - expectMs(LAP_M - 7)) <= 5 && fabs(e.items[1].timeMs - expectMs(LAP_M - 2)) <= 5,
+        "split times %u, %u", e.items[0].timeMs, e.items[1].timeMs);
+  CHECK(fabs(e.items[3].timeMs - expectMs(5)) <= 5, "new lap's split time %u", e.items[3].timeMs);
+  printf("  two splits, the line and another split in one segment: %u, %u, lap %u, %u ms\n", e.items[0].timeMs,
+         e.items[1].timeMs, e.items[2].timeMs, e.items[3].timeMs);
+}
+
+// A split before a line that doesn't count (crossed again too soon) is just a split.
+static void testSplitBeforeIgnoredLine() {
+  LapTimer lt;
+  lt.begin({SF_LAT, SF_LON, 15}, {splitAtS(-4)}, 100000);  // laps under 100 s are "too soon"
+  std::vector<LapEvents> evs = driveSegments(lt, -8, LAP_M + 40);
+  CHECK(evs.size() == 2, "expected 2 fixes with events, got %zu", evs.size());
+  if (evs.size() != 2) return;
+  CHECK(evs[1].count == 1 && evs[1].items[0].type == LapEventType::SplitCrossed, "got %zu events", evs[1].count);
+  CHECK(lt.lapCount() == 0 && lt.lapRunning() && lt.currentLapNumber() == 1, "the lap carries on");
+  printf("  split before a line crossed too soon: just the split\n");
 }
 
 int main() {
@@ -749,6 +907,11 @@ int main() {
   testMatchEdgeCases();
   testLapTimerDirectionEdges();
   testLayoutSimulation();
+  testSplitBeforeLine();
+  testSplitAfterLine();
+  testSplitAfterLapOneStart();
+  testSeveralCrossingsOneSegment();
+  testSplitBeforeIgnoredLine();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

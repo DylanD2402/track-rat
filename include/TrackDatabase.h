@@ -43,10 +43,12 @@ struct Track {
   TrackPoint startFinish = {0, 0, 0};
   double centerLat = 0, centerLon = 0;  // used to find the track when there's no start/finish yet
   std::vector<TrackPoint> splits;
-  bool hasMap = false;  // tracks.json has a "map" for it
+  bool hasMap = false;  // tracks.json has a "map" for it (or will: mapUnsaved)
   // Layout for the map screen, metres east/north of refLat()/refLon().
-  // Only filled for the track in use (loadMap) and the bench track.
+  // Only filled for the track in use (loadMap), the bench track, and a map
+  // not saved yet.
   std::vector<std::vector<geo::XYf>> map;
+  bool mapUnsaved = false;  // map made on the device (setMap), not in tracks.json yet
   bool bench = false;  // the built-in bench-test track: driven by the simulated car
 
   double refLat() const { return hasStartFinish ? startFinish.lat : centerLat; }
@@ -60,7 +62,6 @@ public:
 
   int count() const { return tracks.size(); }
   const Track* get(int index) const;
-  const Track* find(const String& id) const;  // nullptr if there's no such track
   const char* source() const { return sourceName; }
 
   // Index of the closest track within maxDistanceM (start/finish, or centre
@@ -96,7 +97,11 @@ public:
   int createTrack(double centerLat, double centerLon);
   // headingDeg < 0: no direction (crossings either way count).
   bool setStartFinish(int index, double lat, double lon, float headingDeg = -1);
-  bool saveMap(int index, const std::vector<geo::XYf>& line);  // line in metres from refLat/refLon
+  // A map made on the device (line in metres from refLat/refLon) is only
+  // kept in memory, as saving it takes a while: saveMaps writes it to
+  // tracks.json, when nothing is being timed. The bench track's is never saved.
+  void setMap(int index, const std::vector<geo::XYf>& line);
+  bool saveMaps();
 
 private:
   std::vector<Track> tracks;

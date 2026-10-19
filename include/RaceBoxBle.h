@@ -20,7 +20,6 @@ namespace RaceBoxBle {
 void begin();
 void sendFix(const GpsFix& fix, const GPSHandler& gps);
 bool connected();
-const String& deviceName();
 
 }  // namespace RaceBoxBle
 

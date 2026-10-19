@@ -10,6 +10,7 @@
 
 #include "WifiPortal.h"
 #include "Config.h"
+#include "FirmwareUpdate.h"
 #include "PortalLogic.h"
 #include "Storage.h"
 #include <ArduinoJson.h>
@@ -20,6 +21,9 @@
 #include <SD_MMC.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <memory>
+#include "ff.h"
+#include "diskio_sdmmc.h"  // after ff.h, whose BYTE it uses
 
 #ifndef TRACKRAT_VERSION
 #define TRACKRAT_VERSION "dev"  // set from git by tools/build_web.py
@@ -56,6 +60,7 @@ static portal::UploadCode uploadCode;
 
 // Firmware upload: one at a time (fwSlot holds the request sending it)
 static portal::UploadSlot fwSlot;
+static firmware::UploadGate fwGate;  // holds the start of the file until it has been checked
 static volatile int fwProgress = -1;
 static bool fwOk = false;
 static String fwError;
@@ -148,23 +153,109 @@ static const StorageSpace& storageSpace() {
   return space;
 }
 
-// Every file in /sessions, on the SD card and in flash.
-static void listSessions(fs::FS& fs, const char* fsName, String& out, bool& first) {
-  File dir = fs.open(SESSION_DIR);
-  if (!dir || !dir.isDirectory()) return;
-  for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
-    if (f.isDirectory()) continue;
-    if (!first) out += ',';
-    first = false;
-    out += "{\"name\":";
-    portal::appendJsonString(out, f.name());
-    out += ",\"size\":";
-    out += (uint32_t)f.size();
-    out += ",\"fs\":\"";
-    out += fsName;
-    out += "\"}";
+// ---------------------------------------------------------------------------
+// Session list: every file in /sessions, on the SD card and then in flash.
+//
+// After a season the card can hold thousands of files. The list is sent a few
+// entries at a time as the phone takes them, since handlers run in the
+// AsyncTCP task: it has a 5 s watchdog, and the log writer (also core 0, lower
+// priority) waits while it works. The card's folder is read with FatFs, which
+// gives each entry's name and size in one pass. File::openNextFile() opens
+// each entry by its path, and on FAT every open searches the folder from the
+// start, so a big folder took minutes.
+//
+// Flash keeps openNextFile(): LittleFS's folder listing has no sizes, but
+// finding a file there reads internal flash with no card commands, and the
+// 3.4 MB partition holds a few hundred files at most. The card falls back to
+// it if FatFs can't be used.
+//
+// FatFs locks the volume for each call (FF_FS_REENTRANT), as it does for the
+// VFS's own readdir, so the loop and the log writer can write meanwhile: a
+// file made or renamed during the listing may or may not show.
+
+static const int LIST_READS_PER_CALL = 32;  // a buffer's worth: a few ms of card reads
+
+// SD_MMC keeps the card it mounted to itself (protected). Naming the member
+// through a derived class is allowed when taking its address.
+struct SdMmcCard : fs::SDMMCFS {
+  static sdmmc_card_t* of(fs::SDMMCFS& sd) { return sd.*(&SdMmcCard::_card); }
+};
+
+class SessionList {
+public:
+  explicit SessionList(int tzMin) : tz(tzMin) {}
+  ~SessionList() { closeDir(); }
+
+  size_t fill(uint8_t* buf, size_t maxLen) {
+    return json.fill(buf, maxLen, LIST_READS_PER_CALL, [this]() { next(); });
   }
-}
+
+private:
+  enum { ON_SD, ON_FLASH, DONE };
+
+  // FatFs's drive for the card: the one SD_MMC registered it under
+  bool openFat() {
+    sdmmc_card_t* card = SdMmcCard::of(SD_MMC);
+    BYTE drive = card ? ff_diskio_get_pdrv_card(card) : 0xFF;
+    if (drive >= FF_VOLUMES) {
+      DEBUG_PRINTLN("Wi-Fi: card's FatFs drive not found, listing sessions the slow way");
+      return false;
+    }
+    char path[16];
+    snprintf(path, sizeof(path), "%u:%s", (unsigned)drive, SESSION_DIR);
+    return f_opendir(&fatDir, path) == FR_OK;
+  }
+
+  bool openDir() {
+    fat = false;
+    if (stage == ON_SD) {
+      if (!Storage::sdMounted()) return false;
+      fat = openFat();
+      if (!fat) dir = SD_MMC.open(SESSION_DIR);
+    } else {
+      if (!Storage::flashMounted()) return false;
+      dir = LittleFS.open(SESSION_DIR);
+    }
+    dirOpen = fat || (dir && dir.isDirectory());
+    return dirOpen;
+  }
+
+  void closeDir() {
+    if (dirOpen && fat) f_closedir(&fatDir);
+    dir.close();
+    dirOpen = fat = false;
+  }
+
+  // Reads the next entry and adds it if it's a file. At the end of a folder it
+  // moves on: the card, then flash, then the end of the list.
+  void next() {
+    if (dirOpen || openDir()) {
+      if (fat) {
+        if (f_readdir(&fatDir, &info) == FR_OK && info.fname[0]) {
+          if (!(info.fattrib & AM_DIR)) json.addFile(info.fname, info.fsize, "sd");
+          return;
+        }
+      } else {
+        File f = dir.openNextFile();
+        if (f) {
+          if (!f.isDirectory()) json.addFile(f.name(), f.size(), stage == ON_SD ? "sd" : "flash");
+          return;
+        }
+      }
+      closeDir();
+    }
+    if (++stage == DONE) json.finish(tz);
+  }
+
+  portal::SessionListJson<String> json;
+  int tz;
+  int stage = ON_SD;
+  bool dirOpen = false;
+  bool fat = false;  // reading the card with FatFs, else with dir
+  FF_DIR fatDir;
+  FILINFO info;
+  File dir;
+};
 
 // Phones check for internet by fetching a known page from a known host.
 // Answering with a redirect to us makes them show the page by themselves.
@@ -322,7 +413,17 @@ static void onTracksDone(AsyncWebServerRequest* req) {
 }
 
 // ---------------------------------------------------------------------------
-// Firmware upload: written straight into the other app slot by Update
+// Firmware upload: the first 128 bytes are checked the way an SD card file is (chip, app image)
+// before anything is written. Then it goes straight into the other app slot by Update.
+
+static void writeFirmware(const uint8_t* data, size_t len) {
+  if (!fwOk || !len) return;
+  if (Update.write(const_cast<uint8_t*>(data), len) != len) {
+    fwOk = false;
+    fwError = Update.errorString();
+    Update.abort();
+  }
+}
 
 static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                              size_t len, bool final) {
@@ -331,8 +432,8 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
     if (!fwSlot.claim(req)) return;                              // another upload is running
     fwError = "";
     fwProgress = 0;
-    fwOk = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
-    if (!fwOk) fwError = Update.errorString();
+    fwOk = true;
+    fwGate.reset(FirmwareUpdate::slotSize());
     DEBUG_PRINTF("Wi-Fi: firmware upload started (%s)\n", filename.c_str());
     req->onDisconnect([req]() {  // phone went away half way: nothing installed
       if (!fwSlot.owns(req)) return;
@@ -343,12 +444,24 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
     });
   }
   if (!fwSlot.owns(req)) return;
-  if (fwOk && len && Update.write(data, len) != len) {
-    fwOk = false;
-    fwError = Update.errorString();
-    Update.abort();
+  size_t got = len;  // this chunk's size, for the progress figure
+  if (fwOk && !fwGate.decided()) {
+    size_t used = fwGate.feed(data, len, final);  // held in the gate until it has seen the header
+    data += used;
+    len -= used;
+    if (fwGate.decided()) {
+      if (fwGate.ok()) {
+        fwOk = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
+        if (!fwOk) fwError = Update.errorString();
+        writeFirmware(fwGate.header(), fwGate.headerLen());
+      } else {
+        fwOk = false;
+        fwError = firmware::describe(fwGate.outcome());
+      }
+    }
   }
-  if (fwOk) fwProgress = portal::uploadPercent(index + len, req->contentLength());
+  if (fwGate.decided()) writeFirmware(data, len);  // before the decision the whole chunk is in the gate
+  if (fwOk) fwProgress = portal::uploadPercent(index + got, req->contentLength());
   if (!final) return;
 
   if (fwOk && !Update.end(true)) {
@@ -356,7 +469,7 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
     fwError = Update.errorString();
   }
   fwProgress = fwOk ? 100 : -1;
-  DEBUG_PRINTF("Wi-Fi: firmware %s (%u bytes)%s\n", fwOk ? "installed" : "NOT installed", (unsigned)(index + len),
+  DEBUG_PRINTF("Wi-Fi: firmware %s (%u bytes)%s\n", fwOk ? "installed" : "NOT installed", (unsigned)(index + got),
                fwOk ? "" : (" - " + fwError).c_str());
 }
 
@@ -399,17 +512,12 @@ static void setupRoutes() {
 
   s.on("/api/info", HTTP_GET, sendInfo);
 
+  // Sent a piece at a time (see SessionList). The reply holds the list, so its
+  // folder is closed when the reply ends or the phone goes away.
   s.on("/api/sessions", HTTP_GET, [](AsyncWebServerRequest* req) {
-    String out;
-    out.reserve(4096);
-    out += "{\"files\":[";
-    bool first = true;
-    if (Storage::sdMounted()) listSessions(SD_MMC, "sd", out, first);
-    if (Storage::flashMounted()) listSessions(LittleFS, "flash", out, first);
-    out += "],\"tzMin\":";  // the time zone file names are written in
-    out += savedTimeZoneOffset();
-    out += "}";
-    req->send(200, "application/json", out);
+    std::shared_ptr<SessionList> list = std::make_shared<SessionList>(savedTimeZoneOffset());
+    req->sendChunked("application/json",
+                     [list](uint8_t* buf, size_t maxLen, size_t) { return list->fill(buf, maxLen); });
   });
 
   // /dl?fs=sd&f=<file in /sessions>. Sent a piece at a time as the phone

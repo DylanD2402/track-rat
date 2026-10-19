@@ -19,7 +19,6 @@ public:
   void begin();
   // Start the optional big button unless the GPS is using its pin. Call after gps.begin().
   void beginExtButton(int gpsRxPin, int gpsTxPin);
-  bool extButtonActive() const { return extPin >= 0; }
   InputEvent poll();
 
   bool touchAvailable() const { return touchOk; }
