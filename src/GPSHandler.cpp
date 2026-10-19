@@ -441,11 +441,14 @@ String GPSHandler::timestampString() {
 
 // A car driving anticlockwise around a circle at 10 Hz. Speed varies around
 // the lap and from lap to lap so best-lap and delta logic get exercised.
+// Fix times come from simClockMs (100 ms per step), not millis(), so a busy
+// loop that runs several steps at once still gives each fix its own time.
 void GPSHandler::simulateStep() {
   uint32_t now = millis();
   if (simLastStep == 0) simLastStep = now;
   if (now - simLastStep < 100) return;
   simLastStep += 100;
+  simClockMs += 100;
 
   int lapNo = (int)(simAngle / (2 * M_PI));
   float lapFactor = 1.0f + 0.04f * sinf(lapNo * 1.7f);  // laps differ by a few %
@@ -464,7 +467,7 @@ void GPSHandler::simulateStep() {
   float course = atan2f(-sinf((float)a), cosf((float)a)) * RAD_TO_DEG;
   last.courseDeg = course < 0 ? course + 360.0f : course;
   last.courseValid = true;
-  last.gpsTimeMs = (now + 12UL * 3600000UL) % 86400000UL;
+  last.gpsTimeMs = (simClockMs + 12UL * 3600000UL) % 86400000UL;
   publishSimFix(now);
 }
 
