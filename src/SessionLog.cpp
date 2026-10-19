@@ -89,4 +89,39 @@ bool save(const String& path, const Track& track, const String& stamp, const Lap
   return true;
 }
 
+String saveFreeRoam(const String& stamp, const FreeRoam& drive, uint32_t durationMs) {
+  fs::FS* fs = Storage::sessionFS();
+  if (!fs || !drive.hasPosition()) return String();
+  if (!fs->exists(SESSION_DIR)) fs->mkdir(SESSION_DIR);
+  String base = String(SESSION_DIR) + "/" + (stamp.length() ? stamp : String("drive")) + "_freeroam";
+  String path = base + ".json";
+  for (int n = 2; fs->exists(path) && n < 1000; n++) path = base + "_" + n + ".json";
+
+  const size_t step = max((size_t)1, (size_t)(10.0f / FreeRoam::MIN_POINT_SPACING_M));
+  const size_t points = drive.path.size() / step + 2;
+  DynamicJsonDocument doc(4096 + points * 64);
+  doc["type"] = "freeroam";
+  doc["started"] = stamp;
+  doc["durationMs"] = durationMs;
+  doc["duration"] = formatLapTime(durationMs, 0);
+  doc["distanceKm"] = serialized(String(drive.distanceKm(), 3));
+  doc["topSpeedKmh"] = serialized(String(drive.topSpeedKmh(), 1));
+  doc["avgMovingKmh"] = serialized(String(drive.avgMovingKmh(), 1));
+  JsonArray route = doc.createNestedArray("route");
+  for (size_t i = 0; i < drive.path.size(); i += step) {
+    double lat, lon;
+    geo::fromLocal(drive.path[i].x, drive.path[i].y, drive.refLat, drive.refLon, lat, lon);
+    JsonArray p = route.createNestedArray();
+    p.add(serialized(String(lat, 6)));
+    p.add(serialized(String(lon, 6)));
+  }
+
+  File f = fs->open(path, "w");
+  if (!f) return String();
+  serializeJson(doc, f);
+  f.close();
+  DEBUG_PRINTF("Session: free roam saved to %s:%s\n", Storage::sessionFSName(), path.c_str());
+  return path;
+}
+
 }  // namespace SessionLog

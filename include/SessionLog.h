@@ -10,6 +10,7 @@
 #define SESSION_LOG_H
 
 #include <Arduino.h>
+#include "FreeRoam.h"
 #include "LapTimer.h"
 #include "TrackDatabase.h"
 
@@ -19,6 +20,10 @@ namespace SessionLog {
 String newSessionPath(const Track& track, const String& stamp);
 
 bool save(const String& path, const Track& track, const String& stamp, const LapTimer& timer);
+
+// Free Roam: /sessions/<stamp>_freeroam.json with the stats and the route
+// (lat/lon, a point every ~10 m). Returns the path, or "" if not saved.
+String saveFreeRoam(const String& stamp, const FreeRoam& drive, uint32_t durationMs);
 
 }  // namespace SessionLog
 

@@ -49,6 +49,9 @@ public:
   // live on-screen clock between fixes.
   LapEvent onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis);
 
+  // Start lap 1 now (the driver just marked the start/finish line here).
+  void startLapNow(uint32_t gpsTimeMs, uint32_t rxMillis);
+
   bool lapRunning() const { return running; }
   uint16_t currentLapNumber() const { return lapNumber; }
   uint32_t currentLapMs(uint32_t nowMillis) const;

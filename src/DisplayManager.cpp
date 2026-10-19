@@ -247,7 +247,7 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
   }
 
   if (statusOnly) centered(touchOk ? "Tap to go back" : "Press BOOT to go back", 210, 2, C_DIM);
-  else centered(touchOk ? "Tap screen (or BOOT) to pick a track now" : "Press BOOT to pick a track now", 210, 2, C_DIM);
+  else centered(touchOk ? "Tap the screen (or BOOT) for the menu" : "Press BOOT for the menu", 210, 2, C_DIM);
   endFrame();
 }
 
@@ -265,7 +265,9 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
     centered(buf, 108, 4, C_TEXT);
   }
   if (distanceM >= 0) centered(distanceText(distanceM) + " from you", 146, 2, C_DIM);
-  if (!track.splits.empty()) {
+  if (!track.hasStartFinish && !track.bench) {
+    centered("no start/finish line yet - set it on track", 166, 2, C_WARN);
+  } else if (!track.splits.empty()) {
     snprintf(buf, sizeof(buf), "%d split%s", (int)track.splits.size(), track.splits.size() > 1 ? "s" : "");
     centered(buf, 168, 2, C_DIM);
   }
@@ -284,19 +286,25 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   header("READY", nullptr);
 
   centered(track.name, 40, 4, C_TEXT);
+  const char* what = track.hasStartFinish ? "Start/finish" : "Track";
   if (track.bench) {
     centered("Simulated car - no GPS needed", 84, 2, C_WARN);
   } else if (gpsFix && distanceM >= 0) {
-    centered("Start/finish is " + distanceText(distanceM) + " away", 84, 2,
-             distanceM < 2000 ? C_GOOD : C_WARN);
+    centered(String(what) + " is " + distanceText(distanceM) + " away", 84, 2, distanceM < 2000 ? C_GOOD : C_WARN);
   } else {
     centered("No GPS fix yet", 84, 2, C_WARN);
   }
-  centered("Timing starts when you cross", 120, 2, C_TEXT);
-  centered("the start/finish line", 140, 2, C_TEXT);
-  centered(String("Laps are saved to ") + Storage::sessionFSName(), 168, 2, C_DIM);
+  if (track.hasStartFinish) {
+    centered("Timing starts when you cross", 116, 2, C_TEXT);
+    centered("the start/finish line", 134, 2, C_TEXT);
+  } else {
+    centered("No start/finish line yet:", 116, 2, C_WARN);
+    centered("tap the screen as you cross it", 134, 2, C_TEXT);
+  }
+  centered(String("Laps are saved to ") + Storage::sessionFSName(), 160, 2, C_DIM);
+  if (!track.bench && track.hasStartFinish) centered("SET LINE: mark a new start/finish", 182, 1, C_DIM);
 
-  if (touchOk) footerButtons("BACK", "START", "");
+  if (touchOk) footerButtons("BACK", "START", track.bench ? "" : "SET LINE");
   else centered("BOOT: hold = start, tap = back", 212, 2, C_DIM);
   endFrame();
 }
@@ -373,6 +381,63 @@ static const int MAP_X = 2, MAP_Y = HEADER_H + 2, MAP_W = 212, MAP_H = H - HEADE
 static const int PANEL_X = MAP_X + MAP_W + 6;
 static const uint16_t C_TRACK = 0xBDF7;  // light grey
 
+// Draws stored lines and/or a path (points whose first two members are float
+// x, y in metres) scaled to fit the box, north up, plus the start/finish
+// marker at the origin and the car. Returns false if there was nothing to draw.
+bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vector<std::vector<geo::XYf>>& lines,
+                                 MapPath path, bool showCar, geo::XY car, bool carFix, bool showStartFinish) {
+  auto pt = [&](size_t i) { return (const float*)(path.base + i * path.stride); };
+
+  float minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  auto grow = [&](float x, float y) {
+    minX = min(minX, x); maxX = max(maxX, x);
+    minY = min(minY, y); maxY = max(maxY, y);
+  };
+  for (const auto& line : lines)
+    for (const auto& p : line) grow(p.x, p.y);
+  for (size_t i = 0; i < path.n; i++) grow(pt(i)[0], pt(i)[1]);
+  if (!(maxX > minX || maxY > minY)) return false;
+
+  const float pad = 10;
+  float sw = max(maxX - minX, 1.0f), sh = max(maxY - minY, 1.0f);
+  float scale = min((bw - 2 * pad) / sw, (bh - 2 * pad) / sh);
+  float cx = bx + bw / 2.0f, cy = by + bh / 2.0f;
+  float midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
+  auto sx = [&](float x) { return (int)lroundf(cx + (x - midX) * scale); };
+  auto sy = [&](float y) { return (int)lroundf(cy - (y - midY) * scale); };  // north up
+  auto thickLine = [&](int x0, int y0, int x1, int y1) {
+    gfx->drawLine(x0, y0, x1, y1, C_TRACK);
+    gfx->drawLine(x0 + 1, y0, x1 + 1, y1, C_TRACK);
+    gfx->drawLine(x0, y0 + 1, x1, y1 + 1, C_TRACK);
+  };
+
+  for (const auto& line : lines)
+    for (size_t i = 1; i < line.size(); i++) thickLine(sx(line[i - 1].x), sy(line[i - 1].y), sx(line[i].x), sy(line[i].y));
+
+  if (path.n >= 2) {
+    size_t step = max((size_t)1, path.n / 800);
+    size_t prev = 0;
+    for (size_t i = step; i < path.n; i += step) {
+      thickLine(sx(pt(prev)[0]), sy(pt(prev)[1]), sx(pt(i)[0]), sy(pt(i)[1]));
+      prev = i;
+    }
+    if (prev != path.n - 1) thickLine(sx(pt(prev)[0]), sy(pt(prev)[1]), sx(pt(path.n - 1)[0]), sy(pt(path.n - 1)[1]));
+  }
+
+  if (showStartFinish) {
+    gfx->fillRect(sx(0) - 4, sy(0) - 4, 9, 9, C_TEXT);
+    gfx->drawRect(sx(0) - 4, sy(0) - 4, 9, 9, C_BG);
+  }
+
+  if (showCar) {  // kept inside the box if it's off the drawn area
+    int px = constrain(sx(car.x), bx + 7, bx + bw - 8);
+    int py = constrain(sy(car.y), by + 7, by + bh - 8);
+    gfx->fillCircle(px, py, 8, C_BG);  // dark ring keeps it visible on the grey track line
+    gfx->fillCircle(px, py, 6, carFix ? C_TEXT : C_WARN);
+  }
+  return true;
+}
+
 void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                                     const RunningOverlay& ov, uint32_t holdMs) {
   beginFrame();
@@ -386,67 +451,18 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
     if (timer.bestPath().size() >= 2) path = &timer.bestPath();
     else if (timer.currentPath().size() >= 2) path = &timer.currentPath();
   }
-
-  // Bounding box in metres
-  float minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-  auto grow = [&](float x, float y) {
-    minX = min(minX, x); maxX = max(maxX, x);
-    minY = min(minY, y); maxY = max(maxY, y);
-  };
-  for (const auto& line : track.map)
-    for (const auto& p : line) grow(p.x, p.y);
-  if (path)
-    for (const auto& p : *path) grow(p.x, p.y);
-
-  geo::XY car = geo::toLocal(gps.lastFix().lat, gps.lastFix().lon, track.startFinish.lat, track.startFinish.lon);
-  bool haveShape = maxX > minX || maxY > minY;
-
-  if (!haveShape) {
+  MapPath mp = {nullptr, 0, 0};
+  if (path) mp = {(const uint8_t*)path->data(), path->size(), sizeof(LapTimer::TracePt)};
+  geo::XY car = geo::toLocal(gps.lastFix().lat, gps.lastFix().lon, track.refLat(), track.refLon());
+  bool drawn = drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, track.map, mp, gps.lastFix().rxMillis != 0, car,
+                           gps.hasFix(), track.hasStartFinish);
+  if (!drawn) {
     gfx->setTextDatum(MC_DATUM);
     gfx->setTextColor(C_DIM);
     gfx->drawString("No map for this track", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 - 10, 2);
     gfx->drawString("It draws itself once", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 + 10, 2);
     gfx->drawString("your first lap starts", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 + 28, 2);
     gfx->setTextDatum(TL_DATUM);
-  } else {
-    const float pad = 10;
-    float bw = max(maxX - minX, 1.0f), bh = max(maxY - minY, 1.0f);
-    float scale = min((MAP_W - 2 * pad) / bw, (MAP_H - 2 * pad) / bh);
-    float cx = MAP_X + MAP_W / 2.0f, cy = MAP_Y + MAP_H / 2.0f;
-    float midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
-    auto sx = [&](float x) { return (int)lroundf(cx + (x - midX) * scale); };
-    auto sy = [&](float y) { return (int)lroundf(cy - (y - midY) * scale); };  // north up
-
-    auto thickLine = [&](int x0, int y0, int x1, int y1, uint16_t c) {
-      gfx->drawLine(x0, y0, x1, y1, c);
-      gfx->drawLine(x0 + 1, y0, x1 + 1, y1, c);
-      gfx->drawLine(x0, y0 + 1, x1, y1 + 1, c);
-    };
-
-    for (const auto& line : track.map)
-      for (size_t i = 1; i < line.size(); i++)
-        thickLine(sx(line[i - 1].x), sy(line[i - 1].y), sx(line[i].x), sy(line[i].y), C_TRACK);
-
-    if (path) {
-      size_t step = max((size_t)1, path->size() / 800);
-      size_t prev = 0;
-      for (size_t i = step; i < path->size(); i += step) {
-        thickLine(sx((*path)[prev].x), sy((*path)[prev].y), sx((*path)[i].x), sy((*path)[i].y), C_TRACK);
-        prev = i;
-      }
-    }
-
-    // Start/finish marker
-    gfx->fillRect(sx(0) - 4, sy(0) - 4, 9, 9, C_TEXT);
-    gfx->drawRect(sx(0) - 4, sy(0) - 4, 9, 9, C_BG);
-
-    // Car, kept inside the map frame if it's off the drawn area
-    if (gps.lastFix().rxMillis != 0) {
-      int px = constrain(sx(car.x), MAP_X + 7, MAP_X + MAP_W - 8);
-      int py = constrain(sy(car.y), MAP_Y + 7, MAP_Y + MAP_H - 8);
-      gfx->fillCircle(px, py, 8, C_BG);  // dark ring keeps it visible on the grey track line
-      gfx->fillCircle(px, py, 6, gps.hasFix() ? C_TEXT : C_WARN);
-    }
   }
 
   // --- right-hand panel ---
@@ -559,6 +575,146 @@ void DisplayManager::diffBox(int32_t delta, bool lapRunning, const RunningOverla
   }
   gfx->setTextColor(C_TEXT);
   gfx->drawString(num, tx, ty, 6);
+}
+
+// ---------------------------------------------------------------------------
+// Mode menu, Free Roam, setting a start/finish line
+
+static String formatDuration(uint32_t ms) {
+  uint32_t s = ms / 1000;
+  char buf[16];
+  if (s >= 3600) snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", (unsigned long)(s / 3600), (unsigned long)(s / 60 % 60), (unsigned long)(s % 60));
+  else snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)(s / 60), (unsigned long)(s % 60));
+  return String(buf);
+}
+
+void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk) {
+  beginFrame();
+  header(noTrackNearby ? "NO TRACK WITHIN 5 KM" : "MENU", &gps);
+
+  struct Item { const char* l1; const char* l2; const char* d1; const char* d2; };
+  const Item items[3] = {
+    {"FREE", "ROAM", "Map your drive,", "time and speed"},
+    {"NEW", "TRACK", "Tap the screen at", "the start/finish"},
+    {"TRACK", "LIST", "Pick a track or", "Bench Test"},
+  };
+  const int bw = W / 3, top = HEADER_H + 10, bh = 150;
+  for (int i = 0; i < 3; i++) {
+    int x = i * bw + 4;
+    bool hl = (i == highlight);
+    gfx->fillRoundRect(x, top, bw - 8, bh, 8, hl ? 0x3186 : C_BUTTON);
+    if (hl) gfx->drawRoundRect(x, top, bw - 8, bh, 8, C_TEXT);
+    gfx->setTextDatum(MC_DATUM);
+    gfx->setTextColor(C_TEXT);
+    gfx->drawString(items[i].l1, x + (bw - 8) / 2, top + 40, 4);
+    gfx->drawString(items[i].l2, x + (bw - 8) / 2, top + 68, 4);
+    gfx->setTextColor(C_DIM);
+    gfx->drawString(items[i].d1, x + (bw - 8) / 2, top + 108, 1);
+    gfx->drawString(items[i].d2, x + (bw - 8) / 2, top + 120, 1);
+  }
+  gfx->setTextDatum(TL_DATUM);
+  if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 196, 2, C_WARN);
+  centered(touchOk ? "tap a mode   -   top bar: GPS status" : "BOOT: tap = next, hold = choose", 218, 2, C_DIM);
+  endFrame();
+}
+
+void DisplayManager::drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs) {
+  beginFrame();
+  header("FREE ROAM", &gps);
+  gfx->drawRoundRect(MAP_X, MAP_Y, MAP_W, MAP_H, 6, C_BUTTON);
+
+  static const std::vector<std::vector<geo::XYf>> noLines;
+  MapPath mp = {(const uint8_t*)fr.path.data(), fr.path.size(), sizeof(geo::XYf)};
+  geo::XY car = fr.hasPosition() ? geo::toLocal(gps.lastFix().lat, gps.lastFix().lon, fr.refLat, fr.refLon) : geo::XY{0, 0};
+  if (!drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, noLines, mp, fr.hasPosition(), car, gps.hasFix(), false)) {
+    gfx->setTextDatum(MC_DATUM);
+    gfx->setTextColor(C_DIM);
+    gfx->drawString(fr.hasPosition() ? "Start driving -" : "Waiting for GPS", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 - 8, 2);
+    if (fr.hasPosition()) gfx->drawString("your route draws here", MAP_X + MAP_W / 2, MAP_Y + MAP_H / 2 + 10, 2);
+    gfx->setTextDatum(TL_DATUM);
+  }
+
+  int y = MAP_Y + 2;
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("TIME", PANEL_X, y, 2);
+  gfx->setTextColor(C_TEXT);
+  gfx->drawString(formatDuration(fr.elapsedMs(millis())), PANEL_X, y + 16, 4);
+
+  y += 52;
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("SPEED km/h", PANEL_X, y, 2);
+  gfx->setTextColor(C_TEXT);
+  gfx->drawNumber(lroundf(gps.lastFix().speedKmh), PANEL_X, y + 18, 6);
+
+  y += 74;
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("DISTANCE", PANEL_X, y, 2);
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%.1f km", fr.distanceKm());
+  gfx->setTextColor(C_TEXT);
+  gfx->drawString(buf, PANEL_X, y + 16, 4);
+
+  snprintf(buf, sizeof(buf), "top %.0f km/h", fr.topSpeedKmh());
+  gfx->setTextColor(C_DIM);
+  gfx->drawString(buf, PANEL_X, H - 26, 2);
+  gfx->drawString("hold to end", PANEL_X, H - 10, 1);
+
+  runningOverlays(gps, holdMs);
+  endFrame();
+}
+
+void DisplayManager::drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath) {
+  beginFrame();
+  header("DRIVE SUMMARY", nullptr);
+  gfx->drawRoundRect(MAP_X, MAP_Y, MAP_W, MAP_H, 6, C_BUTTON);
+  static const std::vector<std::vector<geo::XYf>> noLines;
+  MapPath mp = {(const uint8_t*)fr.path.data(), fr.path.size(), sizeof(geo::XYf)};
+  drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, noLines, mp, false, geo::XY{0, 0}, true, false);
+
+  char buf[24];
+  struct Row { const char* label; String value; };
+  snprintf(buf, sizeof(buf), "%.2f km", fr.distanceKm());
+  String dist = buf;
+  snprintf(buf, sizeof(buf), "%.0f km/h", fr.topSpeedKmh());
+  String top = buf;
+  snprintf(buf, sizeof(buf), "%.0f km/h", fr.avgMovingKmh());
+  String avg = buf;
+  const Row rows[4] = {{"TIME", formatDuration(durationMs)}, {"DISTANCE", dist}, {"TOP SPEED", top}, {"AVERAGE", avg}};
+  int y = MAP_Y + 2;
+  for (const Row& r : rows) {
+    gfx->setTextColor(C_DIM);
+    gfx->drawString(r.label, PANEL_X, y, 2);
+    gfx->setTextColor(C_TEXT);
+    gfx->drawString(r.value, PANEL_X, y + 15, 4);
+    y += 46;
+  }
+  gfx->setTextColor(C_DIM);
+  gfx->drawString(savedPath.length() ? "saved" : "not saved", PANEL_X, H - 22, 1);
+  gfx->drawString("tap to continue", PANEL_X, H - 10, 1);
+  endFrame();
+}
+
+void DisplayManager::drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs) {
+  beginFrame();
+  header(track.name, &gps);
+
+  gfx->fillRoundRect(6, HEADER_H + 8, W - 12, 120, 10, C_BUTTON);
+  centered("SET START/FINISH", HEADER_H + 18, 4, C_WARN);
+  centered("Drive to the start/finish line and", HEADER_H + 54, 2, C_TEXT);
+  centered("TAP THE SCREEN as you cross it", HEADER_H + 74, 2, C_TEXT);
+  centered("Lap 1 starts at that moment", HEADER_H + 100, 2, C_DIM);
+
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%.0f km/h", gps.lastFix().speedKmh);
+  centered(buf, 170, 4, C_TEXT);
+  centered(gps.hasFix() ? "GPS ready" : "waiting for a GPS fix...", 200, 2, gps.hasFix() ? C_GOOD : C_WARN);
+  gfx->setTextDatum(TR_DATUM);
+  gfx->setTextColor(C_DIM);
+  gfx->drawString("hold to end", W - 10, 224, 1);
+  gfx->setTextDatum(TL_DATUM);
+
+  runningOverlays(gps, holdMs);
+  endFrame();
 }
 
 void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, const String& savedPath) {

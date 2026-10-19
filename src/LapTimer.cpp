@@ -147,6 +147,10 @@ LapEvent LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTim
   return ev;
 }
 
+void LapTimer::startLapNow(uint32_t gpsTimeMs, uint32_t rxMillis) {
+  startLap(continuousTime(gpsTimeMs), rxMillis);
+}
+
 uint32_t LapTimer::currentLapMs(uint32_t nowMillis) const {
   if (!running) return 0;
   return nowMillis - lapStartMillis;

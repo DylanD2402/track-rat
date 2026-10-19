@@ -54,16 +54,27 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 ## Using it
 
+**At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically and the session starts at once. Timing begins the first time you cross the start/finish line; everything before that is the out lap.
+
+**Away from a track:** you get a menu:
+
+- **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card.
+- **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap is saved as the track's map. The track is saved to `tracks.json`, so next time it's picked automatically.
+- **TRACK LIST:** pick any track by hand, including **Bench Test**.
+
+**Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place.
+
 | Screen | Touch | BOOT button |
 |---|---|---|
-| Waiting for GPS | tap: choose a track now | press: choose a track now |
-| Select track | left / right third: previous / next, centre: select | press: next, hold 1 s: select |
-| GPS Status (tap the top bar of the track list) | tap: back | press: back |
-| Ready | centre: start, left: back | hold 1 s: start, press: back |
-| Timing | hold 2 s: end session | hold 1 s: end session |
-| Summary | tap: back to track list | press: back to track list |
-
-When the GPS gets a fix, the nearest track within 5 km is selected and the Ready screen opens. Timing starts at the first start/finish crossing. Everything before that is the out lap.
+| Waiting for GPS | tap: menu | press: menu |
+| Menu | tap a mode; top bar: GPS status | press: next, hold 1 s: choose |
+| Track list | left / right third: previous / next, centre: select, hold: menu | press: next, hold 1 s: select |
+| GPS Status (top bar of the menu or track list) | tap: back | press: back |
+| Ready | centre: start, left: back, right: set line | hold 1 s: start, press: back |
+| Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
+| Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
+| Free Roam | hold 2 s: end | hold 1 s: end |
+| Summaries | tap: continue | press: continue |
 
 While timing, the screen shows:
 
@@ -109,7 +120,22 @@ The easiest way to add your own track is to edit the file on the SD card.
 - **`radius`:** about half the track width plus a few metres. 10–20 m is typical.
 - **Placement:** put splits where no other part of the track passes within `radius`.
 - **`splits`:** optional.
-- **Missing coordinates:** tracks whose coordinates are `0, 0` are skipped.
+- **No start/finish yet:** a track can have a `"center": {"lat": .., "lon": ..}` instead of `startFinish`. It's still found automatically, and the timer asks you to tap at the line the first time.
+- **Saved by the timer:** new tracks, start/finish lines marked on track, and maps from your first lap are written back into `tracks.json` on the SD card.
+
+### All Canadian tracks
+
+`tools/fetch_canada_tracks.py` adds every motorsport track in Canada from OpenStreetMap, each with its name, location and layout map. Run it on your PC; it needs Python 3, no extra packages.
+
+```bash
+python tools/fetch_canada_tracks.py
+```
+
+Then copy `data/tracks.json` to the SD card.
+
+- **No start/finish lines:** OpenStreetMap doesn't record where the line is, so the timer asks you to mark it on your first visit.
+- **What's skipped:** dirt tracks, motocross and drag strips, unless you add `--include-dirt` or `--include-drag`. Karting tracks are included; `--no-karting` leaves them out.
+- **Your existing tracks are never changed.** That includes any track within 1 km of one you already have.
 
 > **The pre-loaded track coordinates are approximate.** Check the start/finish point of any track you drive (satellite view in Google Maps works well) before trusting its lap times.
 
@@ -177,6 +203,8 @@ Each session is saved as `/sessions/<UTC date>_<time>_<track id>.json` on the SD
 
 The file is rewritten after every lap.
 
+Free Roam drives are saved as `/sessions/<date>_<time>_freeroam.json`, with the duration, distance, top and average speed, and the route as GPS points about 10 m apart.
+
 ## Configuration
 
 Everything else is in `include/Config.h`. The settings you're most likely to change:
@@ -214,6 +242,12 @@ g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb 
 ```
 - doesn't record false laps while parked on the line with GPS jitter
 - ignores a line crossing that happens during a GPS dropout
+
+`test/test_freeroam.cpp` checks Free Roam's distance, top and average speed, that GPS jitter and position glitches add no distance, and that very long drives are capped:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
+```
 
 ## Layout
 

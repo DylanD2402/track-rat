@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
+#include "FreeRoam.h"
 #include "GPSHandler.h"
 #include "LapTimer.h"
 #include "TrackDatabase.h"
@@ -47,6 +48,11 @@ public:
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                       const RunningOverlay& overlay, uint32_t holdMs);
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath);
+  // Mode menu: highlight is for BOOT-button navigation (0..2)
+  void drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk);
+  void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
+  void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
+  void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
 
 private:
   TFT_eSPI tft;
@@ -61,6 +67,13 @@ private:
   void header(const String& title, const GPSHandler* gps);
   void gpsBadge(const GPSHandler& gps);
   void diffBox(int32_t delta, bool lapRunning, const RunningOverlay& ov);
+  struct MapPath {
+    const uint8_t* base;  // points start with float x, y (metres)
+    size_t n;
+    size_t stride;
+  };
+  bool drawMapArea(int x, int y, int w, int h, const std::vector<std::vector<geo::XYf>>& lines, MapPath path,
+                   bool showCar, geo::XY car, bool carFix, bool showStartFinish);
   void runningOverlays(const GPSHandler& gps, uint32_t holdMs);
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);

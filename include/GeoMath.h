@@ -50,6 +50,12 @@ inline XY toLocal(double lat, double lon, double refLat, double refLon) {
   return p;
 }
 
+// Inverse of toLocal.
+inline void fromLocal(double x, double y, double refLat, double refLon, double& lat, double& lon) {
+  lat = refLat + y / EARTH_RADIUS_M / DEG2RAD;
+  lon = refLon + x / (EARTH_RADIUS_M * cos(refLat * DEG2RAD)) / DEG2RAD;
+}
+
 /**
  * Timing gate test.
  *
