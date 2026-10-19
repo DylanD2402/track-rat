@@ -30,6 +30,7 @@
 #include "SleepTimer.h"
 #include "Storage.h"
 #include "TrackDatabase.h"
+#include "TrackOrder.h"
 #include "UiTheme.h"
 #include "WifiPortal.h"
 
@@ -49,6 +50,10 @@ static AppState state = AppState::GpsWait;
 static AppState statusReturn = AppState::Menu;  // where the GPS Status screen goes back to
 static AppState wifiReturn = AppState::Menu;    // where the Wi-Fi screen goes back to
 static int selectedIndex = 0;
+// Track list: trackDB indices, nearest first (see TrackOrder.h), and where in it we are
+static std::vector<int> listOrder;
+static int listPos = 0;
+static bool listSorted = false;  // ordered by distance (false: no GPS fix when it was made)
 static int menuHighlight = 0;
 static bool autoPickDone = false;
 static bool noTrackNearby = false;
@@ -101,6 +106,36 @@ static double distanceToTrack(int index) {
   const Track* t = trackDB.get(index);
   if (!gps.hasFix() || t->bench) return -1;
   return geo::distanceM(gps.lastFix().lat, gps.lastFix().lon, t->refLat(), t->refLon());
+}
+
+// Orders the track list by distance from here. keepIndex >= 0 stays selected;
+// otherwise the nearest track is.
+static void sortTrackList(int keepIndex) {
+  std::vector<trackorder::Item> items;
+  std::vector<String> venues;  // venue ids, so layouts of one venue share a group number
+  for (int i = 0; i < trackDB.count(); i++) {
+    const Track* t = trackDB.get(i);
+    int group = -1;
+    if (t->layoutIndex >= 0) {
+      auto it = std::find(venues.begin(), venues.end(), t->venueId);
+      group = it - venues.begin();
+      if (it == venues.end()) venues.push_back(t->venueId);
+    }
+    items.push_back({distanceToTrack(i), group, t->bench});
+  }
+  listOrder = trackorder::byDistance(items);
+  listSorted = gps.hasFix();
+  listPos = 0;
+  for (size_t p = 0; keepIndex >= 0 && p < listOrder.size(); p++)
+    if (listOrder[p] == keepIndex) listPos = p;
+  if (!listOrder.empty()) selectedIndex = listOrder[listPos];
+}
+
+static void moveInTrackList(int step) {
+  const int n = listOrder.size();
+  if (n == 0) return;
+  listPos = (listPos + step + n) % n;
+  selectedIndex = listOrder[listPos];
 }
 
 static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : MIN_LAP_TIME_MS; }
@@ -233,6 +268,13 @@ static void enterState(AppState next) {
   }
 
   if (next == AppState::GpsStatus) statusReturn = state;
+
+  // Opening the track list from the menu: nearest first. Coming back to it
+  // (from a track's Ready screen or GPS status): stay on the same track.
+  if (next == AppState::TrackSelect) {
+    if (state == AppState::Menu || (int)listOrder.size() != trackDB.count()) sortTrackList(state == AppState::Menu ? -1 : selectedIndex);
+    else for (size_t p = 0; p < listOrder.size(); p++) if (listOrder[p] == selectedIndex) listPos = p;
+  }
 
   // Wi-Fi is on only while its screen is shown, never while timing.
   if (next == AppState::Wifi) {
@@ -496,7 +538,6 @@ static bool tappedWifi(InputEvent ev, int buttonTop) {
 
 static void handleInput(InputEvent ev) {
   if (ev == InputEvent::None) return;
-  int count = trackDB.count();
 
   switch (state) {
     case AppState::GpsWait:
@@ -527,8 +568,8 @@ static void handleInput(InputEvent ev) {
         break;
       }
       if (ev == InputEvent::Hold) enterState(AppState::Menu);
-      else if (ev == InputEvent::TapLeft) selectedIndex = (selectedIndex + count - 1) % count;
-      else if (ev == InputEvent::TapRight || ev == InputEvent::BootShort) selectedIndex = (selectedIndex + 1) % count;
+      else if (ev == InputEvent::TapLeft) moveInTrackList(-1);
+      else if (ev == InputEvent::TapRight || ev == InputEvent::BootShort) moveInTrackList(1);
       else if (ev == InputEvent::TapCenter || ev == InputEvent::BootLong) enterState(AppState::TrackConfirm);
       lastRender = 0;
       break;
@@ -634,7 +675,10 @@ static void render() {
       display.drawMenu(input.touchAvailable() ? -1 : menuHighlight, gps, noTrackNearby, input.touchAvailable());
       break;
     case AppState::TrackSelect:
-      display.drawTrackSelect(selectedTrack(), selectedIndex, trackDB.count(), distanceToTrack(selectedIndex),
+      // The list opened before the GPS had a fix: sort it once a fix arrives
+      // (to the nearest track, unless the driver has already moved along it).
+      if (!listSorted && gps.hasFix()) sortTrackList(listPos == 0 ? -1 : selectedIndex);
+      display.drawTrackSelect(selectedTrack(), listPos, (int)listOrder.size(), distanceToTrack(selectedIndex),
                               gps, input.touchAvailable());
       break;
     case AppState::TrackConfirm:

@@ -97,7 +97,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card.
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
-- **TRACK LIST:** pick any track by hand, including **Bench Test**.
+- **TRACK LIST:** pick any track by hand. The nearest track comes first, then the rest in order of distance, each with how far away it is. Layouts of one venue stay together. Without a GPS fix the list is in `tracks.json` order, and it sorts itself as soon as there is a fix. **Bench Test** is always last.
 - **PERFORMANCE:** the wide button under the three modes. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
 - **WI-FI:** turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)).
 
@@ -528,6 +528,12 @@ It checks that the timer:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
+```
+
+`test/test_trackorder.cpp` checks the track list order: nearest first, layouts of one venue together at the distance of its closest layout, `tracks.json` order with no GPS fix, and Bench Test last:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_trackorder.cpp -o /tmp/to && /tmp/to
 ```
 
 `test/test_localtime.cpp` checks that session file names in local time roll the date over correctly: either side of midnight, across months, years and leap days, and in half-hour time zones:
