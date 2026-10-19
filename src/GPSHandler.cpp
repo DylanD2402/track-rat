@@ -10,15 +10,15 @@ static HardwareSerial& gpsSerial = Serial1;
 
 void GPSHandler::begin() {
   gpsSerial.setRxBufferSize(GPS_RX_BUFFER_BYTES);  // rides out SD writes etc. without losing data
-  if (!detect()) {
+  source = GpsSourceSwitch(GPS_USE_UBX, GPS_PVT_WAIT_MS);
+  detected = detect();
+  if (!detected) {
     // Listen on the UART connector anyway, so a GPS plugged in later works.
     const int pairs[][2] = GPS_PIN_PAIRS;
     rxPin = pairs[0][0];
     txPin = pairs[0][1];
     baudRate = GPS_DEFAULT_BAUD;
     DEBUG_PRINTF("GPS: no GPS detected - listening on GPIO %d at %lu baud\n", rxPin, (unsigned long)baudRate);
-  } else {
-    configuredWithData = true;
   }
   gpsSerial.begin(baudRate, SERIAL_8N1, rxPin, txPin);
 
@@ -36,7 +36,6 @@ void GPSHandler::setSimulated(bool on) {
   queueHead = queueCount = 0;
   everFixed = false;
   lastTimeValue = 0xFFFFFFFF;
-  lastPvtTow = 0xFFFFFFFF;
   sats = 0;
   hdopVal = 99.9f;
   rateHz = 0;
@@ -137,9 +136,7 @@ void GPSHandler::handleUbxFrame(uint32_t now) {
 
   UbxPvt v;
   if (ubx.is(UBX_CLASS_NAV, UBX_ID_NAV_PVT) && decodeNavPvt(p, len, v)) {
-#if GPS_USE_UBX
     onPvt(v, now);
-#endif
   } else if (ubx.is(0x06, 0x8B) && len >= 4) {  // CFG-VALGET response
     signalsRead = 0;
     for (uint16_t i = 4; i + 5 <= len; i += 5) {   // 1-byte (L) values only
@@ -162,7 +159,7 @@ uint32_t GPSHandler::signalKey(int k) {
 // Rate, automotive dynamics, and only the messages we use, so high rates fit
 // easily in the link: NAV-PVT, plus NMEA GGA and RMC until NAV-PVT is seen
 // arriving. RAM only: no restart needed.
-void GPSHandler::sendBaseConfig() {
+void GPSHandler::sendBaseConfig(bool gpsTalking) {
   const uint16_t measMs = 1000 / GPS_TARGET_RATE_HZ;
   const uint8_t cfg[] = {
     0x01, 0x00, 0x21, 0x30, (uint8_t)(measMs & 0xFF), (uint8_t)(measMs >> 8),  // CFG-RATE-MEAS
@@ -176,9 +173,7 @@ void GPSHandler::sendBaseConfig() {
     0x21, 0x00, 0x11, 0x20, 0x04,  // CFG-NAVSPG-DYNMODEL = automotive
   };
   sendUbxValset(0x01, cfg, sizeof(cfg));
-  pvtActive = false;
-  pvtGaveUp = false;
-  pvtAskedMillis = millis() | 1;  // never 0 (0 = not asked)
+  source.configSent(millis(), gpsTalking);
   DEBUG_PRINTF("GPS: requested %d Hz%s (u-blox CFG-VALSET)\n", GPS_TARGET_RATE_HZ,
                GPS_USE_UBX ? " and UBX-NAV-PVT" : "");
 }
@@ -194,7 +189,7 @@ void GPSHandler::setNmeaOutput(bool on) {
 }
 
 void GPSHandler::configureUblox() {
-  sendBaseConfig();
+  sendBaseConfig(detected);
 
 #if GPS_SET_CONSTELLATIONS
   // Changing satellite systems restarts tracking (the fix drops for a few
@@ -269,37 +264,13 @@ void GPSHandler::readSerial(uint32_t now) {
     if (ubx.feed((uint8_t)c)) handleUbxFrame(now);
   }
 
-  bool nmeaSeen = false;
   if (gps.passedChecksum() != lastChecksumCount) {
     lastChecksumCount = gps.passedChecksum();
     lastSentenceMillis = now;
-    lastNmeaMillis = now;
-    nmeaSeen = true;
+    onSourceEvent(source.onNmea(now));
   }
-
-#if GPS_CONFIGURE_UBLOX
-  // A GPS plugged in after start-up: configure it now it's talking.
-  if (nmeaSeen && !configuredWithData) {
-    configuredWithData = true;
-    DEBUG_PRINTLN("GPS: GPS found - configuring it");
-    sendBaseConfig();
-  }
-#endif
-
-  if (pvtActive) {
-    // NAV-PVT stopped and NMEA is back: the GPS restarted and lost its RAM
-    // settings. Ask for NAV-PVT again, and read NMEA until it comes.
-    if (now - lastPvtMillis > 2000 && nmeaSeen) {
-      DEBUG_PRINTLN("GPS: UBX-NAV-PVT stopped and NMEA is back (GPS restarted?) - asking again");
-      sendBaseConfig();
-    } else {
-      return;  // fixes come from NAV-PVT (onPvt)
-    }
-  }
-  if (!pvtGaveUp && pvtAskedMillis && now - pvtAskedMillis > GPS_PVT_WAIT_MS) {
-    pvtGaveUp = true;
-    if (GPS_USE_UBX) DEBUG_PRINTLN("GPS: no UBX-NAV-PVT (not a u-blox GPS?) - reading NMEA");
-  }
+  onSourceEvent(source.poll(now));
+  if (source.pvtActive()) return;  // fixes come from NAV-PVT (onPvt)
 
   if (gps.satellites.isUpdated()) sats = gps.satellites.value();
   if (gps.hdop.isUpdated()) hdopVal = gps.hdop.hdop();
@@ -338,16 +309,39 @@ void GPSHandler::readSerial(uint32_t now) {
   }
 }
 
+// Acts on what GpsSourceSwitch decided (see GpsSource.h).
+void GPSHandler::onSourceEvent(GpsEvent e) {
+  switch (e) {
+    case GpsEvent::Configure:  // a GPS plugged in after start-up
+#if GPS_CONFIGURE_UBLOX
+      DEBUG_PRINTLN("GPS: GPS found - configuring it");
+      sendBaseConfig(true);
+#endif
+      break;
+    case GpsEvent::PvtStarted:
+      DEBUG_PRINTLN("GPS: UBX-NAV-PVT arriving - using it, NMEA sentences off");
+#if GPS_CONFIGURE_UBLOX && !GPS_ECHO_NMEA
+      setNmeaOutput(false);
+#endif
+      break;
+    case GpsEvent::PvtLost:  // the GPS restarted and lost its RAM settings
+      DEBUG_PRINTLN("GPS: UBX-NAV-PVT stopped and NMEA is back (GPS restarted?) - reading NMEA, asking again");
+#if GPS_CONFIGURE_UBLOX
+      sendBaseConfig(true);
+#endif
+      break;
+    case GpsEvent::NoPvt:
+      DEBUG_PRINTLN("GPS: no UBX-NAV-PVT (not a u-blox GPS?) - reading NMEA");
+      break;
+    case GpsEvent::None:
+      break;
+  }
+}
+
 // One NAV-PVT message: one navigation epoch, sent with or without a fix.
 void GPSHandler::onPvt(const UbxPvt& v, uint32_t now) {
-  lastPvtMillis = now;
-  if (!pvtActive) {
-    pvtActive = true;
-    DEBUG_PRINTLN("GPS: UBX-NAV-PVT arriving - using it, NMEA sentences off");
-#if !GPS_ECHO_NMEA
-    setNmeaOutput(false);
-#endif
-  }
+  onSourceEvent(source.onPvt(now));
+  if (!source.pvtActive()) return;  // GPS_USE_UBX is 0
 
   sats = v.numSV;
   hdopVal = v.pdop();
@@ -356,32 +350,7 @@ void GPSHandler::onPvt(const UbxPvt& v, uint32_t now) {
     pvtTimeValid = true;
   }
 
-  if (!v.fixOk() || !v.timeValid() || v.iTOW == lastPvtTow) return;
-  lastPvtTow = v.iTOW;
-  // The epoch NMEA already delivered just before the switch to NAV-PVT
-  if (last.rxMillis && v.utcMsOfDay() == last.gpsTimeMs) return;
-
-  last.lat = v.latDeg();
-  last.lon = v.lonDeg();
-  last.speedKmh = v.speedMs() * 3.6f;
-  last.courseValid = last.speedKmh > 3.0f;  // heading is noise when slow
-  last.courseDeg = v.headingDeg();
-  last.altM = v.altMslM();
-  if (v.dateValid() && v.year >= 2020) {
-    last.year = v.year;
-    last.month = v.month;
-    last.day = v.day;
-  }
-  last.gpsTimeMs = v.utcMsOfDay();
-  last.rxMillis = now;
-  last.hAccM = v.hAccM();
-  last.vAccM = v.vAccM();
-  last.speedAccMs = v.speedAccMs();
-  last.headingAccDeg = v.headingAccDeg();
-  last.vertSpeedMs = v.vertSpeedMs();
-  last.pdop = v.pdop();
-  last.fixType = v.fixType;
-  last.sats = v.numSV;
+  if (!fixFromPvt(v, now, last, last)) return;
   queueFix(last);
   everFixed = true;
   countFixForRate(now);
@@ -435,7 +404,7 @@ String GPSHandler::timestampString() {
     return String(buf);
   }
   char buf[24];
-  if (pvtActive) {
+  if (source.pvtActive()) {
     if (!pvtTimeValid) return String();
     snprintf(buf, sizeof(buf), "%04d%02d%02d_%02d%02d%02d", pvtTime.year, pvtTime.month, pvtTime.day,
              pvtTime.hour, pvtTime.minute, pvtTime.second);

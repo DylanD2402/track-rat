@@ -18,31 +18,9 @@
 
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
+#include "GpsFix.h"
+#include "GpsSource.h"
 #include "UbxParser.h"
-
-struct GpsFix {
-  double lat;
-  double lon;
-  float speedKmh;
-  float courseDeg;      // direction of travel, 0 = north, clockwise
-  bool courseValid;
-  float altM;           // metres above sea level
-  uint16_t year;        // UTC date, 0 if not known yet
-  uint8_t month, day;
-  uint32_t gpsTimeMs;   // UTC milliseconds since midnight, from the GPS
-  uint32_t rxMillis;    // millis() when the fix was received
-  // Quality, from UBX-NAV-PVT. With an NMEA-only GPS the accuracies are -1
-  // (unknown), vertSpeedMs is 0 and pdop holds the HDOP.
-  float hAccM;          // horizontal accuracy, +/- metres
-  float vAccM;          // vertical accuracy, +/- metres
-  float speedAccMs;     // speed accuracy, +/- m/s
-  float headingAccDeg;  // direction of travel accuracy, +/- degrees
-  float vertSpeedMs;    // + = climbing
-  float pdop;
-  uint8_t fixType;      // 2 = 2D, 3 = 3D, 4 = GNSS + dead reckoning
-  uint8_t sats;         // satellites used in the fix
-  bool accuracyKnown() const { return hAccM >= 0; }
-};
 
 class GPSHandler {
 public:
@@ -54,7 +32,7 @@ public:
 
   bool hasFix() const;
   bool receivingData() const;     // valid NMEA or UBX seen in the last 2 s
-  bool usingUbx() const { return pvtActive; }  // fixes come from UBX-NAV-PVT
+  bool usingUbx() const { return source.pvtActive(); }  // fixes come from UBX-NAV-PVT
   uint8_t satellites() const { return sats; }
   float hdop() const { return hdopVal; }  // PDOP when using UBX
   // Horizontal accuracy of the latest fix, +/- metres; -1 if not known
@@ -98,20 +76,16 @@ private:
   void sendUbx(uint8_t cls, uint8_t id, const uint8_t* payload, size_t len);
   void sendUbxValset(uint8_t layers, const uint8_t* cfg, size_t len);
 
-  void sendBaseConfig();
+  bool detected = false;          // a GPS was found at start-up
+  void sendBaseConfig(bool gpsTalking);
   void setNmeaOutput(bool on);
 
   // UBX messages from the GPS: NAV-PVT fixes and the CFG-VALGET reply
   UbxParser ubx;
+  GpsSourceSwitch source;         // NAV-PVT or NMEA (see GpsSource.h)
   void handleUbxFrame(uint32_t now);
   void onPvt(const UbxPvt& v, uint32_t now);
-  bool pvtActive = false;         // NAV-PVT arriving; NMEA sentences turned off
-  bool pvtGaveUp = false;         // asked for NAV-PVT, none came: NMEA only
-  bool configuredWithData = false;  // config sent while the GPS was talking
-  uint32_t pvtAskedMillis = 0;
-  uint32_t lastPvtMillis = 0;
-  uint32_t lastNmeaMillis = 0;
-  uint32_t lastPvtTow = 0xFFFFFFFF;
+  void onSourceEvent(GpsEvent e);
   bool pvtTimeValid = false;      // latest NAV-PVT date and time, for timestampString()
   UbxPvt pvtTime = {};
   static const int SIGNAL_KEYS = 5;
