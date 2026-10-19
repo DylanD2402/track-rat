@@ -5,6 +5,9 @@
 #include "SessionLog.h"
 #include <ArduinoJson.h>
 #include <SD_MMC.h>
+#include <atomic>
+#include <memory>
+#include <mutex>
 #include "Config.h"
 #include "LogWriter.h"
 #include "SessionReplay.h"
@@ -41,6 +44,24 @@ namespace SessionLog {
 
 String fileName(const String& path) { return path.substring(path.lastIndexOf('/') + 1); }
 
+// Base names handed out since boot: their files belong to this boot's
+// sessions, so the background recovery leaves them alone.
+static std::mutex namesLock;
+static std::vector<String> namesThisBoot;
+
+static bool newThisBoot(const String& base) {
+  std::lock_guard<std::mutex> lock(namesLock);
+  for (const String& n : namesThisBoot) {
+    if (n == base) return true;
+  }
+  return false;
+}
+
+static bool baseTaken(fs::FS& fs, const String& base) {
+  return fs.exists(base + ".json") || fs.exists(base + ".vbo") || fs.exists(base + ".json.tmp") ||
+         newThisBoot(base);
+}
+
 String newSessionBase(const String& stamp, const String& name) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs) return String();
@@ -48,9 +69,9 @@ String newSessionBase(const String& stamp, const String& name) {
 
   String first = String(SESSION_DIR) + "/" + (stamp.length() ? stamp : String("session")) + "_" + name;
   String base = first;
-  for (int n = 2; (fs->exists(base + ".json") || fs->exists(base + ".vbo")) && n < 1000; n++) {
-    base = first + "_" + n;
-  }
+  for (int n = 2; baseTaken(*fs, base) && n < 1000; n++) base = first + "_" + n;
+  std::lock_guard<std::mutex> lock(namesLock);
+  namesThisBoot.push_back(base);  // before any of its files exist
   return base;
 }
 
@@ -265,6 +286,21 @@ void endLog() {
 }
 
 // --- Recovery at boot ---------------------------------------------------------
+//
+// Runs in its own task on core 0 at idle priority, so a long log (about 6 s
+// per hour of driving) doesn't hold up boot, and timing on core 1 isn't
+// touched. It only reads the copy of the tracks taken at boot, never trackDB,
+// which the main loop changes.
+
+static std::vector<Track> recoveryTracks;  // lines and names only, no maps
+static std::atomic<bool> recoveryRunning{false};
+
+static const Track* recoveryTrack(const std::string& id) {
+  for (const Track& t : recoveryTracks) {
+    if (t.id == id.c_str()) return &t;
+  }
+  return nullptr;
+}
 
 static bool summaryFinished(fs::FS& fs, const String& jsonPath) {
   if (!fs.exists(jsonPath)) return false;
@@ -290,57 +326,59 @@ static bool validJson(fs::FS& fs, const String& path) {
 }
 
 // Replays a log through the lap timer (or Free Roam) and writes its summary.
-static void recoverSession(fs::FS& fs, const String& vboPath, const TrackDatabase& db) {
+static void recoverSession(fs::FS& fs, const String& vboPath) {
   File f = fs.open(vboPath, "r");
   if (!f) return;
   uint32_t startMs = millis();
 
   // A log with no start/finish in its header had the line marked during the
   // session: it's in tracks.json now.
-  SessionReplay replay([&](const std::string& id, TrackPoint& sf, std::vector<TrackPoint>& splits) {
-    const Track* t = db.find(id.c_str());
-    if (!t || !t->hasStartFinish) return false;
-    sf = t->startFinish;
-    splits = t->splits;
-    return true;
-  });
+  std::unique_ptr<SessionReplay> replay(
+      new SessionReplay([](const std::string& id, TrackPoint& sf, std::vector<TrackPoint>& splits) {
+        const Track* t = recoveryTrack(id);
+        if (!t || !t->hasStartFinish) return false;
+        sf = t->startFinish;
+        splits = t->splits;
+        return true;
+      }));
   static char chunk[4096];
   for (;;) {
     int n = f.read((uint8_t*)chunk, sizeof(chunk));
     if (n <= 0) break;
-    replay.feed(chunk, n);
-    delay(0);  // a long log takes seconds: let the other tasks on this core run
+    replay->feed(chunk, n);
   }
   f.close();
-  replay.finish();
+  replay->finish();
 
   String base = vboPath.substring(0, vboPath.length() - 4);
-  String stamp = replay.stamp.c_str();
+  String stamp = replay->stamp.c_str();
   String logName = fileName(vboPath);
   bool ok;
-  if (replay.freeRoam) {
-    ok = saveFreeRoam(base + ".json", stamp, replay.drive, replay.durationMs, logName, true);
+  if (replay->freeRoam) {
+    ok = saveFreeRoam(base + ".json", stamp, replay->drive, replay->durationMs, logName, true);
   } else {
     Track track;
-    if (const Track* known = db.find(replay.trackId.c_str())) track = *known;
-    track.id = replay.trackId.c_str();
-    if (replay.trackName.size()) track.name = replay.trackName.c_str();
-    ok = save(base + ".json", track, stamp, replay.timer, logName, true, true);
+    if (const Track* known = recoveryTrack(replay->trackId)) track = *known;
+    track.id = replay->trackId.c_str();
+    if (replay->trackName.size()) track.name = replay->trackName.c_str();
+    ok = save(base + ".json", track, stamp, replay->timer, logName, true, true);
   }
-  const Lap* best = replay.timer.bestLap();
+  const Lap* best = replay->timer.bestLap();
   DEBUG_PRINTF("Session: %s %s from its log: %lu fixes, %u laps%s%s, %lu bad lines%s (%lu ms)\n",
-               ok ? "recovered" : "could NOT recover", logName.c_str(), (unsigned long)replay.samples,
-               (unsigned)replay.timer.lapCount(), best ? ", best " : "", best ? formatLapTime(best->timeMs).c_str() : "",
-               (unsigned long)replay.reader().badLines(), replay.cutLine ? ", last line cut short" : "",
-               (unsigned long)(millis() - startMs));
+               ok ? "recovered" : "could NOT recover", logName.c_str(), (unsigned long)replay->samples,
+               (unsigned)replay->timer.lapCount(), best ? ", best " : "",
+               best ? formatLapTime(best->timeMs).c_str() : "", (unsigned long)replay->reader().badLines(),
+               replay->cutLine ? ", last line cut short" : "", (unsigned long)(millis() - startMs));
 }
 
-void recoverUnfinished(const TrackDatabase& tracks) {
-  fs::FS* fs = Storage::sessionFS();
-  if (!fs || !fs->exists(SESSION_DIR)) return;
+// ("/sessions/a.json.tmp", ".json.tmp") -> "/sessions/a"
+static String withoutExt(const String& path, const char* ext) {
+  return path.substring(0, path.length() - strlen(ext));
+}
 
+static void recoverAll(fs::FS& fs) {
   std::vector<String> logs, temps;
-  File dir = fs->open(SESSION_DIR);
+  File dir = fs.open(SESSION_DIR);
   if (!dir || !dir.isDirectory()) return;
   for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
     String name = fileName(e.name());
@@ -352,24 +390,61 @@ void recoverUnfinished(const TrackDatabase& tracks) {
   }
   dir.close();
 
-  // A summary caught mid-save: keep the new copy if it's complete.
+  // A summary caught mid-save: keep the new copy if it's complete. One of
+  // this boot's sessions is a save in progress: not ours to touch.
   for (const String& tmp : temps) {
+    if (newThisBoot(withoutExt(tmp, ".json.tmp"))) continue;
     String json = tmp.substring(0, tmp.length() - 4);
-    if (!fs->exists(json) && validJson(*fs, tmp) && fs->rename(tmp, json)) {
+    if (!fs.exists(json) && validJson(fs, tmp) && fs.rename(tmp, json)) {
       DEBUG_PRINTF("Session: finished saving %s\n", json.c_str());
     } else {
-      fs->remove(tmp);
+      fs.remove(tmp);
     }
   }
 
   int recovered = 0;
   for (const String& log : logs) {
-    String json = log.substring(0, log.length() - 4) + ".json";
-    if (summaryFinished(*fs, json)) continue;
-    recoverSession(*fs, log, tracks);
+    String base = withoutExt(log, ".vbo");
+    if (newThisBoot(base) || summaryFinished(fs, base + ".json")) continue;
+    recoverSession(fs, log);
     recovered++;
   }
   if (recovered) DEBUG_PRINTF("Session: %d unfinished session(s) recovered\n", recovered);
 }
+
+static void recoveryTaskMain(void* arg) {
+  recoverAll(*(fs::FS*)arg);
+  std::vector<Track>().swap(recoveryTracks);
+  recoveryRunning = false;
+  vTaskDelete(nullptr);
+}
+
+void recoverUnfinished(const TrackDatabase& tracks) {
+  fs::FS* fs = Storage::sessionFS();
+  if (!fs || !fs->exists(SESSION_DIR) || recoveryRunning) return;
+
+  recoveryTracks.clear();
+  for (int i = 0; i < tracks.count(); i++) {
+    const Track* t = tracks.get(i);
+    Track c;  // without the map
+    c.id = t->id;
+    c.name = t->name;
+    c.hasStartFinish = t->hasStartFinish;
+    c.startFinish = t->startFinish;
+    c.splits = t->splits;
+    recoveryTracks.push_back(c);
+  }
+  // Idle priority on core 0: the log writer, Wi-Fi and BLE go first, and the
+  // idle task still gets its turn, so the watchdog stays fed.
+  recoveryRunning = true;
+  if (xTaskCreatePinnedToCore(recoveryTaskMain, "recovery", 8192, fs, tskIDLE_PRIORITY, nullptr, 0) != pdPASS) {
+    DEBUG_PRINTLN("Session: could not start the recovery task - recovering now");
+    recoveryRunning = false;
+    recoverAll(*fs);
+    std::vector<Track>().swap(recoveryTracks);
+  }
+}
+
+bool recovering() { return recoveryRunning; }
 
 }  // namespace SessionLog
