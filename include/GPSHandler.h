@@ -22,6 +22,9 @@
 #include "GpsSource.h"
 #include "UbxParser.h"
 
+// What the simulated GPS does: lap a circle (lap timing) or repeat launch, top speed, brake (Performance).
+enum class SimMode { Circuit, Launch };
+
 class GPSHandler {
 public:
   void begin();
@@ -41,9 +44,10 @@ public:
   float fixRateHz() const { return rateHz; }
   uint32_t baud() const { return baudRate; }
   int rxPinUsed() const { return rxPin; }
+  int txPinUsed() const { return txPin; }
   bool isSimulated() const { return simulating; }
   uint32_t droppedFixCount() const { return droppedFixes; }
-  void setSimulated(bool on);
+  void setSimulated(bool on, SimMode mode = SimMode::Circuit);
   const GpsFix& lastFix() const { return last; }
 
   // "YYYYMMDD_HHMMSS" from GPS date/time, or empty if unknown.
@@ -100,6 +104,11 @@ private:
   uint32_t simLastStep = 0;
   double simAngle = 0;
   void simulateStep();
+  SimMode simMode = SimMode::Circuit;
+  uint8_t simPhase = 0;          // launch demo: 0 stopped, 1 accelerating, 2 braking
+  double simPhaseT = 0, simV = 0, simDist = 0;
+  uint32_t simClockMs = 0;
+  void simulateLaunchStep();
 };
 
 #endif  // GPS_HANDLER_H

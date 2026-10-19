@@ -31,7 +31,7 @@ Expected:
    - At each lap end, the lap time shows full-screen. It's green when it's a new best.
    - The serial log shows `LAP n: m:ss.mmm` and `Saved SD:/sessions/...`.
 8. Hold the screen for 2 s. A progress bar fills, then the **summary** appears and lists your laps.
-9. If you have an SD card in, look for `/sessions/SIM_..._bench.json` on it.
+9. If you have an SD card in, look for `/sessions/SIM_..._bench.json` and `SIM_..._bench.vbo` on it. The `.vbo` opens in Racelogic's Circuit Tools (see "Session logs" in the README).
 
 The **BOOT** button also works on every screen: press = next/back, hold 1 s = select/start/end.
 
@@ -81,6 +81,16 @@ To test without a race track, add a temporary track whose start/finish is a spot
 Laps shorter than 20 s are ignored (`MIN_LAP_TIME_MS`). Lower it for walking-pace tests.
 
 Then select the track and press START. Pass the point to start lap 1 and pass it again to finish each lap. Moving under 5 km/h doesn't count, so walk briskly or drive.
+
+## 5. Battery, sleep and SD update (optional)
+
+Needs a 3.7 V LiPo in the battery socket for the battery steps.
+
+1. **Battery gauge.** With the battery fitted, the serial log prints `Battery: pin ... mV, battery ... mV` every 10 s, and a percentage shows in the top bar. Compare the log's battery voltage with a multimeter on the battery; if it's off, set `BATTERY_CAL_OFFSET_MV`.
+2. **No battery.** Unplug the battery (USB connected). The log should say `Battery: none fitted` and the top bar shows no percentage. If it still shows one, send the `pin ... mV` figure from the log.
+3. **Auto-sleep.** To avoid waiting 20 minutes, set `AUTO_SLEEP_IDLE_MS` to `30000` and `AUTO_SLEEP_DEEP_AFTER_MS` to `10000`, flash, and leave the board alone. The backlight goes off after 30 s and the log says `deep sleep` 10 s later. Touch the screen: the board restarts. Sleep it again and press BOOT: same. Set the two values back afterwards.
+4. **Low battery.** With a partly charged battery, set `BATTERY_LOW_MV` just above the logged battery voltage and flash. After 10 s the screen should say **BATTERY LOW** and then go to sleep. Set it back to `3300`.
+5. **SD update.** Build, copy `.pio/build/es3c28p/firmware.bin` to the SD card root as `trackrat.bin`, put the card in and reset. Tap **INSTALL**. After the progress bar the board restarts, and the card now has `trackrat.installed.bin` instead. Also try a wrong file (rename any text file to `trackrat.bin`): it should be refused.
 
 ## What to report back
 

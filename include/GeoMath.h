@@ -9,12 +9,25 @@
 #define GEO_MATH_H
 
 #include <math.h>
+#include <stdint.h>
+
+// Where a line's direction of travel came from.
+enum class HeadingFrom : uint8_t {
+  None,  // no direction: crossings either way count
+  Set,   // tracks.json, or the GPS course when the line was tapped
+  Map,   // worked out from the order of the map's points near the line (may be backwards)
+};
 
 // A timing point on a track: start/finish or split.
+// Brace-initialising only {lat, lon, radius} leaves it with no direction.
 struct TrackPoint {
   double lat;
   double lon;
-  float radius;  // gate half-width in metres
+  float radius;   // gate half-width in metres
+  float heading;  // direction of travel across the line, degrees clockwise from north
+  HeadingFrom headingFrom;
+
+  bool hasHeading() const { return headingFrom != HeadingFrom::None; }
 };
 
 namespace geo {
@@ -60,7 +73,8 @@ inline void fromLocal(double x, double y, double refLat, double refLon, double& 
  * Timing gate test.
  *
  * The gate is a line through the origin, perpendicular to the direction of
- * travel, `halfWidth` metres either side. Returns true if the path segment
+ * travel, `halfWidth` metres either side. It counts crossings either way;
+ * travelsWith() checks the direction. Returns true if the path segment
  * a->b crosses it, and sets `frac` (0..1) to where along a->b the crossing
  * happened, so the crossing time can be interpolated between GPS fixes.
  *
@@ -82,6 +96,20 @@ inline bool crossesGate(XY a, XY b, double halfWidth, double& frac) {
 
   frac = u;
   return true;
+}
+
+// Compass bearing of the direction dx, dy (metres east, north): 0..360, 0 = north.
+inline float bearingDeg(double dx, double dy) {
+  double d = atan2(dx, dy) / DEG2RAD;
+  return (float)(d < 0 ? d + 360.0 : d);
+}
+
+// True if travelling a->b is within 90 degrees of headingDeg (exactly 90 is
+// not). Used to ignore crossings the wrong way, such as a straight alongside
+// or the pit lane.
+inline bool travelsWith(XY a, XY b, float headingDeg) {
+  double h = headingDeg * DEG2RAD;
+  return (b.x - a.x) * sin(h) + (b.y - a.y) * cos(h) > 1e-6;  // metres along the heading
 }
 
 }  // namespace geo

@@ -6,6 +6,13 @@
  * (see geo::crossesGate), and interpolates the crossing time between the two
  * GPS timestamps. Lap times therefore come from GPS time, not the ESP32 clock.
  *
+ * A line with a heading only counts crossings within 90 degrees of it. If the
+ * start/finish heading was guessed from the map (HeadingFrom::Map) and the
+ * car crosses it the "wrong" way twice in the same place before ever
+ * crossing it the right way, the guess was backwards: it's turned round,
+ * along with any guessed splits. (Two wrong-way crossings in different
+ * places are straights alongside the line, not the line itself.)
+ *
  * No Arduino dependencies: unit-tested on a PC in test/test_laptimer.cpp.
  */
 
@@ -44,6 +51,12 @@ public:
   void begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits,
              uint32_t minLapMs = MIN_LAP_TIME_MS);
   void reset();
+
+  // Swap in another layout's lines without losing the laps so far (used
+  // when the layout changes and its start/finish is in the same place).
+  void changeGates(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits);
+  const TrackPoint& startFinish() const { return sf; }
+  const std::vector<TrackPoint>& splits() const { return splitPts; }
 
   // rxMillis is the device clock when the fix arrived; only used to run the
   // live on-screen clock between fixes.
@@ -86,6 +99,9 @@ private:
 
   TrackPoint sf = {0, 0, 0};
   std::vector<TrackPoint> splitPts;
+  bool sfHeadingConfirmed = false;  // crossed the right way at least once
+  bool sfWrongWay = false;          // crossed the wrong way since the last right-way crossing...
+  geo::XY sfWrongAt = {0, 0};       // ...here, in metres from the start/finish
   std::vector<Lap> laps;
   int bestIndex = -1;
   uint32_t minLap = MIN_LAP_TIME_MS;
@@ -114,6 +130,7 @@ private:
   float sessionMaxSpeed = 0;
 
   int64_t continuousTime(uint32_t gpsTimeMs);
+  bool startFinishCounts(geo::XY a, geo::XY b, double frac);
   void startLap(int64_t t, uint32_t startMillis);
   int32_t matchBestTrace(float x, float y, int32_t elapsed);
 };

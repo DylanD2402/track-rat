@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track Rat</title>
+<!--
+  Track Rat's Wi-Fi page. Plain HTML/CSS/JS, no libraries: the phone has no
+  internet while it's on the TrackRat network.
+  tools/build_web.py gzips this file into data/web/index.html.gz, and
+  `pio run -e es3c28p -t uploadfs` copies it to the board.
+-->
+<style>
+:root {
+  --bg: #f4f5f7; --card: #fff; --text: #16181d; --dim: #667085; --line: #e3e6eb;
+  --accent: #0a7c3e; --accent-text: #fff; --bad: #c0262d; --chip: #eef0f3;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1115; --card: #1a1d23; --text: #eceef2; --dim: #98a1b0; --line: #2a2f38;
+          --accent: #2fbf71; --accent-text: #08130c; --bad: #ff6b6b; --chip: #262a32; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--line); }
+h1 { margin: 0; padding: 12px 16px 4px; font-size: 18px; }
+nav { display: flex; overflow-x: auto; padding: 0 8px; }
+nav button { flex: none; border: 0; background: none; color: var(--dim); font: inherit; font-weight: 600;
+             padding: 10px 10px 12px; border-bottom: 3px solid transparent; }
+nav button.on { color: var(--text); border-bottom-color: var(--accent); }
+main { max-width: 720px; margin: 0 auto; padding: 12px 16px 48px; }
+section { display: none; }
+section.on { display: block; }
+h2 { font-size: 15px; margin: 20px 0 8px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+h3 { font-size: 16px; margin: 0 0 6px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.row:first-of-type { border-top: 0; }
+.time { min-width: 64px; font-variant-numeric: tabular-nums; }
+.chip { display: inline-block; padding: 5px 10px; border-radius: 999px; background: var(--chip);
+        color: var(--text); text-decoration: none; font-size: 14px; }
+.chip small { color: var(--dim); }
+.btn { display: inline-block; border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 600;
+       background: var(--accent); color: var(--accent-text); text-decoration: none; }
+.btn.plain { background: var(--chip); color: var(--text); }
+.btn:disabled { opacity: .5; }
+.note { color: var(--dim); font-size: 14px; }
+.err { color: var(--bad); }
+.tag { font-size: 12px; color: var(--dim); }
+progress { width: 100%; height: 14px; }
+table { width: 100%; border-collapse: collapse; }
+td { padding: 6px 0; border-top: 1px solid var(--line); vertical-align: top; }
+td:first-child { color: var(--dim); width: 40%; }
+input[type=file] { max-width: 100%; margin: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Track Rat</h1>
+  <nav id="tabs">
+    <button data-tab="sessions" class="on">Sessions</button>
+    <button data-tab="tracks">Tracks</button>
+    <button data-tab="firmware">Firmware</button>
+    <button data-tab="device">Device</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+</header>
+<main>
+
+<section id="sessions" class="on">
+  <p class="note">Downloads not saving? Some phones open this page in a small sign-in window that can't save files.
+    Open <b>http://192.168.4.1</b> in Safari or Chrome instead.</p>
+  <div id="sessionList"><p class="note">Loading…</p></div>
+</section>
+
+<section id="tracks">
+  <div class="card">
+    <h3>Download the track list</h3>
+    <p class="note">The <code>tracks.json</code> Track Rat is using, including tracks and start/finish lines you made on the timer.</p>
+    <a class="btn" href="/tracks.json" download="tracks.json">Download tracks.json</a>
+  </div>
+  <div class="card">
+    <h3>Replace the track list</h3>
+    <p class="note">Upload a <code>tracks.json</code> you've edited. The old one is kept as <code>tracks.json.bak</code>.
+      You'll need the upload code on Track Rat's screen. It restarts to load the new list.</p>
+    <input type="file" id="tracksFile" accept=".json,application/json">
+    <div><button class="btn" id="tracksSend" disabled>Upload</button></div>
+    <p id="tracksMsg" class="note"></p>
+  </div>
+</section>
+
+<section id="firmware">
+  <div class="card">
+    <h3>Install firmware</h3>
+    <p class="note">Pick a <code>firmware.bin</code> (from <code>.pio/build/es3c28p/</code> after a build).
+      You'll need the upload code on Track Rat's screen. Keep the board powered until it restarts.
+      It comes back with Wi-Fi off.</p>
+    <input type="file" id="fwFile" accept=".bin,application/octet-stream">
+    <div><button class="btn" id="fwSend" disabled>Install</button></div>
+    <p><progress id="fwBar" max="100" value="0" hidden></progress></p>
+    <p id="fwMsg" class="note"></p>
+  </div>
+</section>
+
+<section id="device">
+  <div class="card"><table id="info"><tr><td>Loading…</td><td></td></tr></table></div>
+  <button class="btn plain" id="restart">Restart Track Rat</button>
+  <p id="restartMsg" class="note"></p>
+</section>
+
+<section id="settings">
+  <!-- Settings page stub: fill in once the device has /api/settings (units,
+       mounting, brightness, delta reference). -->
+  <div class="card">
+    <h3>Settings</h3>
+    <p class="note">Coming soon: units, upside-down mounting, brightness and what the live delta compares against.</p>
+  </div>
+</section>
+
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// ---- tabs ----
+let infoTimer = null;
+function showTab(name) {
+  for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === name);
+  for (const s of document.querySelectorAll("main section")) s.classList.toggle("on", s.id === name);
+  clearInterval(infoTimer);
+  if (name === "device") { loadInfo(); infoTimer = setInterval(loadInfo, 2000); }
+}
+$("tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
+
+// ---- helpers ----
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+function size(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB";
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  return (bytes / 1024 / 1024 / 1024).toFixed(1) + " GB";
+}
+function post(url, body, onProgress) {
+  return new Promise((resolve) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", url);
+    if (onProgress) x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    x.onload = () => resolve({ok: x.status === 200, status: x.status, text: x.responseText});
+    x.onerror = () => resolve({ok: false, status: 0, text: "Lost the connection to Track Rat"});
+    x.send(body);
+  });
+}
+
+// ---- time zone: the device names files in UTC; this lets it use local time ----
+post("/api/time", new URLSearchParams({tz: String(-new Date().getTimezoneOffset())}));
+
+// ---- session names (begin: tested by test/test_web.js) ----
+// Names look like 20261018_093012_calabogie.json (UTC date and time, track id),
+// or SIM_12_bench.vbo for simulated sessions.
+// Files from the same session (.json, .vbo, _perf.json, .json.bak...) are shown together.
+const NAME_RE = /^(\d{8})_(\d{6})_(.+?)(?:\.(json|vbo)(?:\.(.+))?)?$/;
+const SIM_NAME_RE = /^SIM_(\d+)_(.+?)(?:\.(json|vbo)(?:\.(.+))?)?$/;
+
+function trackName(id) {
+  if (id === "freeroam") return "Free Roam";
+  if (id === "bench") return "Bench Test";
+  return id.replace(/[-_]+/g, " ").trim().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function parseFile(f) {
+  const m = f.name.match(NAME_RE);
+  const sim = m ? null : f.name.match(SIM_NAME_RE);
+  if (!m && !sim) return null;
+  if (sim) {
+    const [, sequence, simRest0, simExt, simSuffix] = sim;
+    let rest = simRest0;
+    let label = (simExt ? simExt + (simSuffix ? "." + simSuffix : "") : "file").toUpperCase();
+    const extra = rest.match(/_(perf)$/i);
+    if (extra) { rest = rest.slice(0, -extra[0].length); label = "PERF " + label; }
+    const track = rest.replace(/_\d+$/, "") || rest;
+    if (!track || track.startsWith(".")) return null;
+    return {when: new Date(+sequence), track, label, key: f.fs + ":SIM" + sequence + rest};
+  }
+  if (!m) return null;
+  const [, d, t, rest0, ext, suffix] = m;
+  const when = new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8),
+                                 +t.slice(0, 2), +t.slice(2, 4), +t.slice(4, 6)));
+  // Not a real date or time (e.g. 20261340): leave it in "Other files"
+  if (when.getUTCDate() !== +d.slice(6, 8) || +t.slice(0, 2) > 23 || +t.slice(2, 4) > 59) return null;
+  let rest = rest0, label = (ext ? ext + (suffix ? "." + suffix : "") : "file").toUpperCase();
+  const extra = rest.match(/_(perf)$/i);
+  if (extra) { rest = rest.slice(0, -extra[0].length); label = "PERF " + label; }
+  const track = rest.replace(/_\d+$/, "") || rest;  // _2, _3: a second session that minute
+  if (!track || track.startsWith(".")) return null;
+  return {when, track, label, key: f.fs + ":" + d + t + rest};
+}
+
+// files -> {days: [[day, [[track, [session...]]...]]...], other: [file...]}, newest first.
+// dayOf(date) names the day; the page uses the phone's local date.
+function groupSessions(files, dayOf) {
+  const sessions = new Map(), other = [];
+  for (const f of files) {
+    const p = parseFile(f);
+    if (!p) { other.push(f); continue; }
+    if (!sessions.has(p.key)) sessions.set(p.key, {when: p.when, track: p.track, fs: f.fs, files: []});
+    sessions.get(p.key).files.push({f, label: p.label});
+  }
+  const days = new Map();
+  for (const s of [...sessions.values()].sort((a, b) => b.when - a.when)) {
+    s.files.sort((a, b) => a.label.localeCompare(b.label));
+    const day = dayOf(s.when);
+    if (!days.has(day)) days.set(day, new Map());
+    const tracks = days.get(day);
+    if (!tracks.has(s.track)) tracks.set(s.track, []);
+    tracks.get(s.track).push(s);
+  }
+  return {days: [...days].map(([day, tracks]) => [day, [...tracks]]), other};
+}
+// ---- session names (end) ----
+
+function fileLink(f, label) {
+  const href = "/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name);
+  return `<a class="chip" href="${href}" download="${esc(f.name)}">${esc(label)} <small>${size(f.size)}</small></a>`;
+}
+
+async function loadSessions() {
+  const box = $("sessionList");
+  let files;
+  try {
+    files = (await (await fetch("/api/sessions")).json()).files;
+  } catch (e) {
+    box.innerHTML = `<p class="err">Couldn't read the session list.</p>`;
+    return;
+  }
+  if (!files.length) {
+    box.innerHTML = `<p class="note">No sessions yet. They're saved to the SD card after every lap.</p>`;
+    return;
+  }
+
+  const {days, other} = groupSessions(files, (when) =>
+    when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"}));
+
+  let html = "";
+  for (const [day, tracks] of days) {
+    html += `<h2>${esc(day)}</h2>`;
+    for (const [track, list] of tracks) {
+      html += `<div class="card"><h3>${esc(trackName(track))}</h3>`;
+      for (const s of list) {
+        const time = s.when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+        html += `<div class="row"><span class="time">${esc(time)}</span>` +
+                s.files.map((x) => fileLink(x.f, x.label)).join("") +
+                (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") + `</div>`;
+      }
+      html += `</div>`;
+    }
+  }
+  if (other.length) {
+    html += `<h2>Other files</h2><div class="card">` +
+            other.map((f) => `<div class="row">${fileLink(f, f.name)}</div>`).join("") + `</div>`;
+  }
+  box.innerHTML = html;
+}
+
+// ---- uploads need the 4-digit code on Track Rat's Wi-Fi screen ----
+let uploadCode = "";
+function askCode(what) {
+  const c = prompt(`${what}\n\nType the 4-digit upload code shown on Track Rat's screen:`, uploadCode);
+  if (c === null) return null;
+  uploadCode = c.trim();
+  return uploadCode;
+}
+function uploadResult(r) {
+  if (r.status === 403) uploadCode = "";  // wrong code: ask again next time
+  return r;
+}
+
+// ---- tracks ----
+let tracksBody = null;
+$("tracksFile").addEventListener("change", async () => {
+  const file = $("tracksFile").files[0];
+  tracksBody = null;
+  $("tracksSend").disabled = true;
+  if (!file) return;
+  try {
+    const json = JSON.parse(await file.text());
+    if (!Array.isArray(json.tracks)) throw new Error("no \"tracks\" list in it");
+    tracksBody = file;
+    $("tracksMsg").className = "note";
+    $("tracksMsg").textContent = `${json.tracks.length} tracks in this file.`;
+    $("tracksSend").disabled = false;
+  } catch (e) {
+    $("tracksMsg").className = "err";
+    $("tracksMsg").textContent = "That isn't a tracks.json file: " + e.message;
+  }
+});
+$("tracksSend").addEventListener("click", async () => {
+  if (!tracksBody) return;
+  const code = askCode("Replace Track Rat's track list with this file? It restarts to load it.");
+  if (code === null) return;
+  $("tracksSend").disabled = true;
+  const form = new FormData();
+  form.append("tracks", tracksBody, "tracks.json");
+  const r = uploadResult(await post("/api/tracks?code=" + encodeURIComponent(code), form));
+  $("tracksMsg").className = r.ok ? "note" : "err";
+  $("tracksMsg").textContent = r.ok ? r.text + " Turn Wi-Fi on again from its menu to come back to this page." : r.text;
+  $("tracksSend").disabled = r.ok;
+});
+
+// ---- firmware ----
+const MAX_FIRMWARE = 6553600;  // one app slot
+$("fwFile").addEventListener("change", async () => {
+  const file = $("fwFile").files[0];
+  $("fwSend").disabled = true;
+  $("fwMsg").className = "note";
+  $("fwMsg").textContent = "";
+  if (!file) return;
+  const first = new Uint8Array(await file.slice(0, 1).arrayBuffer())[0];
+  if (first !== 0xE9 || file.size > MAX_FIRMWARE) {
+    $("fwMsg").className = "err";
+    $("fwMsg").textContent = "That isn't a Track Rat firmware file (firmware.bin).";
+    return;
+  }
+  $("fwMsg").textContent = `${file.name}, ${size(file.size)}`;
+  $("fwSend").disabled = false;
+});
+$("fwSend").addEventListener("click", async () => {
+  const file = $("fwFile").files[0];
+  if (!file) return;
+  const code = askCode("Install this firmware? Keep Track Rat powered until it restarts.");
+  if (code === null) return;
+  $("fwSend").disabled = true;
+  $("fwFile").disabled = true;
+  const bar = $("fwBar");
+  bar.hidden = false;
+  bar.value = 0;
+  $("fwMsg").className = "note";
+  $("fwMsg").textContent = "Sending…";
+  const form = new FormData();
+  form.append("firmware", file, file.name);
+  const r = uploadResult(await post("/api/firmware?code=" + encodeURIComponent(code), form, (frac) => {
+    bar.value = Math.round(frac * 100);
+    $("fwMsg").textContent = frac < 1 ? `Sending… ${bar.value}%` : "Installing…";
+  }));
+  $("fwMsg").className = r.ok ? "note" : "err";
+  $("fwMsg").textContent = r.ok ? r.text + " Turn Wi-Fi on again from its menu to come back to this page." : r.text;
+  if (!r.ok) { bar.hidden = true; $("fwSend").disabled = false; }
+  $("fwFile").disabled = false;
+});
+
+// ---- device ----
+async function loadInfo() {
+  let i;
+  try { i = await (await fetch("/api/info")).json(); } catch (e) { return; }
+  const storage = (s) => !s.mounted ? "not found"
+    : `${size((s.totalKB - s.usedKB) * 1024)} free of ${size(s.totalKB * 1024)}`;
+  const g = i.gps;
+  const gps = !g.receiving ? "no data from the GPS"
+    : (g.fix ? "fix" : "searching") + `, ${g.satellites} satellites, HDOP ${g.hdop.toFixed(1)}, ${g.rateHz.toFixed(1)} Hz` +
+      (g.simulated ? " (bench test)" : "");
+  const tz = i.tzMin;
+  const rows = [
+    ["Firmware", `${esc(i.version)}<br><span class="tag">built ${esc(i.built)}</span>`],
+    ["Network", esc(i.network)],
+    ["SD card", storage(i.sd)],
+    ["Internal flash", storage(i.flash)],
+    ["Sessions saved to", esc(i.sessionsOn)],
+    ["GPS", esc(gps)],
+    ["Position", g.fix ? `${g.lat}, ${g.lon}` : "–"],
+    ["GPS port", g.rxPin >= 0 ? `RX GPIO ${g.rxPin}, ${g.baud} baud` : "not found"],
+    ["Time zone", `UTC${tz < 0 ? "−" : "+"}${Math.floor(Math.abs(tz) / 60)}${tz % 60 ? ":" + String(Math.abs(tz) % 60).padStart(2, "0") : ""}`],
+    ["Running for", `${Math.floor(i.uptimeS / 3600)} h ${Math.floor(i.uptimeS / 60) % 60} min`],
+    ["Free memory", `${size(i.freeHeap)} RAM, ${size(i.freePsram)} PSRAM`],
+  ];
+  $("info").innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+}
+
+async function restart() {
+  if (!confirm("Restart Track Rat? It comes back with Wi-Fi off.")) return;
+  const r = await post("/api/restart", "");
+  $("restartMsg").textContent = r.ok ? "Restarting." : r.text;
+}
+$("restart").addEventListener("click", restart);
+
+loadSessions();
+</script>
+</body>
+</html>
