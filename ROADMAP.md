@@ -224,7 +224,7 @@ Sizes are relative: S small, M medium, L large.
 - NEW TRACK's tap-at-the-line stays, for anyone who wants the exact line straight away.
 - With road drive recording off, Track Rat still watches for a loop but doesn't save the drive.
 
-**Status: done** (2026-10-20, commit COMMIT)
+**Status: done** (2026-10-20, commit 7e202a6)
 
 **4.2 Point to point: autocross, hillclimbs, sprints (M)**
 
