@@ -500,6 +500,7 @@ What the page does:
 - **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
 - **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list. If power is cut mid-save (here or on the device) and `tracks.json` is gone, the next boot puts back the newest complete copy it finds (`.tmp`, `.upload`, then `.bak`).
 - **Track editor** (on the Tracks tab): see [Track editor and re-timing](#track-editor-and-re-timing) below.
+- **Compare:** any two laps at a track, from any sessions: speed against distance, the time gap against distance, and the map coloured by who was faster where. Plus the season: your best lap at each visit and your PB over time. See [Lap comparison](#lap-comparison) below.
 - **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). The page and Track Rat both check the file first, as the SD card update does: it must be an ESP32-S3 app image that fits the slot, so a `bootloader.bin` or a file for another chip is refused before anything is written. A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
 - **Device:** firmware version, free space on the card and in flash, GPS status and memory.
 - **Settings:** the same items as the Settings screen on Track Rat; see [Settings](#settings). Changing one asks for the upload code and takes effect at once, except the GPS mode, which waits for a restart (the page offers one). The time zone is shown but not changed here.
@@ -527,6 +528,17 @@ Record first, decide later: a wrong start/finish, a missing split or a layout Tr
    - **New layout:** makes a layout of the venue (for example a short course), starting from this track's line, splits and map. A venue with no layouts keeps what it had as a layout called **Main**, as `tools/fetch_track_map.py` does.
 3. **Save lines:** asks for the upload code and sends the edited `tracks.json`, the same way as uploading one: the old file is kept as `tracks.json.bak` and Track Rat restarts to load it.
 4. Turn Wi-Fi on again and open the editor: **Re-time** times **this session** or **every session at this track** again from their logs, with the lines Track Rat has now. It runs in the background on the device (the page shows how far it is, and the Wi-Fi screen stays on until it's done), rewrites each session's summary (laps, splits, sectors, tags), and puts the PB and the best of the day right: the quickest clean lap replaces a stored one that was timed at another line, or that it beats. A session needs its `.vbo` log on the SD card to be re-timed.
+
+### Lap comparison
+
+On the **Compare** tab, pick a track, then lap **A** (blue) and lap **B** (orange): each from any session at that track with a `.vbo` log on the SD card. The lap lists come from the session summaries, with each lap's time and tags; the best lap is picked to start with. Your phone draws everything from the logs (Track Rat only serves the files):
+
+- **Speed against distance:** both laps on one chart, so you see where one brakes later or carries more speed.
+- **Time gap against distance:** B's time minus A's at the same point on track. Going up means B is losing time there. B's lap is stretched to A's length, as two laps never measure quite the same distance, so the same corner lines up. The last point is the gap at the line.
+- **Who was faster where:** lap A's path, each stretch blue where A was gaining and orange where B was.
+- **Season:** the best lap of each visit (day) at the track, newest first, with your PB as it stood then, and a chart of both over time.
+
+Laps are cut where they were cut live (the log's Lap column). After [re-timing](#track-editor-and-re-timing) with a moved line, the lap list follows the new summary but the traces still follow the old cuts.
 
 ### Changing the page
 
@@ -708,7 +720,7 @@ g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 ```
 
-`test/test_web.js` checks how the page groups session files by day and track, that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts) (needs Node.js):
+`test/test_web.js` checks how the page groups session files by day and track, that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts), and the lap comparison (laps from a log across midnight, speed and gap against distance with lap lengths that differ, who was faster where, the season and its PBs) (needs Node.js):
 
 ```bash
 node test/test_web.js
