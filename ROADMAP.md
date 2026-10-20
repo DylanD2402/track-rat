@@ -259,7 +259,7 @@ All of these use the spare pins on the expansion header, with the GPS on the UAR
 | **IMU** | An LSM6DSO or similar on the I2C header | Real g-forces (a friction circle), and real acceleration in the RaceBox packet for phone apps. |
 | **CAN / OBD-II** | An SN65HVD230 transceiver on IO3 and IO14, and an OBD-II plug | RPM, throttle and temperatures from the car (the ESP32-S3 has a CAN controller built in): a shift light on the LED bar, and more channels in the log. This is the step from lap timer to data logger, like AiM's Solo 2 DL. The most work, and different for each car. |
 
-**IMU status: done, untested on hardware** (2026-10-20, commit COMMIT). An LSM6DSO-class IMU on the I2C header is found at boot (`IMU_ENABLED`, default on, harmless with none), learns how it's mounted, and then gives the log and the RaceBox packet real g. Only the maths is host-tested.
+**IMU status: done, untested on hardware** (2026-10-20, commit 91794f5). An LSM6DSO-class IMU on the I2C header is found at boot (`IMU_ENABLED`, default on, harmless with none), learns how it's mounted, and then gives the log and the RaceBox packet real g. Only the maths is host-tested.
 
 ## Not planned, and why
 
