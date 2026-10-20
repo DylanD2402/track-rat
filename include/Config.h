@@ -143,6 +143,17 @@
 #define SECTOR_BRAKE_DROP_KMH 10.0f      // a braking zone loses at least this much speed from its peak
 #define SECTOR_MIN_MS 3000               // pieces shorter than this are merged
 #define SECTOR_SMOOTH_MS 600             // GPS speed is smoothed over this before looking for peaks
+// Tracks that learn themselves (see TrackLearn.h): away from known tracks, driving the same
+// loop twice makes a track. A loop: back within LEARN_MATCH_M of a point passed at LEARN_MIN_KMH
+// or more, heading the same way, at least LEARN_MIN_LOOP_MS and LEARN_MIN_LOOP_M later.
+#define TRACK_LEARNING_ENABLED 1
+#define LEARN_MATCH_M 10.0f
+#define LEARN_HEADING_DEG 30.0f          // "the same way": directions of travel this close
+#define LEARN_MIN_KMH 20.0f
+#define LEARN_MIN_LOOP_MS 20000UL
+#define LEARN_MIN_LOOP_M 300.0f
+#define LEARN_SAME_LOOP 0.25f            // the two loops' lengths within this fraction of each other
+#define LEARN_WINDOW_MS (12UL * 60UL * 1000UL)  // both loops must fit in this (fixes kept in PSRAM to time them)
 // Lap tags (see LapTags.h). Tagged laps are never the best lap or the reference, and aren't averaged.
 #define PIT_STOP_KMH 5.0                 // a lap with a fix below this is a pit lap
 #define SLOW_LAP_PERCENT 107             // a lap over this % of the best clean lap is slow
