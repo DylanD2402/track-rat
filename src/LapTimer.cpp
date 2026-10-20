@@ -110,8 +110,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
 
   int64_t dt = t - prevT;
   // A gap before this fix: suspect, for the lap it happened in (and any lap starting at this fix)
-  const uint8_t gapFlag =
-      havePrev && dt > 0 ? laptags::fixFlags(PIT_STOP_KMH, -1, dt > UINT32_MAX ? UINT32_MAX : (uint32_t)dt) : 0;
+  const uint8_t gapFlag = havePrev && dt > 0 ? laptags::gapFlag(dt > UINT32_MAX ? UINT32_MAX : (uint32_t)dt) : 0;
   if (running) lapTags |= gapFlag;
   bool usable = havePrev && dt > 0 && dt <= MAX_FIX_GAP_MS;
 
@@ -170,7 +169,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
               bestTrace.clear();
               refIndex = -1;
             }
-            if (laps[idx].clean() && (ev.isBest || refIndex < 0)) {
+            if (ev.isBest || (refIndex < 0 && laps[idx].tags == 0)) {  // a stand-in has no tags at all, not even slow
               curTrace.push_back({0, 0, (int32_t)lap.timeMs});
               bestTrace.swap(curTrace);
               refIndex = idx;

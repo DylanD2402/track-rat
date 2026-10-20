@@ -395,8 +395,7 @@ static void switchLayout(int index, layout::Lines& map) {
     }
   } else {  // timing starts again at this layout's line, in new session files
     beginLapTiming(t);
-    sessionStamp = gps.timestampString();
-    sessionNumber = Settings::nextSessionNumber(t.id.c_str(), sessionStamp.c_str());
+    sessionStamp = gps.timestampString();  // (the same run: it keeps its session number)
     sessionPath = "";
     startSessionFiles();
   }
@@ -832,7 +831,10 @@ static void render() {
       if (overlay.showLap && now > lapOverlayUntil) overlay.showLap = false;
       if (overlay.splitIndex >= 0 && now > splitOverlayUntil) overlay.splitIndex = -1;
       if (overlay.notice.length() && now > layoutNoticeUntil) overlay.notice = "";
-      if (pitView) display.drawSummary(selectedTrack(), lapTimer, sessionPath, sessionNumber, true);
+      if (pitView)  // no laps yet: the log is what's saved
+        display.drawSummary(selectedTrack(), lapTimer,
+                            sessionPath.length() || sessionLog.length() == 0 ? sessionPath : sessionBase + ".vbo",
+                            sessionNumber, true);
       else if (showMap) display.drawRunningMap(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       else display.drawRunning(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       break;
@@ -1089,7 +1091,12 @@ void loop() {
     } else if (state == AppState::Performance) {
       if (perfRun.onFix(fix.gpsTimeMs, fix.speedKmh, fix.altM) > 0) onPerfResult();
     } else if ((state == AppState::TrackConfirm && autoStart) || (state == AppState::Summary && nextSessionArmed)) {
-      if (driveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
+      // The next session only starts at the track: driving home from it isn't one
+      const double d = state == AppState::Summary ? distanceToTrack(selectedIndex) : 0;
+      if (d > TRACK_DETECTION_RADIUS_M || d < 0) {
+        nextSessionArmed = false;
+        DEBUG_PRINTLN("Left the track - no next session");
+      } else if (driveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
         DEBUG_PRINTLN("Driving off - starting a session");
         enterState(AppState::Running);
       }

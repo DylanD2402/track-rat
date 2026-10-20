@@ -51,12 +51,15 @@ constexpr uint8_t FROM_FIXES = PIT | GPS_GAP | POOR_ACCURACY;  // the rest come 
 inline bool clean(uint8_t tags) { return (tags & (PIT | SUSPECT)) == 0; }
 inline bool suspect(uint8_t tags) { return (tags & SUSPECT) != 0; }
 
+// GPS_GAP if a gap between fixes is long enough to make a lap suspect.
+inline uint8_t gapFlag(uint32_t gapMs) { return gapMs > SUSPECT_GAP_MS ? GPS_GAP : 0; }
+
 // The flags one fix gives its lap. hAccM < 0: the GPS doesn't say (NMEA).
 // gapMs: time since the previous fix (0 for the first).
 inline uint8_t fixFlags(float speedKmh, float hAccM, uint32_t gapMs) {
   uint8_t f = 0;
   if (speedKmh < PIT_STOP_KMH) f |= PIT;
-  if (gapMs > SUSPECT_GAP_MS) f |= GPS_GAP;
+  f |= gapFlag(gapMs);
   if (hAccM > SUSPECT_ACCURACY_M) f |= POOR_ACCURACY;
   return f;
 }
