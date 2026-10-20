@@ -215,7 +215,7 @@ private:
   uint32_t lapSpeedCount = 0;
   std::vector<int32_t> lapSplits;
   std::vector<int32_t> lapSectors;
-  const std::vector<int32_t> noSectors;
+  std::vector<int32_t> noSectors;  // stays empty
   float lapDistance = 0;
   uint8_t lapTags = 0;
 
