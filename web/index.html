@@ -72,6 +72,13 @@ input[type=file] { max-width: 100%; margin: 8px 0 12px; font: inherit; font-size
 .seg button.on { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 .seg button:disabled { opacity: .5; }
 input[type=range] { width: 100%; accent-color: var(--good); }
+select, .row input { font: inherit; font-size: 15px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
+                     background: var(--card); color: var(--text); max-width: 100%; }
+select { width: 100%; margin: 6px 0; }
+.row input { flex: 1 1 140px; }
+#edMap { display: block; width: 100%; margin: 10px 0 6px; border-radius: 10px; background: var(--bg); touch-action: manipulation; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.tools button.on { outline: 2px solid var(--good); }
 </style>
 </head>
 <body>
@@ -94,6 +101,37 @@ input[type=range] { width: 100%; accent-color: var(--good); }
 </section>
 
 <section id="tracks">
+  <div class="card">
+    <h3>Track editor</h3>
+    <p class="note">Draws a session's laps from its log, with the track's start/finish, splits and corners on top.
+      Move the line, flip its direction, add or remove splits, name the corners, or make a new layout.
+      Saving needs the upload code and restarts Track Rat. Then re-time to apply the lines to saved sessions.</p>
+    <select id="edLog"><option value="">Pick a session…</option></select>
+    <div id="edTools" hidden>
+      <select id="edTrack"></select>
+      <canvas id="edMap"></canvas>
+      <p id="edHint" class="note"></p>
+      <div class="tools">
+        <button class="btn plain" data-mode="line">Move line</button>
+        <button class="btn plain" id="edFlip">Flip direction</button>
+        <button class="btn plain" data-mode="add">Add split</button>
+        <button class="btn plain" data-mode="remove">Remove split</button>
+        <button class="btn plain" id="edLayout">New layout</button>
+      </div>
+      <h2>Corners</h2>
+      <div id="edCorners"></div>
+      <div class="tools"><button class="btn" id="edSave" disabled>Save lines</button></div>
+      <p id="edMsg" class="note"></p>
+      <h2>Re-time</h2>
+      <p class="note">Track Rat times sessions again from their logs with the lines it has now, and rewrites
+        their lap times and the PB. It carries on in the background.</p>
+      <div class="tools">
+        <button class="btn plain" id="rtOne">This session</button>
+        <button class="btn plain" id="rtAll">Every session at this track</button>
+      </div>
+      <p id="rtMsg" class="note"></p>
+    </div>
+  </div>
   <div class="card">
     <h3>Download the track list</h3>
     <p class="note">The <code>tracks.json</code> Track Rat is using, including tracks and start/finish lines you made on the timer.</p>
@@ -148,6 +186,7 @@ function showTab(name) {
   clearInterval(infoTimer);
   if (name === "device") { loadInfo(); infoTimer = setInterval(loadInfo, 2000); }
   if (name === "settings") loadSettings();
+  if (name === "tracks") edLoadLogs();
 }
 $("tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
 
@@ -331,6 +370,369 @@ $("tracksSend").addEventListener("click", async () => {
   $("tracksMsg").textContent = r.ok ? r.text + " Turn Wi-Fi on again from its menu to come back to this page." : r.text;
   $("tracksSend").disabled = r.ok;
 });
+
+// ---- track editor (begin: tested by test/test_web.js) ----
+// Draws a session's laps from its .vbo (the phone does the work) with the track's lines on top,
+// and edits those lines in a copy of tracks.json: the start/finish (where and which way), splits,
+// corner names, and a venue split into layouts. The same rules as the device: include/GeoMath.h
+// (toLocal), src/TrackDatabase.cpp (track ids), src/VboFormat.cpp (the log).
+const EARTH_R = 6371000, DEG = Math.PI / 180;
+function toLocal(lat, lon, refLat, refLon) {
+  return {x: (lon - refLon) * DEG * EARTH_R * Math.cos(refLat * DEG), y: (lat - refLat) * DEG * EARTH_R};
+}
+function fromLocal(x, y, refLat, refLon) {
+  return {lat: refLat + y / EARTH_R / DEG, lon: refLon + x / (EARTH_R * Math.cos(refLat * DEG)) / DEG};
+}
+const round7 = (v) => Math.round(v * 1e7) / 1e7;
+
+// A .vbo log: its [comments] ("Key: value") and each fix's position, speed and lap.
+// Positions are in minutes, and longitude's sign is reversed (west is positive).
+function parseVbo(text) {
+  const comments = {}, points = [];
+  let section = "", cols = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (line.startsWith("[")) { section = line.trim(); continue; }
+    if (!line.trim()) continue;
+    if (section === "[comments]") {
+      const i = line.indexOf(": ");
+      if (i > 0) comments[line.slice(0, i)] = line.slice(i + 2);
+    } else if (section === "[column names]") {
+      cols = line.trim().split(/\s+/);
+    } else if (section === "[data]" && cols) {
+      const t = line.trim().split(/\s+/);
+      if (t.length !== cols.length) continue;  // cut short by a power cut
+      const v = (name) => +t[cols.indexOf(name)];
+      const lat = v("lat") / 60, lon = -v("long") / 60;
+      if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0)) continue;
+      points.push({lat, lon, kmh: v("velocity") || 0, lap: cols.includes("Lap") ? v("Lap") || 0 : 0});
+    }
+  }
+  return {comments, points};
+}
+
+// "Short Course" -> "short-course", as the device makes layout ids
+function slug(name) {
+  return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// Every track in tracks.json as the device lists them: {id, name, venue, obj}. obj holds its
+// startFinish, splits, sectors and map: the venue itself, or one of its "layouts".
+function trackList(db) {
+  const out = [];
+  for (const v of db.tracks || []) {
+    const layouts = v.layouts || [];
+    if (!layouts.length) { out.push({id: v.id, name: v.name, venue: v, obj: v}); continue; }
+    const first = out.length;
+    layouts.forEach((lo, i) => {
+      const name = lo.name || "Layout " + (i + 1);
+      let id = v.id + "." + (lo.id || slug(name) || String(i + 1));
+      if (out.slice(first).some((t) => t.id === id)) id += "-" + (i + 1);
+      out.push({id, name: v.name + " - " + name, venue: v, obj: lo});
+    });
+  }
+  return out;
+}
+const findTrack = (db, id) => trackList(db).find((t) => t.id === id) || null;
+
+// The nearest of pts ({x, y}) to (x, y)
+function nearestIndex(pts, x, y) {
+  let best = -1, bestD = Infinity;
+  pts.forEach((p, i) => {
+    const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
+}
+
+// The direction of travel at pts[i] (0 = north, 90 = east), over about 10 m either side
+function headingAt(pts, i) {
+  let a = i, b = i;
+  while (a > 0 && Math.hypot(pts[i].x - pts[a].x, pts[i].y - pts[a].y) < 10) a--;
+  while (b < pts.length - 1 && Math.hypot(pts[b].x - pts[i].x, pts[b].y - pts[i].y) < 10) b++;
+  if (a === b) return 0;
+  const h = Math.atan2(pts[b].x - pts[a].x, pts[b].y - pts[a].y) / DEG;
+  return Math.round(((h % 360) + 360) % 360 * 10) / 10;
+}
+
+// Moves the start/finish. The corner sectors were numbered from the old line, so they go:
+// the device makes them again from the next clean lap. Returns true if there were some.
+function setLine(obj, lat, lon, heading) {
+  const radius = (obj.startFinish && obj.startFinish.radius) || 15;
+  obj.startFinish = {lat: round7(lat), lon: round7(lon), radius, heading};
+  const had = Array.isArray(obj.sectors) && obj.sectors.length > 0;
+  delete obj.sectors;
+  return had;
+}
+function flipLine(obj) {
+  if (!obj.startFinish || typeof obj.startFinish.heading !== "number") return false;
+  obj.startFinish.heading = Math.round(((obj.startFinish.heading + 180) % 360) * 10) / 10;
+  return true;
+}
+
+// Splits are numbered in the order a lap passes them: lapPts ({x, y}, from the line, in order).
+function sortSplits(obj, lapPts, refLat, refLon) {
+  if (!obj.splits || !lapPts.length) return;
+  const at = (s) => { const p = toLocal(s.lat, s.lon, refLat, refLon); return nearestIndex(lapPts, p.x, p.y); };
+  obj.splits.sort((a, b) => at(a) - at(b));
+}
+function addSplit(obj, lat, lon, heading, lapPts, refLat, refLon) {
+  if (!Array.isArray(obj.splits)) obj.splits = [];
+  obj.splits.push({lat: round7(lat), lon: round7(lon), radius: (obj.startFinish && obj.startFinish.radius) || 15, heading});
+  sortSplits(obj, lapPts, refLat, refLon);
+}
+function removeSplit(obj, i) {
+  if (!obj.splits || i < 0 || i >= obj.splits.length) return false;
+  obj.splits.splice(i, 1);
+  if (!obj.splits.length) delete obj.splits;
+  return true;
+}
+// A corner's name, shown instead of T1, T2... ("" puts the number back)
+function renameSector(obj, i, name) {
+  if (!obj.sectors || !obj.sectors[i]) return false;
+  const n = String(name).trim().slice(0, 24);
+  if (n) obj.sectors[i].name = n;
+  else delete obj.sectors[i].name;
+  return true;
+}
+
+// A new layout of the venue, with this track's line, splits and map to start from. A venue
+// with no layouts yet keeps what it had as a layout called "Main" (as tools/fetch_track_map.py
+// does). Returns the new track's id, or null if the name is empty or taken.
+function addLayout(db, id, name) {
+  const t = findTrack(db, id);
+  name = String(name).trim();
+  if (!t || !name) return null;
+  const v = t.venue;
+  const KEYS = ["startFinish", "splits", "sectors", "map", "pit"];
+  if (!v.layouts || !v.layouts.length) {
+    const main = {name: "Main"};
+    for (const k of KEYS) if (k in v) { main[k] = v[k]; delete v[k]; }
+    v.layouts = [main];
+  }
+  if (v.layouts.some((lo) => (lo.name || "").toLowerCase() === name.toLowerCase())) return null;
+  const src = t.obj === v ? v.layouts[0] : t.obj;
+  const lo = {name};
+  for (const k of ["startFinish", "splits", "map", "pit"]) if (k in src) lo[k] = JSON.parse(JSON.stringify(src[k]));
+  v.layouts.push(lo);
+  const added = trackList(db).filter((x) => x.venue === v);
+  return added[added.length - 1].id;
+}
+// ---- track editor (end) ----
+
+// ---- track editor: the screen part ----
+const ed = {db: null, log: null, trackId: "", mode: "", ref: null, pts: [], lapPts: [], dirty: false, file: ""};
+
+function edMsg(text, bad) {
+  $("edMsg").className = bad ? "err" : "note";
+  $("edMsg").textContent = text;
+}
+
+// The .vbo logs on the SD card, newest first, for the session picker
+async function edLoadLogs() {
+  let files;
+  try { files = (await (await fetch("/api/sessions")).json()).files; } catch (e) { return; }
+  const logs = files.filter((f) => f.fs === "sd" && f.name.endsWith(".vbo") && !/_freeroam(_\d+)?\.vbo$/.test(f.name))
+                    .sort((a, b) => b.name.localeCompare(a.name));
+  $("edLog").innerHTML = `<option value="">Pick a session…</option>` +
+    logs.map((f) => `<option value="${esc(f.name)}">${esc(f.name.replace(/\.vbo$/, ""))} (${size(f.size)})</option>`).join("");
+}
+
+$("edLog").addEventListener("change", async () => {
+  const name = $("edLog").value;
+  if (!name) return;
+  edMsg("Loading " + name + "…");
+  try {
+    const [log, db] = await Promise.all([
+      fetch("/dl?fs=sd&f=" + encodeURIComponent(name)).then((r) => r.text()),
+      ed.db ? Promise.resolve(ed.db) : fetch("/tracks.json").then((r) => r.json()),
+    ]);
+    ed.db = db;
+    ed.log = parseVbo(log);
+    ed.file = name;
+  } catch (e) {
+    edMsg("Couldn't read that session or tracks.json.", true);
+    return;
+  }
+  if (!ed.log.points.length) { edMsg("That log has no GPS fixes.", true); return; }
+  const tracks = trackList(ed.db);
+  const want = ed.log.comments["Track"] || "";
+  $("edTrack").innerHTML = tracks.map((t) => `<option value="${esc(t.id)}"${t.id === want ? " selected" : ""}>${esc(t.name)}</option>`).join("");
+  if (!tracks.some((t) => t.id === want)) $("edTrack").value = tracks.length ? tracks[0].id : "";
+  ed.trackId = $("edTrack").value;
+  $("edTools").hidden = false;
+  edSetUp();
+});
+$("edTrack").addEventListener("change", () => { ed.trackId = $("edTrack").value; edSetUp(); });
+
+// Metres from the start/finish (or the first fix), and one lap's points in order from the line
+function edSetUp() {
+  const t = findTrack(ed.db, ed.trackId);
+  const sf = t && t.obj.startFinish;
+  const p0 = ed.log.points[0];
+  ed.ref = sf && (sf.lat || sf.lon) ? {lat: sf.lat, lon: sf.lon} : {lat: p0.lat, lon: p0.lon};
+  ed.pts = ed.log.points.map((p) => Object.assign(toLocal(p.lat, p.lon, ed.ref.lat, ed.ref.lon), {lap: p.lap}));
+  const laps = ed.pts.filter((p) => p.lap > 0).map((p) => p.lap);
+  const first = laps.length ? Math.min(...laps) : 0;
+  ed.lapPts = first ? ed.pts.filter((p) => p.lap === first) : ed.pts;
+  edMode("");
+  edDraw();
+  edSectors();
+  edMsg(`${ed.log.points.length} fixes, ${new Set(laps).size} laps.`);
+}
+
+// The canvas: every lap in grey, the first in white, the lines on top
+let edView = null;
+function edDraw() {
+  const c = $("edMap"), g = c.getContext("2d");
+  const w = c.clientWidth, h = Math.round(w * 0.75);
+  c.width = w * devicePixelRatio;
+  c.height = h * devicePixelRatio;
+  c.style.height = h + "px";
+  g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  g.clearRect(0, 0, w, h);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of ed.pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  const pad = 20, s = Math.min((w - 2 * pad) / Math.max(maxX - minX, 1), (h - 2 * pad) / Math.max(maxY - minY, 1));
+  const cx = w / 2 - (minX + maxX) / 2 * s, cy = h / 2 + (minY + maxY) / 2 * s;
+  edView = {s, cx, cy};
+  const X = (x) => cx + x * s, Y = (y) => cy - y * s;
+  const path = (pts, colour, width) => {
+    g.strokeStyle = colour; g.lineWidth = width; g.beginPath();
+    pts.forEach((p, i) => (i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))));
+    g.stroke();
+  };
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  path(ed.pts, dark ? "#48484a" : "#c7c7cc", 1.5);
+  path(ed.lapPts, dark ? "#f5f5f7" : "#111113", 2);
+  const t = findTrack(ed.db, ed.trackId);
+  if (!t) return;
+  const gate = (pt, colour, label) => {
+    if (!pt) return;
+    const p = toLocal(pt.lat, pt.lon, ed.ref.lat, ed.ref.lon), r = (pt.radius || 15) * s;
+    const hd = typeof pt.heading === "number" ? pt.heading * DEG : null;
+    g.strokeStyle = colour; g.fillStyle = colour; g.lineWidth = 3;
+    if (hd !== null) {  // across the direction of travel, with an arrow that way
+      const ax = Math.cos(hd), ay = Math.sin(hd);  // screen: across = (cos, sin) of the heading
+      g.beginPath(); g.moveTo(X(p.x) - ax * r, Y(p.y) - ay * r); g.lineTo(X(p.x) + ax * r, Y(p.y) + ay * r); g.stroke();
+      const fx = Math.sin(hd), fy = -Math.cos(hd);
+      g.beginPath(); g.moveTo(X(p.x), Y(p.y)); g.lineTo(X(p.x) + fx * 18, Y(p.y) + fy * 18); g.stroke();
+    } else {
+      g.beginPath(); g.arc(X(p.x), Y(p.y), Math.max(r, 4), 0, 2 * Math.PI); g.stroke();
+    }
+    g.font = "600 12px Inter, sans-serif";
+    g.fillText(label, X(p.x) + 8, Y(p.y) - 8);
+  };
+  (t.obj.sectors || []).forEach((sc, i) => gate(sc, "#bf5af2", sc.name || "T" + (i + 1)));
+  (t.obj.splits || []).forEach((sp, i) => gate(sp, "#0a84ff", "S" + (i + 1)));
+  gate(t.obj.startFinish, "#30d158", "Start/finish");
+}
+
+// The corners, with a name each
+function edSectors() {
+  const t = findTrack(ed.db, ed.trackId);
+  const list = (t && t.obj.sectors) || [];
+  $("edCorners").innerHTML = list.length
+    ? list.map((sc, i) => `<div class="row"><span class="time">T${i + 1}</span><input data-corner="${i}" value="${esc(sc.name || "")}" placeholder="T${i + 1}" maxlength="24"></div>`).join("")
+    : `<p class="note">No corner sectors yet: Track Rat makes them after the first clean lap.</p>`;
+}
+$("edCorners").addEventListener("change", (e) => {
+  const t = findTrack(ed.db, ed.trackId);
+  if (t && e.target.dataset.corner !== undefined && renameSector(t.obj, +e.target.dataset.corner, e.target.value)) edChanged();
+});
+
+function edMode(m) {
+  ed.mode = ed.mode === m ? "" : m;
+  for (const b of document.querySelectorAll("#edTools [data-mode]")) b.classList.toggle("on", b.dataset.mode === ed.mode);
+  $("edHint").textContent = {line: "Tap the path where the start/finish should be.", add: "Tap the path where a split goes.",
+                              remove: "Tap a split to remove it."}[ed.mode] || "";
+}
+$("edTools").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  const t = findTrack(ed.db, ed.trackId);
+  if (b.dataset.mode) edMode(b.dataset.mode);
+  else if (b.id === "edFlip" && t) { if (flipLine(t.obj)) edChanged(); else edMsg("The line has no direction yet: move it onto the path first.", true); }
+  else if (b.id === "edLayout" && t) {
+    const id = addLayout(ed.db, ed.trackId, prompt("Name of the new layout (e.g. Short, Club):") || "");
+    if (!id) { edMsg("Give the layout a name no other layout of this venue has.", true); return; }
+    const sel = $("edTrack");
+    sel.innerHTML = trackList(ed.db).map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
+    sel.value = id;
+    ed.trackId = id;
+    edChanged();
+    edSetUp();
+  }
+});
+
+$("edMap").addEventListener("click", (e) => {
+  const t = findTrack(ed.db, ed.trackId);
+  if (!t || !ed.mode || !edView) return;
+  const r = $("edMap").getBoundingClientRect();
+  const x = (e.clientX - r.left - edView.cx) / edView.s, y = (edView.cy - (e.clientY - r.top)) / edView.s;
+  if (ed.mode === "remove") {
+    const splits = (t.obj.splits || []).map((sp) => toLocal(sp.lat, sp.lon, ed.ref.lat, ed.ref.lon));
+    const i = nearestIndex(splits, x, y);
+    if (i < 0 || Math.hypot(splits[i].x - x, splits[i].y - y) * edView.s > 30) { edMsg("Tap closer to a split.", true); return; }
+    removeSplit(t.obj, i);
+  } else {
+    const i = nearestIndex(ed.lapPts, x, y);
+    if (i < 0 || Math.hypot(ed.lapPts[i].x - x, ed.lapPts[i].y - y) * edView.s > 30) { edMsg("Tap on the path.", true); return; }
+    const p = fromLocal(ed.lapPts[i].x, ed.lapPts[i].y, ed.ref.lat, ed.ref.lon);
+    const heading = headingAt(ed.lapPts, i);
+    if (ed.mode === "line") {
+      if (setLine(t.obj, p.lat, p.lon, heading)) edMsg("The corner sectors go with the old line: Track Rat makes them again from the next clean lap.");
+      edMode("");
+    } else {
+      addSplit(t.obj, p.lat, p.lon, heading, ed.lapPts, ed.ref.lat, ed.ref.lon);
+    }
+  }
+  edChanged();
+});
+
+function edChanged() {
+  ed.dirty = true;
+  $("edSave").disabled = false;
+  edDraw();
+  edSectors();
+}
+
+// Saved the way an uploaded tracks.json is: behind the code, then Track Rat restarts to load it
+$("edSave").addEventListener("click", async () => {
+  if (!ed.db) return;
+  const code = askCode("Save these lines to Track Rat's track list? It restarts to load them. Re-time afterwards to apply them to saved sessions.");
+  if (code === null) return;
+  $("edSave").disabled = true;
+  const form = new FormData();
+  form.append("tracks", new Blob([JSON.stringify(ed.db, null, 2) + "\n"], {type: "application/json"}), "tracks.json");
+  const r = uploadResult(await post("/api/tracks?code=" + encodeURIComponent(code), form));
+  edMsg(r.ok ? r.text + " Turn Wi-Fi on again from its menu, then re-time." : r.text, !r.ok);
+  if (r.ok) ed.dirty = false;
+  else $("edSave").disabled = false;
+});
+
+// Re-timing: Track Rat times the session (or every session at the track) again from its log
+async function edRetime(all) {
+  if (!ed.trackId) return;
+  if (ed.dirty) { edMsg("Save the lines first: re-timing uses the ones Track Rat has.", true); return; }
+  const code = askCode(all ? "Re-time every session at this track with its lines now?" : "Re-time this session with the track's lines now?");
+  if (code === null) return;
+  const body = new URLSearchParams({track: ed.trackId, code});
+  if (!all) body.set("file", ed.file);
+  const r = uploadResult(await post("/api/retime", body));
+  if (!r.ok) { $("rtMsg").className = "err"; $("rtMsg").textContent = r.text; return; }
+  $("rtMsg").className = "note";
+  const poll = async () => {
+    let s;
+    try { s = await (await fetch("/api/retime")).json(); } catch (e) { setTimeout(poll, 2000); return; }
+    $("rtMsg").className = s.error ? "err" : "note";
+    $("rtMsg").textContent = s.message + (s.running && s.total ? ` (${s.done} of ${s.total})` : "");
+    if (s.running) setTimeout(poll, 1000);
+  };
+  poll();
+}
+$("rtOne").addEventListener("click", () => edRetime(false));
+$("rtAll").addEventListener("click", () => edRetime(true));
 
 // ---- firmware ----
 // ---- firmware check (begin: tested by test/test_web.js) ----
