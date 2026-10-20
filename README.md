@@ -207,7 +207,7 @@ When you park, the screen answers "where's the time?":
 
 - **Best lap, theoretical best and the gap** ("0.70 s on the table"). The theoretical best is the sum of your best time in each corner sector this session. Underneath: how many laps were used (clean laps timed through every sector; tagged laps are left out) and the theoretical best ever at this track (layout).
 - **The three sectors where your best lap lost the most** against your best in that sector, marked 1, 2, 3 on the map, each with the lap the best came from and one hint from comparing the two laps' GPS speed through it: **braked 8 m early**, **4 km/h slower at the apex** (the slowest point) or **3 km/h slower on exit**, whichever cost the most. The losses in every sector add up exactly to the gap.
-- **Tap** for the second page: every lap with its tag, every sector's best time with the lap it came from and what your best lap lost there, and this session against the last one here ("Best 1.04 s quicker than session 1"). Tap again for the timing screen; driving off goes back to it by itself.
+- **Tap** for the second page: every lap with its tag, every sector's best time with the lap it came from and what your best lap lost there, and this session against the last one here ("Best 1.04 s quicker than session 1"). Tap again for the timing screen; driving off goes back to it by itself. Tapping the **top bar** shows the SYNC flash for lining up a video ([Overlay videos](#overlay-videos)); so does the summary's top bar.
 
 The best sector times ever and of the day (for the sector strip), and the last session's best, are kept in `/tracks/<track id>/stats.json`, next to the [best laps](#session-logs). Sector times set through other gates (sectors made again after SET LINE) start afresh.
 
@@ -683,6 +683,44 @@ pio run -e es3c28p -t uploadfs
 
 Without it, the board shows a plain page with the session list, `tracks.json` and firmware upload. There is no Settings tab then; use the Settings screen on the board.
 
+## Overlay videos
+
+Track Rat's log drawn over your video: the track map with your dot, speed, lap, lap time and the delta to your best lap, the sectors (purple your best, green better than last lap, yellow slower), a g circle (the IMU's g if one is fitted, else from the GPS), and RPM, throttle and coolant when the log has engine data. `tools/overlay.py` makes it on your PC, free. Or use a tool you already have: the Wi-Fi page's **CSV** button (below), or RaceRender, which reads the `.vbo` itself.
+
+**Set-up, once:** Python 3 and
+
+```bash
+pip install -r tools/requirements-overlay.txt
+```
+
+That's Pillow and imageio-ffmpeg, which brings its own ffmpeg. Copy the session's `.vbo` and `.json` (same name) off the SD card, or download both from the Wi-Fi page, into one folder.
+
+**With an Osmo Action 4 paired to Track Rat** ([DJI Osmo Action](#dji-osmo-action-track-rat-as-its-gps-remote-untested-on-hardware)): the camera started recording when you drove off, and Track Rat noted the GPS time it did (`cameraStartUtc` in the summary). So:
+
+```bash
+python tools/overlay.py 20261020_140300_calabogie.vbo --burn DJI_20261020140301_0001_D.MP4 --sync camera
+```
+
+`--camera-start 1` for the second video of the session (the second time out of the pits), and so on.
+
+**With an iPhone (or any camera that knows the time):** the video's own creation time lines it up to about a second. Look at the result and correct it with `--nudge`, in seconds (+ moves the data later):
+
+```bash
+python tools/overlay.py 20261020_140300_calabogie.vbo --burn IMG_1234.MOV --sync creation --nudge -0.4 --units mph
+```
+
+**Any camera, exactly:** film Track Rat's screen for a moment while you tap the **top bar** of the summary or the debrief. It shows **SYNC** and the GPS time, white, for 3 seconds, and notes the time in the summary (`syncFlashesUtc`). Find the frame where SYNC first appears (any video player shows frame numbers, or step through in an editor) and give it:
+
+```bash
+python tools/overlay.py 20261020_140300_calabogie.vbo --burn GOPR0042.MP4 --sync-frame 412
+```
+
+`--sync-index 1` for the second flash. Or give the time of the first frame yourself: `--start 2026-10-20T14:03:12.3Z`.
+
+**Output:** `--burn VIDEO` writes the video with the overlay drawn on (`..._overlay.mp4`, the sound kept). Without it you get a transparent overlay to put on a track above the footage in an editor (DaVinci Resolve, Final Cut, CapCut): ProRes 4444 `.mov` (the default; large) or, with `-o name.webm`, VP9 with transparency (small, slower to make). Then `--video VIDEO` sets its length, size and frame rate from the footage, or `--duration SECONDS` and `--size 1920x1080`. 30 frames a second by default (`--fps`); burning uses the video's own rate. It prints how fast it's going and how long is left. Frames that show the same as the last aren't drawn again, so a parked car renders quickly.
+
+**CSV for other tools:** on the Wi-Fi page's **Sessions** tab, **CSV** next to a session with a log makes a `.csv` on the phone from its `.vbo`, for Telemetry Overlay, RaceRender and DashWare: `utc`, `lat`, `lon`, `speed_kmh`, `lap`, `lap_time_s`, `delta_s` (to the session's best lap at the same point on track), `g_lat`, `g_long`, `rpm`, `throttle_pct`, `coolant_c` (empty when not logged).
+
 ## Session logs
 
 Sessions are saved in `/sessions` on the SD card, as two files with the same name. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the summary also names the layout.
@@ -889,6 +927,14 @@ python test/test_fetch_tracks.py
 g++ -std=c++17 -Iinclude test/test_dji.cpp -o /tmp/dji && /tmp/dji
 ```
 
+`test/test_overlay.py` checks the overlay tool on a synthetic session (a 100 m circle: an out lap, a lap at 72 km/h, a slower one at 60, with engine data): reading the log (UTC from the file's date, degrees, laps, the best lap), what's shown at a moment (speed, lap time, the delta to the best lap at the same point on track, sector colours, engine values, nothing on the out lap or outside the log), each way of syncing (the camera's start and its second start, the SYNC flash's frame, an iPhone's creation date with its time zone, creation_time, a given start, a nudge), what ffmpeg says about a video, and rendered frames (the numbers and colours drawn, the car's dot on the map, see-through elsewhere, mph, no engine bars without engine data, repeated frames reused). It needs Pillow (`pip install -r tools/requirements-overlay.txt`), not ffmpeg:
+
+```bash
+python test/test_overlay.py
+```
+
+`test/test_web.js` also checks the CSV download: a row per fix, UTC across midnight, the values, lap times and deltas against the fastest or the summary's best lap.
+
 `test/test_racechrono.cpp` checks the RaceChrono profile's encodings: latitude and longitude, both altitude and speed forms and where they switch (2776.7 m, 327.67 km/h), bearing (never 360.00), HDOP, the time since the hour and the date-hour, the sync bits going up with the hour and wrapping in 3 bits, the invalid values without a fix, CAN packets (the little-endian ID, 1 to 16 bytes), the value packets' equations, and the filter commands (deny all, allow all at an interval, allow one ID at its own, bad lengths ignored):
 
 ```bash
@@ -1021,4 +1067,5 @@ include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)
 data/      tracks.json
 test/      host-side tests (check.h: shared by all of them)
+tools/     overlay.py (overlay videos; requirements-overlay.txt), render_screens.py, fetch_track_map.py...
 ```

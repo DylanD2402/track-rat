@@ -516,5 +516,48 @@ console.log("Wi-Fi page lap comparison tests");
   check(CMP.gapText(310) === "+0.31" && CMP.gapText(-1500) === "−1.50" && CMP.gapText(0) === "0.00", "gap text");
 }
 
+// ---- CSV for overlay tools (6.4) ----
+{
+  const near = (a, b, tol, msg) => check(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+  const xm = html.match(/\/\/ ---- csv \(begin[^\n]*\n([\s\S]*?)\/\/ ---- csv \(end\) ----/);
+  check(!!xm, "the page has the CSV section");
+  const {vboToCsv, CSV_COLUMNS} = new Function(xm[1] + "\nreturn {vboToCsv, CSV_COLUMNS};")();
+  // A 100 m circle: lap 1 at 20 m/s, lap 2 at 10 m/s, then a moment of lap 3; RPM and so on logged
+  const R = 100, C = 2 * Math.PI * R, rows = [];
+  let t = 23 * 3600 + 59 * 60 + 50, d = 0;  // starts 10 s before midnight
+  for (const [lap, len, v] of [[1, C, 20], [2, C, 10], [3, 5, 20]]) {
+    const end = d + len;
+    for (; d < end - 1e-9; d += v * 0.1, t += 0.1) {
+      const a = d / R;
+      const lat = 45 + R * Math.sin(a) / 6371000 * 180 / Math.PI;
+      const lon = -75 + R * (1 - Math.cos(a)) / (6371000 * Math.cos(45 * Math.PI / 180)) * 180 / Math.PI;
+      const sod = t % 86400, hh = Math.floor(sod / 3600), mm = Math.floor(sod / 60) % 60, ss = sod % 60;
+      const time = String(hh).padStart(2, "0") + String(mm).padStart(2, "0") + ss.toFixed(3).padStart(6, "0");
+      rows.push(`012 ${time} ${(lat * 60).toFixed(8)} ${(-lon * 60).toFixed(8)} ${(v * 3.6).toFixed(3)} 090.00 +00100.00 0.6 ${lap} +0.408 -0.100 0 06500 087.5 +093.0 +025.0`);
+    }
+  }
+  const vbo = ["File created on 31/12/2025 @ 23:59:50", "", "[column names]",
+    "sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag RPM Throttle CoolantTemp IntakeTemp", "", "[data]",
+    ...rows].join("\r\n");
+  const lines = vboToCsv(vbo, null).trim().split("\n");
+  check(lines[0] === CSV_COLUMNS.join(",") && lines.length === rows.length + 1, "a header and a row per fix: " + lines.length);
+  const col = (line, name) => line.split(",")[CSV_COLUMNS.indexOf(name)];
+  check(col(lines[1], "utc") === "2025-12-31T23:59:50.000Z", "UTC with the file's date: " + col(lines[1], "utc"));
+  check(lines.some((l) => col(l, "utc").startsWith("2026-01-01T00:00:0")), "past midnight: the next day");
+  check(Math.abs(+col(lines[1], "lat") - 45) < 1e-6 && Math.abs(+col(lines[1], "lon") + 75) < 1e-6, "degrees, west negative");
+  check(col(lines[1], "speed_kmh") === "72.00" && col(lines[1], "rpm") === "6500" && col(lines[1], "throttle_pct") === "87.5" &&
+        col(lines[1], "coolant_c") === "93.0" && col(lines[1], "g_lat") === "0.408" && col(lines[1], "g_long") === "-0.100", "values");
+  const lap2 = lines.filter((l) => col(l, "lap") === "2");
+  const mid = lap2[Math.floor(lap2.length / 2)];
+  near(+col(mid, "lap_time_s"), C / 2 / 10, 0.15, "lap time half way round lap 2");
+  near(+col(mid, "delta_s"), C / 2 / 10 - C / 2 / 20, 0.15, "lap 2 half way: behind lap 1");
+  near(+col(lines[10], "delta_s"), 0, 0.01, "lap 1 against itself");
+  const sum = vboToCsv(vbo, {bestLap: 2}).trim().split("\n");
+  near(+col(sum[10], "delta_s"), -0.9, 0.06, "against the summary's best lap (2) instead");
+  const noEngine = vboToCsv(vbo.replace(" RPM Throttle CoolantTemp IntakeTemp", "").split(" 06500 087.5 +093.0 +025.0").join(""), null);
+  check(col(noEngine.split("\n")[1], "rpm") === "" && col(noEngine.split("\n")[1], "coolant_c") === "", "no engine columns: empty");
+  check(col(lines[1], "lap_time_s") !== "" && vboToCsv("", null).trim() === CSV_COLUMNS.join(","), "an empty log: just the header");
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);

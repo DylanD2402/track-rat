@@ -18,6 +18,11 @@ jobs:
         with:
           node-version: '22'
 
+      # For test_overlay's Pillow (the runner's own Python refuses pip installs)
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
       # Same commands as the README's Tests section, one step per test.
       # GitHub runs each step with bash -e, so any failing test fails the job.
       - name: test_laptimer
@@ -75,7 +80,7 @@ jobs:
       - name: test_fetch_tracks
         run: python3 test/test_fetch_tracks.py
       - name: test_overlay
-        run: python3 -m pip install -r tools/requirements-overlay.txt && python3 test/test_overlay.py
+        run: python -m pip install -r tools/requirements-overlay.txt && python test/test_overlay.py
       - name: test_imu
         run: g++ -std=c++17 -Iinclude test/test_imu.cpp -o /tmp/imu && /tmp/imu
       - name: test_obd

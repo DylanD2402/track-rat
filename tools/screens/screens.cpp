@@ -558,6 +558,10 @@ int main(int argc, char** argv) {
   cam.tap(20, DeviceScreenState::BTN_Y + 5, 0);
   d.drawCamera(cam, camStatus, true, cams, 1, false, true);
   save(d, "37c_camera_pair_list");
+
+  // The SYNC flash (6.4), for lining a video up with the log
+  d.drawSync("14:03:12.3");
+  save(d, "38_sync_flash");
   d.drawSetup(0, 0, true);
   save(d, "40_setup_which_way_up");
   d.drawSetup(0, 1, false);

@@ -341,6 +341,8 @@ Why a hub: a Bluetooth adapter talks to one device at a time. If the phone takes
   3. Any camera: tap for a sync flash, and Track Rat's screen shows a big SYNC with the GPS time. Film it and mark that frame.
 - Python rendering is slow for long sessions. Render at 30 fps and redraw only what changes.
 
+**Status: done** (2026-10-20, queue/6.4). `tools/overlay.py` (Pillow, imageio-ffmpeg; pinned in `tools/requirements-overlay.txt`) draws the map and dot, speed, lap, lap time, delta to the best lap, sector colours, a g circle and the engine bars in Track Rat's style with the repo's Inter fonts; output ProRes 4444 `.mov`, VP9-alpha `.webm`, or `--burn` onto the video; frames that don't change aren't redrawn, and it reports its speed and time left. Sync by `cameraStartUtc` (6.2), the video's creation time, a SYNC flash frame (tap the top bar of the summary or debrief: the device shows SYNC and the GPS time for 3 s and notes it as `syncFlashesUtc`), or a given start, each with `--nudge`. The Wi-Fi page's CSV download is made on the phone from the `.vbo`. `test/test_overlay.py` (in CI) renders frames from a synthetic session and checks what they show and the sync maths. Tried end to end on a PC (ProRes, WebM and burn-in); not yet on real footage.
+
 **Order:** 6.1 first (one purchase, the biggest data win), then 6.2 (no purchase, the biggest video win), then 6.3, then 6.4. 6.1 to 6.3 can be built and host-tested now; they need your adapter, camera and phone to confirm.
 
 **Risks to test early**

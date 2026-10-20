@@ -361,6 +361,7 @@ async function loadSessions() {
         notes.push({id, s});
         html += `<div class="row"><span class="time">${esc(time)}</span>` +
                 s.files.map((x) => fileLink(x.f, x.label)).join("") +
+                (s.files.some((x) => x.label === "VBO") ? ` <button class="chip" data-csv="${s.files.findIndex((x) => x.label === "VBO")}" data-n="${notes.length - 1}">CSV</button>` : "") +
                 (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") +
                 ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>` +
                 `<div class="lognote" id="${id}">${s.noteFile ? `<span class="note">Loading note…</span>` : ""}</div></div>`;
@@ -374,6 +375,31 @@ async function loadSessions() {
   }
   box.innerHTML = html;
   loadNotes();
+}
+
+// The CSV for overlay tools: made here from the .vbo (and its summary for the best lap)
+async function downloadCsv(btn) {
+  const n = notes[+btn.dataset.n];
+  const f = n && n.s.files[+btn.dataset.csv] && n.s.files[+btn.dataset.csv].f;
+  if (!f) return;
+  const url = (name) => "/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(name);
+  btn.disabled = true;
+  btn.textContent = "Making CSV…";
+  try {
+    const text = await (await fetch(url(f.name))).text();
+    let summary = null;
+    try { summary = await (await fetch(url(f.name.replace(/\.vbo$/, ".json")))).json(); } catch (e) { /* no summary: fastest lap */ }
+    const blob = new Blob([vboToCsv(text, summary)], {type: "text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = f.name.replace(/\.vbo$/, ".csv");
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    btn.textContent = "CSV";
+  } catch (e) {
+    btn.textContent = "CSV failed";
+  }
+  btn.disabled = false;
 }
 
 // ---- the logbook: a note per session, saved next to it as <base>_note.json ----
@@ -401,6 +427,7 @@ async function loadNotes() {
 }
 
 $("sessionList").addEventListener("click", async (e) => {
+  if (e.target.dataset.csv !== undefined) return downloadCsv(e.target);
   const id = e.target.dataset.note, act = e.target.dataset.noteAct;
   if (id) {
     const n = noteOf(id);
@@ -639,6 +666,77 @@ function addLayout(db, id, name) {
   return added[added.length - 1].id;
 }
 // ---- track editor (end) ----
+
+// ---- csv (begin: tested by test/test_web.js) ----
+// A session's .vbo as CSV for Telemetry Overlay, RaceRender and DashWare: one row per fix with
+// plain column names. delta_s is against the session's best lap (summary.bestLap, else the
+// fastest finished one) at the same point on track; empty on the out lap.
+const CSV_COLUMNS = ["utc", "lat", "lon", "speed_kmh", "lap", "lap_time_s", "delta_s", "g_lat", "g_long", "rpm", "throttle_pct", "coolant_c"];
+function vboToCsv(text, summary) {
+  let section = "", cols = null, day0 = Date.UTC(2000, 0, 1), lastSod = null, days = 0;
+  const m = /File created on (\d\d)\/(\d\d)\/(\d{4})/.exec(text);
+  if (m) day0 = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+  const rows = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "").trim();
+    if (line.startsWith("[")) { section = line; continue; }
+    if (!line) continue;
+    if (section === "[column names]") cols = line.split(/\s+/);
+    else if (section === "[data]" && cols) {
+      const t = line.split(/\s+/);
+      if (t.length !== cols.length) continue;  // cut short by a power cut
+      const v = (name) => (cols.includes(name) ? +t[cols.indexOf(name)] : null);
+      const lat = v("lat") / 60, lon = -v("long") / 60;
+      if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0)) continue;
+      const tm = t[cols.indexOf("time")];
+      const sod = +tm.slice(0, 2) * 3600 + +tm.slice(2, 4) * 60 + +tm.slice(4);
+      if (lastSod !== null && sod < lastSod - 3600) days++;  // past midnight
+      lastSod = sod;
+      rows.push({ms: day0 + (days * 86400 + sod) * 1000, lat, lon, kmh: v("velocity"), lap: v("Lap") || 0,
+                 glat: v("LateralG"), glong: v("LongitudinalG"), rpm: v("RPM"), thr: v("Throttle"), cool: v("CoolantTemp")});
+    }
+  }
+  // Distance into each lap, when each began, how long the finished ones took
+  const start = new Map(), R = 6371000, D = Math.PI / 180;
+  let d = 0, prev = null;
+  rows.forEach((r, i) => {
+    if (i === 0 || r.lap !== rows[i - 1].lap) { d = 0; prev = null; if (!start.has(r.lap)) start.set(r.lap, r.ms); }
+    const x = (r.lon - rows[0].lon) * D * R * Math.cos(rows[0].lat * D), y = (r.lat - rows[0].lat) * D * R;
+    if (prev) d += Math.hypot(x - prev.x, y - prev.y);
+    prev = {x, y};
+    r.d = d;
+  });
+  const laps = [...start.keys()].sort((a, b) => a - b), took = new Map(), len = new Map();
+  laps.forEach((l, i) => { if (l > 0 && i + 1 < laps.length) took.set(l, start.get(laps[i + 1]) - start.get(l)); });
+  for (const r of rows) if (took.has(r.lap)) len.set(r.lap, r.d);
+  let best = summary && took.has(summary.bestLap) ? summary.bestLap : null;
+  if (best === null) for (const [l, t] of took) if (best === null || t < took.get(best)) best = l;
+  const ref = rows.filter((r) => r.lap === best).map((r) => ({d: r.d, t: (r.ms - start.get(best)) / 1000}));
+  const refAt = (dd) => {
+    if (!ref.length) return null;
+    if (dd <= ref[0].d) return ref[0].t;
+    if (dd >= ref[ref.length - 1].d) return ref[ref.length - 1].t;
+    let lo = 0, hi = ref.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ref[mid].d <= dd) lo = mid; else hi = mid; }
+    const a = ref[lo], b = ref[hi];
+    return a.t + (b.t - a.t) * (b.d > a.d ? (dd - a.d) / (b.d - a.d) : 0);
+  };
+  const refLen = ref.length ? ref[ref.length - 1].d : 0;
+  const num = (x, n) => (x === null || x === undefined || !isFinite(x) ? "" : x.toFixed(n));
+  const out = [CSV_COLUMNS.join(",")];
+  for (const r of rows) {
+    const lapTime = r.lap > 0 ? (r.ms - start.get(r.lap)) / 1000 : null;
+    let delta = null;
+    if (lapTime !== null && ref.length) {
+      const dd = len.has(r.lap) && len.get(r.lap) > 0 ? r.d * refLen / len.get(r.lap) : r.d;  // same point on track
+      delta = lapTime - refAt(dd);
+    }
+    out.push([new Date(r.ms).toISOString(), num(r.lat, 7), num(r.lon, 7), num(r.kmh, 2), r.lap, num(lapTime, 3), num(delta, 3),
+              num(r.glat, 3), num(r.glong, 3), num(r.rpm, 0), num(r.thr, 1), num(r.cool, 1)].join(","));
+  }
+  return out.join("\n") + "\n";
+}
+// ---- csv (end) ----
 
 // ---- lap compare (begin: tested by test/test_web.js) ----
 // Any two laps at a track, drawn by the phone from the sessions' .vbo logs (parseVbo above): speed
