@@ -6,6 +6,7 @@
 #include "AddOns.h"
 #include "Config.h"
 #include "DeltaLeds.h"
+#include "Obd.h"
 
 #if LED_BAR_ENABLED || BOARD_LED_ENABLED
 
@@ -81,6 +82,8 @@ struct Strip {
 DeltaLedPattern pattern;
 Strip bar, board;
 Rgb frame[LED_MAX_COUNT];
+bool rpmKnown = false;  // setRpm
+float rpmNow = 0;
 Rgb lastFrame[LED_MAX_COUNT];
 Rgb lastBoard = {0, 0, 0};
 uint32_t lastUpdate = 0, lastSent = 0;
@@ -127,6 +130,8 @@ void LedBar::update(bool timing, bool hasDelta, int32_t deltaMs) {
   pattern.render(now, frame, boardColour);
 
   int n = pattern.ledCount();
+  // Revving towards the shift point: the bar is a shift light (the board LED keeps the delta)
+  if (SHIFT_LIGHT_RPM > 0 && rpmKnown) obd::shiftLights(rpmNow, SHIFT_LIGHT_START_RPM, SHIFT_LIGHT_RPM, now, frame, n);
   bool changed = boardColour != lastBoard;
   for (int i = 0; i < n && !changed; i++) changed = frame[i] != lastFrame[i];
   if (!changed && now - lastSent < LED_REFRESH_MS) return;
@@ -145,6 +150,11 @@ void LedBar::update(bool timing, bool hasDelta, int32_t deltaMs) {
               scale(boardColour.b, BOARD_LED_BRIGHTNESS));
     board.show();
   }
+}
+
+void LedBar::setRpm(bool known, float rpm) {
+  rpmKnown = known;
+  rpmNow = rpm;
 }
 
 void LedBar::onBestLap(bool personalBest) {

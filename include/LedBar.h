@@ -24,6 +24,9 @@ void update(bool timing, bool hasDelta, int32_t deltaMs);
 void onBestLap(bool personalBest);  // flashes purple for a PB, green (blue) for another best lap
 void setBlueOrange(bool on);        // the Delta colours setting: blue / orange instead of green / red
 void onSplit();
+// The engine speed from OBD-II (CanObd.h), known = read within the last second: from
+// SHIFT_LIGHT_START_RPM the bar is a shift light instead of the delta (Obd.h).
+void setRpm(bool known, float rpm);
 
 }  // namespace LedBar
 
