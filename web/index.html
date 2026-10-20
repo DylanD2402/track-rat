@@ -562,8 +562,9 @@ function headingAt(pts, i) {
 // Moves the start/finish. The corner sectors were numbered from the old line, so they go:
 // the device makes them again from the next clean lap. Returns true if there were some.
 function setLine(obj, lat, lon, heading) {
-  const radius = (obj.startFinish && obj.startFinish.radius) || 15;
-  obj.startFinish = {lat: round7(lat), lon: round7(lon), radius, heading};
+  // No width yet: none is saved, so Track Rat uses its default (narrower on a kart track)
+  const radius = obj.startFinish && obj.startFinish.radius;
+  obj.startFinish = radius ? {lat: round7(lat), lon: round7(lon), radius, heading} : {lat: round7(lat), lon: round7(lon), heading};
   const had = Array.isArray(obj.sectors) && obj.sectors.length > 0;
   delete obj.sectors;
   return had;
@@ -571,10 +572,12 @@ function setLine(obj, lat, lon, heading) {
 // A point-to-point track ("type": "stage": autocross, hill climb): its start is the
 // startFinish, and runs end at "finish"
 const isStage = (t) => !!t && (t.obj.type === "stage" || t.venue.type === "stage");
+// A kart track ("kind": "kart"): lines with no width are 8 m either side, not 15
+const isKart = (t) => !!t && (t.obj.kind === "kart" || t.venue.kind === "kart");
 function setFinish(obj, lat, lon, heading) {
-  const radius = (obj.finish && obj.finish.radius) || 15;
+  const radius = (obj.finish && obj.finish.radius) || (obj.startFinish && obj.startFinish.radius);
   obj.type = "stage";
-  obj.finish = {lat: round7(lat), lon: round7(lon), radius, heading};
+  obj.finish = radius ? {lat: round7(lat), lon: round7(lon), radius, heading} : {lat: round7(lat), lon: round7(lon), heading};
 }
 
 function flipLine(obj) {
@@ -594,7 +597,8 @@ function sortSplits(obj, lapPts, refLat, refLon) {
 }
 function addSplit(obj, lat, lon, heading, lapPts, refLat, refLon) {
   if (!Array.isArray(obj.splits)) obj.splits = [];
-  obj.splits.push({lat: round7(lat), lon: round7(lon), radius: (obj.startFinish && obj.startFinish.radius) || 15, heading});
+  const radius = obj.startFinish && obj.startFinish.radius;  // as wide as the line
+  obj.splits.push(radius ? {lat: round7(lat), lon: round7(lon), radius, heading} : {lat: round7(lat), lon: round7(lon), heading});
   sortSplits(obj, lapPts, refLat, refLon);
 }
 function removeSplit(obj, i) {
@@ -822,7 +826,7 @@ function edDraw() {
   if (!t) return;
   const gate = (pt, colour, label) => {
     if (!pt) return;
-    const p = toLocal(pt.lat, pt.lon, ed.ref.lat, ed.ref.lon), r = (pt.radius || 15) * s;
+    const p = toLocal(pt.lat, pt.lon, ed.ref.lat, ed.ref.lon), r = (pt.radius || (isKart(t) ? 8 : 15)) * s;
     const hd = typeof pt.heading === "number" ? pt.heading * DEG : null;
     g.strokeStyle = colour; g.fillStyle = colour; g.lineWidth = 3;
     if (hd !== null) {  // across the direction of travel, with an arrow that way
@@ -1205,6 +1209,10 @@ const SETTINGS = [
    shown: (s) => s.bluetoothBuilt},
   {name: "recordRoadDrives", label: "Record road drives", options: [[true, "On"], [false, "Off"]],
    note: "Off: Free Roam drives are shown on the screen but not saved."},
+  {name: "minLap", label: "Min lap time", options: [["auto", "Auto"], ["10", "10 s"], ["15", "15 s"], ["30", "30 s"]],
+   note: "Line crossings sooner than this after the last are ignored. Auto: 20 s, 10 s at kart tracks. Used from the next session."},
+  {name: "kartEverywhere", label: "Kart everywhere", options: [[false, "Off"], [true, "On"]],
+   note: "On: every track is timed as a kart track (8 m lines where tracks.json gives no width, and the kart minimum lap). Off: only tracks marked as kart tracks. Used from the next restart."},
 ];
 
 function tzText(min) {
@@ -1267,7 +1275,7 @@ async function changeSetting(name, value) {
   renderSettings();
   msg.className = "note";
   msg.innerHTML = settingsNow.restartNeeded
-    ? `Saved. The GPS mode is used from the next restart. <button class="btn plain" id="settingsRestart">Restart now</button>`
+    ? `Saved. That change is used from the next restart. <button class="btn plain" id="settingsRestart">Restart now</button>`
     : "Saved.";
   if (settingsNow.restartNeeded) $("settingsRestart").addEventListener("click", restart);
 }

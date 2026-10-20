@@ -7,6 +7,7 @@
 #include "Config.h"
 #include "JsonFile.h"
 #include "JsonText.h"
+#include "Settings.h"
 #include "Storage.h"
 #include <LittleFS.h>
 #include <SD_MMC.h>
@@ -52,10 +53,11 @@ void TrackDatabase::begin() {
   loadBuiltIn();
 }
 
-static void readPoint(JsonObject j, TrackPoint& p) {
+// defaultRadius: for a line with no "radius" (narrower on a kart track)
+static void readPoint(JsonObject j, TrackPoint& p, float defaultRadius = DEFAULT_GATE_HALF_WIDTH_M) {
   p.lat = j["lat"] | 0.0;
   p.lon = j["lon"] | 0.0;
-  p.radius = j["radius"] | DEFAULT_GATE_HALF_WIDTH_M;
+  p.radius = j["radius"] | defaultRadius;
   p.heading = 0;
   p.headingFrom = HeadingFrom::None;
   if (j["heading"].is<float>()) {  // any number; a string or other junk means no direction
@@ -66,11 +68,13 @@ static void readPoint(JsonObject j, TrackPoint& p) {
 
 // Start/finish, splits and map of one layout, or of a venue without layouts.
 static void readLayout(JsonObject src, Track& track) {
-  readPoint(src["startFinish"], track.startFinish);
+  if (strcmp(src["kind"] | "", "kart") == 0) track.kart = true;  // (or the venue's "kind", or the setting)
+  const float gate = settings::defaultGateM(track.kart);
+  readPoint(src["startFinish"], track.startFinish, gate);
   track.hasStartFinish = track.startFinish.lat != 0.0 || track.startFinish.lon != 0.0;
   if (strcmp(src["type"] | "", "stage") == 0) track.stage = true;  // (or the venue's "type")
   if (track.stage) {
-    readPoint(src["finish"], track.finish);
+    readPoint(src["finish"], track.finish, gate);
     track.hasFinish = track.finish.lat != 0.0 || track.finish.lon != 0.0;
   }
   track.hasMap = src["map"].as<JsonArray>().size() > 0;
@@ -87,12 +91,12 @@ static void readLayout(JsonObject src, Track& track) {
   }
   for (JsonObject s : src["splits"].as<JsonArray>()) {
     TrackPoint p;
-    readPoint(s, p);
+    readPoint(s, p, gate);
     track.splits.push_back(p);
   }
   for (JsonObject s : src["sectors"].as<JsonArray>()) {
     TrackPoint p;
-    readPoint(s, p);
+    readPoint(s, p, gate);
     track.sectors.push_back(p);
   }
 
@@ -136,6 +140,8 @@ static void readEntry(JsonObject t, std::vector<Track>& out) {
   venue.centerLon = t["center"]["lon"] | 0.0;
 
   venue.stage = strcmp(t["type"] | "", "stage") == 0;  // every layout of a stage venue is a stage
+  // A kart track ("kind": "kart", from OSM's karting tag), or every track with Kart everywhere on
+  venue.kart = strcmp(t["kind"] | "", "kart") == 0 || Settings::get().kartEverywhere;
   JsonArray layouts = t["layouts"];
   if (layouts.size() == 0) {
     readLayout(t, venue);
@@ -420,6 +426,7 @@ static void writeTrack(JsonObject o, const Track& t) {
   o["center"]["lon"] = serialized(String(t.centerLon, 7));
   if (t.hasStartFinish && t.layoutIndex < 0) writePoint(o.createNestedObject("startFinish"), t.startFinish);
   if (t.stage) o["type"] = "stage";
+  if (t.kart && !Settings::get().kartEverywhere) o["kind"] = "kart";
   if (t.stage && t.hasFinish && t.layoutIndex < 0) writePoint(o.createNestedObject("finish"), t.finish);
 }
 
@@ -493,6 +500,7 @@ int TrackDatabase::createTrack(double lat, double lon) {
   t.id = String("my-track-") + n;
   t.venueId = t.id;
   t.name = String("My Track ") + n;
+  t.kart = Settings::get().kartEverywhere;
   t.location = "Created on the timer";
   t.centerLat = lat;
   t.centerLon = lon;
@@ -526,7 +534,8 @@ int TrackDatabase::createCourse(double lat, double lon, const String& stamp) {
   t.name = name;
   t.location = "Created on the timer";
   t.stage = true;
-  t.startFinish = {lat, lon, (float)DEFAULT_GATE_HALF_WIDTH_M};  // no direction: standing starts only
+  t.kart = Settings::get().kartEverywhere;
+  t.startFinish = {lat, lon, settings::defaultGateM(t.kart)};  // no direction: standing starts only
   t.hasStartFinish = true;
   t.centerLat = lat;
   t.centerLon = lon;
@@ -545,7 +554,7 @@ bool TrackDatabase::setFinish(int index, double lat, double lon, float headingDe
   if (index < 0 || index >= (int)tracks.size()) return false;
   Track& t = tracks[index];
   if (!t.stage) return false;
-  t.finish = {lat, lon, t.finish.radius > 0 ? t.finish.radius : (float)DEFAULT_GATE_HALF_WIDTH_M};
+  t.finish = {lat, lon, t.finish.radius > 0 ? t.finish.radius : settings::defaultGateM(t.kart)};
   if (headingDeg >= 0) {
     t.finish.heading = headingDeg;
     t.finish.headingFrom = HeadingFrom::Set;
@@ -565,7 +574,7 @@ bool TrackDatabase::setStartFinish(int index, double lat, double lon, float head
   if (index < 0 || index >= (int)tracks.size()) return false;
   Track& t = tracks[index];
   const double oldRefLat = t.refLat(), oldRefLon = t.refLon();
-  t.startFinish = {lat, lon, t.startFinish.radius > 0 ? t.startFinish.radius : (float)DEFAULT_GATE_HALF_WIDTH_M};
+  t.startFinish = {lat, lon, t.startFinish.radius > 0 ? t.startFinish.radius : settings::defaultGateM(t.kart)};
   if (headingDeg >= 0) {
     t.startFinish.heading = headingDeg;
     t.startFinish.headingFrom = HeadingFrom::Set;

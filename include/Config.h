@@ -127,7 +127,10 @@
 #define AUTO_START_KMH 20.0              // at boot a parked car waits on the Ready screen; this speed starts the session
 #define AUTO_START_HOLD_MS 2000          // ...once it has stayed that fast this long (GPS time)
 #define DEFAULT_GATE_HALF_WIDTH_M 15.0   // used when a track has no "radius"
-#define MIN_LAP_TIME_MS 20000            // S/F crossings sooner than this are ignored
+#define MIN_LAP_TIME_MS 20000            // S/F crossings sooner than this are ignored (the Min lap time setting can change it)
+// Karting: a track with "kind": "kart" in tracks.json, or every track with the Kart everywhere setting
+#define KART_GATE_HALF_WIDTH_M 8.0       // lines without a "radius" on a kart track
+#define KART_MIN_LAP_MS 10000            // the shortest kart lap (Min lap time on Auto)
 #define MAX_LAP_TIME_MS 900000           // longer laps (pit stops) aren't recorded
 #define MIN_CROSSING_SPEED_KMH 5.0       // ignore jitter while parked on the line
 #define MAX_FIX_GAP_MS 2000              // don't interpolate across GPS dropouts

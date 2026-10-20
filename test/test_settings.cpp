@@ -55,6 +55,8 @@ static SettingsData randomSettings() {
   d.bluetooth = testRand() & 1;
   d.utcOffsetMin = (int16_t)(15 * (testRand() % 105 - 48));  // -720..840 in quarter hours
   d.recordRoadDrives = testRand() & 1;
+  d.kartEverywhere = testRand() & 1;
+  d.minLap = (uint8_t)(testRand() % settings::MIN_LAP_CHOICES);
   return d;
 }
 
@@ -227,7 +229,7 @@ static void testAdjust() {
 
   // two-value items flip either way, with or without wrap
   for (SettingItem it : {SettingItem::Units, SettingItem::Upside, SettingItem::Colours, SettingItem::Gps, SettingItem::Bluetooth,
-                         SettingItem::RoadDrives}) {
+                         SettingItem::RoadDrives, SettingItem::Kart}) {
     for (int dir : {-1, 1}) {
       for (bool wrap : {false, true}) {
         SettingsData d = base;
@@ -467,12 +469,15 @@ static void testJson() {
   d.bluetooth = false;
   d.utcOffsetMin = -330;
   d.recordRoadDrives = false;
+  d.minLap = 2;
+  d.kartEverywhere = true;
 
   char buf[400];
   size_t len = toJson(d, buf, sizeof(buf));
   std::string want = std::string("{\"units\":\"mph\",\"upsideDown\":true,\"brightness\":70,\"compareTo\":\"ever\",") +
                      "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"sessionMin\":\"25\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
-                     "\"recordRoadDrives\":false,\"bluetoothBuilt\":" + (BLE_ENABLED ? "true" : "false") + "}";
+                     "\"recordRoadDrives\":false,\"minLap\":\"15\",\"kartEverywhere\":true,\"bluetoothBuilt\":" +
+                     (BLE_ENABLED ? "true" : "false") + "}";
   EXPECT(len == strlen(buf) && len > 0, "length %zu vs strlen %zu", len, strlen(buf));
   EXPECT(want == buf, "json:\n  got  %s\n  want %s", buf, want.c_str());
 
@@ -484,9 +489,9 @@ static void testJson() {
     size_t n = toJson(r, buf, sizeof(buf));
     std::string j(buf);
     bool ok = n == j.size() && j.front() == '{' && j.back() == '}' && std::count(j.begin(), j.end(), '"') % 2 == 0 &&
-              std::count(j.begin(), j.end(), ',') == 11;
+              std::count(j.begin(), j.end(), ',') == 13;
     for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "deltaColours", "sessionMin", "gpsMode", "bluetooth", "tzMin",
-                            "recordRoadDrives", "bluetoothBuilt"})
+                            "recordRoadDrives", "minLap", "kartEverywhere", "bluetoothBuilt"})
       ok = ok && j.find(std::string("\"") + key + "\":") != std::string::npos;
     formed = formed && ok;
   }
@@ -598,7 +603,27 @@ static void testSetField() {
     if (start != target) printf("    round trip failed for %s\n", json);
   }
   EXPECT(restored, "toJson then setField must restore the settings");
-  EXPECT(sent == 11 && refused == 1, "11 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
+  EXPECT(sent == 13 && refused == 1, "13 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
+
+  // Karting: Min lap time and Kart everywhere
+  {
+    SettingsData k = defaults();
+    EXPECT(minLapMs(k, false) == MIN_LAP_TIME_MS && minLapMs(k, true) == KART_MIN_LAP_MS, "auto min lap: cars and karts");
+    EXPECT(!kart(k, false) && kart(k, true), "kart from the track list");
+    EXPECT(defaultGateM(true) == (float)KART_GATE_HALF_WIDTH_M && defaultGateM(false) == (float)DEFAULT_GATE_HALF_WIDTH_M,
+           "kart lines are narrower");
+    EXPECT(setField(k, "minLap", "30") && minLapMs(k, false) == 30000 && minLapMs(k, true) == 30000, "min lap 30 s for both");
+    EXPECT(setField(k, "minLap", "10") && minLapMs(k, false) == 10000, "min lap 10 s");
+    EXPECT(!setField(k, "minLap", "20") && !setField(k, "minLap", "0") && minLapMs(k, false) == 10000, "only the choices");
+    EXPECT(setField(k, "minLap", "auto") && k.minLap == 0, "back to auto");
+    EXPECT(setField(k, "kartEverywhere", "true") && kart(k, false), "kart everywhere");
+    k.minLap = 99;
+    sanitize(k);
+    EXPECT(k.minLap == 0, "a corrupt min lap is auto");
+    EXPECT(text(k, SettingItem::MinLap) == "Auto", "Auto text");
+    k.minLap = 3;
+    EXPECT(text(k, SettingItem::MinLap) == "30 s", "30 s text: %s", text(k, SettingItem::MinLap).c_str());
+  }
   printf("  toJson, setField (valid, refused, unchanged on failure), round trip\n");
 }
 
@@ -610,7 +635,7 @@ static void testNeedsRestartAndGps() {
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) {
       SettingsData b = a;
       adjust(b, itemAt(i), +1, true);
-      EXPECT(needsRestart(a, b) == (itemAt(i) == SettingItem::Gps), "item %d: needsRestart %d", i, needsRestart(a, b));
+      EXPECT(needsRestart(a, b) == (itemAt(i) == SettingItem::Gps || itemAt(i) == SettingItem::Kart), "item %d: needsRestart %d", i, needsRestart(a, b));
     }
     EXPECT(!needsRestart(a, a), "same settings never need a restart");
   }
@@ -628,7 +653,7 @@ static void testNeedsRestartAndGps() {
          s.galileo, s.glonass, s.beidou);
   for (GpsSystems g : {f, s}) EXPECT(g.rateHz > 0 && 1000 % g.rateHz == 0, "1000 ms / %d Hz does not divide evenly", g.rateHz);
   EXPECT(1000 / f.rateHz == 50 && 1000 / s.rateHz == 100, "measurement periods %d and %d ms", 1000 / f.rateHz, 1000 / s.rateHz);
-  printf("  needsRestart only for the GPS mode, GPS systems and rates\n");
+  printf("  needsRestart only for the GPS mode and Kart everywhere, GPS systems and rates\n");
 }
 
 static void testConversions() {
@@ -1184,7 +1209,7 @@ static void testSettingsBoot() {
     }
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
-    EXPECT(pages == 8, "visited 8 pages (6 choices, brightness, time zone), got %d", pages);
+    EXPECT(pages == 9, "visited 9 pages (7 choices, brightness, time zone), got %d", pages);
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
     EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");

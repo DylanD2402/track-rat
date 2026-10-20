@@ -38,6 +38,8 @@ void begin() {
     d.bluetooth = prefs.getBool("bt", d.bluetooth);
     d.utcOffsetMin = prefs.getShort("tz_min", d.utcOffsetMin);
     d.recordRoadDrives = prefs.getBool("road", d.recordRoadDrives);
+    d.kartEverywhere = prefs.getBool("kart", d.kartEverywhere);
+    d.minLap = prefs.getUChar("minlap", d.minLap);
   } else {
     DEBUG_PRINTLN("Settings: flash storage unavailable - using defaults, changes won't be kept");
   }
@@ -87,6 +89,8 @@ void set(const SettingsData& s) {
       if (n.bluetooth != o.bluetooth) prefs.putBool("bt", n.bluetooth);
       if (n.utcOffsetMin != o.utcOffsetMin) prefs.putShort("tz_min", n.utcOffsetMin);
       if (n.recordRoadDrives != o.recordRoadDrives) prefs.putBool("road", n.recordRoadDrives);
+      if (n.kartEverywhere != o.kartEverywhere) prefs.putBool("kart", n.kartEverywhere);
+      if (n.minLap != o.minLap) prefs.putUChar("minlap", n.minLap);
     }
   }
   if (writeLock) xSemaphoreGive(writeLock);

@@ -61,6 +61,9 @@ struct Track {
   // tagged by tools/fetch_track_map.py). In the pit lane the slow screen shows.
   std::vector<uint16_t> pitLines;
   bool bench = false;  // the built-in bench-test track: driven by the simulated car
+  // A kart track ("kind": "kart", or every track with the Kart everywhere setting):
+  // lines with no "radius" are KART_GATE_HALF_WIDTH_M either side, and laps can be shorter
+  bool kart = false;
   // Point to point ("type": "stage"): startFinish is the start, and runs end at the finish
   bool stage = false;
   bool hasFinish = false;

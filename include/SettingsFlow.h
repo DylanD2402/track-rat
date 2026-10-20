@@ -39,7 +39,7 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 12, SECTIONS = 5;
+  static constexpr int ROWS = 14, SECTIONS = 5;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
@@ -78,7 +78,8 @@ struct SettingsScreenState {
         {SettingItem::Units, RowKind::Choice},      {SettingItem::Upside, RowKind::Toggle},
         {SettingItem::Brightness, RowKind::Level},  {SettingItem::Big, RowKind::Choice},
         {SettingItem::Compare, RowKind::Choice},    {SettingItem::Colours, RowKind::Choice},
-        {SettingItem::SessionLen, RowKind::Choice}, {SettingItem::Gps, RowKind::Choice},
+        {SettingItem::SessionLen, RowKind::Choice}, {SettingItem::MinLap, RowKind::Choice},
+        {SettingItem::Kart, RowKind::Toggle},       {SettingItem::Gps, RowKind::Choice},
         {SettingItem::Bluetooth, RowKind::Toggle},  {SettingItem::RoadDrives, RowKind::Toggle},
         {SettingItem::TimeZone, RowKind::Level},    {SettingItem::Count, RowKind::Back},
     };
@@ -87,10 +88,10 @@ struct SettingsScreenState {
   static const Section& section(int i) {
     static const Section sections[SECTIONS] = {
         {"DISPLAY", 0, 3, nullptr},
-        {"TIMING", 3, 4, nullptr},
-        {"GPS & BLUETOOTH", 7, 2, "GPS mode is used from the next restart"},
-        {"RECORDING", 9, 2, nullptr},
-        {nullptr, 11, 1, nullptr},
+        {"TIMING", 3, 6, nullptr},
+        {"GPS & BLUETOOTH", 9, 2, "GPS mode is used from the next restart"},
+        {"RECORDING", 11, 2, nullptr},
+        {nullptr, 13, 1, nullptr},
     };
     return sections[i];
   }
@@ -118,6 +119,8 @@ struct SettingsScreenState {
       case SettingItem::Bluetooth: return "Bluetooth";
       case SettingItem::TimeZone: return "Time zone";
       case SettingItem::RoadDrives: return "Record road drives";
+      case SettingItem::MinLap: return "Min lap time";
+      case SettingItem::Kart: return "Kart everywhere";
       default: return "Back to menu";
     }
   }
@@ -127,6 +130,7 @@ struct SettingsScreenState {
       case SettingItem::Upside: return settings::upsideDown(d);
       case SettingItem::Bluetooth: return d.bluetooth;
       case SettingItem::RoadDrives: return d.recordRoadDrives;
+      case SettingItem::Kart: return d.kartEverywhere;
       default: return false;
     }
   }
@@ -179,6 +183,7 @@ struct SettingsScreenState {
       case SettingItem::Colours: return 2;
       case SettingItem::SessionLen: return 4;
       case SettingItem::Gps: return 2;
+      case SettingItem::MinLap: return settings::MIN_LAP_CHOICES;
       default: return 0;
     }
   }
@@ -190,6 +195,7 @@ struct SettingsScreenState {
       case SettingItem::Colours: return (int)d.deltaColours;
       case SettingItem::SessionLen: return d.sessionLength;
       case SettingItem::Gps: return (int)d.gpsMode;
+      case SettingItem::MinLap: return d.minLap;
       default: return 0;
     }
   }
@@ -202,6 +208,7 @@ struct SettingsScreenState {
       case SettingItem::Colours: d.deltaColours = (DeltaColours)i; break;
       case SettingItem::SessionLen: d.sessionLength = (uint8_t)i; break;
       case SettingItem::Gps: d.gpsMode = (GpsMode)i; break;
+      case SettingItem::MinLap: d.minLap = (uint8_t)i; break;
       default: break;
     }
   }
