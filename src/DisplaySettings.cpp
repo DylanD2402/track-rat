@@ -292,7 +292,7 @@ void DisplayManager::drawEngineData(const EngineScreenState& ui, const ObdBle::S
       const int rw = text(buf, ES::CARD_X + ES::CARD_W - 14, cy, Font::Caption, C_TEXT2, MR_DATUM);
       text(fit(found[i].name, Font::Body, ES::CARD_W - 40 - rw), ES::CARD_X + 14, cy, Font::Body, C_TEXT, ML_DATUM);
     }
-    header("‹  Engine data", nullptr);
+    header("‹  Back", nullptr);
     text("Find adapter", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
     if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
   }

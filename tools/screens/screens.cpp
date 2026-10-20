@@ -17,6 +17,8 @@
 #undef private
 #include "Power.h"
 #include "RaceBoxBle.h"
+#include "EngineData.h"
+#include "ObdBle.h"
 #include "Settings.h"
 #include "Storage.h"
 #include "Sectors.h"
@@ -33,6 +35,11 @@ bool GPSHandler::receivingData() const { return simulating || lastSentenceMillis
 bool DisplayManager::splashRunning() const { return false; }
 const char* Storage::sessionFSName() { return "SD"; }
 bool RaceBoxBle::connected() { return btConnected; }
+static ObdBle::Status obdStatus;
+static obd::Values obdValues;
+bool ObdBle::connected() { return obdStatus.connected; }
+ObdBle::Status ObdBle::status() { return obdStatus; }
+bool EngineData::coolantHot(uint32_t) { return obdValues.coolantC >= COOLANT_WARN_C; }
 void Power::backlight(bool) {}
 static SettingsData mockSettings = [] {
   SettingsData s = settings::defaults();
@@ -494,13 +501,36 @@ int main(int argc, char** argv) {
   save(d, "33_settings_brightness");
   SettingsScreenState zone;
   zone.begin(true);
-  zone.tap(100, zone.rowScreenY(8) + 10, scratch);  // scrolled out of view: nothing opens
+  const int zoneRow = SettingsScreenState::rowOfItem(SettingItem::TimeZone);
+  zone.tap(100, zone.rowScreenY(zoneRow) + 10, scratch);  // scrolled out of view: nothing opens
   zone.setScroll(1000);
-  zone.tap(100, zone.rowScreenY(8) + 10, scratch);
+  zone.tap(100, zone.rowScreenY(zoneRow) + 10, scratch);
   d.drawSettings(sd, zone, true, localNow);
   save(d, "34_settings_time_zone");
   d.drawSettings(sd, zone, false, localNow);
   save(d, "35_settings_time_zone_boot_only");
+
+  // Settings > Engine data (6.1): nothing chosen, connected and reading, and the Find adapter list
+  EngineScreenState eng;
+  eng.begin(true);
+  d.drawEngineData(eng, obdStatus, nullptr, 0, false, true);
+  save(d, "36_engine_data_none");
+  obdStatus.configured = obdStatus.connected = true;
+  snprintf(obdStatus.name, sizeof(obdStatus.name), "VEEPEAK");
+  snprintf(obdStatus.address, sizeof(obdStatus.address), "c4:be:84:12:34:56");
+  snprintf(obdStatus.protocol, sizeof(obdStatus.protocol), "AUTO, ISO 15765-4 (CAN 11/500)");
+  obdStatus.phase = elm::Client::Phase::Running;
+  obdStatus.suffix = obdStatus.multi = true;
+  obdStatus.stats.requestHz = 21.4f;
+  obdStatus.stats.rpmHz = obdStatus.stats.throttleHz = 19.3f;
+  obdStatus.stats.coolantHz = obdStatus.stats.intakeHz = 1.0f;
+  d.drawEngineData(eng, obdStatus, nullptr, 0, false, true);
+  save(d, "36b_engine_data_reading");
+  ObdBle::Found found[3] = {{"VEEPEAK", "c4:be:84:12:34:56", 0, -58}, {"OBDII", "00:1d:a5:68:98:8b", 0, -77}, {"IOS-Vlink", "d0:39:72:aa:bb:cc", 1, -85}};
+  eng.handle(Key::BootShort, 3);
+  eng.tap(20, EngineScreenState::BTN_Y + 5, 0);
+  d.drawEngineData(eng, obdStatus, found, 3, false, false);
+  save(d, "36c_engine_data_find");
   d.drawSetup(0, 0, true);
   save(d, "40_setup_which_way_up");
   d.drawSetup(0, 1, false);
