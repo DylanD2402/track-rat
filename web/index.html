@@ -48,6 +48,7 @@ h3 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 6px;
 .time { min-width: 64px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .chip { display: inline-block; padding: 6px 12px; border-radius: 999px; background: var(--chip);
         color: var(--text); text-decoration: none; font-size: 14px; font-weight: 500; }
+button.chip { border: 0; font-family: inherit; cursor: pointer; }
 .chip small { color: var(--dim); font-weight: 400; font-variant-numeric: tabular-nums; }
 .btn { display: inline-block; border: 0; border-radius: 12px; padding: 12px 20px; min-height: 44px; font: inherit;
        font-weight: 600; background: var(--accent); color: var(--accent-text); text-decoration: none; }
@@ -56,6 +57,9 @@ h3 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 6px;
 .note { color: var(--dim); font-size: 14px; }
 .err { color: var(--bad); }
 .tag { font-size: 12px; color: var(--dim); }
+.lognote { flex: 1 1 100%; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.lognote textarea { width: 100%; box-sizing: border-box; min-height: 90px; font: inherit; font-size: 15px; padding: 8px 10px;
+                    border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
 code { font-size: 13px; padding: 1px 5px; border-radius: 5px; background: var(--chip); }
 progress { width: 100%; height: 8px; border: 0; border-radius: 4px; overflow: hidden; accent-color: var(--good); }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -249,6 +253,7 @@ post("/api/time", new URLSearchParams({tz: String(-new Date().getTimezoneOffset(
 // device's local time: tzMin minutes east of UTC (0 = UTC, before any phone set it).
 // or SIM_12_bench.vbo for simulated sessions.
 // Files from the same session (.json, .vbo, _perf.json, .json.bak...) are shown together.
+// Its logbook note, <base>_note.json, is kept apart (s.noteFile) to show as text.
 const NAME_RE = /^(\d{8})_(\d{6})_(.+?)(?:\.(json|vbo)(?:\.(.+))?)?$/;
 const SIM_NAME_RE = /^SIM_(\d+)_(.+?)(?:\.(json|vbo)(?:\.(.+))?)?$/;
 
@@ -267,11 +272,13 @@ function parseFile(f, tzMin = 0) {
     const [, sequence, simRest0, simExt, simSuffix] = sim;
     let rest = simRest0;
     let label = (simExt ? simExt + (simSuffix ? "." + simSuffix : "") : "file").toUpperCase();
+    if (simExt === "json" && !simSuffix && /_note$/.test(rest)) { rest = rest.slice(0, -5); label = "NOTE"; }
+    const base = "SIM_" + sequence + "_" + rest;
     const extra = rest.match(/_(perf)$/i);
-    if (extra) { rest = rest.slice(0, -extra[0].length); label = "PERF " + label; }
+    if (extra) { rest = rest.slice(0, -extra[0].length); if (label !== "NOTE") label = "PERF " + label; }
     const track = rest.replace(/_\d+$/, "") || rest;
     if (!track || track.startsWith(".")) return null;
-    return {when: new Date(+sequence), track, label, key: f.fs + ":SIM" + sequence + rest};
+    return {when: new Date(+sequence), track, label, base, key: f.fs + ":SIM" + sequence + rest};
   }
   if (!m) return null;
   const [, d, t, rest0, ext, suffix] = m;
@@ -281,11 +288,13 @@ function parseFile(f, tzMin = 0) {
   if (when.getUTCDate() !== +d.slice(6, 8) || +t.slice(0, 2) > 23 || +t.slice(2, 4) > 59) return null;
   when.setTime(when.getTime() - tzMin * 60000);  // the moment it happened
   let rest = rest0, label = (ext ? ext + (suffix ? "." + suffix : "") : "file").toUpperCase();
+  if (ext === "json" && !suffix && /_note$/.test(rest)) { rest = rest.slice(0, -5); label = "NOTE"; }
+  const base = d + "_" + t + "_" + rest;  // the file name without .json or .vbo
   const extra = rest.match(/_(perf)$/i);
-  if (extra) { rest = rest.slice(0, -extra[0].length); label = "PERF " + label; }
+  if (extra) { rest = rest.slice(0, -extra[0].length); if (label !== "NOTE") label = "PERF " + label; }
   const track = rest.replace(/_\d+$/, "") || rest;  // _2, _3: a second session that minute
   if (!track || track.startsWith(".")) return null;
-  return {when, track, label, key: f.fs + ":" + d + t + rest};
+  return {when, track, label, base, key: f.fs + ":" + d + t + rest};
 }
 
 // files -> {days: [[day, [[track, [session...]]...]]...], other: [file...]}, newest first.
@@ -295,8 +304,12 @@ function groupSessions(files, dayOf, tzMin = 0) {
   for (const f of files) {
     const p = parseFile(f, tzMin);
     if (!p) { other.push(f); continue; }
-    if (!sessions.has(p.key)) sessions.set(p.key, {when: p.when, track: p.track, fs: f.fs, files: []});
-    sessions.get(p.key).files.push({f, label: p.label});
+    if (!sessions.has(p.key)) sessions.set(p.key, {when: p.when, track: p.track, fs: f.fs, files: [], base: p.base, noteFile: null});
+    const s = sessions.get(p.key);
+    if (p.label === "NOTE") { s.noteFile = f; continue; }
+    // A note is saved under the name of the log, else the summary (not a _perf.json's)
+    if (p.label === "VBO" || (p.label === "JSON" && !s.files.some((x) => x.label === "VBO"))) s.base = p.base;
+    s.files.push({f, label: p.label});
   }
   const days = new Map();
   for (const s of [...sessions.values()].sort((a, b) => b.when - a.when)) {
@@ -332,6 +345,7 @@ async function loadSessions() {
     return;
   }
 
+  notes = [];
   const {days, other} = groupSessions(files, (when) =>
     when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"}), tzMin);
 
@@ -342,9 +356,13 @@ async function loadSessions() {
       html += `<div class="card"><h3>${esc(trackName(track))}</h3>`;
       for (const s of list) {
         const time = s.when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+        const id = "n" + notes.length;
+        notes.push({id, s});
         html += `<div class="row"><span class="time">${esc(time)}</span>` +
                 s.files.map((x) => fileLink(x.f, x.label)).join("") +
-                (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") + `</div>`;
+                (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") +
+                ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>` +
+                `<div class="lognote" id="${id}">${s.noteFile ? `<span class="note">Loading note…</span>` : ""}</div></div>`;
       }
       html += `</div>`;
     }
@@ -354,7 +372,59 @@ async function loadSessions() {
             other.map((f) => `<div class="row">${fileLink(f, f.name)}</div>`).join("") + `</div>`;
   }
   box.innerHTML = html;
+  loadNotes();
 }
+
+// ---- the logbook: a note per session, saved next to it as <base>_note.json ----
+// Downloads of the session's .vbo carry it in their [comments].
+let notes = [];  // {id, s: session, text} for each row on the list
+const noteOf = (id) => notes.find((n) => n.id === id);
+
+function showNote(n) {
+  $(n.id).innerHTML = n.text ? esc(n.text) : "";
+  const b = document.querySelector(`[data-note="${n.id}"]`);
+  if (b) b.textContent = n.text ? "Edit note" : "Add note";
+}
+
+// One at a time, so a long list doesn't swamp Track Rat
+async function loadNotes() {
+  const list = notes;
+  for (const n of list) {
+    if (!n.s.noteFile || list !== notes) continue;
+    try {
+      const r = await fetch("/dl?fs=" + encodeURIComponent(n.s.fs) + "&f=" + encodeURIComponent(n.s.noteFile.name));
+      n.text = r.ok ? String((await r.json()).note || "") : "";
+    } catch (e) { n.text = ""; }
+    if (list === notes && !$(n.id).querySelector("textarea")) showNote(n);
+  }
+}
+
+$("sessionList").addEventListener("click", async (e) => {
+  const id = e.target.dataset.note, act = e.target.dataset.noteAct;
+  if (id) {
+    const n = noteOf(id);
+    if (!n || $(id).querySelector("textarea")) return;
+    $(id).innerHTML = `<textarea maxlength="1000" placeholder="Pressures, weather, setup, what your instructor said…"></textarea>` +
+      `<div class="row"><button class="btn" data-note-act="save" data-for="${id}">Save note</button>` +
+      `<button class="btn plain" data-note-act="cancel" data-for="${id}">Cancel</button></div>`;
+    const ta = $(id).querySelector("textarea");
+    ta.value = n.text || "";
+    ta.focus();
+  } else if (act) {
+    const n = noteOf(e.target.dataset.for);
+    if (!n) return;
+    if (act === "cancel") { showNote(n); return; }
+    const text = $(n.id).querySelector("textarea").value;
+    const code = askCode("Save this note with the session?");
+    if (code === null) return;
+    e.target.disabled = true;
+    const r = uploadResult(await post("/api/note", new URLSearchParams({code, fs: n.s.fs, base: n.s.base, note: text})));
+    e.target.disabled = false;
+    if (!r.ok) { alert(r.text || "Couldn't save the note."); return; }
+    try { n.text = JSON.parse(r.text).note; } catch (err) { n.text = text.trim(); }
+    showNote(n);
+  }
+});
 
 // ---- uploads need the 4-digit code on Track Rat's Wi-Fi screen ----
 let uploadCode = "";
