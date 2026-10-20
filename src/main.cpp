@@ -904,7 +904,7 @@ static void learnTrack(const learn::Loop& lp) {
   selectedIndex = idx;
   enterState(AppState::Running);  // saves the Free Roam drive
   if (!known) layoutChecked = true;  // the loop is the track: don't swap it for one nearby
-  replaying = true;
+  replaying = replayPos < recentFixes.size();  // (none kept: timed from now)
   overlay.notice = (known ? "" : "NEW TRACK: ") + selectedTrack().displayName();
   layoutNoticeUntil = millis() + 8000;
 }

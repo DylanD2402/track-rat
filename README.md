@@ -96,9 +96,10 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 **Sessions run themselves.** Park (under 5 km/h) for a minute and you're in the pits: the [debrief](#the-pit-debrief) comes up (or, before there are corner sectors, the session's summary with its laps and their tags). Drive off again within 10 minutes of stopping (a red flag, a quick check) and the same session carries on, back on the timing screen. Stay parked longer and the session ends; the next time you drive off at the track, Session 2 starts by itself, then 3, and so on (leaving the track doesn't start one). Sessions are numbered per track and per local day, and the count is kept in flash, so the first run after a power cut is the next session too. Holding the screen still ends a session at any time.
 
-**Away from a track:** you get a menu:
+**Away from a track:** you get a menu. Drive off from it (20 km/h for 2 seconds) and Free Roam starts by itself.
 
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card, unless **Record road drives** is off in [Settings](#settings). Then the drive is shown but not saved.
+  Free Roam also watches for a track: see [Tracks that learn themselves](#tracks-that-learn-themselves) below.
 - **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand. The nearest track comes first, then the rest in order of distance, each with how far away it is. Layouts of one venue stay together. Without a GPS fix the list is in `tracks.json` order, and it sorts itself as soon as there is a fix. **Bench Test** is always last.
 - **PERFORMANCE:** the left button of the second row. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
@@ -171,6 +172,20 @@ The live diff compares your position with the path your best lap took. If you're
 - **SUSPECT:** a gap of more than 1 s between GPS fixes, a fix less accurate than ±5 m (u-blox only), or a lap more than 5% longer or shorter than the session's usual lap (a cut, once there are 3 laps to compare).
 
 A tagged lap is never the best lap or the live-diff reference, and isn't counted in the average. The summary lists the tags beside the lap times. The slow and length checks are made again after every lap, so a short first lap that looked like the best loses that place once later laps show it was cut; the next clean lap then stands in as the live-diff reference until there's a new best.
+
+### Tracks that learn themselves
+
+At a track Track Rat doesn't know, just drive. When you drive the same loop twice in Free Roam, it's a track:
+
+- **A loop** is coming back past a point you passed at 20 km/h or more, heading the same way, within 10 m, at least 20 s and 300 m later. **Twice** means passing it a third time after a second loop about as long as the first (within 25%). One lap round the block, a drive out and back along the same road, or a hill climb and the drive back down never count.
+- Track Rat then creates the track (**My Track N** in `tracks.json`), puts a provisional start/finish line where the first loop began, the way you were heading, and switches to a timing session there (**NEW TRACK: My Track N** shows on screen). It times both loops from the fixes it kept, so lap 1 and lap 2 are in the session's laps and log, and times every lap after that. The Free Roam drive up to then is saved as usual.
+- If the loop is within 1.5 km of a track in the list that has no line yet, that track gets the line instead of a new one being made. If it's at a track that already has a line (Free Roam picked by hand), the session starts at that track, timed with its own line.
+- The line is wherever the loop happened to begin. Move it on the Wi-Fi page's [track editor](#track-editor-and-re-timing) and re-time the session. Rename it in `tracks.json`.
+- **Record road drives** off: Free Roam still watches for a loop but saves nothing; once it's a track, the session is saved like any other.
+- Both loops have to fit in 12 minutes, as the fixes are kept in memory (PSRAM) to time them.
+- NEW TRACK's tap-at-the-line stays, for the exact line straight away.
+
+The rules and limits are in `Config.h` (`LEARN_...`). `TRACK_LEARNING_ENABLED 0` turns it off: the menu then waits for you to pick.
 
 ### The pit debrief
 
@@ -748,6 +763,12 @@ node test/test_web.js
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
+```
+
+`test/test_tracklearn.cpp` checks tracks that learn themselves: a loop driven twice is found, with the line where the first loop began, and the lap timer then times every loop from the kept fixes; one lap round the block, a road driven out and back over and over, a figure of eight driven once, a short loop then a long one, a loop under 300 m, a slow car park and loops too long for the window are not tracks; a long drive keeps a bounded path; and the kept fixes stay in order:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_tracklearn.cpp src/LapTimer.cpp -o /tmp/tl && /tmp/tl
 ```
 
 `test/test_freeroam.cpp` checks Free Roam's distance, top and average speed, that GPS jitter and position glitches add no distance, and that very long drives are capped:
