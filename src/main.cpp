@@ -18,6 +18,7 @@
 
 #include <Arduino.h>
 #include "AutoStart.h"
+#include "BestLapStore.h"
 #include "Config.h"
 #include "DisplayManager.h"
 #include "FirmwareUpdate.h"
@@ -168,6 +169,96 @@ static void moveInTrackList(int step) {
 
 static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : MIN_LAP_TIME_MS; }
 
+// Best laps (BestLap.h): the PB and today's best at the track being timed,
+// without their paths (the reference lap's path is in the lap timer)
+static bestlap::Record pbRecord, dayRecord;
+// PBs for the track list and Ready screen, read from the card once per track
+struct PbInfo {
+  bool read = false;
+  uint32_t ms = 0, date = 0;
+};
+static std::vector<PbInfo> pbCache;
+
+static void personalBestFor(int index, uint32_t& ms, uint32_t& date) {
+  if ((int)pbCache.size() != trackDB.count()) pbCache.assign(trackDB.count(), PbInfo());
+  PbInfo& c = pbCache[index];
+  if (!c.read) {
+    c.read = true;
+    const Track* t = trackDB.get(index);
+    bestlap::Record r;
+    if (t->hasStartFinish && BestLapStore::load(t->id, BestLapStore::Kind::Ever, r, false) &&
+        bestlap::sameLine(r, t->startFinish.lat, t->startFinish.lon)) {
+      c.ms = r.lapMs;
+      c.date = r.date;
+    }
+  }
+  ms = c.ms;
+  date = c.date;
+}
+
+// One stored best lap of the selected track, if it was timed at its line as it is now.
+static bool loadBestLap(BestLapStore::Kind kind, bestlap::Record& r, bool withPath) {
+  const Track& t = selectedTrack();
+  if (BestLapStore::load(t.id, kind, r, withPath) && bestlap::sameLine(r, t.startFinish.lat, t.startFinish.lon))
+    return true;
+  r = bestlap::Record();
+  return false;
+}
+
+// At the start of timing: the PB and today's best, and the one the Compare
+// with setting picks becomes the live delta's reference until this session
+// has a faster lap.
+static void loadBestLaps() {
+  const Track& t = selectedTrack();
+  pbRecord = dayRecord = bestlap::Record();
+  lapTimer.clearReference();
+  if (!t.hasStartFinish || settingLine) return;
+  loadBestLap(BestLapStore::Kind::Ever, pbRecord, false);
+  loadBestLap(BestLapStore::Kind::Day, dayRecord, false);
+  const uint32_t today = bestlap::dateFromStamp(sessionStamp.c_str());
+  const bestlap::Ref ref = bestlap::pickReference(Settings::get().compareTo, pbRecord, dayRecord, today);
+  bestlap::Record r;
+  if (ref != bestlap::Ref::None &&
+      loadBestLap(ref == bestlap::Ref::Day ? BestLapStore::Kind::Day : BestLapStore::Kind::Ever, r, true)) {
+    std::vector<LapTimer::TracePt> path;
+    path.reserve(r.path.size());
+    for (const bestlap::Point& p : r.path) path.push_back({p.x, p.y, p.t, p.speedKmh});
+    lapTimer.setReference(std::move(path), r.lapMs);
+    DEBUG_PRINTF("Best lap: comparing with %s %s (%s)\n", ref == bestlap::Ref::Day ? "today's best" : "the PB",
+                 formatLapTime(r.lapMs).c_str(), bestlap::dateText(r.date).c_str());
+  }
+}
+
+// A new best lap of the session: is it the PB, or today's best? Saves it
+// if so, and says whether it's a PB. Tagged laps never count.
+static bool saveBestLaps(const Lap& lap) {
+  const Track& t = selectedTrack();
+  if (lap.tags || !t.hasStartFinish || settingLine) return false;
+  const uint32_t today = bestlap::dateFromStamp(sessionStamp.c_str());
+  const bool pb = bestlap::beats(lap.timeMs, lap.tags, pbRecord);
+  const bool dayBest = bestlap::beatsDay(lap.timeMs, lap.tags, dayRecord, today);
+  if (!pb && !dayBest) return false;
+
+  bestlap::Record r;  // the lap timer's best path is this lap's
+  r.lapMs = lap.timeMs;
+  r.date = today;
+  r.sfLat = lapTimer.startFinish().lat;
+  r.sfLon = lapTimer.startFinish().lon;
+  r.path.reserve(lapTimer.bestPath().size());
+  for (const LapTimer::TracePt& p : lapTimer.bestPath()) r.path.push_back({p.x, p.y, p.t, p.speedKmh});
+  if (pb) BestLapStore::save(t.id, BestLapStore::Kind::Ever, r);
+  if (dayBest) BestLapStore::save(t.id, BestLapStore::Kind::Day, r);
+  r.path.clear();
+  if (pb) pbRecord = r;
+  if (dayBest) dayRecord = r;
+  // This session's best is now the reference: a new PB beats the stored lap, and comparing with
+  // today's best, until now that was the PB (no lap today yet)
+  if (pb || (dayBest && Settings::get().compareTo == CompareTo::Day)) lapTimer.clearReference();
+  if (selectedIndex < (int)pbCache.size()) pbCache[selectedIndex].read = false;
+  DEBUG_PRINTF("Best lap: %s%s%s\n", pb ? "new PB" : "", pb && dayBest ? ", " : "", dayBest ? "best of the day" : "");
+  return pb;
+}
+
 static void beginLapTiming(const Track& t) {
   lapTimer.begin(t.startFinish, t.splits, minLapMs(t));
   overlay = RunningOverlay();
@@ -244,6 +335,7 @@ static void enterState(AppState next) {
     sessionNumber = Settings::nextSessionNumber(t.id.c_str(), sessionStamp.c_str());
     sessionPath = "";
     startSessionFiles();
+    loadBestLaps();
     pitWatch.reset();
     pitView = false;
     layoutChecked = t.bench;
@@ -339,6 +431,8 @@ static void markStartFinish() {
   trackDB.setStartFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
   settingLine = false;
   beginLapTiming(selectedTrack());
+  if (selectedIndex < (int)pbCache.size()) pbCache[selectedIndex].read = false;  // the PB may not count at the new line
+  loadBestLaps();  // a line put back where it was keeps its best laps
   lapTimer.startLapNow(f.gpsTimeMs, f.rxMillis);
   layoutChecked = true;  // the driver just put the line here
   DEBUG_PRINTLN("Start/finish set - lap 1 started");
@@ -399,6 +493,7 @@ static void switchLayout(int index, layout::Lines& map) {
     sessionPath = "";
     startSessionFiles();
   }
+  loadBestLaps();  // this layout's
   overlay.notice = "Layout: " + (t.layoutName.length() ? t.layoutName : t.name);
   layoutNoticeUntil = millis() + 6000;
 }
@@ -476,6 +571,7 @@ static void onLapEvent(const LapEvent& ev) {
       overlay.lapNumber = lap->number;
       overlay.lapMs = lap->timeMs;
       overlay.lapIsBest = ev.isBest;
+      overlay.lapIsPb = false;
       lapOverlayUntil = now + 4000;
 
       // Save after every lap so a power cut doesn't lose the session.
@@ -490,7 +586,8 @@ static void onLapEvent(const LapEvent& ev) {
       }
       if (ev.isBest && !switched) {
         saveMapFromLap();
-        LedBar::onBestLap();
+        overlay.lapIsPb = saveBestLaps(*lap);
+        LedBar::onBestLap(overlay.lapIsPb);
       }
       break;
     }
@@ -799,6 +896,13 @@ static void handleInput(InputEvent ev) {
   }
 }
 
+// The selected track's PB, for the track list and Ready screen
+static void showPersonalBest() {
+  uint32_t ms, date;
+  personalBestFor(selectedIndex, ms, date);
+  display.setPersonalBest(ms, date);
+}
+
 static void render() {
   uint32_t now = millis();
   switch (state) {
@@ -815,10 +919,12 @@ static void render() {
       // The list opened before the GPS had a fix: sort it once a fix arrives
       // (to the nearest track, unless the driver has already moved along it).
       if (!listSorted && gps.hasFix()) sortTrackList(listPos == 0 ? -1 : selectedIndex);
+      showPersonalBest();
       display.drawTrackSelect(selectedTrack(), listPos, (int)listOrder.size(), distanceToTrack(selectedIndex),
                               gps, input.touchAvailable());
       break;
     case AppState::TrackConfirm:
+      showPersonalBest();
       display.drawTrackConfirm(selectedTrack(), distanceToTrack(selectedIndex), gps.hasFix(),
                                input.touchAvailable(), trackDB.layoutNumber(selectedIndex),
                                trackDB.layoutCount(selectedIndex), readyFromList, autoStart);

@@ -21,7 +21,7 @@ void begin(int gpsRxPin, int gpsTxPin);
 // It sends a new frame at most every LED_UPDATE_MS and only when the picture changed.
 void update(bool timing, bool hasDelta, int32_t deltaMs);
 
-void onBestLap();
+void onBestLap(bool personalBest);  // flashes purple for a PB, green for another best lap
 void onSplit();
 
 }  // namespace LedBar

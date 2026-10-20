@@ -147,8 +147,8 @@ void LedBar::update(bool timing, bool hasDelta, int32_t deltaMs) {
   }
 }
 
-void LedBar::onBestLap() {
-  if (started) pattern.bestLap(millis());
+void LedBar::onBestLap(bool personalBest) {
+  if (started) pattern.bestLap(millis(), personalBest ? LED_BEST : LED_SESSION_BEST);
 }
 
 void LedBar::onSplit() {
@@ -159,7 +159,7 @@ void LedBar::onSplit() {
 
 void LedBar::begin(int, int) {}
 void LedBar::update(bool, bool, int32_t) {}
-void LedBar::onBestLap() {}
+void LedBar::onBestLap(bool) {}
 void LedBar::onSplit() {}
 
 #endif

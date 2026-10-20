@@ -27,7 +27,7 @@ struct SettingsData {
   SpeedUnits units;
   uint8_t rotation;        // 1 or 3 (DISPLAY_ROTATION is "right way up", the other is upside down)
   uint8_t brightness;      // percent, 10..100
-  CompareTo compareTo;     // stored; only "this session" exists so far
+  CompareTo compareTo;     // the live delta's reference from the first lap (BestLap.h)
   BigNumber bigNumber;
   GpsMode gpsMode;         // applied when the GPS is set up at boot
   bool bluetooth;          // RaceBox Bluetooth output

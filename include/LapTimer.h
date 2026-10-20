@@ -27,6 +27,11 @@
  * short. If the reference path's lap is tagged that way, the next clean lap
  * stands in as the reference until there's a new best.
  *
+ * A lap from another day (the best ever, or the best of the day: see
+ * BestLap.h) can be set as the reference with setReference, so the live
+ * delta works from the first lap. Whichever is faster, it or this
+ * session's reference lap, is used.
+ *
  * No Arduino dependencies: unit-tested on a PC in test/test_laptimer.cpp.
  */
 
@@ -119,24 +124,38 @@ public:
   uint8_t currentLapTags() const { return running ? lapTags : 0; }  // so far (pit and suspect only)
   float sessionMaxSpeedKmh() const { return sessionMaxSpeed; }
 
-  // Live gap to the best lap at the same point on track (+ = slower).
-  // NO_DELTA before there is a best lap, or when off the best lap's line.
+  // Live gap to the reference lap at the same point on track (+ = slower).
+  // NO_DELTA before there is one, or when off its line.
   int32_t liveDeltaMs() const { return liveDelta; }
 
   // A point on a lap's path: metres from the start/finish, ms into the lap.
   struct TracePt {
     float x, y;
     int32_t t;
+    float speedKmh;
   };
   // Path driven on the best lap, and so far on the current lap (for the map
   // screen when a track has no stored layout).
   const std::vector<TracePt>& bestPath() const { return bestTrace; }
   const std::vector<TracePt>& currentPath() const { return curTrace; }
 
+  // A stored lap to compare with (its path ends at the line, at its lap
+  // time). Used while it's faster than this session's reference lap.
+  // Cleared by begin() and reset().
+  void setReference(std::vector<TracePt> path, uint32_t lapMs);
+  void clearReference();
+  bool usingStoredReference() const;
+  // The lap time of the reference the live delta is against, 0 if none.
+  uint32_t referenceLapMs() const;
+
 private:
   std::vector<TracePt> curTrace;
   std::vector<TracePt> bestTrace;
   int refIndex = -1;  // the lap bestTrace is from
+  std::vector<TracePt> storedTrace;  // setReference
+  uint32_t storedMs = 0;
+  bool matchedStored = false;  // the last match was against storedTrace
+  const std::vector<TracePt>& activeTrace() const;
   size_t matchIdx = 0;
   int32_t liveDelta = NO_DELTA;
 

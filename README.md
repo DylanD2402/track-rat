@@ -136,7 +136,15 @@ While timing, the screen shows:
 - **GPS signal bars** in the top right: green with a fix, yellow while searching, red outline with no data.
 - **GPS accuracy** beside the bars, such as `±1.2m`: how far off the GPS thinks its position could be. Green up to 2 m, yellow up to 5 m, red beyond that. It only shows with a u-blox GPS.
 
-When you complete a lap, its time shows full-screen for 4 s, in green if it's a new best.
+When you complete a lap, its time shows full-screen for 4 s: purple for a new personal best (PB) at that track, green for a new best of the session. The LED bar flashes the same colour.
+
+**Best laps and PBs.** Your best clean lap ever at each track (each layout separately) is kept on the card, path and all, with its date, and so is your best lap of the day. The track list and the Ready screen show the PB and its date. The **Compare with** [setting](#settings) decides what the live diff compares with from your first lap:
+
+- **Best ever:** your PB, until you beat it.
+- **Best of the day:** your best lap today at this track, across sessions. Before you've set a lap today, your PB.
+- **This session** (the default): only laps from this session, so there's no live diff until lap 2.
+
+Whichever is picked, a quicker lap in this session takes over as the reference. Only clean laps (no [tags](#using-it)) become a PB or the best of the day. Moving the start/finish line more than 5 m (SET LINE) starts the PB again, as times at another line can't be compared.
 
 The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
 
@@ -163,7 +171,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | Speed units | km/h (default), mph | Every speed on the screens, including Performance, and on the Wi-Fi page. Saved files stay in km/h |
 | Screen upside down | Off (default), on | For a unit mounted upside down. Draws the screen and reads touch turned round |
 | Brightness | 10% to 100% in steps of 10 (default 100%) | Dims the backlight. Auto-sleep still turns it fully off |
-| Compare with | Best of the day, best ever, this session (default) | **Stored for later.** The live diff only compares with this session's best lap so far, whatever is picked |
+| Compare with | Best of the day, best ever, this session (default) | What the live diff compares with from your first lap: see [Best laps and PBs](#using-it). Used from the next session |
 | Big number | Lap time (default), delta, predicted lap | The largest number on the timing screen. Delta and predicted lap show the lap time until there is a best lap |
 | GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
@@ -497,7 +505,9 @@ File names use UTC until the **Time zone** setting is set, either on the Setting
 
 Free Roam drives are saved the same way, as `<date>_<time>_freeroam.vbo` and `.json`, unless **Record road drives** is off in [Settings](#settings): then nothing is saved. The summary holds the duration, distance, and top and average speed.
 
-**Without an SD card,** only the summaries are kept, in flash (a full log fills it in about half an hour). Free Roam then saves its route as GPS points about 10 m apart in the summary. The log at boot says when there's no card.
+**Best laps** are kept in `/tracks/<track id>/` on the card: `best.bin` (the PB) and `day.bin` (the best of its day), each about 30 KB: the lap's path (position, time and speed every fix), its time, its date and where the start/finish was. They're saved the same safe way as the summary.
+
+**Without an SD card,** only the summaries and best laps are kept, in flash (a full log fills it in about half an hour). Free Roam then saves its route as GPS points about 10 m apart in the summary. The log at boot says when there's no card.
 
 ### Opening a session in Circuit Tools
 
@@ -589,6 +599,12 @@ It checks that the timer:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
+```
+
+`test/test_bestlap.cpp` checks the best-lap files (round trip, and damaged or cut-short files refused), which stored lap the Compare with setting picks, when a lap is a PB or the best of the day (never a tagged one), and the live diff from a stored lap in the real lap timer, from lap 1 until a quicker lap takes over:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_bestlap.cpp src/LapTimer.cpp -o /tmp/bl && /tmp/bl
 ```
 
 `test/test_sessions.cpp` drives a simulated day at a track through the real lap timer: a red flag, every kind of glitchy lap (a GPS gap, poor accuracy, a cut across the infield, a cool-down lap), a pit stop that ends the session, and a power cut. It checks each lap's tags, that no tagged lap becomes the best or the live-diff reference (even one that only shows up as cut later), the average of the clean laps, when the pits and the end of a session are detected, the session numbers through the day, and that a summary rebuilt from the log has the same tags:

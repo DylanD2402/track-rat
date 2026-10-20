@@ -3,6 +3,7 @@
  */
 
 #include "DisplayManager.h"
+#include "BestLap.h"
 #include "Config.h"
 #include "SessionLog.h"
 #include "Storage.h"
@@ -359,6 +360,11 @@ void DisplayManager::drawGpsWait(const GPSHandler& gps, int trackCount, const ch
   endFrame();
 }
 
+String DisplayManager::pbText() const {
+  std::string date = bestlap::dateText(pbDate);
+  return "PB " + formatLapTime(pbMs) + (date.empty() ? String("") : String("   ·   ") + date.c_str());
+}
+
 void DisplayManager::drawTrackSelect(const Track& track, int index, int count, double distanceM,
                                      const GPSHandler& gps, bool touchOk) {
   beginFrame();
@@ -391,6 +397,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
   stat(2, "SPLITS", buf, C_TEXT);
 
   if (!track.hasStartFinish && !track.bench) centered("No start/finish line yet: set it on track", 170, Font::Caption, C_YELLOW);
+  else if (pbMs) centered(pbText(), 168, Font::Body, C_PURPLE);
   else if (touchOk) centered("Tap the top bar for GPS status", 170, Font::Caption, C_TEXT3);
 
   if (touchOk) footerButtons("‹", "Select", "›");
@@ -443,7 +450,8 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
     centered("No start/finish line yet:", y, Font::Body, C_YELLOW);
     centered("tap the screen as you cross it", y + 19, Font::Body, C_TEXT);
   }
-  centered(String("Laps are saved to ") + Storage::sessionFSName(), y + 46, Font::Caption, C_TEXT3);
+  if (pbMs) centered(pbText(), y + 44, Font::Body, C_PURPLE);
+  else centered(String("Laps are saved to ") + Storage::sessionFSName(), y + 46, Font::Caption, C_TEXT3);
 
   if (touchOk) footerButtons(fromList ? "Back" : "Menu", "Start", track.bench ? "" : "Set line");
   else centered(fromList ? "BOOT: hold to start, press to go back" : "BOOT: hold to start, press for menu", 212, Font::Body, C_TEXT3);
@@ -459,16 +467,17 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   // The Big number setting: what gets the largest digits. Delta and predicted
   // lap need a live delta against a best lap; until then it's the lap time.
   const int32_t liveDelta = gps.hasFix() ? timer.liveDeltaMs() : NO_DELTA;  // without a fix it's stale
-  const bool haveDelta = deltaShown(liveDelta, timer.lapRunning()) && timer.bestLap();
+  const bool haveDelta = deltaShown(liveDelta, timer.lapRunning()) && timer.referenceLapMs();
   const BigNumber big = settings::bigNumberShown(Settings::get().bigNumber, haveDelta);
 
   // --- big time area (y 28..106) ---
   const int top = HEADER_H + 4;
   if (ov.showLap) {
-    // The lap just finished, on a full-width band: green for a new best
-    uint16_t bg = ov.lapIsBest ? C_GREEN : C_RAISED, fg = ov.lapIsBest ? C_BG : C_TEXT;
+    // The lap just finished, on a full-width band: purple for a new PB, green for a new best
+    uint16_t bg = ov.lapIsPb ? C_PURPLE : ov.lapIsBest ? C_GREEN : C_RAISED, fg = ov.lapIsBest ? C_BG : C_TEXT;
     gfx->fillRoundRect(4, top, W - 8, 74, CORNER, bg);
-    snprintf(buf, sizeof(buf), ov.lapIsBest ? "LAP %d  ·  BEST LAP" : "LAP %d", ov.lapNumber);
+    snprintf(buf, sizeof(buf), ov.lapIsPb ? "LAP %d  ·  NEW PB" : ov.lapIsBest ? "LAP %d  ·  BEST LAP" : "LAP %d",
+             ov.lapNumber);
     text(buf, W / 2, top + 8, Font::Caption, fg, TC_DATUM);
     text(formatLapTime(ov.lapMs, 3), W / 2, top + 26, Font::NumL, fg, TC_DATUM);
   } else if (big == BigNumber::Delta) {
@@ -479,7 +488,7 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
     text(t, W / 2, f == Font::NumXL ? top + 8 : top + 20, f, C_BG, TC_DATUM);
   } else if (timer.lapRunning()) {
     const bool predicted = big == BigNumber::Predicted;
-    String t = formatLapTime(predicted ? settings::predictedLapMs(timer.bestLap()->timeMs, liveDelta)
+    String t = formatLapTime(predicted ? settings::predictedLapMs(timer.referenceLapMs(), liveDelta)
                                        : timer.currentLapMs(millis()), 1);
     Font f = textWidth(t, Font::NumXL) <= W - 10 ? Font::NumXL : Font::NumL;
     text(t, W / 2, f == Font::NumXL ? top + (predicted ? 17 : 8) : top + 18, f, C_TEXT, TC_DATUM);  // predicted: room for its label
@@ -633,10 +642,10 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
   // --- right-hand panel ---
   int y = MAP_Y;
   if (ov.showLap) {
-    uint16_t bg = ov.lapIsBest ? C_GREEN : C_RAISED, fg = ov.lapIsBest ? C_BG : C_TEXT;
+    uint16_t bg = ov.lapIsPb ? C_PURPLE : ov.lapIsBest ? C_GREEN : C_RAISED, fg = ov.lapIsBest ? C_BG : C_TEXT;
     gfx->fillRoundRect(PANEL_X - 4, y, PANEL_W + 4, 46, CORNER, bg);
     char buf[16];
-    snprintf(buf, sizeof(buf), ov.lapIsBest ? "LAP %d BEST" : "LAP %d", ov.lapNumber);
+    snprintf(buf, sizeof(buf), ov.lapIsPb ? "LAP %d PB" : ov.lapIsBest ? "LAP %d BEST" : "LAP %d", ov.lapNumber);
     text(buf, PANEL_X + 2, y + 6, Font::Caption, fg);
     text(formatLapTime(ov.lapMs, 1), PANEL_X + 2, y + 20, Font::Title, fg);
   } else {

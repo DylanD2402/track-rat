@@ -28,6 +28,7 @@ struct RunningOverlay {
   uint16_t lapNumber = 0;
   uint32_t lapMs = 0;
   bool lapIsBest = false;
+  bool lapIsPb = false;        // a new personal best: purple
   int32_t deltaMs = NO_DELTA;  // lap delta vs best, or split delta
   int splitIndex = -1;         // >= 0: delta box shows a split
   uint32_t splitMs = 0;
@@ -52,6 +53,11 @@ public:
   bool splashRunning() const;
   // statusOnly: the GPS Status screen opened from the track list (no auto-advance)
   void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk, bool statusOnly);
+  // The track list and Ready screens show this track's PB: set it first (0 = none).
+  void setPersonalBest(uint32_t lapMs, uint32_t date) {
+    pbMs = lapMs;
+    pbDate = date;
+  }
   void drawTrackSelect(const Track& track, int index, int count, double distanceM, const GPSHandler& gps,
                        bool touchOk);
   // layoutNumber is 0-based; layoutCount > 1 offers "tap the top bar for the next layout".
@@ -102,6 +108,8 @@ public:
   static constexpr int WIFI_BUTTON_Y = 196;
 
 private:
+  uint32_t pbMs = 0, pbDate = 0;  // setPersonalBest
+  String pbText() const;          // "PB 1:42.345  ·  19 Oct 2026"
   void wifiButton(int y, int h, bool highlight, bool holdHint = false);
   TFT_eSPI tft;
   TFT_eSprite spr = TFT_eSprite(&tft);
