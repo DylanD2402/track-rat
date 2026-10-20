@@ -187,6 +187,10 @@ int main(int argc, char** argv) {
   layout.layoutName = "Full";
   d.drawTrackConfirm(layout, 2210, true, true, 0, 3);
   save(d, "07_ready");
+  d.drawTrackConfirm(track, 40, true, true, 0, 1, false, true);  // boot pick, parked: starts when the car drives off
+  save(d, "07b_ready_autostart");
+  d.drawTrackConfirm(layout, 2210, true, true, 0, 3, true, false);  // from the track list: Back
+  save(d, "07c_ready_from_list");
 
   // --- a session: drive laps through the real lap timer ---
   LapTimer timer;

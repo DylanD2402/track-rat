@@ -92,7 +92,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 ## Using it
 
-**At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically and the session starts at once. Timing begins the first time you cross the start/finish line; everything before that is the out lap.
+**At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically. If you're already moving (20 km/h or more), the session starts at once. If you're parked, you get that track's Ready screen, and the session starts by itself when you drive off (20 km/h for 2 seconds). Until then **MENU** (or pressing BOOT) takes you to the main menu, so a track made at home doesn't trap you in a session. Timing begins the first time you cross the start/finish line; everything before that is the out lap.
 
 **Away from a track:** you get a menu:
 
@@ -113,12 +113,13 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Menu | tap a mode, or PERFORMANCE / SETTINGS / WI-FI in the second row; top bar: GPS status | press: next (in the order on screen), hold 1 s: choose |
 | Track list | left / right third: previous / next, centre: select, hold: menu | press: next, hold 1 s: select |
 | GPS Status (top bar of the menu or track list) | tap: back | press: back |
-| Ready | centre: start, left: back, right: set line, top bar: next layout | hold 1 s: start, press: back |
+| Ready | centre: start, left: menu (back, if you came from the track list), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from the track list) |
 | Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
 | Performance | left: rollout / demo, centre: results, right: menu, hold 2 s: menu | press: next screen, hold 1 s: menu |
-| Summaries | tap: continue; WI-FI button: Wi-Fi page | press: continue, hold 1 s: Wi-Fi page |
+| Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page | press: Ready screen again, hold 1 s: Wi-Fi page |
+| Free Roam summary | tap: menu; WI-FI button: Wi-Fi page | press: menu, hold 1 s: Wi-Fi page |
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
 | Settings | left / right third: − / +, centre: next item, top bar or hold 2 s: menu | press: next item, hold 1 s: change the value |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
@@ -529,6 +530,7 @@ What a driver chooses (units, brightness and so on) is a [setting](#settings), c
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
 | `PERF_ROLLOUT_DEFAULT` | 0 | 1 = Performance starts with the 1-foot rollout on |
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
+| `AUTO_START_KMH`, `AUTO_START_HOLD_MS` | 20, 2000 | A track picked at boot with the car parked starts its session when the car stays at this speed or more for this long. Already at this speed at boot: starts at once |
 | `BATTERY_ENABLED` | 1 | 0 = ignore the battery pin completely |
 | `BATTERY_CAL_OFFSET_MV` | 0 | Added to the battery voltage reading, to match a multimeter |
 | `BATTERY_PRESENT_MIN_MV` / `_MAX_MV` | 2500 / 4230 | Readings outside this range mean no battery is fitted |
@@ -646,6 +648,12 @@ g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_deltaleds.cpp src/DeltaLeds.cpp src/LapTimer.cpp -o /tmp/dl && /tmp/dl
 ```
+`test/test_autostart.cpp` checks the drive-off detector that starts a session from the Ready screen: parked GPS noise never starts one, a short burst of speed doesn't, steady driving does after about 2 seconds, slowing down or a gap in the fixes starts the count again, and it works across midnight at 10 and 20 Hz:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_autostart.cpp -o /tmp/as && /tmp/as
+```
+
 `test/test_perfrun.cpp` checks acceleration and braking runs with made-up GPS fixes at 10 and 20 Hz:
 
 ```bash

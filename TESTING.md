@@ -22,7 +22,7 @@ Expected:
 2. The serial log shows `Display: 320x240, sprite buffer in PSRAM`.
    - If it says `NO sprite`, PSRAM isn't enabled. Check `board_build.arduino.memory_type = qio_opi` in `platformio.ini`.
 3. The serial log shows `Input: touch controller found`.
-4. With no GPS fix, the "waiting for GPS" screen stays up. With a fix, a session starts at once if a track is within 5 km; otherwise the menu opens.
+4. With no GPS fix, the "waiting for GPS" screen stays up. With a fix and a track within 5 km, a session starts at once if you are already moving (20 km/h or more); parked, you get that track's Ready screen (MENU goes to the menu) and the session starts when you drive off. Otherwise the menu opens.
 5. Tap the screen to open the menu. The serial log prints `Touch: raw=(..) screen=(..)`.
    - **Wrong button triggered:** adjust `TOUCH_SWAP_XY` / `TOUCH_INVERT_X` / `TOUCH_INVERT_Y` until a tap at the left edge gives a small screen x and a tap at the top gives a small screen y.
 6. Tap **TRACK LIST**, then **>** and **<** to browse tracks. Go to **Bench Test** (the last one), tap **SELECT**, then **START**. A yellow **BENCH** tag appears in the header.
@@ -71,7 +71,7 @@ Take it outside with a clear view of the sky. The first fix after power-up can t
   - **1 Hz** or so: the module ignored it, and timing still works.
   - Either way, please report what you see.
 - The Fix line shows the GPS's own accuracy, such as `LOCKED   ±1.2 m   ±0.5 km/h   3D`.
-- If you're more than 5 km from every track, the menu opens. Otherwise a session starts at the nearest track straight away.
+- If you're more than 5 km from every track, the menu opens. Otherwise the nearest track's Ready screen opens (a session starts at once if you are already moving, or when you drive off at 20 km/h or more).
 
 ## 4. Real lap test (car park or track)
 
