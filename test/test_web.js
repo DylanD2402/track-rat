@@ -335,6 +335,14 @@ console.log("Wi-Fi page track editor tests");
   check(ED.removeSplit(t.obj, 0) && t.obj.splits.length === 1 && t.obj.splits[0].heading === 0, "removed S1");
   check(ED.removeSplit(t.obj, 0) && !("splits" in t.obj), "no splits left: the key goes");
   check(!ED.removeSplit(t.obj, 0), "nothing to remove");
+  // Counted from the start/finish, wherever the log's lap began: with the line moved round the corner,
+  // a split just after it is S1 and one before the corner is the last
+  const moved = {startFinish: (() => { const m = at(100, 50); return {lat: m.lat, lon: m.lon, radius: 15, heading: 0}; })()};
+  q = at(50, 0);
+  ED.addSplit(moved, q.lat, q.lon, 90, path, ref.lat, ref.lon);
+  q = at(100, 75);
+  ED.addSplit(moved, q.lat, q.lon, 0, path, ref.lat, ref.lon);
+  check(moved.splits[0].heading === 0 && moved.splits[1].heading === 90, "splits counted from the moved line");
 
   // Corner names
   d = db();

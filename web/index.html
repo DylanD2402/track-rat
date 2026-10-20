@@ -470,10 +470,13 @@ function flipLine(obj) {
   return true;
 }
 
-// Splits are numbered in the order a lap passes them: lapPts ({x, y}, from the line, in order).
+// Splits are numbered in the order a lap passes them, counting from the start/finish:
+// lapPts ({x, y}) is one lap in driving order (from wherever the log's lap began).
 function sortSplits(obj, lapPts, refLat, refLon) {
   if (!obj.splits || !lapPts.length) return;
-  const at = (s) => { const p = toLocal(s.lat, s.lon, refLat, refLon); return nearestIndex(lapPts, p.x, p.y); };
+  const idx = (pt) => { const p = toLocal(pt.lat, pt.lon, refLat, refLon); return nearestIndex(lapPts, p.x, p.y); };
+  const from = obj.startFinish ? idx(obj.startFinish) : 0, n = lapPts.length;
+  const at = (s) => (idx(s) - from + n) % n;
   obj.splits.sort((a, b) => at(a) - at(b));
 }
 function addSplit(obj, lat, lon, heading, lapPts, refLat, refLon) {
