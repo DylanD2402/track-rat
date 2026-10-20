@@ -123,6 +123,10 @@ public:
 
   // Battery, sleep and firmware update screens (DisplayPower.cpp)
   void setBatteryPercent(int percent) { batteryPct = percent; }  // shown in the header; -1 = no battery fitted
+  // The camera's CAM/REC tag in the top bar: whether a tap at x hit it (drawn in the last frame)
+  bool cameraTagHit(int x) const { return camTagL >= 0 && x >= camTagL - 8 && x <= camTagR + 8; }
+  // It was tapped: "REC..." or "STOP..." until the camera's status follows
+  void cameraAsked(bool wasRecording);
   void setBacklight(bool on);
   void powerDown();  // blank the panel and put it to sleep (before deep sleep)
   void drawMessage(const char* title, const char* line1, const char* line2, uint16_t color);
@@ -163,6 +167,9 @@ private:
   uint16_t* shown = nullptr;  // copy of the panel contents (PSRAM)
   bool shownValid = false;
   int batteryPct = -1;
+  int camTagL = -1, camTagR = -1;  // the camera's tag in the top bar (-1: not drawn)
+  uint32_t camAskedAt = 0;         // millis() of a tap on it (0: none)
+  bool camAskedWasRec = false;     // recording when tapped
   uint8_t rotation = DISPLAY_ROTATION;
   void flipBand(int y, int h);  // turns rows y..y+h-1 of the frame upside down (for the setup screen)
 

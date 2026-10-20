@@ -278,6 +278,25 @@ int main() {
     Status rec;
     rec.known = true, rec.status = 0x03;
     CHECK(m.step(0, true, rec) == -1, "already recording");
+    // Started from the top bar (the session not moving): the sessions leave it alone until the next change
+    RecordFollow tb;
+    Status idle;
+    idle.known = true, idle.status = 0x01;
+    CHECK(tb.step(0, false, idle) == -1, "not wanted, not recording");
+    tb.manual(false);
+    idle.status = 0x03;  // the camera started
+    CHECK(tb.step(500, false, idle) == -1, "a start from the top bar is left alone");
+    CHECK(tb.step(500 + 2 * RECORD_RETRY_MS, false, idle) == -1, "and not stopped later");
+    CHECK(tb.step(20000, true, idle) == 0, "drive off: start sent once (already recording)");
+    // Stopped from the top bar while one of the sessions' starts was still being retried
+    RecordFollow rt;
+    Status st0;
+    st0.known = true, st0.status = 0x01;
+    rt.step(0, false, st0);
+    CHECK(rt.step(100, true, st0) == 0, "drive off: start");
+    rt.manual(true);  // tapped stop before the camera had followed
+    CHECK(rt.step(100 + RECORD_RETRY_MS, true, st0) == -1, "no retry fights the tap");
+    CHECK(rt.step(30000, false, st0) == 1, "park: stop");
   }
 
   if (failures) {

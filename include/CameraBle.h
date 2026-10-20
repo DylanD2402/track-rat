@@ -32,6 +32,9 @@ void poll();   // from loop(): takes the latest status from the task. Never wait
 void onFix(const GpsFix& fix, bool hasFix);
 // Whether a session wants the camera recording (with Camera recording on "With sessions")
 void setRecording(bool want);
+// Start recording if it isn't, stop it if it is (a tap on the camera's tag in the top bar).
+// Works with either Camera recording setting; the sessions don't undo it until the next drive off or park
+void toggleRecording();
 
 bool configured();  // a camera has been paired
 bool connected();   // and the remote handshake is done

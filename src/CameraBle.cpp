@@ -36,6 +36,7 @@ static bool paired = false;           // the camera has accepted us once: reconn
 static dji::GpsData gpsNow;
 static uint32_t gpsAt = 0;            // millis() of gpsNow (0: none)
 static volatile bool recordWanted = false;
+static volatile bool toggleAsked = false;  // a tap on the camera's tag
 static bool startedFlag = false;
 static uint32_t startedMs = 0;
 
@@ -316,6 +317,16 @@ static void taskMain(void*) {
             remote.sendRecord(cmd == 0);
           }
         }
+        // A tap on the camera's tag in the top bar: start or stop it now
+        if (toggleAsked) {
+          toggleAsked = false;
+          const dji::Status& cs = remote.status();
+          if (cs.known) {
+            DEBUG_PRINTF("Camera: %s recording (tapped)\n", cs.recording() ? "stop" : "start");
+            remote.sendRecord(!cs.recording());
+            follow.manual(recordWanted);
+          }
+        }
       }
       writeOut();
     }
@@ -368,6 +379,7 @@ void onFix(const GpsFix& fix, bool hasFix) {
 }
 
 void setRecording(bool want) { recordWanted = want; }
+void toggleRecording() { toggleAsked = true; }
 
 bool configured() { return st.configured; }
 bool connected() { return st.phase == dji::Remote::Phase::Connected; }
@@ -444,6 +456,7 @@ void begin() {}
 void poll() {}
 void onFix(const GpsFix&, bool) {}
 void setRecording(bool) {}
+void toggleRecording() {}
 bool configured() { return false; }
 bool connected() { return false; }
 bool takeStarted(uint32_t&) { return false; }

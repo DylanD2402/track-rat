@@ -1074,6 +1074,16 @@ static bool tappedWifi(InputEvent ev, int buttonTop) {
 
 static void handleInput(InputEvent ev) {
   if (ev == InputEvent::None) return;
+  // The camera's CAM/REC tag in the top bar: start or stop recording, on any screen that shows it
+  if (ev == InputEvent::TapHeader && display.cameraTagHit(input.lastTapX())) {
+    const CameraBle::Status cs = CameraBle::status();
+    if (cs.cam.known) {
+      CameraBle::toggleRecording();
+      display.cameraAsked(cs.cam.recording());
+      lastRender = 0;
+    }
+    return;
+  }
 
   switch (state) {
     case AppState::GpsWait:

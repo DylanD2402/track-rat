@@ -450,6 +450,13 @@ public:
     if (cam.recording() == wanted) tries = RECORD_TRIES;  // done: a later change on the camera is the driver's
     return -1;
   }
+  // The driver started or stopped it from Track Rat's top bar: like the camera's
+  // own button, left alone until the next change here. want: what's wanted now
+  void manual(bool want) {
+    have = true;
+    wanted = want;
+    tries = RECORD_TRIES;
+  }
 
 private:
   bool have = false, wanted = false;

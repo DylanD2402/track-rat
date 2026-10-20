@@ -84,6 +84,13 @@ void DisplayManager::beginFrame() {
   if (useSprite) spr.fillSprite(C_BG);
   else tft.fillScreen(C_BG);
   gfx->setTextDatum(TL_DATUM);
+  camTagL = camTagR = -1;  // header() sets it again if this screen shows the camera
+}
+
+void DisplayManager::cameraAsked(bool wasRecording) {
+  camAskedAt = millis();
+  if (!camAskedAt) camAskedAt = 1;
+  camAskedWasRec = wasRecording;
 }
 
 // Sending all 320x240 pixels takes ~50 ms, long enough to see the old and new
@@ -249,16 +256,26 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
 #if BLE_ENABLED
     if (RaceBoxBle::connected()) tag("BT", C_BLUE, C_TEXT);  // a phone app is receiving GPS
     if (ObdBle::connected()) tag("OBD", C_BLUE, C_TEXT);     // the Bluetooth OBD-II adapter is connected
-    if (CameraBle::connected()) {  // the DJI camera: REC while it records, its battery, and a warning when too hot
-      const CameraBle::Status cs = CameraBle::status();
+    if (CameraBle::connected()) {  // the DJI camera: REC while it records, its battery, and a warning when too hot.
+      const CameraBle::Status cs = CameraBle::status();  // Tap it to start or stop recording
+      const uint32_t now = millis();
+      const bool rec = cs.cam.known && cs.cam.recording();
+      if (camAskedAt && (rec != camAskedWasRec || now - camAskedAt >= CAM_ASK_SHOW_MS)) camAskedAt = 0;  // it followed (or didn't)
+      const int r0 = right;
       char t[16];
       if (cs.cam.known && cs.cam.tempOver >= 2) tag("CAM HOT", C_ORANGE, C_BG);
-      else if (cs.cam.known) {
-        snprintf(t, sizeof(t), "%s %u%%", cs.cam.recording() ? "REC" : "CAM", cs.cam.battery);
-        tag(t, cs.cam.recording() ? C_RED : C_BLUE, cs.cam.recording() ? C_BG : C_TEXT);
+      else if (camAskedAt) tag(camAskedWasRec ? "STOP..." : "REC...", C_RAISED, C_TEXT);  // asked: waiting for the camera
+      else if (rec) {  // recording: blinks slowly, red then dark red
+        snprintf(t, sizeof(t), "REC %u%%", cs.cam.battery);
+        const bool on = now / CAM_REC_BLINK_MS % 2 == 0;
+        tag(t, on ? C_RED : rgb(110, 24, 20), on ? C_BG : C_TEXT);
+      } else if (cs.cam.known) {
+        snprintf(t, sizeof(t), "CAM %u%%", cs.cam.battery);
+        tag(t, C_BLUE, C_TEXT);
       } else {
         tag("CAM", C_BLUE, C_TEXT);
       }
+      camTagL = right + 6, camTagR = r0;
     }
 #endif
     if (EngineData::coolantHot(millis())) tag("HOT", C_RED, C_BG);  // coolant at COOLANT_WARN_C or more
