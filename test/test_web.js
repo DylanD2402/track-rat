@@ -2,7 +2,9 @@
 // part of web/index.html: parsing file names and grouping by day and track),
 // its firmware file check (the "firmware check" part), and its Settings tab
 // (the "settings" part: the field list, the time zone and speed text, the
-// form body, and that the names and values agree with include/SettingsData.h).
+// form body, and that the names and values agree with include/SettingsData.h), and the
+// track editor's rules (the "track editor" part: reading a .vbo, track ids, moving the line,
+// splits, corner names, new layouts).
 //
 //   node test/test_web.js
 
@@ -34,6 +36,14 @@ if (!sm) {
 }
 const {SETTINGS, tzText, speedText, settingBody} = new Function(sm[1] + "\nreturn {SETTINGS, tzText, speedText, settingBody};")();
 const header = readText("include", "SettingsData.h");
+
+const em = html.match(/\/\/ ---- track editor \(begin[^\n]*\n([\s\S]*?)\/\/ ---- track editor \(end\) ----/);
+if (!em) {
+  console.log("FAIL: track editor section not found in web/index.html");
+  process.exit(1);
+}
+const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
+                        " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout};")();
 
 let failures = 0;
 function check(cond, msg) {
@@ -250,6 +260,114 @@ for (const f of SETTINGS) {
   if (hasRange) {
     check(f.range.length === 3 && f.range.every((n) => typeof n === "number"), `${where} range is [lo, hi, step] numbers`);
   }
+}
+
+
+// ---- the track editor ----
+console.log("Wi-Fi page track editor tests");
+{
+  const near = (a, b, tol, msg) => check(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+  // toLocal / fromLocal: the device's numbers (GeoMath.h), and back again
+  const p = ED.toLocal(45.001, -74.999, 45, -75);
+  near(p.y, 111.195, 0.01, "1/1000 degree north");
+  near(p.x, 78.63, 0.01, "1/1000 degree east at 45 N");
+  const back = ED.fromLocal(p.x, p.y, 45, -75);
+  near(back.lat, 45.001, 1e-9, "back to lat");
+  near(back.lon, -74.999, 1e-9, "back to lon");
+
+  // A log as the device writes it (VboFormat.cpp): minutes, west positive, CRLF, a cut last line
+  const vbo = ["File created on 18/10/2026 @ 10:00:00", "", "[header]", "satellites", "time", "", "[comments]",
+    "Track Rat GPS lap timer", "Track: calabogie", "Start/finish: 45.1 -76.6 15", "", "[column names]",
+    "sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag", "", "[data]",
+    "014 100000.000 +02706.00000000 +04596.00000000 120.000 090.00 +00100.00 0.6 0 +0.00 +0.00 0",
+    "014 100000.050 +02706.00060000 +04595.99900000 121.000 090.00 +00100.00 0.6 1 +0.00 +0.00 0",
+    "014 100000.100 +02706.0012"].join("\r\n");
+  const log = ED.parseVbo(vbo);
+  check(log.comments["Track"] === "calabogie" && log.comments["Start/finish"] === "45.1 -76.6 15", "comments");
+  check(log.points.length === 2, "two whole fixes, the cut one left out: " + log.points.length);
+  near(log.points[0].lat, 45.1, 1e-9, "lat from minutes");
+  near(log.points[0].lon, -76.6, 1e-9, "lon from minutes, sign reversed");
+  check(log.points[0].kmh === 120 && log.points[0].lap === 0 && log.points[1].lap === 1, "speed and lap");
+  check(ED.parseVbo("").points.length === 0, "an empty file");
+
+  // Track ids, as TrackDatabase.cpp makes them
+  const db = () => ({tracks: [
+    {id: "calabogie", name: "Calabogie", startFinish: {lat: 45.1, lon: -76.6, radius: 15}, map: [[[45, -76], [45.1, -76.1]]],
+     sectors: [{lat: 45.2, lon: -76.7, radius: 15, heading: 90}]},
+    {id: "mosport", name: "CTMP", layouts: [{name: "Grand Prix", startFinish: {lat: 44, lon: -78, radius: 15}},
+                                             {name: "Driver Development Track", id: "ddt"}, {name: "Grand Prix"}]},
+  ]});
+  check(ED.slug("Short Course!") === "short-course" && ED.slug("  -GP 2- ") === "gp-2", "slug");
+  const ids = ED.trackList(db()).map((t) => t.id);
+  check(JSON.stringify(ids) === JSON.stringify(["calabogie", "mosport.grand-prix", "mosport.ddt", "mosport.grand-prix-3"]),
+        "track ids " + ids.join(", "));
+  check(ED.findTrack(db(), "mosport.ddt").obj.id === "ddt" && ED.findTrack(db(), "nope") === null, "findTrack");
+
+  // A path: east along y = 0, then north
+  const path = [];
+  for (let x = 0; x <= 100; x += 5) path.push({x, y: 0});
+  for (let y = 5; y <= 100; y += 5) path.push({x: 100, y});
+  check(ED.nearestIndex(path, 52, 3) === 10, "nearest point");
+  near(ED.headingAt(path, 5), 90, 0.01, "heading east");
+  near(ED.headingAt(path, 30), 0, 0.01, "heading north");
+  near(ED.headingAt(path, 20), 45, 1, "round the corner");
+
+  // Moving the line drops the corner sectors (numbered from the old line), keeps the gate's width
+  let d = db();
+  let t = ED.findTrack(d, "calabogie");
+  check(ED.setLine(t.obj, 45.10000004, -76.6, 90) === true, "sectors were there");
+  check(t.obj.startFinish.lat === 45.1 && t.obj.startFinish.heading === 90 && t.obj.startFinish.radius === 15, "line moved");
+  check(!("sectors" in t.obj), "sectors dropped");
+  check(ED.setLine(t.obj, 45.1, -76.6, 90) === false, "no sectors the second time");
+  check(ED.flipLine(t.obj) && t.obj.startFinish.heading === 270, "flipped");
+  check(ED.flipLine(t.obj) && t.obj.startFinish.heading === 90, "flipped back");
+  check(!ED.flipLine(ED.findTrack(d, "mosport.grand-prix").obj), "no direction to flip");
+
+  // Splits are kept in lap order, however they're added
+  const ref = {lat: 45.1, lon: -76.6};
+  const at = (x, y) => ED.fromLocal(x, y, ref.lat, ref.lon);
+  let q = at(100, 50);
+  ED.addSplit(t.obj, q.lat, q.lon, 0, path, ref.lat, ref.lon);
+  q = at(50, 0);
+  ED.addSplit(t.obj, q.lat, q.lon, 90, path, ref.lat, ref.lon);
+  check(t.obj.splits.length === 2 && t.obj.splits[0].heading === 90 && t.obj.splits[1].heading === 0, "splits in lap order");
+  check(t.obj.splits[0].radius === 15, "split as wide as the line");
+  check(ED.removeSplit(t.obj, 0) && t.obj.splits.length === 1 && t.obj.splits[0].heading === 0, "removed S1");
+  check(ED.removeSplit(t.obj, 0) && !("splits" in t.obj), "no splits left: the key goes");
+  check(!ED.removeSplit(t.obj, 0), "nothing to remove");
+  // Counted from the start/finish, wherever the log's lap began: with the line moved round the corner,
+  // a split just after it is S1 and one before the corner is the last
+  const moved = {startFinish: (() => { const m = at(100, 50); return {lat: m.lat, lon: m.lon, radius: 15, heading: 0}; })()};
+  q = at(50, 0);
+  ED.addSplit(moved, q.lat, q.lon, 90, path, ref.lat, ref.lon);
+  q = at(100, 75);
+  ED.addSplit(moved, q.lat, q.lon, 0, path, ref.lat, ref.lon);
+  check(moved.splits[0].heading === 0 && moved.splits[1].heading === 90, "splits counted from the moved line");
+
+  // Corner names
+  d = db();
+  t = ED.findTrack(d, "calabogie");
+  check(ED.renameSector(t.obj, 0, "  The Wall  ") && t.obj.sectors[0].name === "The Wall", "named");
+  check(ED.renameSector(t.obj, 0, "") && !("name" in t.obj.sectors[0]), "name cleared");
+  check(!ED.renameSector(t.obj, 5, "x"), "no such corner");
+  check(ED.renameSector(t.obj, 0, "x".repeat(40)) && t.obj.sectors[0].name.length === 24, "names are kept short");
+
+  // A venue split into layouts: what it had becomes "Main"
+  d = db();
+  const id = ED.addLayout(d, "calabogie", "Short");
+  const v = d.tracks[0];
+  check(id === "calabogie.short", "new layout id " + id);
+  check(v.layouts.length === 2 && v.layouts[0].name === "Main" && v.layouts[1].name === "Short", "Main and Short");
+  check(!("startFinish" in v) && !("map" in v) && !("sectors" in v), "moved off the venue");
+  check(v.layouts[0].sectors && !v.layouts[1].sectors, "corners stay with Main");
+  check(JSON.stringify(v.layouts[1].startFinish) === JSON.stringify(v.layouts[0].startFinish), "Short starts from Main's line");
+  v.layouts[1].startFinish.lat = 1;
+  check(v.layouts[0].startFinish.lat === 45.1, "a copy, not the same object");
+  check(ED.findTrack(d, "calabogie.main") && ED.findTrack(d, "calabogie.short"), "both listed");
+  check(ED.addLayout(d, "calabogie.short", "main") === null, "a taken name");
+  check(ED.addLayout(d, "calabogie.short", "  ") === null, "no name");
+  check(ED.addLayout(d, "calabogie.short", "Club") === "calabogie.club" && v.layouts.length === 3, "a third layout");
+  check(ED.addLayout(d, "nope", "X") === null, "no such track");
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");

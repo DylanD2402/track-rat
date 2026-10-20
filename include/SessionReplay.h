@@ -5,7 +5,8 @@
  * (any chunk size), each fix goes through the same LapTimer (or FreeRoam)
  * the live session used, set up from the lines recorded in the log's header.
  * Used at boot to rebuild the summary of a session cut short by a power cut,
- * and later for re-timing with a moved line.
+ * and for re-timing (the Wi-Fi page's track editor): useLines() times it with
+ * the track's lines as they are now instead of the ones in the log.
  *
  * No Arduino dependencies: tested in test/test_vbo.cpp.
  */
@@ -34,6 +35,16 @@ public:
   // they share the start/finish the header's track was timed at.
   std::string summaryTrackId;
 
+  // Re-timing: time every fix with these lines (the track as it is now), not
+  // the ones recorded in the log's header. The session is named after
+  // summaryTrackId if that's set. Call before feeding.
+  void useLines(const TrackPoint& sf, const std::vector<TrackPoint>& splits, const std::vector<TrackPoint>& sectors) {
+    overrideLines = true;
+    lineSf = sf;
+    lineSplits = splits;
+    lineSectors = sectors;
+  }
+
   void feed(const char* data, size_t len);
   void finish();  // after the last byte
 
@@ -53,6 +64,9 @@ public:
 private:
   static const size_t MAX_LINE = 255;
   LineLookup lookup;
+  bool overrideLines = false;
+  TrackPoint lineSf = {0, 0, 0, 0, HeadingFrom::None};
+  std::vector<TrackPoint> lineSplits, lineSectors;
   vbo::Reader rdr;
   bool setUp = false;
   uint32_t lastUtc = 0;

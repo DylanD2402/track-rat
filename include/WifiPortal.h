@@ -17,6 +17,7 @@
 #define WIFI_PORTAL_H
 
 #include <Arduino.h>
+#include <functional>
 #include "GPSHandler.h"
 
 namespace WifiPortal {
@@ -46,6 +47,12 @@ int uploadCodeValue();
 // The phone's time zone, minutes east of UTC (0 until a phone has sent one).
 // Session files are named in this local time.
 int timeZoneOffset();
+
+// Re-timing asked for on the page (POST /api/retime, behind the upload code):
+// loop() calls this on the main loop with the track id and the log ("" for
+// every session at the track). It starts SessionLog::retime and says why not.
+using RetimeHandler = std::function<bool(const String& trackId, const String& logName, String& error)>;
+void onRetime(RetimeHandler handler);
 
 }  // namespace WifiPortal
 

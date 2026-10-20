@@ -499,6 +499,7 @@ What the page does:
 
 - **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
 - **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list. If power is cut mid-save (here or on the device) and `tracks.json` is gone, the next boot puts back the newest complete copy it finds (`.tmp`, `.upload`, then `.bak`).
+- **Track editor** (on the Tracks tab): see [Track editor and re-timing](#track-editor-and-re-timing) below.
 - **Firmware:** install a new `firmware.bin` (from `.pio/build/es3c28p/` after `pio run`). The page and Track Rat both check the file first, as the SD card update does: it must be an ESP32-S3 app image that fits the slot, so a `bootloader.bin` or a file for another chip is refused before anything is written. A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
 - **Device:** firmware version, free space on the card and in flash, GPS status and memory.
 - **Settings:** the same items as the Settings screen on Track Rat; see [Settings](#settings). Changing one asks for the upload code and takes effect at once, except the GPS mode, which waits for a restart (the page offers one). The time zone is shown but not changed here.
@@ -510,8 +511,22 @@ Good to know:
 - **Wi-Fi is off while timing.** It's only on while the Wi-Fi screen shows, and starting a session turns it off. Bluetooth (RaceBox) keeps working while it's on.
 - **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open http://192.168.4.1 in Safari or Chrome while still on the TrackRat network.
 - **Mobile data:** some phones keep using mobile data for everything when a Wi-Fi network has no internet. If the page won't load, tell the phone to stay connected or turn mobile data off.
-- **Upload code:** installing firmware, replacing `tracks.json` or changing a setting asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
+- **Upload code:** installing firmware, replacing `tracks.json` (or saving the track editor's lines), re-timing or changing a setting asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
 - **Anyone nearby can join** and download sessions while it's on, so turn it off when you're done.
+
+### Track editor and re-timing
+
+Record first, decide later: a wrong start/finish, a missing split or a layout Track Rat didn't know never costs a session, because every fix is in the log.
+
+1. On the **Tracks** tab, pick a session (any `.vbo` log on the SD card). Its laps are drawn from the log on your phone, no map download needed: every lap in grey, one in full, with the track's start/finish (green, with an arrow the way the track runs), splits (blue, S1, S2...) and corners (purple, T1, T2... or their names) on top. The track is the one the log names; pick another from the list if it was timed at the wrong one.
+2. Edit:
+   - **Move line:** tap the path where the start/finish should be. Its direction is taken from the path there. The corner sectors go with the old line, as with SET LINE on the device: Track Rat makes them again from the next clean lap.
+   - **Flip direction:** turns the line round.
+   - **Add split / Remove split:** tap the path to add one (numbered in the order a lap passes them, from the line), or tap a split to remove it.
+   - **Corners:** type a name for any corner sector ("The Wall"); clear it to go back to the number. Names are saved in `tracks.json` (`"name"` on each of `"sectors"`).
+   - **New layout:** makes a layout of the venue (for example a short course), starting from this track's line, splits and map. A venue with no layouts keeps what it had as a layout called **Main**, as `tools/fetch_track_map.py` does.
+3. **Save lines:** asks for the upload code and sends the edited `tracks.json`, the same way as uploading one: the old file is kept as `tracks.json.bak` and Track Rat restarts to load it.
+4. Turn Wi-Fi on again and open the editor: **Re-time** times **this session** or **every session at this track** again from their logs, with the lines Track Rat has now. It runs in the background on the device (the page shows how far it is, and the Wi-Fi screen stays on until it's done), rewrites each session's summary (laps, splits, sectors, tags), and puts the PB and the best of the day right: the quickest clean lap replaces a stored one that was timed at another line, or that it beats. A session needs its `.vbo` log on the SD card to be re-timed.
 
 ### Changing the page
 
@@ -657,6 +672,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_timing.cpp src/LapTimer.cpp -o
 g++ -std=c++17 -Iinclude test/test_situation.cpp -o /tmp/sit && /tmp/sit
 ```
 
+`test/test_retime.cpp` checks re-timing: a logged session timed again with the line moved round the track (laps split in the new places), with a split or corner sectors added, from a log with no line in its header, and named after the track asked for; and the rules for which logs are re-timed and when the PB and the best of the day are replaced:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_retime.cpp src/VboFormat.cpp src/SessionReplay.cpp src/LapTimer.cpp -o /tmp/rt && /tmp/rt
+```
+
 `test/test_bestlap.cpp` checks the best-lap files (round trip, and damaged or cut-short files refused), which stored lap the Compare with setting picks, when a lap is a PB or the best of the day (never a tagged one), and the live diff from a stored lap in the real lap timer, from lap 1 until a quicker lap takes over:
 
 ```bash
@@ -687,7 +708,7 @@ g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 ```
 
-`test/test_web.js` checks how the page groups session files by day and track, that its firmware file check says the same as the board, and that its Settings tab uses the board's field names and values (needs Node.js):
+`test/test_web.js` checks how the page groups session files by day and track, that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts) (needs Node.js):
 
 ```bash
 node test/test_web.js
@@ -779,6 +800,7 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            LogRing.h (log buffer), UiTheme.h (screen size, colours),
            TimingScreen.h (the timing screen's colours, trend bar, sector strip and ghost),
            SituationScreen.h (the slow screen, the pit lane, the session clock),
+           Retime.h (which sessions are re-timed, when best laps are replaced),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
            the Settings and first-boot screens), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,

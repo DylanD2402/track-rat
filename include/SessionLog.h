@@ -72,6 +72,22 @@ uint32_t fixesLogged();  // in the current (or last) log
 void recoverUnfinished(const TrackDatabase& tracks);
 bool recovering();  // the recovery task is still running
 
+// Re-timing (the Wi-Fi page, after the track's lines were edited): times
+// sessions at `track` again from their logs with its lines as they are now,
+// rewrites their summaries and puts its best laps right (rules in Retime.h).
+// logName: one log ("a.vbo"), or "" for every session at the track. Returns
+// at once: a task on core 0 does it. False (and why in `error`) if it can't
+// start: no SD card, a session being logged, or recovery or a re-time running.
+bool retime(const Track& track, const String& logName, String& error);
+struct RetimeStatus {
+  bool running = false;
+  int done = 0, total = 0;  // logs
+  int laps = 0;             // laps timed so far
+  String message;           // the last thing it did, or why it stopped
+};
+RetimeStatus retimeStatus();
+bool retiming();  // the re-time task is running (cheap: for every loop)
+
 String fileName(const String& path);  // "/sessions/a.vbo" -> "a.vbo"
 
 }  // namespace SessionLog
