@@ -135,6 +135,28 @@ int main() {
     CHECK(!find(d, loop), "there and back isn't a loop");
   }
 
+  // A tight kart track: two long straights 12 m apart, the second back the other way. Still a track.
+  {
+    const double r = 6, straight = 300, len = 2 * straight + 2 * M_PI * r;
+    auto kart = [=](double s, double& x, double& y) {
+      s = fmod(s, len);
+      if (s < straight) { x = s; y = 0; return; }
+      s -= straight;
+      if (s < M_PI * r) { const double a = s / r; x = straight + r * sin(a); y = r - r * cos(a); return; }
+      s -= M_PI * r;
+      if (s < straight) { x = straight - s; y = 2 * r; return; }
+      s -= straight;
+      const double a = s / r;
+      x = -r * sin(a);
+      y = r + r * cos(a);
+    };
+    Drive d;
+    d.drive(kart, 3 * len + 20, 50);
+    Loop loop;
+    CHECK(find(d, loop) && fabs(loop.lap1M - len) < 30, "kart track with close straights: %.0f of %.0f m", loop.lap1M,
+          len);
+  }
+
   // A figure of eight: crossing itself at right angles never matches; the eight driven twice is a track
   {
     const double a = 300;

@@ -122,7 +122,8 @@ private:
     // Earlier passes close to here, the same way, newest first (not this
     // pass itself). Points of one pass are seconds apart; its closest point
     // stands for it.
-    std::vector<Pass> passes;
+    Pass passes[2];
+    size_t np = 0;
     const float r2 = LEARN_MATCH_M * LEARN_MATCH_M;
     for (size_t i = pts.size(); i-- > first;) {
       const Pt& q = pts[i];
@@ -131,14 +132,14 @@ private:
       if (fabsf(dx) > LEARN_MATCH_M || fabsf(dy) > LEARN_MATCH_M) continue;
       const float d2 = dx * dx + dy * dy;
       if (d2 > r2 || !q.fast || headingDiff(q.heading, now.heading) > LEARN_HEADING_DEG) continue;
-      if (!passes.empty() && pts[passes.back().i].t - q.t < PASS_GAP_MS) {
-        if (d2 < passes.back().d) passes.back().i = i, passes.back().d = d2;
+      if (np && pts[passes[np - 1].i].t - q.t < PASS_GAP_MS) {
+        if (d2 < passes[np - 1].d) passes[np - 1] = {i, d2};
       } else {
-        if (passes.size() == 2) break;  // only the last two are needed
-        passes.push_back({i, d2});
+        if (np == 2) break;  // only the last two are needed
+        passes[np++] = {i, d2};
       }
     }
-    if (passes.size() < 2) return false;
+    if (np < 2) return false;
     // The last two passes: each a whole loop before the next, the loops alike.
     // A pass in between (a loop under LEARN_MIN_LOOP_M driven over and over)
     // makes them the wrong two.
@@ -181,14 +182,14 @@ private:
           break;
         }
       }
-      if (back * 2 > n) return true;               // most of it: retraced
-      if ((back + (to - i - 1)) * 2 <= n) return false;  // can't be any more
+      if (back * 3 > n * 2) return true;                 // most of it: retraced
+      if ((back + (to - i - 1)) * 3 <= n * 2) return false;  // can't be any more
     }
     return false;
   }
 
   static constexpr uint32_t PASS_GAP_MS = 5000;  // closer than this: the same pass
-  static constexpr float RETRACE_M = 15.0f;      // the way back runs this close
+  static constexpr float RETRACE_M = 8.0f;       // the way back runs this close (a kart track's straights are further apart)
 };
 
 // The last fixes, oldest first, to time a learned track's loops from. A fixed

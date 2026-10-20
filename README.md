@@ -765,7 +765,7 @@ node test/test_web.js
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
 ```
 
-`test/test_tracklearn.cpp` checks tracks that learn themselves: a loop driven twice is found, with the line where the first loop began, and the lap timer then times every loop from the kept fixes; one lap round the block, a road driven out and back over and over, a figure of eight driven once, a short loop then a long one, a loop under 300 m, a slow car park and loops too long for the window are not tracks; a long drive keeps a bounded path; and the kept fixes stay in order:
+`test/test_tracklearn.cpp` checks tracks that learn themselves: a loop driven twice is found, with the line where the first loop began, and the lap timer then times every loop from the kept fixes; a tight kart track whose straights run back alongside each other still counts; one lap round the block, a road driven out and back over and over, a figure of eight driven once, a short loop then a long one, a loop under 300 m, a slow car park and loops too long for the window are not tracks; a long drive keeps a bounded path; and the kept fixes stay in order:
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_tracklearn.cpp src/LapTimer.cpp -o /tmp/tl && /tmp/tl
