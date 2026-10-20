@@ -148,16 +148,6 @@ Whichever is picked, a quicker lap in this session takes over as the reference. 
 
 The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
 
-### The pit debrief
-
-When you park, the screen answers "where's the time?":
-
-- **Best lap, theoretical best and the gap** ("0.70 s on the table"). The theoretical best is the sum of your best time in each corner sector this session. Underneath: how many laps were used (clean laps timed through every sector; tagged laps are left out) and the theoretical best ever at this track (layout).
-- **The three sectors where your best lap lost the most** against your best in that sector, marked 1, 2, 3 on the map, each with the lap the best came from and one hint from comparing the two laps' GPS speed through it: **braked 8 m early**, **4 km/h slower at the apex** (the slowest point) or **3 km/h slower on exit**, whichever cost the most. The losses in every sector add up exactly to the gap.
-- **Tap** for the second page: every lap with its tag, every sector's best time with the lap it came from and what your best lap lost there, and this session against the last one here ("Best 1.04 s quicker than session 1"). Tap again for the timing screen; driving off goes back to it by itself.
-
-The best sector times ever and the last session's best are kept in `/tracks/<track id>/stats.json`, next to the [best laps](#session-logs). Sector times set through other gates (sectors made again after SET LINE) start afresh.
-
 **Corner sectors.** After your first clean lap at a track, Track Rat cuts that lap into sectors, one per corner or complex: each starts at the fastest point before a braking zone, so it holds the braking, the corner and the straight after it, and a good exit counts for the corner that earned it. Braking zones closer than 3 s are joined (a chicane is one sector), and a fast sweeper you take flat out isn't one. They're numbered T1, T2 and so on from the line, saved with the track in `tracks.json` (`"sectors"`) when the session ends, and every lap after is timed through them. Your own splits stay separate, as S1, S2... Moving the start/finish line (SET LINE) makes them again from the next clean lap; to make them again otherwise, delete the track's `"sectors"` from `tracks.json`.
 
 **Lap tags.** Each lap is checked, and a lap that can't be trusted is tagged:
@@ -167,6 +157,16 @@ The best sector times ever and the last session's best are kept in `/tracks/<tra
 - **SUSPECT:** a gap of more than 1 s between GPS fixes, a fix less accurate than ±5 m (u-blox only), or a lap more than 5% longer or shorter than the session's usual lap (a cut, once there are 3 laps to compare).
 
 A tagged lap is never the best lap or the live-diff reference, and isn't counted in the average. The summary lists the tags beside the lap times. The slow and length checks are made again after every lap, so a short first lap that looked like the best loses that place once later laps show it was cut; the next clean lap then stands in as the live-diff reference until there's a new best.
+
+### The pit debrief
+
+When you park, the screen answers "where's the time?":
+
+- **Best lap, theoretical best and the gap** ("0.70 s on the table"). The theoretical best is the sum of your best time in each corner sector this session. Underneath: how many laps were used (clean laps timed through every sector; tagged laps are left out) and the theoretical best ever at this track (layout).
+- **The three sectors where your best lap lost the most** against your best in that sector, marked 1, 2, 3 on the map, each with the lap the best came from and one hint from comparing the two laps' GPS speed through it: **braked 8 m early**, **4 km/h slower at the apex** (the slowest point) or **3 km/h slower on exit**, whichever cost the most. The losses in every sector add up exactly to the gap.
+- **Tap** for the second page: every lap with its tag, every sector's best time with the lap it came from and what your best lap lost there, and this session against the last one here ("Best 1.04 s quicker than session 1"). Tap again for the timing screen; driving off goes back to it by itself.
+
+The best sector times ever and the last session's best are kept in `/tracks/<track id>/stats.json`, next to the [best laps](#session-logs). Sector times set through other gates (sectors made again after SET LINE) start afresh.
 
 ## Settings
 
