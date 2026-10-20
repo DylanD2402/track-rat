@@ -261,6 +261,8 @@ All of these use the spare pins on the expansion header, with the GPS on the UAR
 
 **IMU status: done, untested on hardware** (2026-10-20, commit 91794f5). An LSM6DSO-class IMU on the I2C header is found at boot (`IMU_ENABLED`, default on, harmless with none), learns how it's mounted, and then gives the log and the RaceBox packet real g. Only the maths is host-tested.
 
+**CAN / OBD-II status: done, untested on hardware** (2026-10-20, commit COMMIT). TWAI on IO3/IO14 with an SN65HVD230; engine speed, throttle and coolant temperature into the log, and a shift light on the LED bar. `CAN_ENABLED` is off by default (IO14 is a GPS pin on the header). Only the OBD-II parsing, polling and shift light are host-tested.
+
 ## Not planned, and why
 
 - **Video recording.** No camera input or video encoder. A GoPro does it better, and most GoPros record GPS time, so overlay tools can line the footage up with Track Rat's UTC-stamped logs. The RaceBox Bluetooth link already feeds phone apps that record video with overlays.
