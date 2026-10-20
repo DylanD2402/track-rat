@@ -178,6 +178,8 @@ def main():
     ap.add_argument("--include-drag", action="store_true")
     ap.add_argument("--no-karting", action="store_true")
     ap.add_argument("--print-query", action="store_true", help="print the Overpass query and exit")
+    ap.add_argument("--no-locations", action="store_true",
+                    help="don't look up town and province for new tracks (see fill_track_locations.py)")
     args = ap.parse_args()
 
     if args.print_query:
@@ -219,6 +221,11 @@ def main():
         refs.append((t["name"], [t["center"]["lat"], t["center"]["lon"]], None))
         existing.append(t)
         added.append(t)
+
+    if added and not args.no_locations:
+        print(f"Looking up the town and province of {len(added)} new track(s)...")
+        from fill_track_locations import fill_locations
+        fill_locations(added, quiet=True)
 
     with open(args.db, "w", encoding="utf-8") as f:
         json.dump(db, f, indent=1)
