@@ -143,6 +143,33 @@ check(named.days[0][0] === "2026-10-17", "local name stays on its own day");
 p = parseFile(file("20261340_220000_calabogie.json"), -240);
 check(p === null, "bad date with a time zone still rejected");
 
+// Logbook notes: kept with their session, not as a file chip, under the log's name
+const ng = groupSessions([
+  file("20261018_093012_calabogie.json"),
+  file("20261018_093012_calabogie_note.json"),
+  file("20261018_093012_calabogie.vbo"),
+  file("20261018_151500_calabogie.json"),
+  file("SIM_12_bench.vbo"),
+  file("SIM_12_bench_note.json"),
+], utcDay);
+const ncal = ng.days[0][1].find((t) => t[0] === "calabogie")[1];
+check(ncal.length === 2, "a note isn't a session of its own: " + ncal.length);
+const withNote = ncal.find((x) => x.noteFile);
+check(withNote && withNote.noteFile.name === "20261018_093012_calabogie_note.json", "note found");
+check(withNote && withNote.files.map((x) => x.label).join(",") === "JSON,VBO", "note not a file chip: " +
+      (withNote && withNote.files.map((x) => x.label)));
+check(withNote && withNote.base === "20261018_093012_calabogie", "base " + (withNote && withNote.base));
+const noNote = ncal.find((x) => !x.noteFile);
+check(noNote && noNote.base === "20261018_151500_calabogie", "base from the summary " + (noNote && noNote.base));
+const sim = ng.days.flatMap((d) => d[1]).find((t) => t[0] === "bench")[1][0];
+check(sim.noteFile && sim.base === "SIM_12_bench" && sim.files.length === 1, "simulated session's note");
+p = parseFile(file("20261018_093012_calabogie_note.json.bak"));
+check(p && p.label === "JSON.BAK", "only _note.json is a note: " + (p && p.label));
+const perfNote = groupSessions([file("20261018_093012_perf_perf.json"), file("20261018_093012_perf_perf_note.json")], utcDay);
+const ps = perfNote.days[0][1][0][1];
+check(ps.length === 1 && ps[0].noteFile && ps[0].base === "20261018_093012_perf_perf", "performance session's note: " +
+      (ps[0] && ps[0].base));
+
 // Firmware files: same words as firmware::describe in include/FirmwareImage.h
 function image(size, chip = 0x0009, appDesc = true) {
   const b = new Uint8Array(size);

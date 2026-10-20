@@ -497,7 +497,7 @@ Get your sessions onto your phone without taking the SD card out.
 
 What the page does:
 
-- **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone.
+- **Sessions:** every file in `/sessions`, by day and track, newest first. Tap a file to download it. Files from the same session (`.json`, `.vbo` and so on) are shown together. Times are in your phone's time zone. Each session has its logbook note under it: see [Logbook](#logbook) below.
 - **Tracks:** download the `tracks.json` Track Rat is using, or upload an edited one. The old one is kept as `tracks.json.bak`, and Track Rat restarts to load the new list. If power is cut mid-save (here or on the device) and `tracks.json` is gone, the next boot puts back the newest complete copy it finds (`.tmp`, `.upload`, then `.bak`).
 - **Track editor** (on the Tracks tab): see [Track editor and re-timing](#track-editor-and-re-timing) below.
 - **Compare:** any two laps at a track, from any sessions: speed against distance, the time gap against distance, and the map coloured by who was faster where. Plus the season: your best lap at each visit and your PB over time. See [Lap comparison](#lap-comparison) below.
@@ -512,7 +512,7 @@ Good to know:
 - **Wi-Fi is off while timing.** It's only on while the Wi-Fi screen shows, and starting a session turns it off. Bluetooth (RaceBox) keeps working while it's on.
 - **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open http://192.168.4.1 in Safari or Chrome while still on the TrackRat network.
 - **Mobile data:** some phones keep using mobile data for everything when a Wi-Fi network has no internet. If the page won't load, tell the phone to stay connected or turn mobile data off.
-- **Upload code:** installing firmware, replacing `tracks.json` (or saving the track editor's lines), re-timing or changing a setting asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
+- **Upload code:** installing firmware, replacing `tracks.json` (or saving the track editor's lines), re-timing, saving a note or changing a setting asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
 - **Anyone nearby can join** and download sessions while it's on, so turn it off when you're done.
 
 ### Track editor and re-timing
@@ -539,6 +539,18 @@ On the **Compare** tab, pick a track, then lap **A** (blue) and lap **B** (orang
 - **Season:** the best lap of each visit (day) at the track, newest first, with your PB as it stood then, and a chart of both over time.
 
 Laps are cut where they were cut live (the log's Lap column). After [re-timing](#track-editor-and-re-timing) with a moved line, the lap list follows the new summary but the traces still follow the old cuts.
+
+### Logbook
+
+Keep a note with each session: tyre pressures, the weather, setup changes, what your instructor said.
+
+1. On the **Sessions** tab, tap **Add note** under a session (or **Edit note** to change one).
+2. Type it and tap **Save note**. It asks for the upload code. Up to 1000 bytes (about 1000 letters, fewer with accents or emoji).
+3. To delete a note, clear it and save.
+
+The note is saved next to the session as `<date>_<time>_<track id>_note.json` (`{"note": "..."}`), on the SD card or in flash, wherever the session is. When you download the session's `.vbo` from the page, the note is in its `[comments]` as `Note: ...` lines, so Circuit Tools shows it too. The file on the card is not changed, so a `.vbo` copied straight off the card has no note.
+
+**Voice notes** (hold on the debrief to record 30 s with the board's microphone) aren't built yet: the microphone's codec (ES8311) has to be brought up on a board first. `VOICE_NOTES_ENABLED` in `Config.h` stays 0 until then.
 
 ### Changing the page
 
@@ -702,6 +714,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_bestlap.cpp src/LapTimer.cpp -
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_sessions.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/ses && /tmp/ses
 ```
 
+`test/test_logbook.cpp` checks the logbook's notes: which session names the page may save a note for, how a typed note is cleaned up (line ends, control characters, the 1000-byte limit without cutting a letter in half), the note file's JSON, and the note's lines put into a `.vbo` download after `[comments]`, sent in pieces of every size:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_logbook.cpp -o /tmp/lb && /tmp/lb
+```
+
 `test/test_trackorder.cpp` checks the track list order: nearest first, layouts of one venue together at the distance of its closest layout, `tracks.json` order with no GPS fix, and Bench Test last:
 
 ```bash
@@ -720,7 +738,7 @@ g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 ```
 
-`test/test_web.js` checks how the page groups session files by day and track, that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts), and the lap comparison (laps from a log across midnight, speed and gap against distance with lap lengths that differ, who was faster where, the season and its PBs) (needs Node.js):
+`test/test_web.js` checks how the page groups session files by day and track (a session's logbook note kept with it), that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts), and the lap comparison (laps from a log across midnight, speed and gap against distance with lap lengths that differ, who was faster where, the season and its PBs) (needs Node.js):
 
 ```bash
 node test/test_web.js

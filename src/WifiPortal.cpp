@@ -11,6 +11,7 @@
 #include "WifiPortal.h"
 #include "Config.h"
 #include "FirmwareUpdate.h"
+#include "Logbook.h"
 #include "PortalLogic.h"
 #include "SessionLog.h"
 #include "Settings.h"
@@ -26,6 +27,10 @@
 #include <mutex>
 #include "ff.h"
 #include "diskio_sdmmc.h"  // after ff.h, whose BYTE it uses
+
+#if VOICE_NOTES_ENABLED
+#error "Voice notes aren't built yet (see Config.h)"
+#endif
 
 #ifndef TRACKRAT_VERSION
 #define TRACKRAT_VERSION "dev"  // set from git by tools/build_web.py
@@ -95,6 +100,16 @@ static void saveTimeZoneOffset(int minutesEastOfUtc) {
   DEBUG_PRINTF("Wi-Fi: time zone set to UTC%+d min\n", Settings::get().utcOffsetMin);
 }
 
+// Changes from the page need the 4-digit code on Track Rat's screen. False
+// (and the reply sent) when the code is wrong.
+static bool codeOk(AsyncWebServerRequest* req) {
+  if (uploadCode.check(req->arg("code").c_str())) return true;
+  req->send(403, "text/plain",
+            uploadCode.locked() ? "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code."
+                                : "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Settings tab: GET /api/settings sends them, POST changes any of them by name
 // (the names and values are in SettingsData.h). Changing them needs the
@@ -115,12 +130,7 @@ static void sendSettings(AsyncWebServerRequest* req, int code, bool restartNeede
 }
 
 static void onSettingsPost(AsyncWebServerRequest* req) {
-  if (!uploadCode.check(req->arg("code").c_str())) {
-    req->send(403, "text/plain",
-              uploadCode.locked() ? "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code."
-                                  : "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
-    return;
-  }
+  if (!codeOk(req)) return;
   const SettingsData before = Settings::get();
   SettingsData s = before;
   for (size_t i = 0; i < req->params(); i++) {
@@ -352,6 +362,98 @@ static void sendInfo(AsyncWebServerRequest* req) {
 }
 
 // ---------------------------------------------------------------------------
+// The logbook (Logbook.h): a note per session, saved as <base>_note.json next
+// to it. A .vbo downloaded while it has a note gets the note in its [comments].
+
+// POST /api/note: code, fs (sd or flash), base (the session's file name
+// without .vbo/.json), note (empty deletes it). Small, so written here.
+static void onNotePost(AsyncWebServerRequest* req) {
+  if (!codeOk(req)) return;
+  fs::FS* fs = fsByName(req->arg("fs"));
+  const String base = req->arg("base");
+  if (!fs || !logbook::validBase(base.c_str())) {
+    req->send(400, "text/plain", "Bad session");
+    return;
+  }
+  const String dir = String(SESSION_DIR) + "/";
+  if (!fs->exists(dir + base + ".vbo") && !fs->exists(dir + base + ".json")) {
+    req->send(404, "text/plain", "No such session");
+    return;
+  }
+  const std::string note = logbook::clean(req->arg("note").c_str());
+  const String path = logbook::notePath(SESSION_DIR, base.c_str()).c_str();
+  const String tmp = String(SESSION_DIR) + "/.note.tmp";  // handlers run one at a time
+  bool ok = true;
+  if (note.empty()) {
+    if (fs->exists(path)) ok = fs->remove(path);
+  } else {
+    const std::string json = logbook::noteJson(note);
+    File f = fs->open(tmp, "w");
+    ok = f && f.write((const uint8_t*)json.data(), json.size()) == json.size();
+    if (f) f.close();
+    if (ok) {
+      if (fs->exists(path)) fs->remove(path);  // FAT won't rename over a file
+      ok = fs->rename(tmp, path);
+    }
+    if (!ok) fs->remove(tmp);
+  }
+  spaceValid = false;
+  DEBUG_PRINTF("Wi-Fi: note for %s %s (%u bytes)\n", base.c_str(), ok ? "saved" : "NOT saved", (unsigned)note.size());
+  if (!ok) {
+    req->send(500, "text/plain", "Couldn't save the note. Is the card full?");
+    return;
+  }
+  req->send(200, "application/json", logbook::noteJson(note).c_str());
+}
+
+// The note in <base>_note.json, or empty
+static std::string readNote(fs::FS& fs, const String& base) {
+  File f = fs.open(logbook::notePath(SESSION_DIR, base.c_str()).c_str());
+  if (!f || f.size() > 4 * logbook::MAX_NOTE) return std::string();
+  DynamicJsonDocument doc(3 * logbook::MAX_NOTE);
+  if (deserializeJson(doc, f)) return std::string();
+  const char* note = doc["note"] | "";
+  return logbook::clean(note);
+}
+
+// A .vbo with a note: sent with the note's lines after "[comments]". False
+// if it has no note (or no [comments]), to send the file as it is.
+static bool sendVboWithNote(AsyncWebServerRequest* req, fs::FS& fs, const String& path, const String& name) {
+  const String base = name.substring(0, name.length() - 4);
+  if (!logbook::validBase(base.c_str())) return false;
+  if (!fs.exists(logbook::notePath(SESSION_DIR, base.c_str()).c_str())) return false;
+
+  struct Splice {
+    File f;
+    size_t size, at;
+    std::string lines;
+  };
+  std::shared_ptr<Splice> sp = std::make_shared<Splice>();
+  sp->lines = logbook::commentLines(readNote(fs, base));
+  if (sp->lines.empty()) return false;
+  sp->f = fs.open(path);
+  if (!sp->f) return false;
+  char head[1024];
+  const size_t n = sp->f.read((uint8_t*)head, sizeof(head));
+  sp->at = logbook::commentsEnd(head, n);
+  if (!sp->at) return false;
+  sp->size = sp->f.size();
+
+  AsyncWebServerResponse* res = req->beginResponse(
+      portal::contentTypeFor(name.c_str()), sp->size + sp->lines.size(),
+      [sp](uint8_t* buf, size_t maxLen, size_t index) -> size_t {
+        return logbook::splicedChunk(buf, maxLen, index, sp->size, sp->at, sp->lines,
+                                     [sp](size_t off, uint8_t* dst, size_t len) -> size_t {
+                                       if (sp->f.position() != off && !sp->f.seek(off)) return 0;
+                                       return sp->f.read(dst, len);
+                                     });
+      });
+  res->addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
+  req->send(res);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // tracks.json upload: written to a temp file, then swapped in, old one kept as .bak
 
 // Why an upload that didn't get to start was refused
@@ -559,6 +661,7 @@ static void setupRoutes() {
       req->send(404, "text/plain", "No such file");
       return;
     }
+    if (portal::endsWith(name.c_str(), ".vbo") && sendVboWithNote(req, *fs, path, name)) return;
     req->send(req->beginResponse(*fs, path, portal::contentTypeFor(name.c_str()), true));
   });
 
@@ -574,6 +677,7 @@ static void setupRoutes() {
   });
 
   s.on("/api/tracks", HTTP_POST, onTracksDone, onTracksUpload);
+  s.on("/api/note", HTTP_POST, onNotePost);
   s.on("/api/firmware", HTTP_POST, onFirmwareDone, onFirmwareUpload);
 
   // The page sends the phone's time zone: tz = minutes east of UTC
@@ -599,12 +703,7 @@ static void setupRoutes() {
 
   // Re-timing (the Tracks tab): track=<id>, file=<a .vbo in /sessions> or none for every session there
   s.on("/api/retime", HTTP_POST, [](AsyncWebServerRequest* req) {
-    if (!uploadCode.check(req->arg("code").c_str())) {
-      req->send(403, "text/plain",
-                uploadCode.locked() ? "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code."
-                                    : "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
-      return;
-    }
+    if (!codeOk(req)) return;
     const String track = req->arg("track"), file = req->arg("file");
     if (!track.length() || track.length() > 80 ||
         (file.length() && (!portal::isSafeFileName(file.c_str()) || !portal::endsWith(file.c_str(), ".vbo")))) {

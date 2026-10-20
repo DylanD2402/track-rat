@@ -598,6 +598,9 @@ static void switchLayout(int index, layout::Lines& map) {
         bool renamedVbo = sessionLog.length() && SessionLog::logging() && LogWriter::rename(oldVbo, newVbo);
         if (sessionLog.length() && !renamedVbo)
           DEBUG_PRINTF("Layout: could not queue renaming %s - the log keeps its old name\n", oldVbo.c_str());
+        // A note typed on the Wi-Fi page meanwhile (Logbook.h) goes with it
+        String oldNote = sessionBase + "_note.json";
+        if (fs->exists(oldNote)) fs->rename(oldNote, renamedBase + "_note.json");
         sessionBase = renamedBase;
         sessionPath = newJson;
         if (renamedVbo) sessionLog = SessionLog::fileName(newVbo);
