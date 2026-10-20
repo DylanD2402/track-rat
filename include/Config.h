@@ -113,6 +113,15 @@
 // RaceBox output once it has learned how it's mounted (Imu.h). Harmless with none fitted.
 // Untested on hardware.
 #define IMU_ENABLED 1
+// OBD-II over CAN: an SN65HVD230 transceiver on IO3 (TX) and IO14 (RX) to the car's OBD-II socket.
+// Engine speed, throttle and coolant temperature in the log, and a shift light on the LED bar
+// (CanObd.h). Off by default: IO14 is also a GPS pin on the header. Untested on hardware.
+#define CAN_ENABLED 0
+#define CAN_TX_PIN 3
+#define CAN_RX_PIN 14
+#define CAN_BITRATE_KBPS 500         // 500 for most cars since 2008; some use 250
+#define SHIFT_LIGHT_START_RPM 5500   // the LED bar starts filling here...
+#define SHIFT_LIGHT_RPM 6800         // ...and flashes blue to shift. Set for your engine; 0 = no shift light
 
 // ---------------------------------------------------------------------------
 // SD card (SDIO 4-bit)

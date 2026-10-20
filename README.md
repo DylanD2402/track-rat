@@ -317,6 +317,20 @@ These are set in `include/Config.h`.
 | `LED_BAR_FULL_SCALE_MS` | 1000 | Delta that lights a whole side of the bar |
 | `BOARD_LED_ENABLED`, `BOARD_LED_PIN`, `BOARD_LED_BRIGHTNESS` | 1, 42, 40 | The board's own LED |
 | `IMU_ENABLED` | 1 | Look for an IMU on the I2C header at boot (see below). Harmless with none fitted |
+| `CAN_ENABLED`, `CAN_TX_PIN`, `CAN_RX_PIN` | 0, 3, 14 | OBD-II over CAN (see below). Off by default |
+| `CAN_BITRATE_KBPS` | 500 | The car's CAN speed: 500 for most cars since 2008, some use 250 |
+| `SHIFT_LIGHT_START_RPM`, `SHIFT_LIGHT_RPM` | 5500, 6800 | Where the shift light starts filling, and where it flashes to shift. 0 = no shift light |
+
+### CAN / OBD-II (optional, untested on hardware)
+
+**Not yet tried on a board or a car: no transceiver has been fitted.** The OBD-II requests and replies, the polling and the shift light are tested on a PC; the CAN driver is the ESP32-S3's own (TWAI).
+
+An SN65HVD230 CAN transceiver board (3.3 V) on IO3 (its TX/D pin) and IO14 (its RX/R pin), 3.3 V and GND, wired to the car's OBD-II socket: CAN high to pin 6, CAN low to pin 14, ground to pin 5. Set `CAN_ENABLED 1` in `Config.h` and rebuild. It's **off by default** because IO14 is also one of the GPS pins on the expansion header: with the GPS found there, CAN stays off. The serial log says when the engine answers.
+
+- **What it reads:** engine speed, throttle position and coolant temperature, the standard OBD-II values every petrol car since about 2008 gives. Engine speed is asked for about 12 times a second, the other two about 6.
+- **In the log:** every `.vbo` gets three more channels, **RPM**, **Throttle position** and **Coolant temperature** (0 when the engine hasn't said in the last second). Circuit Tools shows them like any other channel.
+- **Shift light:** from `SHIFT_LIGHT_START_RPM` the LED bar fills left to right, green, then yellow, then red; at `SHIFT_LIGHT_RPM` the whole bar flashes blue. Below the start it shows the delta as usual. The board's own LED keeps the delta. Set both for your engine.
+- It only asks: it never writes to the car or clears codes. With the ignition off nothing answers, and Track Rat carries on without it.
 
 ### IMU (optional, untested on hardware)
 
@@ -803,6 +817,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src
 
 ```bash
 python test/test_fetch_tracks.py
+```
+
+`test/test_obd.cpp` checks OBD-II over CAN: the requests, reading engine speed, throttle and coolant temperature from the engine's replies while ignoring everything else on the bus (other messages, other modes, "not supported", short and multi-frame replies), values going stale, the polling schedule (engine speed every other request, one at a time, a gap between, a timeout), and the shift light. `test/test_vbo.cpp` checks the log's engine channels:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_obd.cpp -o /tmp/obd && /tmp/obd
 ```
 
 `test/test_imu.cpp` checks the IMU maths: reading the chip's raw bytes, which chips answer, and learning the mount (up from standing still, forward from straight-line speeding up and braking) at eight different angles, flat, on its side, upside down and tilted, then the car's g and rotation rates; that corners, too little speeding up, readings that disagree, and engine shake while parked teach it nothing; and averaging between fixes:

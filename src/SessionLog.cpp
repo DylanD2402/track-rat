@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include "Config.h"
+#include "CanObd.h"
 #include "Imu.h"
 #include "JsonFile.h"
 #include "LogWriter.h"
@@ -176,6 +177,7 @@ static String logPath;
 static uint32_t fixCount = 0;
 static uint32_t fixesMissed = 0;
 static vbo::GForce gforce;
+static bool logEngine = false;  // the log has the engine channels (OBD-II over CAN)
 static uint32_t lastFixMs = 0;  // GPS time of the last fix logged (for the gap mark)
 
 void begin() {
@@ -201,8 +203,11 @@ static vbo::Header headerFor(const String& stamp, const GpsFix& first) {
 static bool beginLog(const String& path, const vbo::Header& h) {
   if (logOpen) endLog();
   if (!fullLogAvailable() || path.length() == 0) return false;
-  std::string text = vbo::headerText(h);
+  vbo::Header withEngine = h;
+  withEngine.engine = CanObd::active();  // OBD-II over CAN: three more channels
+  std::string text = vbo::headerText(withEngine);
   if (!LogWriter::open(path, text.data(), text.size())) return false;
+  logEngine = withEngine.engine;
   logOpen = true;
   logPath = path;
   fixCount = fixesMissed = 0;
@@ -294,8 +299,15 @@ void logFix(const GpsFix& f, uint16_t lap) {
   const int32_t gap = fixCount + fixesMissed ? vbo::utcDiffMs(lastFixMs, f.gpsTimeMs) : 0;
   s.tag = laptags::fixFlags(f.speedKmh, f.hAccM, gap > 0 ? (uint32_t)gap : 0);
   lastFixMs = f.gpsTimeMs;
+  if (logEngine) {  // 0 for anything the engine hasn't said in the last second
+    const obd::Values& e = CanObd::values();
+    const uint32_t now = millis();
+    s.rpm = e.rpmKnown(now) ? e.rpm : 0;
+    s.throttlePct = e.throttleKnown(now) ? e.throttlePct : 0;
+    s.coolantC = e.coolantKnown(now) ? e.coolantC : 0;
+  }
   char line[128];
-  size_t n = vbo::formatLine(s, line, sizeof(line));
+  size_t n = vbo::formatLine(s, line, sizeof(line), logEngine);
   if (n && LogWriter::append(line, n)) fixCount++;
   else fixesMissed++;
 }

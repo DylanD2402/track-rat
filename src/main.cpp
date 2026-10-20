@@ -29,6 +29,7 @@
 #include "FreeRoam.h"
 #include "GPSHandler.h"
 #include "GeoMath.h"
+#include "CanObd.h"
 #include "Imu.h"
 #include "InputManager.h"
 #include "LedBar.h"
@@ -1498,6 +1499,7 @@ void setup() {
   gps.begin();
   input.beginExtButton(gps.rxPinUsed(), gps.txPinUsed());  // big button and LEDs sit on header pins the GPS may use
   LedBar::begin(gps.rxPinUsed(), gps.txPinUsed());
+  CanObd::begin(gps.rxPinUsed(), gps.txPinUsed());  // (off unless CAN_ENABLED, and if the GPS is on its pins)
   applySettings();  // touch the right way up, Bluetooth if it's on, the time zone for file names
 
   addBenchTrack();
@@ -1530,6 +1532,7 @@ void loop() {
   uint32_t now = millis();
   gps.update();
   Imu::poll();
+  CanObd::poll();
 
   GpsFix fix;
   while (gps.takeFix(fix)) {
@@ -1593,6 +1596,7 @@ void loop() {
 
   bool timing = state == AppState::Running && !settingLine && !pitWatch.parked() && lapTimer.lapRunning();
   int32_t liveDelta = lapTimer.liveDeltaMs();
+  LedBar::setRpm(CanObd::values().rpmKnown(now), CanObd::values().rpm);
   LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
 
   autoPickTrack();
