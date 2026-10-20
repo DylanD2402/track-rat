@@ -130,7 +130,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
       if (speedKmh > lapMaxSpeed) lapMaxSpeed = speedKmh;
       lapSpeedSum += speedKmh;
       lapSpeedCount++;
-      lapDistance += (float)hypot(b.x - a.x, b.y - a.y);  // the segment that ends a lap counts to it
+      if (moving) lapDistance += (float)hypot(b.x - a.x, b.y - a.y);  // not GPS wander while parked; the segment that ends a lap counts to it
       // A split at the very same point as the line counts as before it: it was checked first before this too.
       if (moving) crossSplits(lat, lon, dt, -1.0, lineCrossed ? frac : 2.0, evs);
     }

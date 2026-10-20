@@ -308,7 +308,7 @@ static void checkLayout(const SessionFile& s, const char* where) {
   const std::vector<std::string> wantOrder = {"[header]", "[channel units]", "[comments]", "[laptiming]",
                                               "[column names]", "[data]"};
   CHECK(order == wantOrder, "%s: sections out of order", where);
-  CHECK(channels == 11, "%zu channels", channels);
+  CHECK(channels == 12, "%zu channels", channels);
   CHECK(units == channels - 7, "%zu unit lines for %zu non-standard channels", units, channels - 7);
   CHECK(columns == channels, "%zu column names for %zu channels", columns, channels);
   CHECK(gates == 2, "%zu timing lines", gates);
