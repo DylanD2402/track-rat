@@ -79,6 +79,8 @@ select { width: 100%; margin: 6px 0; }
 #edMap { display: block; width: 100%; margin: 10px 0 6px; border-radius: 10px; background: var(--bg); touch-action: manipulation; }
 .tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .tools button.on { outline: 2px solid var(--good); }
+canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10px; background: var(--bg); }
+.row select { width: auto; flex: 1 1 140px; margin: 0; }
 </style>
 </head>
 <body>
@@ -87,6 +89,7 @@ select { width: 100%; margin: 6px 0; }
   <nav id="tabs">
     <button data-tab="sessions" class="on">Sessions</button>
     <button data-tab="tracks">Tracks</button>
+    <button data-tab="compare">Compare</button>
     <button data-tab="firmware">Firmware</button>
     <button data-tab="device">Device</button>
     <button data-tab="settings">Settings</button>
@@ -147,6 +150,32 @@ select { width: 100%; margin: 6px 0; }
   </div>
 </section>
 
+<section id="compare">
+  <div class="card">
+    <h3>Compare two laps</h3>
+    <p class="note">Any two laps at a track, from any sessions, drawn from their logs on the SD card.
+      <b style="color:#0a84ff">A</b> in blue, <b style="color:#ff9f0a">B</b> in orange.</p>
+    <select id="cmpTrack"></select>
+    <div class="row"><b style="color:#0a84ff">A</b><select id="cmpSesA"></select><select id="cmpLapA"></select></div>
+    <div class="row"><b style="color:#ff9f0a">B</b><select id="cmpSesB"></select><select id="cmpLapB"></select></div>
+    <p id="cmpMsg" class="note"></p>
+    <div id="cmpOut" hidden>
+      <h2>Speed against distance</h2>
+      <canvas id="cmpSpeed" class="chart"></canvas>
+      <h2>Time gap against distance (B − A: up is B losing time)</h2>
+      <canvas id="cmpGap" class="chart"></canvas>
+      <h2>Who was faster where</h2>
+      <canvas id="cmpMap" class="chart"></canvas>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Season</h3>
+    <p class="note">The best lap of each visit to this track, and your PB as it stood (purple).</p>
+    <canvas id="cmpSeasonChart" class="chart" hidden></canvas>
+    <div id="cmpSeason"></div>
+  </div>
+</section>
+
 <section id="firmware">
   <div class="card">
     <h3>Install firmware</h3>
@@ -187,6 +216,7 @@ function showTab(name) {
   if (name === "device") { loadInfo(); infoTimer = setInterval(loadInfo, 2000); }
   if (name === "settings") loadSettings();
   if (name === "tracks") edLoadLogs();
+  if (name === "compare") cmpLoad();
 }
 $("tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
 
@@ -385,7 +415,7 @@ function fromLocal(x, y, refLat, refLon) {
 }
 const round7 = (v) => Math.round(v * 1e7) / 1e7;
 
-// A .vbo log: its [comments] ("Key: value") and each fix's position, speed and lap.
+// A .vbo log: its [comments] ("Key: value") and each fix's position, UTC time (ms), speed and lap.
 // Positions are in minutes, and longitude's sign is reversed (west is positive).
 function parseVbo(text) {
   const comments = {}, points = [];
@@ -405,7 +435,9 @@ function parseVbo(text) {
       const v = (name) => +t[cols.indexOf(name)];
       const lat = v("lat") / 60, lon = -v("long") / 60;
       if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0)) continue;
-      points.push({lat, lon, kmh: v("velocity") || 0, lap: cols.includes("Lap") ? v("Lap") || 0 : 0});
+      const tm = t[cols.indexOf("time")] || "";  // hhmmss.sss UTC
+      const ms = (+tm.slice(0, 2) * 3600 + +tm.slice(2, 4) * 60 + +tm.slice(4)) * 1000;
+      points.push({lat, lon, ms: Math.round(ms) || 0, kmh: v("velocity") || 0, lap: cols.includes("Lap") ? v("Lap") || 0 : 0});
     }
   }
   return {comments, points};
@@ -522,6 +554,102 @@ function addLayout(db, id, name) {
   return added[added.length - 1].id;
 }
 // ---- track editor (end) ----
+
+// ---- lap compare (begin: tested by test/test_web.js) ----
+// Any two laps at a track, drawn by the phone from the sessions' .vbo logs (parseVbo above): speed
+// against distance, the time gap against distance, and the map coloured by who was faster where.
+// Plus the season: the best lap of each visit and the PB over time, from the session summaries.
+const DAY_MS = 86400000;
+
+// One lap of a log (fixes marked with its number in the Lap column) as a trace from the line:
+// distance driven (m), time into the lap (ms, across midnight), speed, and position (m from ref).
+function lapTrace(points, lap, refLat, refLon) {
+  const out = [];
+  let d = 0, t0 = null, prev = null;
+  for (const p of points) {
+    if (p.lap !== lap) continue;
+    const q = toLocal(p.lat, p.lon, refLat, refLon);
+    if (t0 === null) t0 = p.ms;
+    if (prev) d += Math.hypot(q.x - prev.x, q.y - prev.y);
+    out.push({d, t: ((p.ms - t0) % DAY_MS + DAY_MS) % DAY_MS, kmh: p.kmh, x: q.x, y: q.y});
+    prev = q;
+  }
+  return out;
+}
+
+// A trace's time and speed at distance d, between its two nearest fixes
+function atDistance(tr, d) {
+  if (!tr.length) return null;
+  if (d <= tr[0].d) return {t: tr[0].t, kmh: tr[0].kmh, x: tr[0].x, y: tr[0].y};
+  const last = tr[tr.length - 1];
+  if (d >= last.d) return {t: last.t, kmh: last.kmh, x: last.x, y: last.y};
+  let lo = 0, hi = tr.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tr[mid].d <= d) lo = mid; else hi = mid; }
+  const a = tr[lo], b = tr[hi], u = b.d > a.d ? (d - a.d) / (b.d - a.d) : 0;
+  const mix = (k) => a[k] + (b[k] - a[k]) * u;
+  return {t: mix("t"), kmh: mix("kmh"), x: mix("x"), y: mix("y")};
+}
+
+// Two laps side by side every `step` metres of lap A. Lap B's distance is stretched to A's
+// length (two laps never measure quite the same), so the same point on track lines up.
+// gap: B's time minus A's at that point (+ = B behind).
+function compareLaps(a, b, step = 5) {
+  const out = {d: [], kmhA: [], kmhB: [], gap: [], x: [], y: []};
+  if (a.length < 2 || b.length < 2) return out;
+  const lenA = a[a.length - 1].d, lenB = b[b.length - 1].d;
+  if (lenA <= 0 || lenB <= 0) return out;
+  const ds = [];
+  for (let d = 0; d < lenA; d += step) ds.push(d);
+  ds.push(lenA);  // and the line itself, so the last gap is the difference in lap times
+  for (const d of ds) {
+    const pa = atDistance(a, d), pb = atDistance(b, d * lenB / lenA);
+    out.d.push(d);
+    out.kmhA.push(pa.kmh);
+    out.kmhB.push(pb.kmh);
+    out.gap.push(pb.t - pa.t);
+    out.x.push(pa.x);
+    out.y.push(pa.y);
+  }
+  return out;
+}
+
+// Who was faster on each stretch of the comparison: "A" where the gap grows (B losing time),
+// "B" where it shrinks, joined into runs: [{from, to, who}] (indexes into the comparison).
+function fasterRuns(cmp) {
+  const runs = [];
+  for (let i = 1; i < cmp.gap.length; i++) {
+    const who = cmp.gap[i] - cmp.gap[i - 1] >= 0 ? "A" : "B";
+    const last = runs[runs.length - 1];
+    if (last && last.who === who) last.to = i;
+    else runs.push({from: i - 1, to: i, who});
+  }
+  return runs;
+}
+
+// The season at a track from its session summaries ({started: "YYYYMMDD_hhmmss", bestTimeMs}):
+// the best lap of each visit (day), oldest first, and the PB as it stood after each.
+function season(summaries) {
+  const days = new Map();
+  for (const s of summaries) {
+    const day = String(s.started || "").slice(0, 8);
+    if (!/^\d{8}$/.test(day) || !(s.bestTimeMs > 0)) continue;
+    if (!days.has(day) || s.bestTimeMs < days.get(day)) days.set(day, s.bestTimeMs);
+  }
+  let pb = Infinity;
+  return [...days].sort((a, b) => a[0].localeCompare(b[0])).map(([day, best]) => {
+    const isPb = best < pb;
+    pb = Math.min(pb, best);
+    return {day, best, pb, isPb};
+  });
+}
+
+// "1:42.345" and "+0.31"
+function lapTimeText(ms) {
+  const m = Math.floor(ms / 60000), s = (ms % 60000) / 1000;
+  return m + ":" + s.toFixed(3).padStart(6, "0");
+}
+function gapText(ms) { return (ms > 0 ? "+" : ms < 0 ? "−" : "") + (Math.abs(ms) / 1000).toFixed(2); }
+// ---- lap compare (end) ----
 
 // ---- track editor: the screen part ----
 const ed = {db: null, log: null, trackId: "", mode: "", ref: null, pts: [], lapPts: [], dirty: false, file: ""};
@@ -736,6 +864,145 @@ async function edRetime(all) {
 }
 $("rtOne").addEventListener("click", () => edRetime(false));
 $("rtAll").addEventListener("click", () => edRetime(true));
+
+// ---- lap compare: the screen part ----
+const cmpState = {files: [], logs: new Map(), sums: new Map(), track: ""};
+const COL_A = "#0a84ff", COL_B = "#ff9f0a";
+
+async function cmpFetch(map, name, parse) {
+  if (!map.has(name)) map.set(name, fetch("/dl?fs=sd&f=" + encodeURIComponent(name)).then((r) => (r.ok ? r.text() : "")).then(parse));
+  return map.get(name);
+}
+const cmpLog = (vbo) => cmpFetch(cmpState.logs, vbo, parseVbo);
+const cmpSummary = (vbo) => cmpFetch(cmpState.sums, vbo.replace(/\.vbo$/, ".json"), (t) => { try { return JSON.parse(t); } catch (e) { return null; } });
+
+async function cmpLoad() {
+  let files;
+  try { files = (await (await fetch("/api/sessions")).json()).files; } catch (e) { return; }
+  cmpState.files = files.filter((f) => f.fs === "sd" && f.name.endsWith(".vbo"))
+    .map((f) => ({name: f.name, p: parseFile(f)})).filter((f) => f.p && f.p.track !== "freeroam")
+    .sort((a, b) => b.name.localeCompare(a.name));
+  const tracks = [...new Set(cmpState.files.map((f) => f.p.track))];
+  $("cmpTrack").innerHTML = tracks.length ? tracks.map((t) => `<option value="${esc(t)}">${esc(trackName(t))}</option>`).join("")
+                                          : `<option value="">No session logs on the SD card</option>`;
+  cmpTrackChanged();
+}
+
+async function cmpTrackChanged() {
+  cmpState.track = $("cmpTrack").value;
+  const mine = cmpState.files.filter((f) => f.p.track === cmpState.track);
+  const opts = mine.map((f) => `<option value="${esc(f.name)}">${esc(f.p.when.toLocaleString([], {dateStyle: "medium", timeStyle: "short"}))}</option>`).join("");
+  $("cmpSesA").innerHTML = opts;
+  $("cmpSesB").innerHTML = opts;
+  await Promise.all([cmpLaps("A"), cmpLaps("B")]);
+  cmpSeason(mine);
+}
+
+// The laps of the picked session: from its summary (times and tags), else the log's lap numbers
+async function cmpLaps(which) {
+  const vbo = $("cmpSes" + which).value, sel = $("cmpLap" + which);
+  if (!vbo) { sel.innerHTML = ""; return; }
+  const [log, sum] = await Promise.all([cmpLog(vbo), cmpSummary(vbo)]);
+  let laps;
+  if (sum && Array.isArray(sum.laps) && sum.laps.length) {
+    laps = sum.laps.map((l) => ({n: l.lap, text: `Lap ${l.lap}  ${lapTimeText(l.timeMs)}` + (l.tags ? "  " + l.tags.join(", ") : "") +
+                                                (l.lap === sum.bestLap ? "  best" : "")}));
+  } else {
+    laps = [...new Set(log.points.map((p) => p.lap).filter((n) => n > 0))].map((n) => ({n, text: "Lap " + n}));
+  }
+  const best = sum && sum.bestLap;
+  sel.innerHTML = laps.map((l) => `<option value="${l.n}"${l.n === best ? " selected" : ""}>${esc(l.text)}</option>`).join("");
+  if (which === "B" && sel.options.length > 1 && $("cmpSesA").value === vbo && sel.value === $("cmpLapA").value)
+    sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length;  // not the same lap twice
+  cmpDraw();
+}
+for (const w of ["A", "B"]) {
+  $("cmpSes" + w).addEventListener("change", () => cmpLaps(w));
+  $("cmpLap" + w).addEventListener("change", cmpDraw);
+}
+$("cmpTrack").addEventListener("change", cmpTrackChanged);
+
+function canvas2d(id, ratio) {
+  const c = $(id), w = c.clientWidth, h = Math.round(w * ratio);
+  c.width = w * devicePixelRatio;
+  c.height = h * devicePixelRatio;
+  c.style.height = h + "px";
+  const g = c.getContext("2d");
+  g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.font = "12px Inter, sans-serif";
+  return {g, w, h};
+}
+// A line chart of series against cmp.d
+function chart(id, cmp, series, zeroLine, xLabel) {
+  const {g, w, h} = canvas2d(id, 0.45);
+  const dim = getComputedStyle(document.body).getPropertyValue("--dim");
+  let lo = Infinity, hi = -Infinity;
+  for (const s of series) for (const v of s.v) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (zeroLine) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  if (!(hi > lo)) hi = lo + 1;
+  const L = 44, B = 18, X = (d) => L + (d / cmp.d[cmp.d.length - 1]) * (w - L - 6), Y = (v) => 6 + (hi - v) / (hi - lo) * (h - B - 12);
+  g.fillStyle = dim;
+  for (const v of [lo, (lo + hi) / 2, hi]) g.fillText(series[0].fmt(v), 2, Y(v) + 4);
+  g.fillText(xLabel !== undefined ? xLabel : Math.round(cmp.d[cmp.d.length - 1]) + " m", w - 50, h - 4);
+  if (zeroLine) { g.strokeStyle = dim; g.lineWidth = 1; g.beginPath(); g.moveTo(L, Y(0)); g.lineTo(w, Y(0)); g.stroke(); }
+  for (const s of series) {
+    g.strokeStyle = s.colour; g.lineWidth = 2; g.beginPath();
+    s.v.forEach((v, i) => (i ? g.lineTo(X(cmp.d[i]), Y(v)) : g.moveTo(X(cmp.d[i]), Y(v))));
+    g.stroke();
+  }
+}
+
+async function cmpDraw() {
+  const va = $("cmpSesA").value, vb = $("cmpSesB").value, la = +$("cmpLapA").value, lb = +$("cmpLapB").value;
+  if (!va || !vb || !la || !lb) { $("cmpOut").hidden = true; return; }
+  const [logA, logB] = await Promise.all([cmpLog(va), cmpLog(vb)]);
+  const ref = logA.points[0];
+  const a = lapTrace(logA.points, la, ref.lat, ref.lon), b = lapTrace(logB.points, lb, ref.lat, ref.lon);
+  const cmp = compareLaps(a, b);
+  if (!cmp.d.length) { $("cmpOut").hidden = true; $("cmpMsg").textContent = "One of those laps isn't in its log."; return; }
+  $("cmpOut").hidden = false;
+  const final = cmp.gap[cmp.gap.length - 1];
+  $("cmpMsg").textContent = final === 0 ? "Level at the line." :
+    `${final > 0 ? "A" : "B"} is ${(Math.abs(final) / 1000).toFixed(2)} s quicker at the line (from the logs: each fix is 0.05 to 0.1 s apart).`;
+  const kmh = (v) => Math.round(v) + "", sec = (v) => gapText(v);
+  chart("cmpSpeed", cmp, [{v: cmp.kmhA, colour: COL_A, fmt: kmh}, {v: cmp.kmhB, colour: COL_B, fmt: kmh}], false);
+  chart("cmpGap", cmp, [{v: cmp.gap, colour: COL_B, fmt: sec}], true);
+
+  // The map: lap A's path, each stretch in the colour of whoever was faster there
+  const {g, w, h} = canvas2d("cmpMap", 0.75);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  cmp.x.forEach((x, i) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, cmp.y[i]); maxY = Math.max(maxY, cmp.y[i]); });
+  const s = Math.min((w - 30) / Math.max(maxX - minX, 1), (h - 30) / Math.max(maxY - minY, 1));
+  const X = (x) => w / 2 + (x - (minX + maxX) / 2) * s, Y = (y) => h / 2 - (y - (minY + maxY) / 2) * s;
+  g.lineWidth = 5; g.lineCap = "round";
+  for (const r of fasterRuns(cmp)) {
+    g.strokeStyle = r.who === "A" ? COL_A : COL_B;
+    g.beginPath();
+    for (let i = r.from; i <= r.to; i++) (i === r.from ? g.moveTo(X(cmp.x[i]), Y(cmp.y[i])) : g.lineTo(X(cmp.x[i]), Y(cmp.y[i])));
+    g.stroke();
+  }
+}
+
+// The season: best lap of each visit, and the PB as it stood
+async function cmpSeason(mine) {
+  const sums = [];  // one at a time: the board's web server only takes a few requests at once
+  for (const f of mine) {
+    const s = await cmpSummary(f.name);
+    if (s) sums.push(s);
+  }
+  const rows = season(sums);
+  if (!rows.length) { $("cmpSeason").innerHTML = `<p class="note">No timed laps at this track yet.</p>`; $("cmpSeasonChart").hidden = true; return; }
+  $("cmpSeason").innerHTML = rows.slice().reverse().map((r) =>
+    `<div class="row"><span class="time">${r.day.slice(0, 4)}-${r.day.slice(4, 6)}-${r.day.slice(6)}</span>` +
+    `<span>${lapTimeText(r.best)}</span>${r.isPb ? ` <span class="tag">PB</span>` : ` <span class="tag">PB then ${lapTimeText(r.pb)}</span>`}</div>`).join("");
+  $("cmpSeasonChart").hidden = rows.length < 2;
+  if (rows.length < 2) return;
+  const d = rows.map((r, i) => i);
+  chart("cmpSeasonChart", {d: d.length > 1 ? d : [0, 1]},
+        [{v: rows.map((r) => r.best / 1000), colour: COL_A, fmt: (v) => v.toFixed(1) + " s"},
+         {v: rows.map((r) => r.pb / 1000), colour: "#bf5af2", fmt: (v) => v.toFixed(1) + " s"}], false, "");
+}
 
 // ---- firmware ----
 // ---- firmware check (begin: tested by test/test_web.js) ----

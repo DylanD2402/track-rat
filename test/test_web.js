@@ -4,7 +4,8 @@
 // (the "settings" part: the field list, the time zone and speed text, the
 // form body, and that the names and values agree with include/SettingsData.h), and the
 // track editor's rules (the "track editor" part: reading a .vbo, track ids, moving the line,
-// splits, corner names, new layouts).
+// splits, corner names, new layouts), and the lap comparison (the "lap compare" part: laps from a
+// log, speed and gap against distance, who was faster where, the season).
 //
 //   node test/test_web.js
 
@@ -42,6 +43,13 @@ if (!em) {
   console.log("FAIL: track editor section not found in web/index.html");
   process.exit(1);
 }
+const cm = html.match(/\/\/ ---- lap compare \(begin[^\n]*\n([\s\S]*?)\/\/ ---- lap compare \(end\) ----/);
+if (!cm) {
+  console.log("FAIL: lap compare section not found in web/index.html");
+  process.exit(1);
+}
+// The comparison uses the editor's parseVbo and toLocal, as on the page
+const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistance, compareLaps, fasterRuns, season, lapTimeText, gapText};")();
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
                         " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout};")();
 
@@ -368,6 +376,83 @@ console.log("Wi-Fi page track editor tests");
   check(ED.addLayout(d, "calabogie.short", "  ") === null, "no name");
   check(ED.addLayout(d, "calabogie.short", "Club") === "calabogie.club" && v.layouts.length === 3, "a third layout");
   check(ED.addLayout(d, "nope", "X") === null, "no such track");
+}
+
+
+// ---- lap comparison ----
+console.log("Wi-Fi page lap comparison tests");
+{
+  const near = (a, b, tol, msg) => check(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+  // A 1000 m straight east from 45 N, logged at 20 Hz: lap 1 at 100 km/h, lap 2 at 100 for the
+  // first half and 50 for the second, and a fix of lap 3 that runs past midnight
+  const pts = [];
+  const mPerDegLon = 6371000 * Math.PI / 180 * Math.cos(45 * Math.PI / 180);
+  let ms = 86400000 - 30000;  // starts 30 s before midnight
+  const drive = (lap, speedAt) => {
+    let x = 0;
+    while (x <= 1000) {
+      const kmh = speedAt(x);
+      pts.push({lat: 45, lon: -75 + x / mPerDegLon, ms: ms % 86400000, kmh, lap});
+      x += kmh / 3.6 * 0.05;
+      ms += 50;
+    }
+  };
+  drive(1, () => 100);
+  drive(2, (x) => (x < 500 ? 100 : 50));
+  const a = CMP.lapTrace(pts, 1, 45, -75), b = CMP.lapTrace(pts, 2, 45, -75);
+  near(a[a.length - 1].d, 1000, 3, "lap A is 1000 m");
+  near(a[a.length - 1].t, 36000, 60, "lap A takes 36 s, across midnight");
+  check(a.every((p, i) => i === 0 || p.t > a[i - 1].t), "time only goes up, even past midnight");
+  near(b[b.length - 1].t, 54000, 120, "lap B takes 54 s");
+  check(CMP.lapTrace(pts, 7, 45, -75).length === 0, "no such lap");
+
+  const mid = CMP.atDistance(a, 250);
+  near(mid.t, 9000, 60, "250 m in: 9 s");
+  near(mid.x, 250, 3, "and 250 m east");
+  check(CMP.atDistance(a, -5).t === 0 && CMP.atDistance(a, 5000).t === a[a.length - 1].t, "clamped at the ends");
+  check(CMP.atDistance([], 5) === null, "no trace");
+
+  const cmp = CMP.compareLaps(a, b, 10);
+  check(cmp.d.length >= 100 && cmp.d[1] === 10, "every 10 m");
+  near(cmp.gap[0], 0, 1, "level at the line");
+  near(cmp.gap[49], 0, 80, "level half way: " + cmp.gap[49]);
+  near(cmp.gap[cmp.gap.length - 1], 18000, 200, "B 18 s behind at the end");
+  check(cmp.kmhA[70] === 100 && cmp.kmhB[70] === 50, "speeds in the second half");
+
+  // B lost all its time in the second half: A is faster there, nobody before
+  const runs = CMP.fasterRuns(cmp);
+  const last = runs[runs.length - 1];
+  check(last.who === "A" && cmp.d[last.from] <= 520 && last.to === cmp.d.length - 1, "A faster through the second half");
+  check(runs.every((r, i) => i === 0 || r.who !== runs[i - 1].who), "runs alternate");
+  check(runs[0].from === 0, "runs start at the line");
+
+  // B's lap measured 2% long (a wider line): stretched to A's, so the same point lines up
+  const longer = b.map((p) => Object.assign({}, p, {d: p.d * 1.02}));
+  const c2 = CMP.compareLaps(a, longer, 10);
+  near(c2.gap[49], 0, 80, "a longer lap still lines up half way");
+  check(CMP.compareLaps(a.slice(0, 1), b).d.length === 0, "a lap of one fix can't be compared");
+
+  // The log's time column, read back by parseVbo
+  const vbo = ["[comments]", "Track: t", "", "[column names]", "sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag",
+    "", "[data]", "014 235959.950 +02700.00000000 +04500.00000000 100.000 090.00 +00100.00 0.6 1 +0.00 +0.00 0",
+    "014 000000.000 +02700.00000000 +04499.99900000 100.000 090.00 +00100.00 0.6 1 +0.00 +0.00 0"].join("\r\n");
+  const lp = CMP.parseVbo(vbo).points;
+  check(lp[0].ms === 86399950 && lp[1].ms === 0, "times from hhmmss.sss: " + lp.map((p) => p.ms));
+  near(CMP.lapTrace(lp, 1, 45, -75)[1].t, 50, 0, "50 ms across midnight");
+
+  // The season: best per visit, oldest first, and the PB as it stood
+  const se = CMP.season([
+    {started: "20260601_100000", bestTimeMs: 105000}, {started: "20260601_140000", bestTimeMs: 103500},
+    {started: "20260715_090000", bestTimeMs: 104000}, {started: "20260820_090000", bestTimeMs: 101900},
+    {started: "20260901_090000"}, {started: "nonsense", bestTimeMs: 90000}, {started: "20260902_090000", bestTimeMs: 0}]);
+  check(se.length === 3, "three visits with a timed lap: " + se.length);
+  check(se[0].day === "20260601" && se[0].best === 103500 && se[0].isPb, "first visit, its best session");
+  check(se[1].best === 104000 && se[1].pb === 103500 && !se[1].isPb, "a slower visit keeps the PB");
+  check(se[2].best === 101900 && se[2].pb === 101900 && se[2].isPb, "a new PB");
+  check(CMP.season([]).length === 0, "no sessions");
+
+  check(CMP.lapTimeText(102345) === "1:42.345" && CMP.lapTimeText(59999) === "0:59.999", "lap time text");
+  check(CMP.gapText(310) === "+0.31" && CMP.gapText(-1500) === "−1.50" && CMP.gapText(0) === "0.00", "gap text");
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");
