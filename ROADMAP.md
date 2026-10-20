@@ -197,7 +197,7 @@ Sizes are relative: S small, M medium, L large.
 - **Re-time:** Track Rat replays the saved log through the same `LapTimer` code and rewrites the lap times and PBs, for one session or every session at that track.
 - This is what makes "record first, decide later" true.
 
-**Status: done** (2026-10-20, commit PENDING)
+**Status: done** (2026-10-20, commit dac470d)
 
 **3.3 Lap comparison (L)**
 
