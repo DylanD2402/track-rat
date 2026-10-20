@@ -51,7 +51,8 @@ inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(
 
 // The items on the settings screen, in the order they appear.
 enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives,
-                                   MinLap, Kart, Count };
+                                   MinLap, Kart, Count,
+                                   Engine };  // after Count: rows that open a screen of their own, not values
 constexpr int SETTING_ITEM_COUNT = (int)SettingItem::Count;
 
 namespace settings {
@@ -158,6 +159,7 @@ inline const char* itemName(SettingItem item) {
     case SettingItem::RoadDrives: return "RECORD ROAD DRIVES";
     case SettingItem::MinLap: return "MIN LAP TIME";
     case SettingItem::Kart: return "KART EVERYWHERE";
+    case SettingItem::Engine: return "ENGINE DATA";
     default: return "";
   }
 }
@@ -177,6 +179,7 @@ inline const char* itemNote(SettingItem item) {
     case SettingItem::RoadDrives: return "Off: Free Roam drives are shown but not saved";
     case SettingItem::MinLap: return "Line crossings sooner are ignored. Auto: 20 s, karts 10 s";
     case SettingItem::Kart: return "8 m lines, karts' min lap everywhere. Restart to apply";
+    case SettingItem::Engine: return "A Bluetooth OBD-II adapter";
     default: return "";
   }
 }

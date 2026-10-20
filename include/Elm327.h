@@ -181,6 +181,24 @@ inline int readMode01(const Reply& r, obd::Values& v, uint32_t at, Supported* su
   return read;
 }
 
+// --- finding the adapter -------------------------------------------------------
+
+// Is a Bluetooth device found by a scan worth listing under Find adapter? Its name
+// (OBD, OBDII, VEEPEAK, OBDLink, vLink, IOS-Vlink, any case), or it advertises
+// the FFF0 or FFE0 service that ELM327 adapters use.
+inline bool looksLikeAdapter(const char* name, bool advertisesFff0OrFfe0) {
+  if (advertisesFff0OrFfe0) return true;
+  if (!name) return false;
+  static const char* const WORDS[] = {"OBD", "VEEPEAK", "VLINK", "ELM327"};
+  char up[48];
+  int n = 0;
+  for (; name[n] && n < (int)sizeof(up) - 1; n++) up[n] = (name[n] >= 'a' && name[n] <= 'z') ? name[n] - 32 : name[n];
+  up[n] = 0;
+  for (const char* w : WORDS)
+    if (strstr(up, w)) return true;
+  return false;
+}
+
 // --- the conversation ---------------------------------------------------------
 
 constexpr uint32_t AT_TIMEOUT_MS = 2000;      // an AT command's answer

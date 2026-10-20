@@ -9,6 +9,8 @@
 #include "Storage.h"
 #include "TimingScreen.h"
 #include "RaceBoxBle.h"
+#include "EngineData.h"
+#include "ObdBle.h"
 #include "Settings.h"
 #include "UiTheme.h"
 #include "fonts/InterBody.h"
@@ -209,7 +211,7 @@ static String accuracyText(float m) {
 void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t titleColor) {
   gfx->drawFastHLine(0, HEADER_H - 1, W, C_LINE);
 
-  // Status, right to left: signal bars, GPS accuracy, battery, BENCH, BT
+  // Status, right to left: signal bars, GPS accuracy, battery, BENCH, BT, OBD, HOT
   int right = W - 8;
   auto tag = [&](const char* s, uint16_t bg, uint16_t fg) {
     int w = textWidth(s, Font::Caption) + 12;
@@ -236,7 +238,9 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
     if (gps->isSimulated()) tag("BENCH", C_YELLOW, C_BG);  // simulated timing must be obvious
 #if BLE_ENABLED
     if (RaceBoxBle::connected()) tag("BT", C_BLUE, C_TEXT);  // a phone app is receiving GPS
+    if (ObdBle::connected()) tag("OBD", C_BLUE, C_TEXT);     // the Bluetooth OBD-II adapter is connected
 #endif
+    if (EngineData::coolantHot(millis())) tag("HOT", C_RED, C_BG);  // coolant at COOLANT_WARN_C or more
   }
 
   text(fit(title, Font::Body, right - 12), 10, HEADER_H / 2, Font::Body, titleColor, ML_DATUM);

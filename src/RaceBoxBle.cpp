@@ -43,7 +43,12 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   void onMTUChange(uint16_t mtu, ble_gap_conn_desc*) override { DEBUG_PRINTF("BLE: MTU %u\n", mtu); }
 };
 
-void begin() {
+// Starts the Bluetooth stack under the RaceBox name, once. The OBD adapter's
+// central role (ObdBle.cpp) shares it, so whichever starts first calls this.
+void initRadio() {
+  static bool radioOn = false;
+  if (radioOn) return;
+  radioOn = true;
   // Stable per-board number from the chip ID; the RaceBox app only accepts
   // numbers below 4000000000.
   uint64_t mac = ESP.getEfuseMac();
@@ -54,6 +59,10 @@ void begin() {
   NimBLEDevice::init(name.c_str());
   NimBLEDevice::setMTU(185);
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+}
+
+void begin() {
+  initRadio();
 
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
@@ -156,5 +165,12 @@ void sendFix(const GpsFix& fix, const GPSHandler& gps) {
 }
 
 bool connected() { return isConnected; }
+
+// After the OBD adapter connects: advertising carries on if the phone isn't connected
+void resumeAdvertising() {
+  if (!started || !enabled || isConnected) return;
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  if (!adv->isAdvertising()) adv->start();
+}
 
 }  // namespace RaceBoxBle

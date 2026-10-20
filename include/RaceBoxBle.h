@@ -17,10 +17,12 @@
 
 namespace RaceBoxBle {
 
+void initRadio();  // start the Bluetooth stack (once); begin() and the OBD adapter both need it
 void begin();
 void setEnabled(bool on);  // the Bluetooth setting: the first "on" starts Bluetooth
 void sendFix(const GpsFix& fix, const GPSHandler& gps);
 bool connected();
+void resumeAdvertising();  // after another connection (the OBD adapter): keep advertising to phones
 
 }  // namespace RaceBoxBle
 

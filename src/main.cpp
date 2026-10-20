@@ -30,6 +30,8 @@
 #include "GPSHandler.h"
 #include "GeoMath.h"
 #include "CanObd.h"
+#include "EngineData.h"
+#include "ObdBle.h"
 #include "Imu.h"
 #include "InputManager.h"
 #include "LedBar.h"
@@ -1500,6 +1502,7 @@ void setup() {
   LedBar::begin(gps.rxPinUsed(), gps.txPinUsed());
   CanObd::begin(gps.rxPinUsed(), gps.txPinUsed());  // (off unless CAN_ENABLED, and if the GPS is on its pins)
   applySettings();  // touch the right way up, Bluetooth if it's on, the time zone for file names
+  ObdBle::begin();  // (nothing until an adapter has been chosen in Settings > Engine data)
 
   addBenchTrack();
   SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut, in the background
@@ -1532,6 +1535,7 @@ void loop() {
   gps.update();
   Imu::poll();
   CanObd::poll();
+  ObdBle::poll();
 
   GpsFix fix;
   while (gps.takeFix(fix)) {
@@ -1595,7 +1599,7 @@ void loop() {
 
   bool timing = state == AppState::Running && !settingLine && !pitWatch.parked() && lapTimer.lapRunning();
   int32_t liveDelta = lapTimer.liveDeltaMs();
-  LedBar::setRpm(CanObd::values().rpmKnown(now), CanObd::values().rpm);
+  LedBar::setRpm(EngineData::values().rpmKnown(now), EngineData::values().rpm);
   LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
 
   autoPickTrack();

@@ -13,6 +13,7 @@
 #include <cstring>
 #include <string>
 #include "LapTimer.h"
+#include "EngineScreen.h"
 #include "SettingsFlow.h"
 #include "check.h"
 
@@ -740,6 +741,10 @@ static void testSettingsLayout() {
       lastKind = r;
       continue;
     }
+    if (rw.kind == ST::RowKind::Open) {  // a screen of its own (Engine data): after Count, not a setting
+      EXPECT((int)rw.item > SETTING_ITEM_COUNT && ST::rowOfItem(rw.item) == r && strlen(ST::rowLabel(rw.item)) > 0, "row %d: a screen row", r);
+      continue;
+    }
     EXPECT((int)rw.item >= 0 && (int)rw.item < SETTING_ITEM_COUNT && !seen[(int)rw.item], "row %d: item %d is listed twice or is not a setting", r, (int)rw.item);
     seen[(int)rw.item] = true;
     n++;
@@ -929,7 +934,7 @@ static void testSettingsPages() {
   {  // sub-pages keep the scroll of the list; the top bar goes back to it, the list's top bar to the menu
     for (int r = 0; r < ST::ROWS; r++) {
       const ST::Row& rw = ST::row(r);
-      if (rw.kind == ST::RowKind::Toggle || rw.kind == ST::RowKind::Back) continue;
+      if (rw.kind == ST::RowKind::Toggle || rw.kind == ST::RowKind::Back || rw.kind == ST::RowKind::Open) continue;
       for (int how = 0; how < 3; how++) {
         ST st;
         st.begin(true);
@@ -1139,6 +1144,8 @@ static void testSettingsBoot() {
         EXPECT(r == Res::Exit && s == defaults(), "hold on Back leaves");
       } else if (rw.kind == ST::RowKind::Toggle) {
         EXPECT(r == Res::Changed && ST::toggleOn(s, rw.item) != ST::toggleOn(defaults(), rw.item) && st.page == ST::Page::List, "hold flips row %d", target);
+      } else if (rw.kind == ST::RowKind::Open) {
+        EXPECT(r == Res::Open && st.item == rw.item && st.page == ST::Page::List && s == defaults(), "hold on row %d opens its screen", target);
       } else {
         EXPECT(r == Res::Nothing && st.page != ST::Page::List && st.item == rw.item && s == defaults(), "hold opens row %d", target);
         if (rw.kind == ST::RowKind::Choice) EXPECT(st.choiceHl == ST::choiceIndex(s, rw.item), "a choice page starts on the current option");
@@ -1199,6 +1206,8 @@ static void testSettingsBoot() {
       if (rw.kind == ST::RowKind::Toggle) {
         st.handle(Key::BootLong, s);
         st.handle(Key::BootLong, s);  // flip and flip back
+      } else if (rw.kind == ST::RowKind::Open) {
+        EXPECT(st.handle(Key::BootLong, s) == Res::Open && st.page == ST::Page::List, "row %d asks for its screen", r);  // main.cpp switches
       } else {
         st.handle(Key::BootLong, s);
         opened[(int)st.item] = st.page != ST::Page::List;
@@ -1400,6 +1409,51 @@ static void testEndToEnd() {
   printf("  end to end: BOOT-only first boot, reboot, two laps (worst predicted error %.0f ms over %d fixes)\n", worst, checkedFixes);
 }
 
+// Settings > Engine data (EngineScreen.h)
+constexpr int ObdMaxFound = 6;  // ObdBle::MAX_FOUND (ObdBle.h needs the board)
+static void testEngineScreen() {
+  using ES = EngineScreenState;
+  using A = ES::Action;
+  {  // the row on the settings list asks for the screen
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    const int r = rowOf(SettingItem::Engine);
+    EXPECT(r > 0 && ST::row(r).kind == ST::RowKind::Open, "Engine data is a row");
+    EXPECT(tapRow(st, r, s) == Res::Open && st.item == SettingItem::Engine && s == defaults(), "tapping it opens the screen");
+  }
+  {  // touch
+    ES e;
+    e.begin(true);
+    EXPECT(e.tap(160, 10, 0) == A::Back, "the top bar goes back to the settings");
+    EXPECT(e.tap(ES::FORGET_X + 5, ES::BTN_Y + 5, 0) == A::Forget && e.page == ES::Page::Status, "Forget");
+    EXPECT(e.tap(160, 100, 0) == A::Nothing, "the text does nothing");
+    EXPECT(e.tap(ES::FIND_X + 5, ES::BTN_Y + 5, 0) == A::Scan && e.page == ES::Page::Find, "Find adapter scans");
+    EXPECT(e.tap(160, ES::listRowY(0) + 5, 0) == A::Nothing, "nothing found yet: nothing to tap");
+    EXPECT(e.tap(160, ES::listRowY(2) + 5, 2) == A::Nothing, "below the list");
+    EXPECT(e.tap(160, ES::listRowY(1) + 5, 2) == A::Choose && e.chosen == 1 && e.page == ES::Page::Status, "tap one: chosen, back to the status");
+    EXPECT(ES::listRowY(ObdMaxFound - 1) + ES::ROW_H <= 240, "six rows fit");
+    e.tap(ES::FIND_X + 5, ES::BTN_Y + 5, 0);
+    EXPECT(e.tap(160, 10, 3) == A::Nothing && e.page == ES::Page::Status, "the top bar leaves the list for the status");
+  }
+  {  // BOOT
+    ES e;
+    e.begin(false);
+    EXPECT(e.showHighlight && e.highlight == 0, "BOOT highlight from the start");
+    EXPECT(e.handle(Key::BootShort, 0) == A::Nothing && e.highlight == 1, "press: Forget");
+    EXPECT(e.handle(Key::BootLong, 0) == A::Forget, "hold: forget");
+    e.handle(Key::BootShort, 0);
+    EXPECT(e.handle(Key::BootLong, 0) == A::Scan && e.page == ES::Page::Find, "hold on Find adapter");
+    for (int i = 0; i < 2; i++) e.handle(Key::BootShort, 3);
+    EXPECT(e.handle(Key::BootLong, 3) == A::Choose && e.chosen == 2, "two presses, hold: the third");
+    e.handle(Key::BootLong, 0);  // (highlight 0: Find adapter)
+    for (int i = 0; i < 3; i++) e.handle(Key::BootShort, 3);
+    EXPECT(e.handle(Key::BootLong, 3) == A::Nothing && e.page == ES::Page::Status, "past the rows: back");
+    EXPECT(e.handle(Key::Hold, 0) == A::Back, "hold on the status: back to the settings");
+  }
+  printf("  engine data screen: find, choose, forget, by touch and BOOT\n");
+}
+
 int main() {
   printf("Settings tests\n");
   testDefaults();
@@ -1417,6 +1471,7 @@ int main() {
   testSettingsPages();
   testSettingsLevels();
   testSettingsBoot();
+  testEngineScreen();
   testSetup();
   testEndToEnd();
   printf("\n%d checks in 17 groups\n", checks);

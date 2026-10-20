@@ -25,9 +25,9 @@ enum class Key { None, Left, Center, Right, Header, Hold, BootShort, BootLong };
 // opens or flips the highlighted row; on a choice page hold chooses; on a
 // level page press is "+" and hold goes back.
 struct SettingsScreenState {
-  enum class Result { Nothing, Changed, Exit };  // Exit: back to the menu
+  enum class Result { Nothing, Changed, Exit, Open };  // Exit: back to the menu. Open: the screen of `item` (Engine data)
   enum class Page : uint8_t { List, Choice, Brightness, TimeZone };
-  enum class RowKind : uint8_t { Choice, Toggle, Level, Back };
+  enum class RowKind : uint8_t { Choice, Toggle, Level, Open, Back };  // Open: a screen of its own
 
   // --- layout ---------------------------------------------------------------
   static constexpr int SCREEN_W = 320, SCREEN_H = 240;
@@ -39,7 +39,7 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 14, SECTIONS = 5;
+  static constexpr int ROWS = 15, SECTIONS = 5;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
@@ -80,8 +80,9 @@ struct SettingsScreenState {
         {SettingItem::Compare, RowKind::Choice},    {SettingItem::Colours, RowKind::Choice},
         {SettingItem::SessionLen, RowKind::Choice}, {SettingItem::MinLap, RowKind::Choice},
         {SettingItem::Kart, RowKind::Toggle},       {SettingItem::Gps, RowKind::Choice},
-        {SettingItem::Bluetooth, RowKind::Toggle},  {SettingItem::RoadDrives, RowKind::Toggle},
-        {SettingItem::TimeZone, RowKind::Level},    {SettingItem::Count, RowKind::Back},
+        {SettingItem::Bluetooth, RowKind::Toggle},  {SettingItem::Engine, RowKind::Open},
+        {SettingItem::RoadDrives, RowKind::Toggle}, {SettingItem::TimeZone, RowKind::Level},
+        {SettingItem::Count, RowKind::Back},
     };
     return rows[r];
   }
@@ -89,9 +90,9 @@ struct SettingsScreenState {
     static const Section sections[SECTIONS] = {
         {"DISPLAY", 0, 3, nullptr},
         {"TIMING", 3, 6, nullptr},
-        {"GPS & BLUETOOTH", 9, 2, "GPS mode is used from the next restart"},
-        {"RECORDING", 11, 2, nullptr},
-        {nullptr, 13, 1, nullptr},
+        {"GPS & BLUETOOTH", 9, 3, "GPS mode is used from the next restart"},
+        {"RECORDING", 12, 2, nullptr},
+        {nullptr, 14, 1, nullptr},
     };
     return sections[i];
   }
@@ -121,6 +122,7 @@ struct SettingsScreenState {
       case SettingItem::RoadDrives: return "Record road drives";
       case SettingItem::MinLap: return "Min lap time";
       case SettingItem::Kart: return "Kart everywhere";
+      case SettingItem::Engine: return "Engine data";
       default: return "Back to menu";
     }
   }
@@ -319,6 +321,9 @@ private:
     const Row& rw = row(r);
     switch (rw.kind) {
       case RowKind::Back: return Result::Exit;
+      case RowKind::Open:
+        item = rw.item;
+        return Result::Open;
       case RowKind::Toggle: {
         SettingsData before = s;
         settings::adjust(s, rw.item, +1, false);

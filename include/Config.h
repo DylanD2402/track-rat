@@ -123,6 +123,12 @@
 #define CAN_BITRATE_KBPS 500         // 500 for most cars since 2008; some use 250
 #define SHIFT_LIGHT_START_RPM 5500   // the LED bar starts filling here...
 #define SHIFT_LIGHT_RPM 6800         // ...and flashes blue to shift. Set for your engine; 0 = no shift light
+// OBD-II from a Bluetooth LE adapter (ELM327: Veepeak OBDCheck BLE+, OBDLink CX...): the same
+// engine data as CAN, chosen in Settings > Engine data (ObdBle.h). Nothing happens until an
+// adapter has been chosen. Untested on hardware: no adapter has been tried yet.
+#define OBD_BLE_ENABLED 1
+#define OBD_SCAN_S 10                // Find adapter scans this long
+#define COOLANT_WARN_C 110           // a red HOT tag in the header at this coolant temperature; 0 = never
 
 // ---------------------------------------------------------------------------
 // SD card (SDIO 4-bit)

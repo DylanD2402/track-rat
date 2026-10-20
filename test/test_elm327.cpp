@@ -350,6 +350,14 @@ int main() {
           "requests %.1f/s, rpm %.1f Hz, throttle %.1f Hz, coolant %.1f Hz", st.requestHz, st.rpmHz, st.throttleHz, st.coolantHz);
   }
 
+  // Find adapter: what the scan lists
+  {
+    const char* yes[] = {"OBDII", "VEEPEAK", "OBDLink CX", "vLink", "IOS-Vlink", "Android-Vlink", "obd2 ble"};
+    for (const char* n : yes) CHECK(looksLikeAdapter(n, false), "lists %s", n);
+    CHECK(!looksLikeAdapter("Pixel 8", false) && !looksLikeAdapter("", false) && !looksLikeAdapter(nullptr, false), "not a phone");
+    CHECK(looksLikeAdapter("", true), "anything with FFF0 / FFE0");
+  }
+
   // Disconnected: nothing to send
   {
     Bench b;

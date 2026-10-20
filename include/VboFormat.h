@@ -38,8 +38,8 @@ struct Sample {
   float latG = 0;      // + = turning right
   float longG = 0;     // + = speeding up
   uint8_t tag = 0;     // laptags:: flags this fix gives its lap (stopped, after a gap, poor accuracy)
-  // From the car (OBD-II over CAN), in logs with Header::engine; 0 when not known
-  float rpm = 0, throttlePct = 0, coolantC = 0;
+  // From the car (OBD-II over CAN or a Bluetooth adapter), in logs with Header::engine; 0 when not known
+  float rpm = 0, throttlePct = 0, coolantC = 0, intakeC = 0;
 };
 
 // A timing line for [laptiming], by its two ends.
@@ -56,7 +56,7 @@ struct Header {
   Gate start = {0, 0, 0, 0};
   std::vector<Gate> splits;            // named S1, S2...
   std::vector<Gate> sectors;           // corner sector gates, written as splits named T1, T2... after the splits
-  bool engine = false;                // three more channels from the car: RPM, throttle, coolant temperature
+  bool engine = false;                // four more channels from the car: RPM, throttle, coolant and intake temperature
   bool hasFinish = false;             // point to point: the start is "Start", and this is the finish
   Gate finish = {0, 0, 0, 0};
 };

@@ -22,9 +22,9 @@ static_assert(sizeof(CHANNELS) / sizeof(CHANNELS[0]) - STANDARD_CHANNELS == size
               "one [channel units] line per non-standard channel");
 static const char* const COLUMN_NAMES ="sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag";
 // From the car, when the log has them (Header::engine)
-static const char* const ENGINE_CHANNELS[] = {"RPM", "Throttle position", "Coolant temperature"};
-static const char* const ENGINE_UNITS[] = {"rpm", "%", "C"};
-static const char* const ENGINE_COLUMN_NAMES = " RPM Throttle CoolantTemp";
+static const char* const ENGINE_CHANNELS[] = {"RPM", "Throttle position", "Coolant temperature", "Intake temperature"};
+static const char* const ENGINE_UNITS[] = {"rpm", "%", "C", "C"};
+static const char* const ENGINE_COLUMN_NAMES = " RPM Throttle CoolantTemp IntakeTemp";
 
 static const double G0 = 9.80665;
 
@@ -49,8 +49,8 @@ size_t formatLine(const Sample& s, char* out, size_t cap, bool engine) {
                    clampf(s.latG, -GForce::MAX_G, GForce::MAX_G), clampf(s.longG, -GForce::MAX_G, GForce::MAX_G), (unsigned)s.tag);
   if (engine && n > 2 && (size_t)n < cap) {  // before the line ending
     n -= 2;
-    const int m = snprintf(out + n, cap - n, " %05.0f %05.1f %+06.1f\r\n", clampf(s.rpm, 0, 99999), clampf(s.throttlePct, 0, 100),
-                           clampf(s.coolantC, -99.9f, 999.9f));
+    const int m = snprintf(out + n, cap - n, " %05.0f %05.1f %+06.1f %+06.1f\r\n", clampf(s.rpm, 0, 99999), clampf(s.throttlePct, 0, 100),
+                           clampf(s.coolantC, -99.9f, 999.9f), clampf(s.intakeC, -99.9f, 999.9f));
     n = m > 0 ? n + m : -1;
   }
   return (n > 0 && (size_t)n < cap) ? (size_t)n : 0;
