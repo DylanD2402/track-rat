@@ -27,6 +27,7 @@ void SessionReplay::setUpFromHeader() {
     }
     timed = true;
     timer.begin(lineSf, lineSplits, minLapMs, lineSectors);
+    if (overrideStage) timer.setStage(lineFinish, lineHasFinish);
     return;
   }
 
@@ -60,7 +61,13 @@ void SessionReplay::setUpFromHeader() {
     if (!vbo::parsePoint(rdr.comment("Sector " + std::to_string(i)), g)) break;
     sectorGates.push_back(g);
   }
-  if (timed) timer.begin(sf, splits, minLapMs, sectorGates);
+  if (!timed) return;
+  timer.begin(sf, splits, minLapMs, sectorGates);
+  if (rdr.comment("Type") == "stage") {  // point to point: runs end at the finish
+    TrackPoint fin = {0, 0, 0, 0, HeadingFrom::None};
+    const bool hasFinish = vbo::parsePoint(rdr.comment("Finish"), fin) || (finishLookup && finishLookup(trackId, fin));
+    timer.setStage(fin, hasFinish);
+  }
 }
 
 void SessionReplay::endLine() {

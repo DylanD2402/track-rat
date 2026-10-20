@@ -213,7 +213,7 @@ bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, i
                    uint32_t minLapMs, const GpsFix& first) {
   vbo::Header h = headerFor(stamp, first);
   char buf[96];
-  h.comments.push_back("Type: laps");
+  h.comments.push_back(t.stage ? "Type: stage" : "Type: laps");
   h.comments.push_back(std::string("Track: ") + t.id.c_str());
   h.comments.push_back(std::string("Track name: ") + t.name.c_str());
   if (session > 0) h.comments.push_back("Session: " + std::to_string(session));
@@ -224,6 +224,7 @@ bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, i
       h.comments.push_back("Split " + std::to_string(i + 1) + ": " + vbo::pointText(t.splits[i]));
     for (size_t i = 0; i < t.sectors.size(); i++)
       h.comments.push_back("Sector " + std::to_string(i + 1) + ": " + vbo::pointText(t.sectors[i]));
+    if (t.stage && t.hasFinish) h.comments.push_back("Finish: " + vbo::pointText(t.finish));
     // Circuit Tools needs a line across the track, so it needs the track's
     // direction at the start/finish: from the stored map, if there is one.
     if (vbo::gateFromMap(t.map, t.refLat(), t.refLon(), t.startFinish, h.start)) {
@@ -246,6 +247,9 @@ bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, i
       }
     }
   }
+  // A stage's finish for Circuit Tools: across the road the way it was crossed, or from the map
+  if (h.hasStart && t.stage && t.hasFinish)
+    h.hasFinish = vbo::gateAcross(t.finish, h.finish) || vbo::gateFromMap(t.map, t.refLat(), t.refLon(), t.finish, h.finish);
   snprintf(buf, sizeof(buf), "Min lap ms: %lu", (unsigned long)minLapMs);
   h.comments.push_back(buf);
 
@@ -366,6 +370,12 @@ static void recoverSession(fs::FS& fs, const String& vboPath) {
         splits = t->splits;
         return true;
       }));
+  replay->finishLookup = [](const std::string& id, TrackPoint& finish) {
+    const Track* t = recoveryTrack(id);
+    if (!t || !t->stage || !t->hasFinish) return false;
+    finish = t->finish;
+    return true;
+  };
   // A session switched to another layout mid-session kept its laps, and its
   // summary names that layout, but the log's header still names the first.
   String base = vboPath.substring(0, vboPath.length() - 4);
@@ -464,6 +474,9 @@ void recoverUnfinished(const TrackDatabase& tracks) {
     c.startFinish = t->startFinish;
     c.splits = t->splits;
     c.sectors = t->sectors;
+    c.stage = t->stage;
+    c.hasFinish = t->hasFinish;
+    c.finish = t->finish;
     recoveryTracks.push_back(c);
   }
   // Idle priority on core 0: the log writer, Wi-Fi and BLE go first, and the
@@ -557,6 +570,7 @@ static void retimeAll(fs::FS& fs) {
     std::unique_ptr<SessionReplay> replay(new SessionReplay());
     replay->summaryTrackId = trackId;
     replay->useLines(t.startFinish, t.splits, t.sectors);
+    if (t.stage) replay->useStage(t.finish, t.hasFinish);
     static char chunk[4096];
     for (;;) {
       int n = f.read((uint8_t*)chunk, sizeof(chunk));
@@ -627,6 +641,9 @@ bool retime(const Track& track, const String& logName, String& error) {
   retimeTrack.startFinish = track.startFinish;
   retimeTrack.splits = track.splits;
   retimeTrack.sectors = track.sectors;
+  retimeTrack.stage = track.stage;
+  retimeTrack.hasFinish = track.hasFinish;
+  retimeTrack.finish = track.finish;
   retimeFile = logName;
   setRetimeState(0, 0, 0, "Starting", true);
   retimeRunning = true;

@@ -100,7 +100,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card, unless **Record road drives** is off in [Settings](#settings). Then the drive is shown but not saved.
   Free Roam also watches for a track: see [Tracks that learn themselves](#tracks-that-learn-themselves) below.
-- **NEW TRACK:** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
+- **NEW TRACK:** asks **Circuit** or **Course**. **Course** is for autocross, hill climbs and sprints: see [Point to point](#point-to-point-autocross-hill-climbs-sprints). **Circuit** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand. The nearest track comes first, then the rest in order of distance, each with how far away it is. Layouts of one venue stay together. Without a GPS fix the list is in `tracks.json` order, and it sorts itself as soon as there is a fix. **Bench Test** is always last.
 - **PERFORMANCE:** the left button of the second row. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
 - **SETTINGS:** the middle button of the second row. Units, brightness and the rest; see [Settings](#settings).
@@ -172,6 +172,18 @@ The live diff compares your position with the path your best lap took. If you're
 - **SUSPECT:** a gap of more than 1 s between GPS fixes, a fix less accurate than ±5 m (u-blox only), or a lap more than 5% longer or shorter than the session's usual lap (a cut, once there are 3 laps to compare).
 
 A tagged lap is never the best lap or the live-diff reference, and isn't counted in the average. The summary lists the tags beside the lap times. The slow and length checks are made again after every lap, so a short first lap that looked like the best loses that place once later laps show it was cut; the next clean lap then stands in as the live-diff reference until there's a new best.
+
+### Point to point: autocross, hill climbs, sprints
+
+A **stage** has a start and a separate finish (plus any splits). Each run counts as a lap: best run, live delta to it, sector colours, PB, debrief.
+
+- **NEW TRACK, then Course**, while you're at the start (in the grid or the start box). It makes a stage called **Course 2026-10-20** (today's date: autocross courses change at every event) with its start where you are, and starts timing.
+- **Standing start:** stopped within 25 m of the start, the run is **armed** (it says so on screen) and the clock starts the moment you move. If the start line has a direction and you're stopped more than 1 m behind it (timing lights a little way on), the clock starts as you cross the line instead. A start line with a direction also takes a **rolling start**: driving through it starts a run. A start with no direction (a NEW COURSE start) only does standing starts, so driving back to the grid never starts one.
+- **Finish:** crossing the finish line ends the run (only the way it was set, if it has a direction). With no finish yet, **tap the screen as you cross it** on the first run: that sets the finish (with your direction, above 15 km/h) and times the run. Or don't: a run that stops for 5 s before a finish ends untimed, and you can set the finish later on the Wi-Fi page's [track editor](#track-editor-and-re-timing) (**Set finish**) and re-time the session.
+- A run that stops for 5 s before the finish (a spin, a red flag) ends without a time.
+- Waiting in line between runs: parked for a minute shows the debrief as usual, but the session doesn't end after 10 minutes; the whole event stays one session. A stage within 5 km at boot starts timing straight away, so the first run's standing start isn't missed. The slow screen never takes over during a run.
+- In `tracks.json` a stage has `"type": "stage"` and a `"finish"` next to its `"startFinish"` (the start). Its `.vbo` says `Type: stage` and records the finish, and its `[laptiming]` has **Start** and **Finish** lines for Circuit Tools (when they have a direction).
+- The thresholds are in `Config.h` (`STAGE_...`).
 
 ### Tracks that learn themselves
 
@@ -537,6 +549,7 @@ Record first, decide later: a wrong start/finish, a missing split or a layout Tr
 1. On the **Tracks** tab, pick a session (any `.vbo` log on the SD card). Its laps are drawn from the log on your phone, no map download needed: every lap in grey, one in full, with the track's start/finish (green, with an arrow the way the track runs), splits (blue, S1, S2...) and corners (purple, T1, T2... or their names) on top. The track is the one the log names; pick another from the list if it was timed at the wrong one.
 2. Edit:
    - **Move line:** tap the path where the start/finish should be. Its direction is taken from the path there. The corner sectors go with the old line, as with SET LINE on the device: Track Rat makes them again from the next clean lap.
+   - **Set finish** (stages only): tap the path where the finish is. Its direction is taken from the path there.
    - **Flip direction:** turns the line round.
    - **Add split / Remove split:** tap the path to add one (numbered in the order a lap passes them, from the line), or tap a split to remove it.
    - **Corners:** type a name for any corner sector ("The Wall"); clear it to go back to the number. Names are saved in `tracks.json` (`"name"` on each of `"sectors"`).
@@ -753,7 +766,7 @@ g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 ```
 
-`test/test_web.js` checks how the page groups session files by day and track (a session's logbook note kept with it), that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts), and the lap comparison (laps from a log across midnight, speed and gap against distance with lap lengths that differ, who was faster where, the season and its PBs) (needs Node.js):
+`test/test_web.js` checks how the page groups session files by day and track (a session's logbook note kept with it), that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts, a stage's finish), and the lap comparison (laps from a log across midnight, speed and gap against distance with lap lengths that differ, who was faster where, the season and its PBs) (needs Node.js):
 
 ```bash
 node test/test_web.js
@@ -763,6 +776,12 @@ node test/test_web.js
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
+```
+
+`test/test_stage.cpp` checks point to point timing: a standing start (armed at the start, the clock from the last moment standing still), splits, the finish, the drive back to the start not being a run, the live delta to the best run, timing lights a little way past where the car stopped, a rolling start, a stage with no finish (the run ends untimed when the car stops; a tap at the finish times it), a run that stops short, the finish crossed the wrong way; then a stage's `.vbo` timed again gives the same runs, re-timing with a finish set later times runs that had none, and `[laptiming]` names the lines Start and Finish:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/stg && /tmp/stg
 ```
 
 `test/test_tracklearn.cpp` checks tracks that learn themselves: a loop driven twice is found, with the line where the first loop began, and the lap timer then times every loop from the kept fixes; a tight kart track whose straights run back alongside each other still counts; one lap round the block, a road driven out and back over and over, a figure of eight driven once, a short loop then a long one, a loop under 300 m, a slow car park and loops too long for the window are not tracks; a long drive keeps a bounded path; and the kept fixes stay in order:

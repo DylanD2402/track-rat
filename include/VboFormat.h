@@ -54,6 +54,8 @@ struct Header {
   Gate start = {0, 0, 0, 0};
   std::vector<Gate> splits;            // named S1, S2...
   std::vector<Gate> sectors;           // corner sector gates, written as splits named T1, T2... after the splits
+  bool hasFinish = false;             // point to point: the start is "Start", and this is the finish
+  Gate finish = {0, 0, 0, 0};
 };
 
 // Everything before the first data line, ending with "[data]".

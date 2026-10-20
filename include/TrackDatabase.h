@@ -17,6 +17,10 @@
  * layout is a separate Track here, listed next to the venue's other layouts,
  * with an id of "<venue id>.<layout id>" so anything kept per track (maps,
  * best laps) is kept per layout. A venue without "layouts" is one Track.
+ *
+ * A point-to-point track (autocross, hill climb, sprint) has "type": "stage"
+ * and a "finish" as well as its "startFinish" (the start): see
+ * LapTimer::setStage. NEW COURSE on the device makes one named with the date.
  */
 
 #ifndef TRACK_DATABASE_H
@@ -57,6 +61,10 @@ struct Track {
   // tagged by tools/fetch_track_map.py). In the pit lane the slow screen shows.
   std::vector<uint16_t> pitLines;
   bool bench = false;  // the built-in bench-test track: driven by the simulated car
+  // Point to point ("type": "stage"): startFinish is the start, and runs end at the finish
+  bool stage = false;
+  bool hasFinish = false;
+  TrackPoint finish = {0, 0, 0};
 
   double refLat() const { return hasStartFinish ? startFinish.lat : centerLat; }
   double refLon() const { return hasStartFinish ? startFinish.lon : centerLon; }
@@ -102,6 +110,11 @@ public:
   // These change tracks.json (SD if present, else flash) as well as memory.
   // createTrack returns the new index, or -1.
   int createTrack(double centerLat, double centerLon);
+  // NEW COURSE: a stage starting here (no direction: standing starts), named
+  // "Course <date>" from the stamp ("YYYYMMDD_hhmmss"). The finish comes later.
+  int createCourse(double lat, double lon, const String& stamp);
+  // A stage's finish line. headingDeg < 0: no direction.
+  bool setFinish(int index, double lat, double lon, float headingDeg = -1);
   // headingDeg < 0: no direction (crossings either way count).
   bool setStartFinish(int index, double lat, double lon, float headingDeg = -1);
   // A map made on the device (line in metres from refLat/refLon) is only

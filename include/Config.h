@@ -172,6 +172,15 @@
 #define SLOW_SCREEN_MS 5000
 #define PIT_LANE_M 10.0                  // this close to a map line marked "pit" (and nearer it than any other): in the pit lane
 
+// Point to point: autocross, hill climbs, sprints (a "stage" track: see LapTimer.h)
+#define STAGE_ARM_M 25.0                 // stopped this close to the start: the run is armed
+#define STAGE_STOPPED_KMH 3.0            // slower than this is stopped
+#define STAGE_STILL_KMH 1.5              // standing still: the clock starts from the last fix this slow
+#define STAGE_GO_KMH 5.0                // armed, this fast is the first movement: the clock starts
+#define STAGE_LIGHTS_M 1.0               // stopped further than this behind the start line: the clock starts at the line
+#define STAGE_END_STOP_MS 5000           // stopped this long in a run without crossing the finish: it ends, untimed
+#define STAGE_MIN_RUN_MS 5000            // finish crossings sooner than this after the start are ignored
+
 // ---------------------------------------------------------------------------
 // Performance runs (acceleration and braking)
 // ---------------------------------------------------------------------------

@@ -109,6 +109,8 @@ public:
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
   void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
+  // NEW TRACK: a circuit (left) or a point-to-point course (right); highlight for the BOOT button, -1 none
+  void drawNewTrack(int highlight, bool touchOk);
   // Performance mode (DisplayPerf.cpp). Card: a run by index, or the session's best when index < 0.
   void drawPerfLive(const perf::PerfRun& pr, const GPSHandler& gps, perf::SpeedUnit units, const char* leftButton,
                     uint32_t holdMs, bool touchOk);
