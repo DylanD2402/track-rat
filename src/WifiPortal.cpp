@@ -382,7 +382,7 @@ static void onNotePost(AsyncWebServerRequest* req) {
   }
   const std::string note = logbook::clean(req->arg("note").c_str());
   const String path = logbook::notePath(SESSION_DIR, base.c_str()).c_str();
-  const String tmp = path + ".tmp";
+  const String tmp = String(SESSION_DIR) + "/.note.tmp";  // handlers run one at a time
   bool ok = true;
   if (note.empty()) {
     if (fs->exists(path)) ok = fs->remove(path);
@@ -403,9 +403,7 @@ static void onNotePost(AsyncWebServerRequest* req) {
     req->send(500, "text/plain", "Couldn't save the note. Is the card full?");
     return;
   }
-  String out = "{\"note\":";
-  out += logbook::noteJson(note).c_str() + 8;  // its "..." and closing brace
-  req->send(200, "application/json", out);
+  req->send(200, "application/json", logbook::noteJson(note).c_str());
 }
 
 // The note in <base>_note.json, or empty

@@ -362,7 +362,7 @@ async function loadSessions() {
                 s.files.map((x) => fileLink(x.f, x.label)).join("") +
                 (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") +
                 ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>` +
-                `<div class="lognote" id="${id}">${s.noteFile ? `<span class="note">Loading note…</span>` : ""}</div></div>`;
+                `<div class="lognote" id="${id}">${s.noteFile ? `<span class="note">Loading noteâ€¦</span>` : ""}</div></div>`;
       }
       html += `</div>`;
     }
@@ -404,7 +404,7 @@ $("sessionList").addEventListener("click", async (e) => {
   if (id) {
     const n = noteOf(id);
     if (!n || $(id).querySelector("textarea")) return;
-    $(id).innerHTML = `<textarea maxlength="1000" placeholder="Pressures, weather, setup, what your instructor said…"></textarea>` +
+    $(id).innerHTML = `<textarea maxlength="1000" placeholder="Pressures, weather, setup, what your instructor saidâ€¦"></textarea>` +
       `<div class="row"><button class="btn" data-note-act="save" data-for="${id}">Save note</button>` +
       `<button class="btn plain" data-note-act="cancel" data-for="${id}">Cancel</button></div>`;
     const ta = $(id).querySelector("textarea");
@@ -415,6 +415,7 @@ $("sessionList").addEventListener("click", async (e) => {
     if (!n) return;
     if (act === "cancel") { showNote(n); return; }
     const text = $(n.id).querySelector("textarea").value;
+    if (new TextEncoder().encode(text.trim()).length > 1000) { alert("That note is too long: Track Rat keeps up to 1000 bytes (fewer letters with accents or emoji)."); return; }
     const code = askCode("Save this note with the session?");
     if (code === null) return;
     e.target.disabled = true;
