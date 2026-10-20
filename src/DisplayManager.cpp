@@ -363,8 +363,8 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
                                      const GPSHandler& gps, bool touchOk) {
   beginFrame();
   char buf[40];
-  snprintf(buf, sizeof(buf), "Tracks   %d of %d", index + 1, count);
-  header(buf, &gps);  // tap the top bar for GPS status
+  snprintf(buf, sizeof(buf), "‹  Tracks   %d of %d", index + 1, count);  // the top bar goes back to the menu
+  header(buf, &gps);
 
   centered(track.name, HEADER_H + 10, Font::Title, C_TEXT);
   String where = track.location + (track.country.length() ? ", " + track.country : String(""));
@@ -391,7 +391,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
   stat(2, "SPLITS", buf, C_TEXT);
 
   if (!track.hasStartFinish && !track.bench) centered("No start/finish line yet: set it on track", 170, Font::Caption, C_YELLOW);
-  else if (touchOk) centered("Tap the top bar for GPS status", 170, Font::Caption, C_TEXT3);
+  else if (touchOk) centered("Tap the top bar for the menu", 170, Font::Caption, C_TEXT3);
 
   if (touchOk) footerButtons("‹", "Select", "›");
   else centered("BOOT: press for next, hold to select", 212, Font::Body, C_TEXT3);

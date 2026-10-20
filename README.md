@@ -111,8 +111,8 @@ The board resets itself before and after uploading, so no buttons are needed. On
 |---|---|---|
 | Waiting for GPS | tap: menu | press: menu |
 | Menu | tap a mode, or PERFORMANCE / SETTINGS / WI-FI in the second row; top bar: GPS status | press: next (in the order on screen), hold 1 s: choose |
-| Track list | left / right third: previous / next, centre: select, hold: menu | press: next, hold 1 s: select |
-| GPS Status (top bar of the menu or track list) | tap: back | press: back |
+| Track list | left / right third: previous / next, centre: select, top bar or hold: menu | press: next, hold 1 s: select |
+| GPS Status (top bar of the menu) | tap: back | press: back |
 | Ready | centre: start, left: menu (back, if you came from the track list), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from the track list) |
 | Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
