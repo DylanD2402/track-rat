@@ -128,7 +128,16 @@
 // adapter has been chosen. Untested on hardware: no adapter has been tried yet.
 #define OBD_BLE_ENABLED 1
 #define OBD_SCAN_S 10                // Find adapter scans this long
-#define COOLANT_WARN_C 110           // a red HOT tag in the header at this coolant temperature; 0 = never
+// The engine's temperatures (6.5), the defaults of Settings > Coolant: the top bar's coolant tag is
+// blue below COLD, yellow from WARM and blinking red from HOT (COOLANT_WARN_C), where a full-screen
+// warning shows too, as it does for oil at OIL_HOT_C (TempAlert.h)
+#define COOLANT_COLD_C 70
+#define COOLANT_WARM_C 100
+#define COOLANT_WARN_C 110           // Hot at
+#define OIL_HOT_C 130                // Oil hot at, for cars that report oil temperature (PID 0x5C)
+#define TEMP_ALERT_MS 3000           // the full-screen warning shows this long (a tap ends it sooner)...
+#define TEMP_REARM_DROP_C 3          // ...and again once the temperature has dropped this far below the limit and come back,
+#define TEMP_REPEAT_MS 60000         // or after this long still over it
 // Track Rat as a DJI Osmo Action's GPS remote (Action 4, 5 Pro, 6, Osmo 360): GPS into the video
 // at 10 Hz, recording with the sessions (CameraBle.h). Paired in Settings > Camera; nothing happens
 // until then. Untested with a camera.

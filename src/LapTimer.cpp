@@ -48,6 +48,7 @@ void LapTimer::reset() {
   running = false;
   lapNumber = 0;
   sessionMaxSpeed = 0;
+  sessionCoolantMax = sessionOilMax = lapCoolantMax = lapOilMax = NO_TEMP;
   curTrace.clear();
   bestTrace.clear();
   refIndex = -1;
@@ -77,6 +78,7 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
   lapStartT = t;
   lapStartMillis = startMillis;
   lapMaxSpeed = 0;
+  lapCoolantMax = lapOilMax = NO_TEMP;
   lapSpeedSum = 0;
   lapSpeedCount = 0;
   lapSplits.assign(splitPts.size(), -1);
@@ -108,6 +110,8 @@ bool LapTimer::completeLap(int64_t tc, geo::XY endAt, float speedKmh, LapEvent& 
   lap.sectorMs = lapSectors;
   lap.distanceM = lapDistance;
   lap.tags = lapTags;
+  lap.coolantMaxC = lapCoolantMax;
+  lap.oilMaxC = lapOilMax;
 
   const Lap* prevBest = bestLap();
   if (prevBest) ev.deltaMs = (int32_t)lap.timeMs - (int32_t)prevBest->timeMs;

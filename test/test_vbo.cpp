@@ -669,15 +669,16 @@ static void testLogRingThreads() {
   CHECK(!small.push(DATA, l, LogRing::MAX_RECORD + 1), "oversized record refused");
 }
 
-// Engine channels (OBD-II over CAN or Bluetooth): four more columns, only in logs that have them,
+// Engine channels (OBD-II over CAN or Bluetooth): five more columns, only in logs that have them,
 // and a log with them still reads back and times the same
 static void testEngineChannels() {
   vbo::Header h;
   h.engine = true;
   const std::string text = vbo::headerText(h);
-  CHECK(text.find("RPM\r\nThrottle position\r\nCoolant temperature\r\nIntake temperature\r\n") != std::string::npos, "engine channels in [header]");
-  CHECK(text.find("rpm\r\n%\r\nC\r\nC\r\n") != std::string::npos, "and their units");
-  CHECK(text.find("LapTag RPM Throttle CoolantTemp IntakeTemp\r\n") != std::string::npos, "and column names");
+  CHECK(text.find("RPM\r\nThrottle position\r\nCoolant temperature\r\nIntake temperature\r\nOil temperature\r\n") != std::string::npos,
+        "engine channels in [header]");
+  CHECK(text.find("rpm\r\n%\r\nC\r\nC\r\nC\r\n") != std::string::npos, "and their units");
+  CHECK(text.find("LapTag RPM Throttle CoolantTemp IntakeTemp OilTemp\r\n") != std::string::npos, "and column names");
   vbo::Header plain;
   CHECK(vbo::headerText(plain).find("RPM") == std::string::npos, "not without");
 
@@ -690,10 +691,11 @@ static void testEngineChannels() {
   s.throttlePct = 87.25f;
   s.coolantC = 92;
   s.intakeC = 31.5f;
+  s.oilC = 121;
   char a[160], b[160];
   const size_t na = vbo::formatLine(s, a, sizeof(a)), nb = vbo::formatLine(s, b, sizeof(b), true);
-  CHECK(na && nb == na + 26, "26 more characters: %zu vs %zu", nb, na);
-  CHECK(std::string(b, nb).find(" 06512 087.2 +092.0 +031.5\r\n") != std::string::npos, "engine values: %s", b);
+  CHECK(na && nb == na + 33, "33 more characters: %zu vs %zu", nb, na);
+  CHECK(std::string(b, nb).find(" 06512 087.2 +092.0 +031.5 +121.0\r\n") != std::string::npos, "engine values: %s", b);
   CHECK(vbo::formatLine(s, b, nb, true) == 0 && vbo::formatLine(s, b, nb + 1, true) == nb, "no partial lines");
   s.rpm = 0;
   s.coolantC = -40;
@@ -714,6 +716,27 @@ static void testEngineChannels() {
     start = end + 2;
   }
   CHECK(got && fabs(out.lat - 45.1) < 1e-6 && fabs(out.speedKmh - 120) < 0.01, "read back with engine columns");
+  CHECK(r.hasCoolant() && r.hasOil() && fabs(out.coolantC + 40) < 0.01 && fabs(out.oilC - 121) < 0.01,
+        "coolant and oil read back (%.1f, %.1f)", out.coolantC, out.oilC);
+
+  // A log from before oil temperature (four engine columns): coolant still reads, oil isn't there
+  std::string old = text;
+  for (const char* from : {"Intake temperature\r\nOil temperature\r\n", "C\r\nC\r\nC\r\n", "IntakeTemp OilTemp"}) {
+    const std::string f = from, to = f == "Intake temperature\r\nOil temperature\r\n" ? "Intake temperature\r\n"
+                                     : f == "C\r\nC\r\nC\r\n" ? "C\r\nC\r\n" : "IntakeTemp";
+    old.replace(old.find(f), f.size(), to);
+  }
+  old += "000 100000.000 02706.00000 04572.00000 120.000 000.00 +00000.00 00.00 001 +0.000 +0.000 000 03000 087.2 +095.0 +031.5\r\n";
+  vbo::Reader r4;
+  got = false;
+  for (size_t st = 0, en; (en = old.find("\r\n", st)) != std::string::npos; st = en + 2)
+    got = r4.feed(old.substr(st, en - st).c_str(), out) || got;
+  CHECK(got && r4.hasCoolant() && !r4.hasOil() && fabs(out.coolantC - 95) < 0.01 && out.oilC == 0, "four-column log: coolant %.1f",
+        out.coolantC);
+  vbo::Reader plainR;
+  plainR.feed("[header]", out);
+  plainR.feed("time", out);
+  CHECK(!plainR.hasCoolant() && !plainR.hasOil(), "no engine columns");
 }
 
 int main() {

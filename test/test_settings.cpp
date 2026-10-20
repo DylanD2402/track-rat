@@ -60,6 +60,11 @@ static SettingsData randomSettings() {
   d.minLap = (uint8_t)(testRand() % settings::MIN_LAP_CHOICES);
   d.cameraWithSessions = testRand() & 1;
   d.bleProfile = (BleProfile)(testRand() & 1);
+  // Coolant limits: any in order
+  d.coolantColdC = (uint8_t)(COOLANT_SET_MIN_C + testRand() % (COOLANT_SET_MAX_C - COOLANT_SET_MIN_C - 1));
+  d.coolantWarmC = (uint8_t)(d.coolantColdC + 1 + testRand() % (COOLANT_SET_MAX_C - d.coolantColdC - 1));
+  d.coolantHotC = (uint8_t)(d.coolantWarmC + 1 + testRand() % (COOLANT_SET_MAX_C - d.coolantWarmC));
+  d.oilHotC = (uint8_t)(OIL_SET_MIN_C + testRand() % (OIL_SET_MAX_C - OIL_SET_MIN_C + 1));
   return d;
 }
 
@@ -106,6 +111,9 @@ static void testDefaults() {
   EXPECT(d.bluetooth == (BLE_ENABLED != 0), "bluetooth");
   EXPECT(d.utcOffsetMin == DEFAULT_UTC_OFFSET_MIN, "utc offset %d", d.utcOffsetMin);
   EXPECT(d.recordRoadDrives == (DEFAULT_RECORD_ROAD_DRIVES != 0), "recordRoadDrives");
+  EXPECT(d.coolantColdC == COOLANT_COLD_C && d.coolantWarmC == COOLANT_WARM_C && d.coolantHotC == COOLANT_WARN_C && d.oilHotC == OIL_HOT_C &&
+             COOLANT_COLD_C == 70 && COOLANT_WARM_C == 100 && COOLANT_WARN_C == 110 && OIL_HOT_C == 130,
+         "coolant limits 70 / 100 / 110, oil 130");
 
   SettingsData s = d;
   sanitize(s);
@@ -481,7 +489,7 @@ static void testJson() {
   std::string want = std::string("{\"units\":\"mph\",\"upsideDown\":true,\"brightness\":70,\"compareTo\":\"ever\",") +
                      "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"sessionMin\":\"25\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
                      "\"recordRoadDrives\":false,\"minLap\":\"15\",\"kartEverywhere\":true,\"cameraRecording\":\"manual\",\"bleProfile\":\"racebox\",\"bluetoothBuilt\":" +
-                     (BLE_ENABLED ? "true" : "false") + "}";
+                     (BLE_ENABLED ? "true" : "false") + ",\"coolantColdC\":70,\"coolantWarmC\":100,\"coolantHotC\":110,\"oilHotC\":130}";
   EXPECT(len == strlen(buf) && len > 0, "length %zu vs strlen %zu", len, strlen(buf));
   EXPECT(want == buf, "json:\n  got  %s\n  want %s", buf, want.c_str());
 
@@ -493,9 +501,10 @@ static void testJson() {
     size_t n = toJson(r, buf, sizeof(buf));
     std::string j(buf);
     bool ok = n == j.size() && j.front() == '{' && j.back() == '}' && std::count(j.begin(), j.end(), '"') % 2 == 0 &&
-              std::count(j.begin(), j.end(), ',') == 15;
+              std::count(j.begin(), j.end(), ',') == 19;
     for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "deltaColours", "sessionMin", "gpsMode", "bluetooth", "tzMin",
-                            "recordRoadDrives", "minLap", "kartEverywhere", "cameraRecording", "bleProfile", "bluetoothBuilt"})
+                            "recordRoadDrives", "minLap", "kartEverywhere", "cameraRecording", "bleProfile", "bluetoothBuilt",
+                            "coolantColdC", "coolantWarmC", "coolantHotC", "oilHotC"})
       ok = ok && j.find(std::string("\"") + key + "\":") != std::string::npos;
     formed = formed && ok;
   }
@@ -607,7 +616,7 @@ static void testSetField() {
     if (start != target) printf("    round trip failed for %s\n", json);
   }
   EXPECT(restored, "toJson then setField must restore the settings");
-  EXPECT(sent == 15 && refused == 1, "15 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
+  EXPECT(sent == 19 && refused == 1, "19 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
 
   // Karting: Min lap time and Kart everywhere
   {
@@ -635,6 +644,101 @@ static void testSetField() {
 }
 
 // --- 6, 7, 8. what other code asks of a setting -----------------------------------------
+
+// --- Settings > Coolant (6.5): the four limits ------------------------------------
+
+static void testCoolantLimits() {
+  const SettingsData def = defaults();
+  auto ordered = [](const SettingsData& d) { return d.coolantColdC < d.coolantWarmC && d.coolantWarmC < d.coolantHotC; };
+
+  // One degree C a step; the others move along to keep Cold < Warm < Hot
+  SettingsData d = def;
+  adjust(d, SettingItem::CoolHot, +1, false);
+  EXPECT(d.coolantHotC == 111 && d.coolantWarmC == 100 && d.coolantColdC == 70, "Hot at + 1");
+  for (int i = 0; i < 40; i++) adjust(d, SettingItem::CoolCold, +1, false);
+  EXPECT(d.coolantColdC == 110 && d.coolantWarmC == 111 && d.coolantHotC == 112, "Cold below pushes Warm and Hot up: %d %d %d",
+         d.coolantColdC, d.coolantWarmC, d.coolantHotC);
+  d = def;
+  for (int i = 0; i < 200; i++) adjust(d, SettingItem::CoolHot, -1, false);
+  EXPECT(d.coolantHotC == COOLANT_SET_MIN_C + 2 && d.coolantWarmC == COOLANT_SET_MIN_C + 1 && d.coolantColdC == COOLANT_SET_MIN_C,
+         "Hot at down pushes the others down, and stops: %d %d %d", d.coolantColdC, d.coolantWarmC, d.coolantHotC);
+  d = def;
+  for (int i = 0; i < 200; i++) adjust(d, SettingItem::CoolWarm, +1, false);
+  EXPECT(d.coolantWarmC == COOLANT_SET_MAX_C - 1 && d.coolantHotC == COOLANT_SET_MAX_C && d.coolantColdC == 70, "Warm at to the top");
+  d = def;
+  adjust(d, SettingItem::OilHot, -1, false);
+  EXPECT(d.oilHotC == 129 && d.coolantHotC == 110, "Oil hot at on its own");
+
+  // BOOT goes round, and every step of every limit stays in order and in range
+  testSeed(31);
+  bool fine = true;
+  for (SettingItem it : COOLANT_ITEMS)
+    for (int dir : {-1, +1})
+      for (bool wrap : {false, true}) {
+        SettingsData r = randomSettings();
+        for (int n = 0; n < 300; n++) {
+          adjust(r, it, dir, wrap);
+          SettingsData s = r;
+          sanitize(s);
+          fine = fine && ordered(r) && s == r;
+        }
+      }
+  EXPECT(fine, "300 steps of each limit, both ways: always in order and in range");
+  d = def;
+  d.coolantHotC = COOLANT_SET_MAX_C;
+  adjust(d, SettingItem::CoolHot, +1, true);
+  EXPECT(d.coolantHotC == COOLANT_SET_MIN_C + 2 && ordered(d), "BOOT wraps Hot at round to the bottom: %d", d.coolantHotC);
+
+  // Corrupt values from flash
+  d = def;
+  d.coolantWarmC = 200;
+  sanitize(d);
+  EXPECT(d.coolantColdC == 70 && d.coolantWarmC == 100 && d.coolantHotC == 110, "out of range: back to the defaults");
+  d = def;
+  d.coolantColdC = 105;
+  sanitize(d);
+  EXPECT(d.coolantColdC == 70 && ordered(d), "out of order: back to the defaults");
+  d = def;
+  d.oilHotC = 10;
+  sanitize(d);
+  EXPECT(d.oilHotC == OIL_SET_MIN_C, "oil clamped");
+  d = def;
+  d.coolantColdC = 40, d.coolantWarmC = 41, d.coolantHotC = 42;
+  SettingsData kept = d;
+  sanitize(d);
+  EXPECT(d == kept, "close together but in order is fine");
+
+  // Shown in the user's units
+  char buf[48];
+  d = def;
+  valueText(d, SettingItem::CoolHot, buf, sizeof(buf));
+  EXPECT(!strcmp(buf, "110\xC2\xB0" "C"), "Hot at in C: %s", buf);
+  valueText(d, SettingItem::Coolant, buf, sizeof(buf));
+  EXPECT(!strcmp(buf, "Hot at 110\xC2\xB0" "C"), "the row: %s", buf);
+  d.units = SpeedUnits::Mph;
+  valueText(d, SettingItem::CoolHot, buf, sizeof(buf));
+  EXPECT(!strcmp(buf, "230\xC2\xB0" "F"), "Hot at in F with mph: %s", buf);
+  valueText(d, SettingItem::CoolCold, buf, sizeof(buf));
+  EXPECT(!strcmp(buf, "158\xC2\xB0" "F"), "Cold below in F: %s", buf);
+  valueText(d, SettingItem::OilHot, buf, sizeof(buf));
+  EXPECT(!strcmp(buf, "266\xC2\xB0" "F"), "Oil hot at in F: %s", buf);
+  EXPECT(fahrenheit(d) && !fahrenheit(def), "F with mph");
+  const tempalert::Limits l = tempLimits(def);
+  EXPECT(l.coldBelowC == 70 && l.warmAtC == 100 && l.hotAtC == 110 && l.oilHotAtC == 130, "the limits for TempAlert.h");
+  EXPECT(!strcmp(itemName(SettingItem::CoolHot), "HOT AT") && strlen(itemNote(SettingItem::Coolant)) > 0, "names");
+
+  // The Wi-Fi page: degrees C, in range, the others moved along
+  d = def;
+  EXPECT(setField(d, "coolantHotC", "120") && d.coolantHotC == 120, "coolantHotC");
+  EXPECT(setField(d, "coolantColdC", "125") && d.coolantColdC == 125 && d.coolantWarmC == 126 && d.coolantHotC == 127, "coolantColdC pushes");
+  EXPECT(setField(d, "coolantWarmC", "90") && d.coolantColdC == 89 && d.coolantWarmC == 90 && d.coolantHotC == 127, "coolantWarmC pulls");
+  EXPECT(setField(d, "oilHotC", "140") && d.oilHotC == 140, "oilHotC");
+  SettingsData before = d;
+  EXPECT(!setField(d, "coolantHotC", "151") && !setField(d, "coolantHotC", "31") && !setField(d, "oilHotC", "79") &&
+             !setField(d, "oilHotC", "181") && !setField(d, "coolantColdC", "x") && !setField(d, "coolantWarmC", "") && d == before,
+         "out of range refused, nothing changed");
+  printf("  coolant limits: in order, in range, C or F, the Wi-Fi page\n");
+}
 
 static void testNeedsRestartAndGps() {
   for (int start = 0; start < 6; start++) {
@@ -747,7 +851,8 @@ static void testSettingsLayout() {
       lastKind = r;
       continue;
     }
-    if (rw.kind == ST::RowKind::Open) {  // a screen of its own (Engine data): after Count, not a setting
+    // a screen of its own (Engine data), or the Coolant page of four values: after Count, not one setting
+    if (rw.kind == ST::RowKind::Open || rw.item == SettingItem::Coolant) {
       EXPECT((int)rw.item > SETTING_ITEM_COUNT && ST::rowOfItem(rw.item) == r && strlen(ST::rowLabel(rw.item)) > 0, "row %d: a screen row", r);
       continue;
     }
@@ -1206,6 +1311,7 @@ static void testSettingsBoot() {
     st.begin(false);
     SettingsData s = defaults();
     bool opened[SETTING_ITEM_COUNT] = {};
+    bool coolantOpened = false;
     for (int r = 0; r < ST::ROWS - 1; r++) {
       const ST::Row& rw = ST::row(st.highlight);
       EXPECT(st.highlight == r, "visiting row %d", r);
@@ -1214,6 +1320,11 @@ static void testSettingsBoot() {
         st.handle(Key::BootLong, s);  // flip and flip back
       } else if (rw.kind == ST::RowKind::Open) {
         EXPECT(st.handle(Key::BootLong, s) == Res::Open && st.page == ST::Page::List, "row %d asks for its screen", r);  // main.cpp switches
+      } else if (rw.item == SettingItem::Coolant) {
+        st.handle(Key::BootLong, s);
+        coolantOpened = st.page == ST::Page::Coolant;
+        st.handle(Key::Hold, s);
+        EXPECT(st.page == ST::Page::List, "back from the Coolant page");
       } else {
         st.handle(Key::BootLong, s);
         opened[(int)st.item] = st.page != ST::Page::List;
@@ -1224,7 +1335,7 @@ static void testSettingsBoot() {
     }
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
-    EXPECT(pages == 11, "visited 11 pages (9 choices, brightness, time zone), got %d", pages);
+    EXPECT(pages == 11 && coolantOpened, "visited 12 pages (9 choices, brightness, time zone, coolant), got %d", pages + coolantOpened);
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
     EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");
@@ -1238,6 +1349,60 @@ static void testSettingsBoot() {
     }
   }
   printf("  settings BOOT: highlight walks and wraps, hold opens/flips/chooses, pages wrap\n");
+}
+
+// --- the Coolant page: touch and BOOT ------------------------------------------------
+
+static void testCoolantPage() {
+  using Res = ST::Result;
+  const int row = ST::rowOfItem(SettingItem::Coolant);
+  EXPECT(ST::row(row).item == SettingItem::Coolant && ST::sectionOf(row) == ST::sectionOf(ST::rowOfItem(SettingItem::Engine)) &&
+             row == ST::rowOfItem(SettingItem::Engine) + 1,
+         "Coolant is the row under Engine data");
+  EXPECT(ST::COOL_PLUS_X + ST::COOL_BTN_W <= ST::CARD_X + ST::CARD_W && ST::COOL_MINUS_X + ST::COOL_BTN_W < ST::COOL_PLUS_X &&
+             ST::CHOICE_TOP + settings::COOLANT_ROWS * ST::ROW_H < ST::SCREEN_H - ST::HINT_H,
+         "the page fits, with the BOOT hint under it");
+
+  // Touch: open it, - and + on each value, the top bar goes back
+  {
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    st.setScroll(ST::rowTop(row) - 40);
+    const int y = st.rowScreenY(row) + ST::ROW_H / 2;
+    EXPECT(st.tap(100, y, s) == Res::Nothing && st.page == ST::Page::Coolant && st.item == SettingItem::Coolant, "opens the page");
+    const int hy = st.coolRowY(2) + ST::ROW_H / 2;  // Hot at
+    EXPECT(st.tap(ST::COOL_PLUS_X + 10, hy, s) == Res::Changed && s.coolantHotC == 111, "+ on Hot at");
+    EXPECT(st.tap(ST::COOL_MINUS_X + 10, hy, s) == Res::Changed && s.coolantHotC == 110, "- on Hot at");
+    EXPECT(st.tap(ST::COOL_MINUS_X + 10, st.coolRowY(0) + 5, s) == Res::Changed && s.coolantColdC == 69, "- on Cold below");
+    EXPECT(st.tap(ST::COOL_PLUS_X + 10, st.coolRowY(3) + 35, s) == Res::Changed && s.oilHotC == 131, "+ on Oil hot at");
+    EXPECT(st.tap(100, hy, s) == Res::Nothing && st.tap(ST::COOL_PLUS_X, ST::CHOICE_TOP + 4 * ST::ROW_H + 2, s) == Res::Nothing &&
+               s.coolantHotC == 110,
+           "the names and below the card do nothing");
+    SettingsData top = s;
+    top.coolantHotC = settings::COOLANT_SET_MAX_C;
+    EXPECT(st.tap(ST::COOL_PLUS_X + 10, hy, top) == Res::Nothing && top.coolantHotC == settings::COOLANT_SET_MAX_C, "+ stops at the top");
+    EXPECT(st.tap(100, 10, s) == Res::Nothing && st.page == ST::Page::List && st.highlight == row, "the top bar goes back");
+  }
+  // BOOT: press is + on the highlighted value (going round), hold moves on, then back after the last
+  {
+    ST st;
+    st.begin(false);
+    SettingsData s = defaults();
+    while (st.highlight != row) st.handle(Key::BootShort, s);
+    EXPECT(st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::Coolant && st.choiceHl == 0, "hold opens it on Cold below");
+    EXPECT(st.handle(Key::BootShort, s) == Res::Changed && s.coolantColdC == 71, "press: Cold below + 1");
+    st.handle(Key::BootLong, s);
+    st.handle(Key::BootLong, s);
+    EXPECT(st.choiceHl == 2 && st.handle(Key::BootShort, s) == Res::Changed && s.coolantHotC == 111, "two holds on: Hot at + 1");
+    for (int i = 0; i < 200; i++) st.handle(Key::BootShort, s);
+    EXPECT(s.coolantColdC < s.coolantWarmC && s.coolantWarmC < s.coolantHotC, "round and round, still in order");
+    st.handle(Key::BootLong, s);
+    EXPECT(st.choiceHl == 3 && st.page == ST::Page::Coolant, "on Oil hot at");
+    EXPECT(st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::List && st.highlight == row, "hold on the last: back");
+    EXPECT(st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::Coolant && st.choiceHl == 0, "opens on the first again");
+  }
+  printf("  Coolant page: under Engine data, - and + per value, BOOT press + and hold next\n");
 }
 
 // --- 10. first-boot setup ----------------------------------------------------------------
@@ -1468,6 +1633,7 @@ int main() {
   testValueText();
   testJson();
   testSetField();
+  testCoolantLimits();
   testNeedsRestartAndGps();
   testConversions();
   testBigNumber();
@@ -1477,10 +1643,11 @@ int main() {
   testSettingsPages();
   testSettingsLevels();
   testSettingsBoot();
+  testCoolantPage();
   testEngineScreen();
   testSetup();
   testEndToEnd();
-  printf("\n%d checks in 17 groups\n", checks);
+  printf("\n%d checks in 19 groups\n", checks);
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

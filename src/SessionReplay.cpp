@@ -84,7 +84,11 @@ void SessionReplay::endLine() {
     // rxMillis only drives the on-screen clock; elapsed log time stands in for it
     if (freeRoam) drive.onFix(s.lat, s.lon, s.speedKmh);
     // The log has no accuracy figures, only the mark on each fix that had a poor one
-    else if (timed) timer.onFix(s.lat, s.lon, s.speedKmh, s.utcMs, durationMs, (s.tag & laptags::POOR_ACCURACY) ? 99.0f : -1.0f);
+    else if (timed) {
+      // The engine's temperatures for the laps' hottest (6.5): the log has 0 for "not known"
+      timer.noteTemps(rdr.hasCoolant() && s.coolantC != 0, s.coolantC, rdr.hasOil() && s.oilC != 0, s.oilC);
+      timer.onFix(s.lat, s.lon, s.speedKmh, s.utcMs, durationMs, (s.tag & laptags::POOR_ACCURACY) ? 99.0f : -1.0f);
+    }
   }
   len = 0;
   overlong = false;

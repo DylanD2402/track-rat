@@ -176,6 +176,9 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
     doc["bestTime"] = formatLapTime(best->timeMs);
   }
   doc["topSpeedKmh"] = serialized(String(timer.sessionMaxSpeedKmh(), 1));
+  // The engine's hottest (6.5), only when it reported one
+  if (hasTemp(timer.sessionCoolantMaxC())) doc["coolantMaxC"] = (int)lroundf(timer.sessionCoolantMaxC());
+  if (hasTemp(timer.sessionOilMaxC())) doc["oilMaxC"] = (int)lroundf(timer.sessionOilMaxC());
 
   JsonArray laps = doc.createNestedArray("laps");
   for (size_t i = 0; i < timer.lapCount(); i++) {
@@ -187,6 +190,8 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
     o["maxKmh"] = serialized(String(l.maxSpeedKmh, 1));
     o["avgKmh"] = serialized(String(l.avgSpeedKmh, 1));
     o["distanceM"] = (int32_t)lroundf(l.distanceM);
+    if (hasTemp(l.coolantMaxC)) o["coolantMaxC"] = (int)lroundf(l.coolantMaxC);
+    if (hasTemp(l.oilMaxC)) o["oilMaxC"] = (int)lroundf(l.oilMaxC);
     if (l.tags) {  // "pit", "slow", "suspect"; why it's suspect: "gps gap", "accuracy", "distance"
       JsonArray tags = o.createNestedArray("tags");
       for (const char* t : laptags::names(l.tags)) tags.add(t);
@@ -378,6 +383,7 @@ void logFix(const GpsFix& f, uint16_t lap) {
     s.throttlePct = e.throttleKnown(now) ? e.throttlePct : 0;
     s.coolantC = e.coolantKnown(now) ? e.coolantC : 0;
     s.intakeC = e.intakeKnown(now) ? e.intakeC : 0;
+    s.oilC = e.oilKnown(now) ? e.oilC : 0;
   }
   char line[160];
   size_t n = vbo::formatLine(s, line, sizeof(line), logEngine);

@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "Config.h"
+#include "TempAlert.h"
 
 enum class SpeedUnits : uint8_t { Kmh = 0, Mph = 1 };
 enum class CompareTo : uint8_t { Day = 0, Ever = 1, Session = 2 };       // what the live delta compares with
@@ -41,6 +42,11 @@ struct SettingsData {
   uint8_t minLap;          // the shortest lap: 0 = auto (MIN_LAP_TIME_MS, KART_MIN_LAP_MS for karts), else MIN_LAP_S[minLap] s
   bool cameraWithSessions; // a paired DJI camera records with the sessions (6.2); else only from its own button
   BleProfile bleProfile;   // applied at the next restart (Bluetooth is set up once)
+  // Settings > Coolant (6.5), in degrees C: the top bar's coolant colours and the overheat warning
+  uint8_t coolantColdC;    // blue below this
+  uint8_t coolantWarmC;    // yellow from this
+  uint8_t coolantHotC;     // blinking red and a full-screen warning from this
+  uint8_t oilHotC;         // the warning for oil, when the car reports it
 };
 
 inline bool operator==(const SettingsData& a, const SettingsData& b) {
@@ -49,14 +55,17 @@ inline bool operator==(const SettingsData& a, const SettingsData& b) {
          a.gpsMode == b.gpsMode &&
          a.bluetooth == b.bluetooth && a.utcOffsetMin == b.utcOffsetMin && a.recordRoadDrives == b.recordRoadDrives &&
          a.kartEverywhere == b.kartEverywhere && a.minLap == b.minLap && a.cameraWithSessions == b.cameraWithSessions &&
-         a.bleProfile == b.bleProfile;
+         a.bleProfile == b.bleProfile && a.coolantColdC == b.coolantColdC && a.coolantWarmC == b.coolantWarmC &&
+         a.coolantHotC == b.coolantHotC && a.oilHotC == b.oilHotC;
 }
 inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(a == b); }
 
 // The items on the settings screen, in the order they appear.
 enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives,
                                    MinLap, Kart, CameraRec, Profile, Count,
-                                   Engine, Camera };  // after Count: rows that open a screen of their own, not values
+                                   Engine, Camera,     // after Count: rows that open a screen of their own, not values
+                                   Coolant,            // the row that opens the Coolant page, and its four values:
+                                   CoolCold, CoolWarm, CoolHot, OilHot };
 constexpr int SETTING_ITEM_COUNT = (int)SettingItem::Count;
 
 namespace settings {
@@ -67,6 +76,57 @@ constexpr float KMH_PER_MPH = 1.609344f;
 // The Min lap time choices, in seconds (0 = auto). Four: a choice page holds four.
 constexpr uint8_t MIN_LAP_S[] = {0, 10, 15, 30};
 constexpr int MIN_LAP_CHOICES = sizeof(MIN_LAP_S);
+// Settings > Coolant: what each limit can be set to (C). Cold below < Warm at < Hot at, always.
+constexpr int COOLANT_SET_MIN_C = 30, COOLANT_SET_MAX_C = 150;
+constexpr int OIL_SET_MIN_C = 80, OIL_SET_MAX_C = 180;
+// The Coolant page's values, top to bottom
+constexpr SettingItem COOLANT_ITEMS[] = {SettingItem::CoolCold, SettingItem::CoolWarm, SettingItem::CoolHot, SettingItem::OilHot};
+constexpr int COOLANT_ROWS = 4;
+
+// The lowest and highest a Coolant page value can be (Cold below leaves room for Warm and Hot above it)
+inline void limitRange(SettingItem item, int& lo, int& hi) {
+  switch (item) {
+    case SettingItem::CoolCold: lo = COOLANT_SET_MIN_C, hi = COOLANT_SET_MAX_C - 2; break;
+    case SettingItem::CoolWarm: lo = COOLANT_SET_MIN_C + 1, hi = COOLANT_SET_MAX_C - 1; break;
+    case SettingItem::CoolHot: lo = COOLANT_SET_MIN_C + 2, hi = COOLANT_SET_MAX_C; break;
+    default: lo = OIL_SET_MIN_C, hi = OIL_SET_MAX_C; break;
+  }
+}
+inline int limitValue(const SettingsData& d, SettingItem item) {
+  switch (item) {
+    case SettingItem::CoolCold: return d.coolantColdC;
+    case SettingItem::CoolWarm: return d.coolantWarmC;
+    case SettingItem::CoolHot: return d.coolantHotC;
+    default: return d.oilHotC;
+  }
+}
+// Sets one limit (put in its range), moving the other coolant limits along to keep Cold < Warm < Hot
+inline void setLimit(SettingsData& d, SettingItem item, int v) {
+  int lo, hi;
+  limitRange(item, lo, hi);
+  v = v < lo ? lo : v > hi ? hi : v;
+  int cold = d.coolantColdC, warm = d.coolantWarmC, hot = d.coolantHotC;
+  switch (item) {
+    case SettingItem::CoolCold:
+      cold = v;
+      if (warm <= cold) warm = cold + 1;
+      if (hot <= warm) hot = warm + 1;
+      break;
+    case SettingItem::CoolWarm:
+      warm = v;
+      if (cold >= warm) cold = warm - 1;
+      if (hot <= warm) hot = warm + 1;
+      break;
+    case SettingItem::CoolHot:
+      hot = v;
+      if (warm >= hot) warm = hot - 1;
+      if (cold >= warm) cold = warm - 1;
+      break;
+    case SettingItem::OilHot: d.oilHotC = (uint8_t)v; return;
+    default: return;
+  }
+  d.coolantColdC = (uint8_t)cold, d.coolantWarmC = (uint8_t)warm, d.coolantHotC = (uint8_t)hot;
+}
 
 inline SettingsData defaults() {
   SettingsData d;
@@ -86,8 +146,21 @@ inline SettingsData defaults() {
   d.minLap = 0;
   d.cameraWithSessions = true;
   d.bleProfile = BleProfile::RaceBox;
+  d.coolantColdC = COOLANT_COLD_C;
+  d.coolantWarmC = COOLANT_WARM_C;
+  d.coolantHotC = COOLANT_WARN_C;
+  d.oilHotC = OIL_HOT_C;
   return d;
 }
+
+// The limits as TempAlert.h takes them
+inline tempalert::Limits tempLimits(const SettingsData& d) {
+  tempalert::Limits l;
+  l.coldBelowC = d.coolantColdC, l.warmAtC = d.coolantWarmC, l.hotAtC = d.coolantHotC, l.oilHotAtC = d.oilHotC;
+  return l;
+}
+// Temperatures in F with mph, else C
+inline bool fahrenheit(const SettingsData& d) { return d.units == SpeedUnits::Mph; }
 
 // Put anything out of range (a corrupt value in flash) back to something
 // valid: the default for a choice, the nearest limit for a number.
@@ -107,6 +180,19 @@ inline void sanitize(SettingsData& d) {
   if (d.utcOffsetMin < UTC_MIN) d.utcOffsetMin = UTC_MIN;
   if (d.utcOffsetMin > UTC_MAX) d.utcOffsetMin = UTC_MAX;
   d.utcOffsetMin = (int16_t)(((d.utcOffsetMin + (d.utcOffsetMin >= 0 ? 7 : -7)) / 15) * 15);  // whole quarter hours
+  // The coolant limits: each in its range and in order, else all three back to the defaults
+  int lo, hi;
+  bool inRange = true;
+  for (SettingItem it : {SettingItem::CoolCold, SettingItem::CoolWarm, SettingItem::CoolHot}) {
+    limitRange(it, lo, hi);
+    const int v = limitValue(d, it);
+    inRange = inRange && v >= lo && v <= hi;
+  }
+  if (!inRange || d.coolantColdC >= d.coolantWarmC || d.coolantWarmC >= d.coolantHotC)
+    d.coolantColdC = def.coolantColdC, d.coolantWarmC = def.coolantWarmC, d.coolantHotC = def.coolantHotC;
+  limitRange(SettingItem::OilHot, lo, hi);
+  if (d.oilHotC < lo) d.oilHotC = (uint8_t)lo;
+  if (d.oilHotC > hi) d.oilHotC = (uint8_t)hi;
 }
 
 inline uint8_t cycle(uint8_t v, int count, int dir) { return (uint8_t)((v + dir % count + count) % count); }
@@ -142,6 +228,12 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
     case SettingItem::Kart: d.kartEverywhere = !d.kartEverywhere; break;
     case SettingItem::CameraRec: d.cameraWithSessions = !d.cameraWithSessions; break;
     case SettingItem::Profile: d.bleProfile = (BleProfile)choice((uint8_t)d.bleProfile, 2); break;
+    case SettingItem::CoolCold: case SettingItem::CoolWarm: case SettingItem::CoolHot: case SettingItem::OilHot: {
+      int lo, hi;  // 1 C steps; the others move along to keep them in order
+      limitRange(item, lo, hi);
+      setLimit(d, item, number(limitValue(d, item), lo, hi, 1));
+      break;
+    }
     default: break;
   }
 }
@@ -173,6 +265,11 @@ inline const char* itemName(SettingItem item) {
     case SettingItem::Profile: return "BLUETOOTH PROFILE";
     case SettingItem::Engine: return "ENGINE DATA";
     case SettingItem::Camera: return "CAMERA";
+    case SettingItem::Coolant: return "COOLANT";
+    case SettingItem::CoolCold: return "COLD BELOW";
+    case SettingItem::CoolWarm: return "WARM AT";
+    case SettingItem::CoolHot: return "HOT AT";
+    case SettingItem::OilHot: return "OIL HOT AT";
     default: return "";
   }
 }
@@ -196,6 +293,7 @@ inline const char* itemNote(SettingItem item) {
     case SettingItem::Profile: return "What the phone sees, one at a time. Restart to apply";
     case SettingItem::Engine: return "A Bluetooth OBD-II adapter";
     case SettingItem::Camera: return "A DJI Osmo Action camera: Track Rat as its GPS remote";
+    case SettingItem::Coolant: return "Top bar colours. Hot at: a full-screen warning";
     default: return "";
   }
 }
@@ -236,6 +334,12 @@ inline void valueText(const SettingsData& d, SettingItem item, char* buf, size_t
     case SettingItem::Profile:
       snprintf(buf, n, "%s", d.bleProfile == BleProfile::RaceChrono ? "RaceChrono (GPS + engine data)" : "RaceBox Mini (most apps)");
       break;
+    case SettingItem::Coolant:  // the row: the limit that matters most
+      snprintf(buf, n, "Hot at %d\xC2\xB0%s", tempalert::degrees(d.coolantHotC, fahrenheit(d)), fahrenheit(d) ? "F" : "C");
+      break;
+    case SettingItem::CoolCold: case SettingItem::CoolWarm: case SettingItem::CoolHot: case SettingItem::OilHot:
+      snprintf(buf, n, "%d\xC2\xB0%s", tempalert::degrees((float)limitValue(d, item), fahrenheit(d)), fahrenheit(d) ? "F" : "C");
+      break;
     default: if (n) buf[0] = 0;
   }
 }
@@ -251,14 +355,15 @@ inline size_t toJson(const SettingsData& d, char* buf, size_t n) {
   int len = snprintf(buf, n,
                      "{\"units\":\"%s\",\"upsideDown\":%s,\"brightness\":%d,\"compareTo\":\"%s\",\"bigNumber\":\"%s\","
                      "\"deltaColours\":\"%s\",\"sessionMin\":\"%s\",\"gpsMode\":\"%s\",\"bluetooth\":%s,\"tzMin\":%d,\"recordRoadDrives\":%s,"
-                     "\"minLap\":\"%s\",\"kartEverywhere\":%s,\"cameraRecording\":\"%s\",\"bleProfile\":\"%s\",\"bluetoothBuilt\":%s}",
+                     "\"minLap\":\"%s\",\"kartEverywhere\":%s,\"cameraRecording\":\"%s\",\"bleProfile\":\"%s\",\"bluetoothBuilt\":%s,"
+                     "\"coolantColdC\":%d,\"coolantWarmC\":%d,\"coolantHotC\":%d,\"oilHotC\":%d}",
                      d.units == SpeedUnits::Mph ? "mph" : "kmh", upsideDown(d) ? "true" : "false", d.brightness,
                      COMPARE[(int)d.compareTo % 3], BIG[(int)d.bigNumber % 3],
                      d.deltaColours == DeltaColours::BlueOrange ? "blueorange" : "greenred", SESSION_TEXT[sessionMinutes(d) ? d.sessionLength : 0], d.gpsMode == GpsMode::Fast20 ? "20hz" : "10hz",
                      d.bluetooth ? "true" : "false", d.utcOffsetMin, d.recordRoadDrives ? "true" : "false",
                      MIN_LAP_TEXT[d.minLap < MIN_LAP_CHOICES ? d.minLap : 0], d.kartEverywhere ? "true" : "false",
                      d.cameraWithSessions ? "sessions" : "manual", d.bleProfile == BleProfile::RaceChrono ? "racechrono" : "racebox",
-                     BLE_ENABLED ? "true" : "false");
+                     BLE_ENABLED ? "true" : "false", d.coolantColdC, d.coolantWarmC, d.coolantHotC, d.oilHotC);
   return len > 0 && (size_t)len < n ? (size_t)len : 0;
 }
 
@@ -343,6 +448,14 @@ inline bool setField(SettingsData& d, const char* key, const char* v) {
     if (!strcmp(v, "racebox")) d.bleProfile = BleProfile::RaceBox;
     else if (!strcmp(v, "racechrono")) d.bleProfile = BleProfile::RaceChrono;
     else return false;
+  } else if (!strcmp(key, "coolantColdC") || !strcmp(key, "coolantWarmC") || !strcmp(key, "coolantHotC") || !strcmp(key, "oilHotC")) {
+    // Degrees C; the other coolant limits move along to keep them in order
+    const SettingItem it = key[0] == 'o' ? SettingItem::OilHot : key[7] == 'C' ? SettingItem::CoolCold
+                         : key[7] == 'W' ? SettingItem::CoolWarm : SettingItem::CoolHot;
+    int lo, hi;
+    limitRange(it, lo, hi);
+    if (!parseInt(v, lo, hi, &x)) return false;
+    setLimit(d, it, x);
   } else if (!strcmp(key, "cameraRecording")) {  // "sessions" or "manual"
     if (!strcmp(v, "sessions")) d.cameraWithSessions = true;
     else if (!strcmp(v, "manual")) d.cameraWithSessions = false;

@@ -42,6 +42,10 @@ void begin() {
     d.minLap = prefs.getUChar("minlap", d.minLap);
     d.cameraWithSessions = prefs.getBool("camrec", d.cameraWithSessions);
     d.bleProfile = (BleProfile)prefs.getUChar("bleprof", (uint8_t)d.bleProfile);
+    d.coolantColdC = prefs.getUChar("cool_c", d.coolantColdC);
+    d.coolantWarmC = prefs.getUChar("cool_w", d.coolantWarmC);
+    d.coolantHotC = prefs.getUChar("cool_h", d.coolantHotC);
+    d.oilHotC = prefs.getUChar("oil_h", d.oilHotC);
   } else {
     DEBUG_PRINTLN("Settings: flash storage unavailable - using defaults, changes won't be kept");
   }
@@ -95,6 +99,10 @@ void set(const SettingsData& s) {
       if (n.minLap != o.minLap) prefs.putUChar("minlap", n.minLap);
       if (n.cameraWithSessions != o.cameraWithSessions) prefs.putBool("camrec", n.cameraWithSessions);
       if (n.bleProfile != o.bleProfile) prefs.putUChar("bleprof", (uint8_t)n.bleProfile);
+      if (n.coolantColdC != o.coolantColdC) prefs.putUChar("cool_c", n.coolantColdC);
+      if (n.coolantWarmC != o.coolantWarmC) prefs.putUChar("cool_w", n.coolantWarmC);
+      if (n.coolantHotC != o.coolantHotC) prefs.putUChar("cool_h", n.coolantHotC);
+      if (n.oilHotC != o.oilHotC) prefs.putUChar("oil_h", n.oilHotC);
     }
   }
   if (writeLock) xSemaphoreGive(writeLock);

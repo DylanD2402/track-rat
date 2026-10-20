@@ -23,10 +23,12 @@ enum class Key { None, Left, Center, Right, Header, Hold, BootShort, BootLong };
 // Touch: tap a row, drag to scroll, the top bar goes back (to the menu from
 // the list, to the list from a page). BOOT: press moves the highlight, hold
 // opens or flips the highlighted row; on a choice page hold chooses; on a
-// level page press is "+" and hold goes back.
+// level page press is "+" and hold goes back. On the Coolant page (four
+// values, each with its own - and +) press is "+" on the highlighted value and
+// hold moves to the next value, then back to the list after the last.
 struct SettingsScreenState {
   enum class Result { Nothing, Changed, Exit, Open };  // Exit: back to the menu. Open: the screen of `item` (Engine data)
-  enum class Page : uint8_t { List, Choice, Brightness, TimeZone };
+  enum class Page : uint8_t { List, Choice, Brightness, TimeZone, Coolant };
   enum class RowKind : uint8_t { Choice, Toggle, Level, Open, Back };  // Open: a screen of its own
 
   // --- layout ---------------------------------------------------------------
@@ -39,12 +41,15 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 18, SECTIONS = 5;
+  static constexpr int ROWS = 19, SECTIONS = 5;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
   static constexpr int BAR_X = 40, BAR_W = 240, BAR_Y = 122, BAR_H = 8, BAR_HIT = 14;
   static constexpr int BTN_Y = 156, BTN_H = 44, BTN_W = 145, MINUS_X = 10, PLUS_X = 165;
+  // The Coolant page: a card of four rows from CHOICE_TOP, each with a small - and + on the right.
+  // A touch anywhere in a row over a button's width counts.
+  static constexpr int COOL_BTN_W = 54, COOL_BTN_H = 30, COOL_MINUS_X = 190, COOL_PLUS_X = 250;
 
   struct Row {
     SettingItem item;  // SettingItem::Count for the Back row
@@ -81,7 +86,7 @@ struct SettingsScreenState {
         {SettingItem::SessionLen, RowKind::Choice}, {SettingItem::MinLap, RowKind::Choice},
         {SettingItem::Kart, RowKind::Toggle},       {SettingItem::Gps, RowKind::Choice},
         {SettingItem::Bluetooth, RowKind::Toggle},  {SettingItem::Profile, RowKind::Choice},
-        {SettingItem::Engine, RowKind::Open},
+        {SettingItem::Engine, RowKind::Open},       {SettingItem::Coolant, RowKind::Level},
         {SettingItem::Camera, RowKind::Open},       {SettingItem::CameraRec, RowKind::Choice},
         {SettingItem::RoadDrives, RowKind::Toggle}, {SettingItem::TimeZone, RowKind::Level},
         {SettingItem::Count, RowKind::Back},
@@ -92,9 +97,9 @@ struct SettingsScreenState {
     static const Section sections[SECTIONS] = {
         {"DISPLAY", 0, 3, nullptr},
         {"TIMING", 3, 6, nullptr},
-        {"GPS & BLUETOOTH", 9, 6, "GPS mode and Bluetooth profile are used from the next restart"},
-        {"RECORDING", 15, 2, nullptr},
-        {nullptr, 17, 1, nullptr},
+        {"GPS & BLUETOOTH", 9, 7, "GPS mode and Bluetooth profile are used from the next restart"},
+        {"RECORDING", 16, 2, nullptr},
+        {nullptr, 18, 1, nullptr},
     };
     return sections[i];
   }
@@ -128,6 +133,11 @@ struct SettingsScreenState {
       case SettingItem::Camera: return "Camera";
       case SettingItem::CameraRec: return "Camera recording";
       case SettingItem::Profile: return "Bluetooth profile";
+      case SettingItem::Coolant: return "Coolant";
+      case SettingItem::CoolCold: return "Cold below";
+      case SettingItem::CoolWarm: return "Warm at";
+      case SettingItem::CoolHot: return "Hot at";
+      case SettingItem::OilHot: return "Oil hot at";
       default: return "Back to menu";
     }
   }
@@ -246,6 +256,17 @@ struct SettingsScreenState {
     return v < settings::BRIGHTNESS_MIN ? settings::BRIGHTNESS_MIN : v > settings::BRIGHTNESS_MAX ? settings::BRIGHTNESS_MAX : v;
   }
 
+  // --- the Coolant page -----------------------------------------------------------
+  int coolRowY(int i) const { return CHOICE_TOP + i * ROW_H; }
+  // The value and button under a touch on the Coolant page (dir -1 or +1), or -1
+  int hitCoolant(int x, int y, int& dir) const {
+    if (y < CHOICE_TOP || y >= CHOICE_TOP + settings::COOLANT_ROWS * ROW_H) return -1;
+    if (x >= COOL_MINUS_X - 4 && x < COOL_MINUS_X + COOL_BTN_W + 2) dir = -1;
+    else if (x >= COOL_PLUS_X - 2 && x < CARD_X + CARD_W) dir = +1;
+    else return -1;
+    return (y - CHOICE_TOP) / ROW_H;
+  }
+
   // --- inputs ---------------------------------------------------------------------
 
   // The top bar, a long hold, or a BOOT press or hold. Edits s if it changed a value.
@@ -274,6 +295,15 @@ struct SettingsScreenState {
     if (page == Page::Choice) {
       const int i = hitChoice(x, y);
       return i < 0 ? Result::Nothing : choose(i, s);
+    }
+    if (page == Page::Coolant) {
+      int dir = 0;
+      const int i = hitCoolant(x, y, dir);
+      if (i < 0) return Result::Nothing;
+      choiceHl = i;
+      SettingsData before = s;
+      settings::adjust(s, settings::COOLANT_ITEMS[i], dir, false);
+      return s == before ? Result::Nothing : Result::Changed;
     }
     if (onMinus(x, y)) return step(-1, false, s);
     if (onPlus(x, y)) return step(+1, false, s);
@@ -320,6 +350,10 @@ private:
     item = it;
     if (it == SettingItem::Brightness) page = Page::Brightness;
     else if (it == SettingItem::TimeZone) page = Page::TimeZone;
+    else if (it == SettingItem::Coolant) {
+      page = Page::Coolant;
+      choiceHl = 0;
+    }
     else {
       page = Page::Choice;
       choiceHl = choiceIndex(s, it);
@@ -373,6 +407,11 @@ private:
       case Page::Choice:
         choiceHl = (choiceHl + 1) % choiceCount(item);
         return Result::Nothing;
+      case Page::Coolant: {
+        SettingsData before = s;
+        settings::adjust(s, settings::COOLANT_ITEMS[choiceHl], +1, true);
+        return s == before ? Result::Nothing : Result::Changed;
+      }
       default:
         return step(+1, true, s);
     }
@@ -383,6 +422,10 @@ private:
     switch (page) {
       case Page::List: return activate(highlight, s);
       case Page::Choice: return choose(choiceHl, s);
+      case Page::Coolant:
+        if (choiceHl + 1 < settings::COOLANT_ROWS) choiceHl++;
+        else closePage();
+        return Result::Nothing;
       default:
         closePage();
         return Result::Nothing;

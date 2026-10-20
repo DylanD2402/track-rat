@@ -39,7 +39,7 @@ struct Sample {
   float longG = 0;     // + = speeding up
   uint8_t tag = 0;     // laptags:: flags this fix gives its lap (stopped, after a gap, poor accuracy)
   // From the car (OBD-II over CAN or a Bluetooth adapter), in logs with Header::engine; 0 when not known
-  float rpm = 0, throttlePct = 0, coolantC = 0, intakeC = 0;
+  float rpm = 0, throttlePct = 0, coolantC = 0, intakeC = 0, oilC = 0;
 };
 
 // A timing line for [laptiming], by its two ends.
@@ -56,7 +56,7 @@ struct Header {
   Gate start = {0, 0, 0, 0};
   std::vector<Gate> splits;            // named S1, S2...
   std::vector<Gate> sectors;           // corner sector gates, written as splits named T1, T2... after the splits
-  bool engine = false;                // four more channels from the car: RPM, throttle, coolant and intake temperature
+  bool engine = false;                // five more channels from the car: RPM, throttle, coolant, intake and oil temperature
   bool hasFinish = false;             // point to point: the start is "Start", and this is the finish
   Gate finish = {0, 0, 0, 0};
 };
@@ -135,6 +135,9 @@ public:
   // The value of a "Key: value" comment line, or "" if there isn't one.
   std::string comment(const std::string& key) const;
   uint32_t badLines() const { return bad; }
+  // The log has these channels (read into Sample::coolantC and oilC; 0 there is "not known")
+  bool hasCoolant() const { return colCoolant >= 0; }
+  bool hasOil() const { return colOil >= 0; }
 
 private:
   static const size_t MAX_COLUMNS = 64;  // a file with more channels isn't read
@@ -144,7 +147,7 @@ private:
   std::vector<std::string> comms;
   bool columnsMapped = false;
   int colSats = -1, colTime = -1, colLat = -1, colLon = -1, colSpeed = -1, colHeading = -1, colHeight = -1,
-      colHdop = -1, colLap = -1, colLatG = -1, colLongG = -1, colTag = -1;
+      colHdop = -1, colLap = -1, colLatG = -1, colLongG = -1, colTag = -1, colCoolant = -1, colOil = -1;
   uint32_t bad = 0;
   void mapColumns();
 };

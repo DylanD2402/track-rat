@@ -60,6 +60,8 @@
 #include "LapTags.h"
 
 constexpr int32_t NO_DELTA = INT32_MIN;
+constexpr float NO_TEMP = -999.0f;  // a temperature never read (Lap::coolantMaxC, oilMaxC)
+inline bool hasTemp(float c) { return c > NO_TEMP + 1; }
 
 struct Lap {
   uint16_t number;
@@ -70,6 +72,8 @@ struct Lap {
   std::vector<int32_t> sectorMs; // elapsed time at the end of each corner sector but the last (its gate), -1 if missed
   float distanceM = 0;           // driven, fix to fix
   uint8_t tags = 0;              // laptags:: bits
+  float coolantMaxC = NO_TEMP;   // the engine's hottest on this lap (6.5), NO_TEMP if it never said
+  float oilMaxC = NO_TEMP;
   bool clean() const { return laptags::clean(tags); }
 };
 
@@ -153,6 +157,22 @@ public:
   size_t untaggedLapCount() const;
   uint8_t currentLapTags() const { return running ? lapTags : 0; }  // so far (pit and suspect only)
   float sessionMaxSpeedKmh() const { return sessionMaxSpeed; }
+
+  // The engine's temperatures at the next fix (call just before onFix), for the
+  // laps' and the session's hottest. Unknown ones are left out.
+  void noteTemps(bool coolantKnown, float coolantC, bool oilKnown, float oilC) {
+    if (coolantKnown) {
+      if (coolantC > sessionCoolantMax) sessionCoolantMax = coolantC;
+      if (running && coolantC > lapCoolantMax) lapCoolantMax = coolantC;
+    }
+    if (oilKnown) {
+      if (oilC > sessionOilMax) sessionOilMax = oilC;
+      if (running && oilC > lapOilMax) lapOilMax = oilC;
+    }
+  }
+  float sessionCoolantMaxC() const { return sessionCoolantMax; }  // NO_TEMP: never read
+  float sessionOilMaxC() const { return sessionOilMax; }
+  float currentLapCoolantMaxC() const { return running ? lapCoolantMax : NO_TEMP; }
 
   // Live gap to the reference lap at the same point on track (+ = slower).
   // NO_DELTA before there is one, or when off its line.
@@ -242,6 +262,8 @@ private:
   uint8_t lapTags = 0;
 
   float sessionMaxSpeed = 0;
+  float lapCoolantMax = NO_TEMP, lapOilMax = NO_TEMP;
+  float sessionCoolantMax = NO_TEMP, sessionOilMax = NO_TEMP;
 
   int64_t continuousTime(uint32_t gpsTimeMs);
   bool startFinishCounts(geo::XY a, geo::XY b, double frac);

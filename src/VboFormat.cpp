@@ -22,9 +22,10 @@ static_assert(sizeof(CHANNELS) / sizeof(CHANNELS[0]) - STANDARD_CHANNELS == size
               "one [channel units] line per non-standard channel");
 static const char* const COLUMN_NAMES ="sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag";
 // From the car, when the log has them (Header::engine)
-static const char* const ENGINE_CHANNELS[] = {"RPM", "Throttle position", "Coolant temperature", "Intake temperature"};
-static const char* const ENGINE_UNITS[] = {"rpm", "%", "C", "C"};
-static const char* const ENGINE_COLUMN_NAMES = " RPM Throttle CoolantTemp IntakeTemp";
+static const char* const ENGINE_CHANNELS[] = {"RPM", "Throttle position", "Coolant temperature", "Intake temperature",
+                                              "Oil temperature"};
+static const char* const ENGINE_UNITS[] = {"rpm", "%", "C", "C", "C"};
+static const char* const ENGINE_COLUMN_NAMES = " RPM Throttle CoolantTemp IntakeTemp OilTemp";
 
 static const double G0 = 9.80665;
 
@@ -49,8 +50,9 @@ size_t formatLine(const Sample& s, char* out, size_t cap, bool engine) {
                    clampf(s.latG, -GForce::MAX_G, GForce::MAX_G), clampf(s.longG, -GForce::MAX_G, GForce::MAX_G), (unsigned)s.tag);
   if (engine && n > 2 && (size_t)n < cap) {  // before the line ending
     n -= 2;
-    const int m = snprintf(out + n, cap - n, " %05.0f %05.1f %+06.1f %+06.1f\r\n", clampf(s.rpm, 0, 99999), clampf(s.throttlePct, 0, 100),
-                           clampf(s.coolantC, -99.9f, 999.9f), clampf(s.intakeC, -99.9f, 999.9f));
+    const int m = snprintf(out + n, cap - n, " %05.0f %05.1f %+06.1f %+06.1f %+06.1f\r\n", clampf(s.rpm, 0, 99999),
+                           clampf(s.throttlePct, 0, 100), clampf(s.coolantC, -99.9f, 999.9f), clampf(s.intakeC, -99.9f, 999.9f),
+                           clampf(s.oilC, -99.9f, 999.9f));
     n = m > 0 ? n + m : -1;
   }
   return (n > 0 && (size_t)n < cap) ? (size_t)n : 0;
@@ -281,6 +283,8 @@ void Reader::mapColumns() {
     else if (c == "lateral g") colLatG = i;
     else if (c == "longitudinal g") colLongG = i;
     else if (c == "lap tag") colTag = i;
+    else if (c == "coolant temperature") colCoolant = i;
+    else if (c == "oil temperature") colOil = i;
   }
 }
 
@@ -390,6 +394,8 @@ bool Reader::feed(const char* line, Sample& out) {
   if (colLatG >= 0) out.latG = (float)v[colLatG];
   if (colLongG >= 0) out.longG = (float)v[colLongG];
   if (colTag >= 0) out.tag = (uint8_t)v[colTag];
+  if (colCoolant >= 0) out.coolantC = (float)v[colCoolant];
+  if (colOil >= 0) out.oilC = (float)v[colOil];
   return true;
 }
 
