@@ -11,6 +11,8 @@
 #include "Config.h"
 #include "JsonFile.h"
 #include "LogWriter.h"
+#include "BestLapStore.h"
+#include "Retime.h"
 #include "SessionReplay.h"
 #include "Storage.h"
 #include "VboFormat.h"
@@ -476,5 +478,163 @@ void recoverUnfinished(const TrackDatabase& tracks) {
 }
 
 bool recovering() { return recoveryRunning; }
+
+// ---------------------------------------------------------------------------
+// Re-timing: like recovery, a task on core 0 at idle priority with a copy of
+// the track taken when it was asked for.
+
+static Track retimeTrack;  // lines and names only, no map
+static String retimeFile;
+static std::atomic<bool> retimeRunning{false};
+static std::mutex retimeLock;  // retimeState: written by the task, read by the web server
+static RetimeStatus retimeState;
+
+static void setRetimeState(int done, int total, int laps, const String& message, bool running) {
+  std::lock_guard<std::mutex> g(retimeLock);
+  retimeState.done = done;
+  retimeState.total = total;
+  retimeState.laps = laps;
+  retimeState.running = running;
+  retimeState.message = message;
+}
+
+RetimeStatus retimeStatus() {
+  std::lock_guard<std::mutex> g(retimeLock);
+  return retimeState;
+}
+
+// The best lap of a re-timed session, with its path, as a best-lap record (lapMs 0 if none).
+static bestlap::Record recordOf(const SessionReplay& r, const Track& t) {
+  bestlap::Record rec;
+  const Lap* best = r.timer.bestLap();
+  if (!best || r.timer.bestPathLapIndex() != r.timer.bestLapIndex()) return rec;  // no clean lap with its path
+  rec.lapMs = best->timeMs;
+  rec.date = bestlap::dateFromStamp(r.stamp);
+  rec.sfLat = t.startFinish.lat;
+  rec.sfLon = t.startFinish.lon;
+  rec.path.reserve(r.timer.bestPath().size());
+  for (const LapTimer::TracePt& p : r.timer.bestPath()) rec.path.push_back({p.x, p.y, p.t, p.speedKmh});
+  return rec;
+}
+
+static void retimeAll(fs::FS& fs) {
+  const Track& t = retimeTrack;
+  const std::string file = retimeFile.c_str(), trackId = t.id.c_str();
+  std::vector<String> logs;
+  File dir = fs.open(SESSION_DIR);
+  if (dir && dir.isDirectory()) {
+    for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
+      String name = fileName(e.name());
+      if (!e.isDirectory() && name.endsWith(".vbo")) logs.push_back(String(SESSION_DIR) + "/" + name);
+      e.close();
+    }
+    dir.close();
+  }
+  std::vector<String> chosen;
+  for (const String& log : logs) {
+    const String base = withoutExt(log, ".vbo");
+    if (retime::wanted(fileName(log).c_str(), summaryTrack(fs, base + ".json"), file, trackId)) chosen.push_back(log);
+  }
+  if (chosen.empty()) {
+    setRetimeState(0, 0, 0, file.size() ? "That session's log isn't on the SD card" : "No logged sessions at this track",
+                   false);
+    return;
+  }
+
+  // Each session's best lap as it's re-timed. The quickest, and the latest
+  // day's quickest, are kept with their paths for the best-lap files.
+  std::vector<retime::Found> found;
+  bestlap::Record pb, day;
+  int laps = 0;
+  for (size_t i = 0; i < chosen.size(); i++) {
+    const String& log = chosen[i];
+    const String base = withoutExt(log, ".vbo");
+    setRetimeState((int)i, (int)chosen.size(), laps, "Re-timing " + fileName(log), true);
+    File f = fs.open(log, "r");
+    if (!f) continue;
+    std::unique_ptr<SessionReplay> replay(new SessionReplay());
+    replay->summaryTrackId = trackId;
+    replay->useLines(t.startFinish, t.splits, t.sectors);
+    static char chunk[4096];
+    for (;;) {
+      int n = f.read((uint8_t*)chunk, sizeof(chunk));
+      if (n <= 0) break;
+      replay->feed(chunk, n);
+    }
+    f.close();
+    replay->finish();
+    if (replay->freeRoam) continue;
+
+    save(base + ".json", t, replay->stamp.c_str(), replay->session, replay->timer, fileName(log), true);
+    laps += (int)replay->timer.lapCount();
+
+    bestlap::Record rec = recordOf(*replay, t);
+    retime::Found fd;
+    fd.lapMs = rec.lapMs;
+    fd.date = rec.date;
+    fd.session = i;
+    found.push_back(fd);
+    if (rec.lapMs && (!pb.lapMs || rec.lapMs < pb.lapMs)) pb = rec;
+    if (rec.lapMs && (rec.date > day.date || (rec.date == day.date && (!day.lapMs || rec.lapMs < day.lapMs)))) day = rec;
+    DEBUG_PRINTF("Re-time: %s: %u laps, best %s\n", fileName(log).c_str(), (unsigned)replay->timer.lapCount(),
+                 rec.lapMs ? formatLapTime(rec.lapMs).c_str() : "none");
+  }
+
+  // The best laps, by Retime.h's rules
+  String what;
+  bestlap::Record stored;
+  bool have = BestLapStore::load(t.id, BestLapStore::Kind::Ever, stored, false);
+  if (retime::replacesPb(retime::best(found), have ? stored.lapMs : 0,
+                         have && bestlap::sameLine(stored, t.startFinish.lat, t.startFinish.lon)) &&
+      BestLapStore::save(t.id, BestLapStore::Kind::Ever, pb))
+    what = ", PB " + formatLapTime(pb.lapMs);
+  have = BestLapStore::load(t.id, BestLapStore::Kind::Day, stored, false);
+  if (retime::replacesDay(retime::bestOfLatestDay(found), have ? stored.lapMs : 0, have ? stored.date : 0,
+                          have && bestlap::sameLine(stored, t.startFinish.lat, t.startFinish.lon)))
+    BestLapStore::save(t.id, BestLapStore::Kind::Day, day);
+  char msg[96];
+  snprintf(msg, sizeof(msg), "Done: %u session%s, %d laps", (unsigned)chosen.size(), chosen.size() == 1 ? "" : "s", laps);
+  setRetimeState((int)chosen.size(), (int)chosen.size(), laps, String(msg) + what, false);
+  DEBUG_PRINTF("Re-time: %s%s\n", msg, what.c_str());
+}
+
+static void retimeTaskMain(void* arg) {
+  retimeAll(*(fs::FS*)arg);
+  retimeTrack = Track();
+  retimeRunning = false;
+  vTaskDelete(nullptr);
+}
+
+bool retime(const Track& track, const String& logName, String& error) {
+  fs::FS* fs = Storage::sessionFS();
+  error = "";
+  if (!fs || !fullLogAvailable()) error = "Re-timing needs the SD card with the session logs";
+  else if (!track.hasStartFinish) error = "This track has no start/finish line";
+  else if (logging()) error = "A session is being logged: end it first";
+  else if (recoveryRunning) error = "Track Rat is still recovering sessions from the last power cut";
+  else if (retimeRunning) error = "Already re-timing";
+  if (error.length()) return false;
+
+  retimeTrack = Track();
+  retimeTrack.id = track.id;
+  retimeTrack.venueId = track.venueId;
+  retimeTrack.name = track.name;
+  retimeTrack.layoutName = track.layoutName;
+  retimeTrack.location = track.location;
+  retimeTrack.hasStartFinish = true;
+  retimeTrack.startFinish = track.startFinish;
+  retimeTrack.splits = track.splits;
+  retimeTrack.sectors = track.sectors;
+  retimeFile = logName;
+  setRetimeState(0, 0, 0, "Starting", true);
+  retimeRunning = true;
+  if (xTaskCreatePinnedToCore(retimeTaskMain, "retime", 8192, fs, tskIDLE_PRIORITY, nullptr, 0) != pdPASS) {
+    retimeRunning = false;
+    setRetimeState(0, 0, 0, "Couldn't start", false);
+    error = "Not enough memory to start re-timing";
+    return false;
+  }
+  return true;
+}
 
 }  // namespace SessionLog

@@ -1328,6 +1328,13 @@ void setup() {
 
   addBenchTrack();
   SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut, in the background
+  // Re-timing from the Wi-Fi page's track editor: sessions timed again with the track's lines now
+  WifiPortal::onRetime([](const String& trackId, const String& logName, String& error) {
+    for (int i = 0; i < trackDB.count(); i++)
+      if (trackDB.get(i)->id == trackId) return SessionLog::retime(*trackDB.get(i), logName, error);
+    error = "No track called " + trackId;
+    return false;
+  });
 
   // Keep reading the GPS while the logo plays, so a fix found in the
   // meantime skips the waiting-for-GPS screen entirely.

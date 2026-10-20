@@ -17,6 +17,18 @@ void SessionReplay::setUpFromHeader() {
   }
   trackId = rdr.comment("Track");
   trackName = rdr.comment("Track name");
+  long minLap = atol(rdr.comment("Min lap ms").c_str());
+  const uint32_t minLapMs = minLap > 0 ? (uint32_t)minLap : (uint32_t)MIN_LAP_TIME_MS;
+
+  if (overrideLines) {  // re-timing: the track's lines now, whatever the log recorded
+    if (summaryTrackId.size() && summaryTrackId != trackId) {
+      trackId = summaryTrackId;
+      trackName.clear();
+    }
+    timed = true;
+    timer.begin(lineSf, lineSplits, minLapMs, lineSectors);
+    return;
+  }
 
   TrackPoint sf = {0, 0, 0, 0, HeadingFrom::None};
   std::vector<TrackPoint> splits;
@@ -48,8 +60,7 @@ void SessionReplay::setUpFromHeader() {
     if (!vbo::parsePoint(rdr.comment("Sector " + std::to_string(i)), g)) break;
     sectorGates.push_back(g);
   }
-  long minLap = atol(rdr.comment("Min lap ms").c_str());
-  if (timed) timer.begin(sf, splits, minLap > 0 ? (uint32_t)minLap : (uint32_t)MIN_LAP_TIME_MS, sectorGates);
+  if (timed) timer.begin(sf, splits, minLapMs, sectorGates);
 }
 
 void SessionReplay::endLine() {

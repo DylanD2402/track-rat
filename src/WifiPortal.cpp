@@ -12,6 +12,7 @@
 #include "Config.h"
 #include "FirmwareUpdate.h"
 #include "PortalLogic.h"
+#include "SessionLog.h"
 #include "Settings.h"
 #include "Storage.h"
 #include <ArduinoJson.h>
@@ -22,6 +23,7 @@
 #include <Update.h>
 #include <WiFi.h>
 #include <memory>
+#include <mutex>
 #include "ff.h"
 #include "diskio_sdmmc.h"  // after ff.h, whose BYTE it uses
 
@@ -64,6 +66,12 @@ static firmware::UploadGate fwGate;  // holds the start of the file until it has
 static volatile int fwProgress = -1;
 static bool fwOk = false;
 static String fwError;
+
+// Re-timing: asked for by a web handler, started by loop() on the main loop
+static WifiPortal::RetimeHandler retimeHandler;
+static std::mutex retimeAskLock;
+static bool retimeAsked = false;
+static String retimeAskTrack, retimeAskLog, retimeAskError;
 
 // tracks.json upload: one at a time
 static portal::UploadSlot tracksSlot;
@@ -589,6 +597,51 @@ static void setupRoutes() {
     rebootAt = millis() + 1000;
   });
 
+  // Re-timing (the Tracks tab): track=<id>, file=<a .vbo in /sessions> or none for every session there
+  s.on("/api/retime", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!uploadCode.check(req->arg("code").c_str())) {
+      req->send(403, "text/plain",
+                uploadCode.locked() ? "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code."
+                                    : "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
+      return;
+    }
+    const String track = req->arg("track"), file = req->arg("file");
+    if (!track.length() || track.length() > 80 ||
+        (file.length() && (!portal::isSafeFileName(file.c_str()) || !portal::endsWith(file.c_str(), ".vbo")))) {
+      req->send(400, "text/plain", "Bad track or file");
+      return;
+    }
+    std::lock_guard<std::mutex> g(retimeAskLock);
+    if (retimeAsked || SessionLog::retimeStatus().running) {
+      req->send(409, "text/plain", "Already re-timing");
+      return;
+    }
+    retimeAsked = true;
+    retimeAskTrack = track;
+    retimeAskLog = file;
+    retimeAskError = "";
+    req->send(200, "text/plain", "Re-timing");
+  });
+  s.on("/api/retime", HTTP_GET, [](AsyncWebServerRequest* req) {
+    const SessionLog::RetimeStatus st = SessionLog::retimeStatus();
+    String error;
+    bool asked;
+    {
+      std::lock_guard<std::mutex> g(retimeAskLock);
+      asked = retimeAsked;
+      error = retimeAskError;
+    }
+    String out = "{\"running\":";
+    out += (st.running || asked) ? "true" : "false";
+    out += ",\"done\":" + String(st.done) + ",\"total\":" + String(st.total) + ",\"laps\":" + String(st.laps);
+    out += ",\"message\":";
+    portal::appendJsonString(out, (error.length() ? error : st.message).c_str());
+    out += ",\"error\":";
+    out += error.length() ? "true" : "false";
+    out += "}";
+    req->send(200, "application/json", out);
+  });
+
   // The Settings tab
   s.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest* req) { sendSettings(req, 200, false); });
   s.on("/api/settings", HTTP_POST, onSettingsPost);
@@ -654,6 +707,26 @@ void loop(const GPSHandler& gps) {
   if (!on) return;
   dns.processNextRequest();
 
+  // Re-timing asked for: started here, where the track list may be read
+  String track, log;
+  bool ask = false;
+  {
+    std::lock_guard<std::mutex> g(retimeAskLock);
+    if (retimeAsked) {
+      ask = true;
+      track = retimeAskTrack;
+      log = retimeAskLog;
+    }
+  }
+  if (ask) {
+    String error;
+    bool ok = retimeHandler && retimeHandler(track, log, error);
+    if (!ok && !error.length()) error = "Re-timing isn't available";
+    std::lock_guard<std::mutex> g(retimeAskLock);
+    retimeAsked = false;
+    retimeAskError = ok ? String() : error;
+  }
+
   if (now - lastSnap >= 500) {
     lastSnap = now;
     GpsSnapshot g;
@@ -688,7 +761,9 @@ int updateProgress() { return fwProgress; }
 
 int uploadCodeValue() { return uploadCode.value(); }
 
-bool busy() { return (fwProgress >= 0 && fwProgress < 100) || rebootAt != 0; }
+bool busy() { return (fwProgress >= 0 && fwProgress < 100) || rebootAt != 0 || SessionLog::retimeStatus().running; }
+
+void onRetime(RetimeHandler handler) { retimeHandler = handler; }
 
 bool restarting() { return rebootAt != 0; }
 
