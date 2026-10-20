@@ -175,6 +175,11 @@
 #define LOG_BUFFER_BYTES (256 * 1024)    // power of two; ~2 min of 20 Hz fixes
 #define LOG_FLUSH_MS 1000
 
+// Logbook (Logbook.h): a note per session, typed on the Wi-Fi page.
+// Voice notes (hold on the debrief to record 30 s from the ES8311 microphone)
+// aren't built yet: the codec has to be brought up on a board first. Leave 0.
+#define VOICE_NOTES_ENABLED 0
+
 // ---------------------------------------------------------------------------
 // Battery (3.7 V LiPo on the board's socket, TP4054 charger, voltage on IO9)
 // The board divides the battery voltage by 2 (two 200 k resistors) before IO9.

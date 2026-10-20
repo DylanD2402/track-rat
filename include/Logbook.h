@@ -103,6 +103,54 @@ inline size_t commentsEnd(const char* head, size_t len) {
   return 0;
 }
 
+// The note file's contents: {"note":"..."} with quotes, backslashes and line
+// breaks escaped (a cleaned note has no other control characters).
+inline std::string noteJson(const std::string& note) {
+  std::string out = "{\"note\":\"";
+  for (char c : note) {
+    if (c == '"' || c == '\\') {
+      out += '\\';
+      out += c;
+    } else if (c == '\n') {
+      out += "\\n";
+    } else if ((unsigned char)c < 0x20) {
+      out += ' ';
+    } else {
+      out += c;
+    }
+  }
+  out += "\"}\n";
+  return out;
+}
+
+// A .vbo download with the note's lines put in at `at` (from commentsEnd):
+// fills buf with up to maxLen bytes of it from `index`, reading the file with
+// read(offset, dst, n) -> bytes read. Returns how many bytes it filled, which
+// is short only at the end or when the file can't be read.
+template <class Read>
+size_t splicedChunk(unsigned char* buf, size_t maxLen, size_t index, size_t fileSize, size_t at,
+                    const std::string& lines, Read read) {
+  const size_t L = lines.size(), total = fileSize + L;
+  size_t out = 0;
+  while (out < maxLen && index + out < total) {
+    const size_t i = index + out;
+    size_t k;
+    if (i >= at && i < at + L) {
+      k = at + L - i;
+      if (k > maxLen - out) k = maxLen - out;
+      memcpy(buf + out, lines.data() + (i - at), k);
+    } else {
+      const size_t src = i < at ? i : i - L;
+      k = (i < at ? at : total) - i;
+      if (k > maxLen - out) k = maxLen - out;
+      k = read(src, buf + out, k);
+      if (k == 0) break;
+    }
+    out += k;
+  }
+  return out;
+}
+
 }  // namespace logbook
 
 #endif  // LOGBOOK_H
