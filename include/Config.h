@@ -92,6 +92,7 @@
 // BOOT button (GPIO0): short press = next, long press = select / confirm
 #define BOOT_BUTTON_PIN 0
 #define LONG_PRESS_MS 1000
+#define HOLD_BAR_DELAY_MS 400           // the "keep holding to end" bar appears after this long, not on a tap
 #define END_SESSION_HOLD_MS 2000     // hold (touch or BOOT) to end a running session
 
 // ---------------------------------------------------------------------------
@@ -181,8 +182,6 @@
 // The timing screen (see TimingScreen.h)
 #define TREND_WINDOW_MS 3000             // the trend bar shows the delta's change over this long...
 #define TREND_FULL_SCALE_MS 300          // ...and is full height at this much gained or lost
-#define TAP_MOVING_KMH 10.0              // at or above this speed a quick tap on the timing screen is ignored...
-#define FIRM_PRESS_MS 250                // ...and a press this long switches the view
 // The screen follows the situation (see SituationScreen.h)
 #define SLOW_SCREEN_KMH 40.0             // under this for SLOW_SCREEN_MS: the slow screen (below the slowest hairpins)
 #define SLOW_SCREEN_MS 5000

@@ -259,8 +259,9 @@ void DisplayManager::footerButtons(const char* left, const char* center, const c
 }
 
 // "Keep holding to end": a card with a bar that fills over END_SESSION_HOLD_MS.
+// It waits a little, so an ordinary tap (which switches the view) never flashes it.
 void DisplayManager::holdBar(uint32_t holdMs, const char* what) {
-  if (holdMs <= 150) return;
+  if (holdMs <= HOLD_BAR_DELAY_MS) return;
   const int x = 24, y = 80, w = W - 48, h = 64;
   int fill = (int)min((uint32_t)(w - 32), (uint32_t)((w - 32) * holdMs / END_SESSION_HOLD_MS));
   gfx->fillRoundRect(x - 1, y - 1, w + 2, h + 2, CORNER + 1, C_LINE);

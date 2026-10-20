@@ -195,15 +195,6 @@ inline bool ghostAt(const std::vector<P>& path, int32_t elapsedMs, float& x, flo
   return true;
 }
 
-// --- taps while moving --------------------------------------------------------------------------
-
-// Does a tap on the timing screen switch the view? Not a quick one while the
-// car is moving (no fix: the speed is unknown, so it counts).
-inline bool tapSwitchesView(bool hasFix, float speedKmh, uint32_t pressMs) {
-  if (!hasFix || speedKmh < TAP_MOVING_KMH) return true;
-  return pressMs >= FIRM_PRESS_MS;
-}
-
 }  // namespace timing
 
 #endif  // TIMING_SCREEN_H

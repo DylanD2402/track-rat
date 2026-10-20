@@ -175,16 +175,6 @@ static void testGhost() {
   printf("  ghost: interpolated along the reference lap, none past its ends\n");
 }
 
-static void testTaps() {
-  CHECK(tapSwitchesView(true, 0, 50), "parked: a quick tap counts");
-  CHECK(tapSwitchesView(true, TAP_MOVING_KMH - 1, 50), "crawling: counts");
-  CHECK(!tapSwitchesView(true, 120, 80), "moving: a quick tap is ignored");
-  CHECK(!tapSwitchesView(true, TAP_MOVING_KMH, FIRM_PRESS_MS - 1), "just too quick");
-  CHECK(tapSwitchesView(true, 120, FIRM_PRESS_MS), "moving: a firm press counts");
-  CHECK(tapSwitchesView(false, 120, 50), "no fix: the speed is stale, the tap counts");
-  printf("  taps: quick ones ignored while moving, firm presses count\n");
-}
-
 int main() {
   printf("Timing screen tests\n");
   testColours();
@@ -192,7 +182,6 @@ int main() {
   testSectorStrip();
   testLineFlash();
   testGhost();
-  testTaps();
   if (failures) {
     printf("\n%d FAILURE(S)\n", failures);
     return 1;

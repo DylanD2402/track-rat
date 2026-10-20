@@ -1116,8 +1116,7 @@ static void handleInput(InputEvent ev) {
         lastRender = 0;
       }
       else if (slowWatch.slow() && !(lapTimer.isStage() && lapTimer.lapRunning())) {  // the slow screen has no other view
-      } else if (ev == InputEvent::BootShort ||  // a press, or a tap that isn't a bump while moving: switch view
-               timing::tapSwitchesView(gps.hasFix(), gps.lastFix().speedKmh, input.lastTapMs())) {
+      } else {  // a tap or a BOOT press switches between the timing and map views
         showMap = !showMap;
         lastRender = 0;
       }

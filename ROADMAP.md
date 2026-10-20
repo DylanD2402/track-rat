@@ -168,7 +168,7 @@ Sizes are relative: S small, M medium, L large.
 - **Don't rely on colour alone.** About 1 in 12 men has red-green colour blindness. Draw the + or − sign large, make the trend bar grow up for gaining and down for losing, and offer a blue and orange palette.
 - **Options:** the big number can be the predicted lap time (reference lap plus delta), as on AiM's units and now in RaceChrono, or the classic running lap time.
 - **Map view** stays as the second screen, with a "ghost" dot showing where your reference lap was at this moment.
-- **While moving,** ignore quick taps (vibration, rain). A firm press switches the view.
+- **Taps switch the view,** moving or not. Ignoring quick taps while moving (for bumps and rain) was tried and dropped: in practice a tap didn't work on track.
 - Test outdoors at full brightness. Colour blocks in sunlight are the real test of this screen.
 
 **Status: done** (2026-10-20, commit 3f3c821)

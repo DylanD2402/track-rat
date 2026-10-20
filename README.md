@@ -117,7 +117,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Track list | left / right third: previous / next, centre: select, top bar or hold: menu | press: next, hold 1 s: select |
 | GPS Status (top bar of the menu) | tap: back | press: back |
 | Ready | centre: start, left: menu (back, if you came from the track list), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from the track list) |
-| Timing | tap: timing / map view (while moving, press for a quarter of a second: quick taps are ignored), hold 2 s: end | press: switch view, hold 1 s: end |
+| Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
 | In the pits (parked a minute while timing): the debrief | tap: second page, then the timing screen, hold 2 s: end; driving off goes back by itself | press: the same as a tap, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
@@ -143,7 +143,7 @@ The **live diff** is how far ahead (`−`) or behind (`+`) the reference lap you
 
 At the line, **the whole screen flashes** the lap time and its gap to the reference for 4 s: purple for a new personal best (PB) at that track, green (blue) for a new best of the day, grey for any other lap. The LED bar flashes the same colour.
 
-While the car is moving, a quick tap is taken for a bump or rain and ignored; press for a quarter of a second to switch to the map view. BOOT always switches.
+A tap switches between the timing and map views, moving or not. The "keep holding to end" bar only appears once a press lasts longer than a tap.
 
 **The screen follows the situation.** Nobody should have to switch screens on track:
 
