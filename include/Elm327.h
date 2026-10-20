@@ -14,8 +14,8 @@
  *    the expected-replies digit ("010C1": answer as soon as one engine
  *    computer has, instead of waiting out the timeout), and RPM and throttle in
  *    one request ("010C11").
- *  - Then RPM, throttle, coolant and intake temperature on obd::Schedule, the
- *    values in obd::Values like the CAN path's (Obd.h). Each value is stamped
+ *  - Then RPM, throttle, coolant, intake and (if the car has it) oil
+ *    temperature on obd::Schedule, the values in obd::Values like the CAN path's (Obd.h). Each value is stamped
  *    at the middle of its request, the best guess at when the engine read it.
  *
  * Replies are put back together across Bluetooth notifications (20 bytes each
@@ -153,8 +153,8 @@ struct Supported {
 
 // Walks the mode 01 replies in r: engine values into v (stamped at), supported-PID
 // masks into sup. Returns how many PIDs were read; *pids gets a bit per engine
-// value: 1 RPM, 2 throttle, 4 coolant, 8 intake.
-constexpr uint8_t GOT_RPM = 1, GOT_THROTTLE = 2, GOT_COOLANT = 4, GOT_INTAKE = 8;
+// value: 1 RPM, 2 throttle, 4 coolant, 8 intake, 16 oil.
+constexpr uint8_t GOT_RPM = 1, GOT_THROTTLE = 2, GOT_COOLANT = 4, GOT_INTAKE = 8, GOT_OIL = 16;
 
 inline int readMode01(const Reply& r, obd::Values& v, uint32_t at, Supported* sup, uint8_t* pids) {
   int read = 0;
@@ -173,7 +173,8 @@ inline int readMode01(const Reply& r, obd::Values& v, uint32_t at, Supported* su
         read++;
       } else if (obd::decode(pid, d, v, at)) {
         read++;
-        if (pids) *pids |= pid == obd::PID_RPM ? GOT_RPM : pid == obd::PID_COOLANT ? GOT_COOLANT : pid == obd::PID_INTAKE ? GOT_INTAKE : GOT_THROTTLE;
+        if (pids) *pids |= pid == obd::PID_RPM ? GOT_RPM : pid == obd::PID_COOLANT ? GOT_COOLANT : pid == obd::PID_INTAKE ? GOT_INTAKE
+                         : pid == obd::PID_OIL ? GOT_OIL : GOT_THROTTLE;
       }
       i += 1 + n;
     }
@@ -311,7 +312,7 @@ public:
   // --- what the screens show ---
   struct Stats {
     uint32_t requests = 0, replies = 0, timeouts = 0, errors = 0;
-    float requestHz = 0, rpmHz = 0, throttleHz = 0, coolantHz = 0, intakeHz = 0;  // over the last second or two
+    float requestHz = 0, rpmHz = 0, throttleHz = 0, coolantHz = 0, intakeHz = 0, oilHz = 0;  // over the last second or two
   };
   Phase state() const { return phase; }
   bool running() const { return phase == Phase::Running; }
@@ -348,15 +349,15 @@ private:
   obd::Values vals;
   Stats stats;
   // counts since rateFrom, for the rates
-  uint32_t rateFrom = 0, nReq = 0, nRpm = 0, nThr = 0, nCool = 0, nIntake = 0;
+  uint32_t rateFrom = 0, nReq = 0, nRpm = 0, nThr = 0, nCool = 0, nIntake = 0, nOil = 0;
 
   void rates(uint32_t nowMs) {
     const uint32_t dt = nowMs - rateFrom;
     if (dt < 1000) return;
     const float s = dt / 1000.0f;
     stats.requestHz = nReq / s, stats.rpmHz = nRpm / s, stats.throttleHz = nThr / s;
-    stats.coolantHz = nCool / s, stats.intakeHz = nIntake / s;
-    nReq = nRpm = nThr = nCool = nIntake = 0;
+    stats.coolantHz = nCool / s, stats.intakeHz = nIntake / s, stats.oilHz = nOil / s;
+    nReq = nRpm = nThr = nCool = nIntake = nOil = 0;
     rateFrom = nowMs;
   }
 
@@ -381,7 +382,7 @@ private:
     const uint8_t thr = sup.has(obd::PID_THROTTLE) ? obd::PID_THROTTLE : sup.has(obd::PID_REL_THROTTLE) ? obd::PID_REL_THROTTLE
                       : sup.has(obd::PID_PEDAL_D) ? obd::PID_PEDAL_D : 0;
     sched.setPids(sup.has(obd::PID_RPM) ? obd::PID_RPM : 0, thr, sup.has(obd::PID_COOLANT) ? obd::PID_COOLANT : 0,
-                  sup.has(obd::PID_INTAKE) ? obd::PID_INTAKE : 0);
+                  sup.has(obd::PID_INTAKE) ? obd::PID_INTAKE : 0, sup.has(obd::PID_OIL) ? obd::PID_OIL : 0);
     suffix = multi = false;
     phase = Phase::Probe;
     step = 0;
@@ -480,6 +481,7 @@ private:
     if (got & GOT_THROTTLE) nThr++;
     if (got & GOT_COOLANT) nCool++;
     if (got & GOT_INTAKE) nIntake++;
+    if (got & GOT_OIL) nOil++;
   }
 };
 

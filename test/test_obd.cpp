@@ -78,8 +78,10 @@ int main() {
       p.replied(pid);
       CHECK(p.due(t) == -1, "and keeps a gap between requests");
     }
-    CHECK(counts[PID_RPM] == 20 && counts[PID_THROTTLE] == 10 && counts[PID_COOLANT] == 10, "rpm %d throttle %d coolant %d",
-          counts[PID_RPM], counts[PID_THROTTLE], counts[PID_COOLANT]);
+    // oil once a second (at the start and a second in), the rest RPM every other time
+    CHECK(counts[PID_OIL] == 2 && counts[PID_RPM] == 19 && counts[PID_THROTTLE] + counts[PID_COOLANT] == 19 &&
+              counts[PID_THROTTLE] >= 9 && counts[PID_COOLANT] >= 9,
+          "rpm %d throttle %d coolant %d oil %d", counts[PID_RPM], counts[PID_THROTTLE], counts[PID_COOLANT], counts[PID_OIL]);
     CHECK(t < 40 * 45, "about 25 a second: %u ms for 40", (unsigned)t);
     CHECK(p.quietCount() == 0, "answered");
 
@@ -91,6 +93,41 @@ int main() {
     CHECK(q.quietCount() == 10, "10 unanswered: %d", q.quietCount());
     q.replied(PID_THROTTLE);
     CHECK(q.quietCount() == 0, "an answer resets it");
+
+    // A car without oil temperature: asked OIL_TRIES times, then never again
+    Poller o;
+    int oil = 0, after = 0;
+    for (uint32_t t2 = 0; t2 < 20000;) {
+      const int pid = o.due(t2);
+      if (pid < 0) { t2++; continue; }
+      o.sent(t2);
+      if (pid == PID_OIL) {
+        oil++;
+        if (t2 > 5000) after++;
+        t2 += REPLY_TIMEOUT_MS;  // no answer
+      } else {
+        t2 += 12;
+        o.replied(pid);
+      }
+    }
+    CHECK(oil == Poller::OIL_TRIES && after == 0, "unanswered oil: asked %d times", oil);
+
+    // One that answers keeps being asked about once a second
+    Poller a;
+    int asked = 0;
+    for (uint32_t t2 = 0; t2 < 10000;) {
+      const int pid = a.due(t2);
+      if (pid < 0) { t2++; continue; }
+      a.sent(t2);
+      if (pid == PID_OIL) asked++;
+      t2 += 12;
+      a.replied(pid);
+    }
+    CHECK(asked >= 9 && asked <= 11, "oil about 1 Hz: %d in 10 s", asked);
+    Values ov;
+    const uint8_t oilReply[8] = {0x03, 0x41, PID_OIL, 0x82, 0x55, 0x55, 0x55, 0x55};
+    CHECK(parse(0x7E8, oilReply, 8, ov, 3000) == PID_OIL && fabsf(ov.oilC - 90) < 0.01f && ov.oilKnown(3500) && !ov.coolantKnown(3500),
+          "oil temperature read: %.1f", ov.oilC);
   }
 
   // Shift light

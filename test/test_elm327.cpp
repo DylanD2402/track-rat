@@ -43,7 +43,7 @@ struct Adapter {
   int chunk = 20;             // bytes per notification
   uint32_t latencyMs = 50;
   std::vector<std::string> log;
-  int rpm = 3000 * 4, throttle = 128, coolant = 90 + 40, intake = 25 + 40;
+  int rpm = 3000 * 4, throttle = 128, coolant = 90 + 40, intake = 25 + 40, oil = 118 + 40;
 
   std::string answer(const std::string& cmd) {
     if (cmd.rfind("AT", 0) == 0) {
@@ -73,6 +73,7 @@ struct Adapter {
       else if (pid == 0x11 || pid == 0x45 || pid == 0x49) snprintf(b, sizeof(b), "%02X%02X", pid, throttle), out += b;
       else if (pid == 0x05) snprintf(b, sizeof(b), "05%02X", coolant), out += b;
       else if (pid == 0x0F) snprintf(b, sizeof(b), "0F%02X", intake), out += b;
+      else if (pid == 0x5C) snprintf(b, sizeof(b), "5C%02X", oil), out += b;
       else return pre + "NO DATA\r\r>";
     }
     if (spaces) {
@@ -306,6 +307,26 @@ int main() {
     CHECK(b.c.values().throttleKnown(b.t) && !b.c.values().coolantKnown(b.t), "throttle known, coolant not supported");
   }
 
+  // Oil temperature (6.5): only asked when the car's 0x40 mask has 0x5C, about once a second
+  {
+    Bench b;
+    b.a.pids = {0x05, 0x0C, 0x0F, 0x11, 0x20};
+    b.a.pids2 = {0x40};
+    b.a.pids3 = {0x5C};
+    b.connect();
+    b.run(10000);
+    const int asked = b.count("015C1");
+    CHECK(asked >= 8 && asked <= 11 && b.c.values().oilKnown(b.t) && fabsf(b.c.values().oilC - 118) < 0.01f,
+          "oil asked %d times in 10 s, %.1f C", asked, b.c.values().oilC);
+    const Client::Stats& st = b.c.statistics();
+    CHECK(st.oilHz > 0.5f && st.oilHz < 1.5f && st.coolantHz > 0.5f && st.rpmHz > 9, "oil %.1f Hz, coolant %.1f Hz, rpm %.1f Hz",
+          st.oilHz, st.coolantHz, st.rpmHz);
+    Bench n;  // the usual car has no 0x5C: never asked
+    n.connect();
+    n.run(5000);
+    CHECK(n.count("015C1") == 0 && n.count("015C") == 0 && !n.c.values().oilKnown(n.t), "no oil PID: never asked");
+  }
+
   // Each value is stamped at the middle of its request
   {
     Bench b;
@@ -320,14 +341,16 @@ int main() {
   // The schedule's rates, at 10, 20 and 40 replies a second (one PID per request)
   for (int perSecond : {10, 20, 40}) {
     obd::Schedule s;
-    s.setPids(obd::PID_RPM, obd::PID_THROTTLE, obd::PID_COOLANT, obd::PID_INTAKE);
+    s.setPids(obd::PID_RPM, obd::PID_THROTTLE, obd::PID_COOLANT, obd::PID_INTAKE, obd::PID_OIL);
     int n[256] = {0};
     const uint32_t step = 1000 / perSecond, seconds = 20;
     for (uint32_t t = 0; t < seconds * 1000; t += step) n[s.next(t)]++;
     const float rpm = n[obd::PID_RPM] / (float)seconds, thr = n[obd::PID_THROTTLE] / (float)seconds;
     const float cool = n[obd::PID_COOLANT] / (float)seconds, in = n[obd::PID_INTAKE] / (float)seconds;
-    const float fast = perSecond - 2;  // what's left after the temperatures
-    CHECK(fabsf(cool - 1) < 0.15f && fabsf(in - 1) < 0.15f, "%d/s: temperatures about 1 Hz (%.2f %.2f)", perSecond, cool, in);
+    const float oil = n[obd::PID_OIL] / (float)seconds;
+    const float fast = perSecond - 3;  // what's left after the temperatures
+    CHECK(fabsf(cool - 1) < 0.15f && fabsf(in - 1) < 0.15f && fabsf(oil - 1) < 0.15f, "%d/s: temperatures about 1 Hz (%.2f %.2f %.2f)",
+          perSecond, cool, in, oil);
     CHECK(fabsf(rpm - fast * 0.6f) < 0.6f && fabsf(thr - fast * 0.4f) < 0.6f, "%d/s: rpm %.1f Hz, throttle %.1f Hz", perSecond, rpm, thr);
     CHECK(rpm > thr, "RPM most often");
   }

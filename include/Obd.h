@@ -36,10 +36,12 @@ constexpr uint8_t PID_THROTTLE = 0x11;  // A * 100 / 255 = %
 // Some cars only report the pedal: used for the throttle when 0x11 isn't supported
 constexpr uint8_t PID_REL_THROTTLE = 0x45;  // A * 100 / 255 = %
 constexpr uint8_t PID_PEDAL_D = 0x49;       // A * 100 / 255 = %
+constexpr uint8_t PID_OIL = 0x5C;           // A - 40 = deg C, engine oil (6.5): not every car has it
 
 constexpr uint32_t REPLY_TIMEOUT_MS = 100;  // no answer by then: ask the next one
 constexpr uint32_t MIN_GAP_MS = 40;         // between requests: about 25 a second at most
 constexpr uint32_t STALE_MS = 1000;         // a value older than this is unknown
+constexpr uint32_t SLOW_PERIOD_MS = 1000;   // the temperatures that are asked once a second (oil on CAN, all of them by Bluetooth)
 
 // The 8 data bytes asking for one PID (mode 01), padded with 0x55 as the standard suggests
 inline void request(uint8_t pid, uint8_t out[8]) {
@@ -53,13 +55,14 @@ inline void request(uint8_t pid, uint8_t out[8]) {
 // A value stamped a little after now (the middle of a request that is
 // still being answered) counts as fresh.
 struct Values {
-  float rpm = 0, throttlePct = 0, coolantC = 0, intakeC = 0;
-  uint32_t rpmAt = 0, throttleAt = 0, coolantAt = 0, intakeAt = 0;
+  float rpm = 0, throttlePct = 0, coolantC = 0, intakeC = 0, oilC = 0;
+  uint32_t rpmAt = 0, throttleAt = 0, coolantAt = 0, intakeAt = 0, oilAt = 0;
   static bool fresh(uint32_t at, uint32_t now) { return at && (int32_t)(now - at) <= (int32_t)STALE_MS; }
   bool rpmKnown(uint32_t now) const { return fresh(rpmAt, now); }
   bool throttleKnown(uint32_t now) const { return fresh(throttleAt, now); }
   bool coolantKnown(uint32_t now) const { return fresh(coolantAt, now); }
   bool intakeKnown(uint32_t now) const { return fresh(intakeAt, now); }
+  bool oilKnown(uint32_t now) const { return fresh(oilAt, now); }
 };
 
 // The data bytes that follow each PID in a mode 01 reply, or -1 for one we don't read.
@@ -67,7 +70,7 @@ inline int dataBytes(uint8_t pid) {
   switch (pid) {
     case 0x00: case 0x20: case 0x40: return 4;  // which PIDs are supported
     case PID_RPM: return 2;
-    case PID_COOLANT: case PID_INTAKE: case PID_THROTTLE: case PID_REL_THROTTLE: case PID_PEDAL_D: return 1;
+    case PID_COOLANT: case PID_INTAKE: case PID_THROTTLE: case PID_REL_THROTTLE: case PID_PEDAL_D: case PID_OIL: return 1;
     default: return -1;
   }
 }
@@ -81,6 +84,7 @@ inline bool decode(uint8_t pid, const uint8_t* d, Values& v, uint32_t at) {
     case PID_THROTTLE: case PID_REL_THROTTLE: case PID_PEDAL_D: v.throttlePct = d[0] * 100.0f / 255.0f, v.throttleAt = at; return true;
     case PID_COOLANT: v.coolantC = d[0] - 40.0f, v.coolantAt = at; return true;
     case PID_INTAKE: v.intakeC = d[0] - 40.0f, v.intakeAt = at; return true;
+    case PID_OIL: v.oilC = d[0] - 40.0f, v.oilAt = at; return true;
     default: return false;
   }
 }
@@ -98,23 +102,35 @@ inline int parse(uint32_t id, const uint8_t* d, uint8_t len, Values& v, uint32_t
 
 // Which PID to ask for next: RPM every other time, throttle and coolant taking turns
 // between, one request at a time (the next once answered, or after REPLY_TIMEOUT_MS).
+// Oil temperature is slipped in once a second, until OIL_TRIES requests of it in a row
+// have had no answer (most cars don't have it; one that ever answered keeps being asked).
 class Poller {
 public:
+  static constexpr int OIL_TRIES = 3;
+
   // The PID to send now, or -1 (waiting for a reply, or too soon). Call often.
   int due(uint32_t nowMs) const {
     if (waiting && nowMs - sentAt < REPLY_TIMEOUT_MS) return -1;
     if (sentAny && nowMs - sentAt < MIN_GAP_MS) return -1;
-    return order(step);
+    return oilTurn(nowMs) ? PID_OIL : order(step);
   }
   void sent(uint32_t nowMs) {
+    if (waiting && pending == PID_OIL && oilMisses < 255) oilMisses++;  // the last oil request went unanswered
+    if (oilTurn(nowMs)) {
+      pending = PID_OIL;
+      oilAt = nowMs;
+      oilAsked = true;
+    } else {
+      pending = order(step);
+      step = (step + 1) % 4;
+    }
     sentAt = nowMs;
     sentAny = waiting = true;
-    pending = order(step);
-    step = (step + 1) % 4;
     if (unanswered < 255) unanswered++;
   }
   void replied(int pid) {
     if (waiting && pid == pending) waiting = false;
+    if (pid == PID_OIL) oilAnswered = true;
     unanswered = 0;
   }
   // Requests in a row with no reply at all: no engine listening (ignition off, wrong bit rate)
@@ -125,36 +141,41 @@ private:
     static const uint8_t o[4] = {PID_RPM, PID_THROTTLE, PID_RPM, PID_COOLANT};
     return o[i];
   }
+  bool oilTurn(uint32_t nowMs) const {
+    return (oilAnswered || oilMisses < OIL_TRIES) && (!oilAsked || nowMs - oilAt >= SLOW_PERIOD_MS);
+  }
   int step = 0;
   bool waiting = false, sentAny = false;
   int pending = -1;
   uint32_t sentAt = 0;
   int unanswered = 0;
+  bool oilAsked = false, oilAnswered = false;
+  uint32_t oilAt = 0;
+  int oilMisses = 0;
 };
 
 // The Bluetooth adapter's schedule (Elm327.h): the next PID to ask for. RPM and
-// throttle take turns, RPM three times to throttle's two; coolant and intake
+// throttle take turns, RPM three times to throttle's two; coolant, intake and oil
 // temperature are slipped in once a second each. At 20 replies a second that's
 // RPM about 10 Hz and throttle about 7. Asks only for what the car supports
 // (0: not supported).
-constexpr uint32_t SLOW_PERIOD_MS = 1000;
-
 class Schedule {
 public:
-  void setPids(uint8_t rpmPid, uint8_t throttlePid, uint8_t coolantPid, uint8_t intakePid) {
+  static constexpr int SLOW = 3;  // coolant, intake, oil
+  void setPids(uint8_t rpmPid, uint8_t throttlePid, uint8_t coolantPid, uint8_t intakePid, uint8_t oilPid = 0) {
     *this = Schedule();
-    rpm = rpmPid, throttle = throttlePid, slow[0] = coolantPid, slow[1] = intakePid;
+    rpm = rpmPid, throttle = throttlePid, slow[0] = coolantPid, slow[1] = intakePid, slow[2] = oilPid;
   }
   // The PID to ask for at nowMs, or 0 if the car supports none of them.
   uint8_t next(uint32_t nowMs) {
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < SLOW; i++) {
       if (slow[i] && (!askedAny[i] || nowMs - asked[i] >= SLOW_PERIOD_MS)) {
         askedAny[i] = true;
         asked[i] = nowMs;
         return slow[i];
       }
     }
-    if (!rpm || !throttle) return rpm ? rpm : throttle ? throttle : slow[0] ? slow[0] : slow[1];
+    if (!rpm || !throttle) return rpm ? rpm : throttle ? throttle : slow[0] ? slow[0] : slow[1] ? slow[1] : slow[2];
     static const bool rpmTurn[5] = {true, false, true, false, true};
     const bool r = rpmTurn[step];
     step = (step + 1) % 5;
@@ -164,9 +185,9 @@ public:
   uint8_t throttlePid() const { return throttle; }
 
 private:
-  uint8_t rpm = 0, throttle = 0, slow[2] = {0, 0};
-  uint32_t asked[2] = {0, 0};
-  bool askedAny[2] = {false, false};
+  uint8_t rpm = 0, throttle = 0, slow[SLOW] = {0, 0, 0};
+  uint32_t asked[SLOW] = {0, 0, 0};
+  bool askedAny[SLOW] = {false, false, false};
   int step = 0;
 };
 
