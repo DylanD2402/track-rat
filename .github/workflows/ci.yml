@@ -74,6 +74,8 @@ jobs:
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/stg && /tmp/stg
       - name: test_fetch_tracks
         run: python3 test/test_fetch_tracks.py
+      - name: test_overlay
+        run: python3 -m pip install -r tools/requirements-overlay.txt && python3 test/test_overlay.py
       - name: test_imu
         run: g++ -std=c++17 -Iinclude test/test_imu.cpp -o /tmp/imu && /tmp/imu
       - name: test_obd
