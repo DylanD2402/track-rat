@@ -21,6 +21,7 @@ enum class SpeedUnits : uint8_t { Kmh = 0, Mph = 1 };
 enum class CompareTo : uint8_t { Day = 0, Ever = 1, Session = 2 };       // what the live delta compares with
 enum class BigNumber : uint8_t { Delta = 0, Predicted = 1, LapTime = 2 };  // the largest number on the timing screen
 enum class GpsMode : uint8_t { Fast20 = 0, AllSystems10 = 1 };
+enum class DeltaColours : uint8_t { GreenRed = 0, BlueOrange = 1 };  // ahead / behind on the timing screen and LED bar
 
 struct SettingsData {
   bool setupDone;          // false until the first-boot questions are answered
@@ -29,6 +30,7 @@ struct SettingsData {
   uint8_t brightness;      // percent, 10..100
   CompareTo compareTo;     // the live delta's reference from the first lap (BestLap.h)
   BigNumber bigNumber;
+  DeltaColours deltaColours;
   GpsMode gpsMode;         // applied when the GPS is set up at boot
   bool bluetooth;          // RaceBox Bluetooth output
   int16_t utcOffsetMin;    // minutes east of UTC, -720..840 (the Wi-Fi page sets it from the phone)
@@ -37,13 +39,14 @@ struct SettingsData {
 
 inline bool operator==(const SettingsData& a, const SettingsData& b) {
   return a.setupDone == b.setupDone && a.units == b.units && a.rotation == b.rotation && a.brightness == b.brightness &&
-         a.compareTo == b.compareTo && a.bigNumber == b.bigNumber && a.gpsMode == b.gpsMode &&
+         a.compareTo == b.compareTo && a.bigNumber == b.bigNumber && a.deltaColours == b.deltaColours &&
+         a.gpsMode == b.gpsMode &&
          a.bluetooth == b.bluetooth && a.utcOffsetMin == b.utcOffsetMin && a.recordRoadDrives == b.recordRoadDrives;
 }
 inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(a == b); }
 
 // The items on the settings screen, in the order they appear.
-enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Gps, Bluetooth, TimeZone, RoadDrives, Count };
+enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, Gps, Bluetooth, TimeZone, RoadDrives, Count };
 constexpr int SETTING_ITEM_COUNT = (int)SettingItem::Count;
 
 namespace settings {
@@ -60,6 +63,7 @@ inline SettingsData defaults() {
   d.brightness = DEFAULT_BRIGHTNESS_PCT;
   d.compareTo = (CompareTo)DEFAULT_COMPARE_TO;
   d.bigNumber = (BigNumber)DEFAULT_BIG_NUMBER;
+  d.deltaColours = (DeltaColours)DEFAULT_DELTA_COLOURS;
   d.gpsMode = GPS_TARGET_RATE_HZ >= 20 ? GpsMode::Fast20 : GpsMode::AllSystems10;
   d.bluetooth = BLE_ENABLED != 0;
   d.utcOffsetMin = DEFAULT_UTC_OFFSET_MIN;
@@ -77,6 +81,7 @@ inline void sanitize(SettingsData& d) {
   if (d.brightness > BRIGHTNESS_MAX) d.brightness = BRIGHTNESS_MAX;
   if ((uint8_t)d.compareTo > (uint8_t)CompareTo::Session) d.compareTo = def.compareTo;
   if ((uint8_t)d.bigNumber > (uint8_t)BigNumber::LapTime) d.bigNumber = def.bigNumber;
+  if ((uint8_t)d.deltaColours > (uint8_t)DeltaColours::BlueOrange) d.deltaColours = def.deltaColours;
   if ((uint8_t)d.gpsMode > (uint8_t)GpsMode::AllSystems10) d.gpsMode = def.gpsMode;
   if (d.utcOffsetMin < UTC_MIN) d.utcOffsetMin = UTC_MIN;
   if (d.utcOffsetMin > UTC_MAX) d.utcOffsetMin = UTC_MAX;
@@ -106,6 +111,7 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
     case SettingItem::Brightness: d.brightness = (uint8_t)number(d.brightness, BRIGHTNESS_MIN, BRIGHTNESS_MAX, BRIGHTNESS_STEP); break;
     case SettingItem::Compare: d.compareTo = (CompareTo)choice((uint8_t)d.compareTo, 3); break;
     case SettingItem::Big: d.bigNumber = (BigNumber)choice((uint8_t)d.bigNumber, 3); break;
+    case SettingItem::Colours: d.deltaColours = (DeltaColours)choice((uint8_t)d.deltaColours, 2); break;
     case SettingItem::Gps: d.gpsMode = (GpsMode)choice((uint8_t)d.gpsMode, 2); break;
     case SettingItem::Bluetooth: d.bluetooth = !d.bluetooth; break;
     case SettingItem::TimeZone: d.utcOffsetMin = (int16_t)number(d.utcOffsetMin, UTC_MIN, UTC_MAX, UTC_STEP); break;
@@ -126,6 +132,7 @@ inline const char* itemName(SettingItem item) {
     case SettingItem::Brightness: return "BRIGHTNESS";
     case SettingItem::Compare: return "COMPARE WITH";
     case SettingItem::Big: return "BIG NUMBER";
+    case SettingItem::Colours: return "DELTA COLOURS";
     case SettingItem::Gps: return "GPS MODE";
     case SettingItem::Bluetooth: return "BLUETOOTH";
     case SettingItem::TimeZone: return "TIME ZONE";
@@ -141,6 +148,7 @@ inline const char* itemNote(SettingItem item) {
     case SettingItem::Upside: return "For mounting the unit upside down";
     case SettingItem::Compare: return "Saved. Only this session's best exists so far";
     case SettingItem::Big: return "The largest number on the timing screen";
+    case SettingItem::Colours: return "Ahead and behind. Blue and orange for colour blindness";
     case SettingItem::Gps: return "10 Hz uses all four satellite systems. Restart to apply";
     case SettingItem::Bluetooth: return "RaceBox output for phone apps";
     case SettingItem::TimeZone: return "For file names. The Wi-Fi page sets it from your phone";
@@ -160,6 +168,7 @@ inline void valueText(const SettingsData& d, SettingItem item, char* buf, size_t
     case SettingItem::Big:
       snprintf(buf, n, "%s", d.bigNumber == BigNumber::Delta ? "Delta" : d.bigNumber == BigNumber::Predicted ? "Predicted lap" : "Lap time");
       break;
+    case SettingItem::Colours: snprintf(buf, n, "%s", d.deltaColours == DeltaColours::BlueOrange ? "Blue / orange" : "Green / red"); break;
     case SettingItem::Gps: snprintf(buf, n, "%s", d.gpsMode == GpsMode::Fast20 ? "20 Hz, GPS + Galileo" : "10 Hz, all systems"); break;
     case SettingItem::Bluetooth: snprintf(buf, n, "%s", d.bluetooth ? "On" : "Off"); break;
     case SettingItem::TimeZone: {
@@ -180,9 +189,10 @@ inline size_t toJson(const SettingsData& d, char* buf, size_t n) {
   static const char* const BIG[] = {"delta", "predicted", "lap"};
   int len = snprintf(buf, n,
                      "{\"units\":\"%s\",\"upsideDown\":%s,\"brightness\":%d,\"compareTo\":\"%s\",\"bigNumber\":\"%s\","
-                     "\"gpsMode\":\"%s\",\"bluetooth\":%s,\"tzMin\":%d,\"recordRoadDrives\":%s,\"bluetoothBuilt\":%s}",
+                     "\"deltaColours\":\"%s\",\"gpsMode\":\"%s\",\"bluetooth\":%s,\"tzMin\":%d,\"recordRoadDrives\":%s,\"bluetoothBuilt\":%s}",
                      d.units == SpeedUnits::Mph ? "mph" : "kmh", upsideDown(d) ? "true" : "false", d.brightness,
-                     COMPARE[(int)d.compareTo % 3], BIG[(int)d.bigNumber % 3], d.gpsMode == GpsMode::Fast20 ? "20hz" : "10hz",
+                     COMPARE[(int)d.compareTo % 3], BIG[(int)d.bigNumber % 3],
+                     d.deltaColours == DeltaColours::BlueOrange ? "blueorange" : "greenred", d.gpsMode == GpsMode::Fast20 ? "20hz" : "10hz",
                      d.bluetooth ? "true" : "false", d.utcOffsetMin, d.recordRoadDrives ? "true" : "false",
                      BLE_ENABLED ? "true" : "false");
   return len > 0 && (size_t)len < n ? (size_t)len : 0;
@@ -231,6 +241,10 @@ inline bool setField(SettingsData& d, const char* key, const char* v) {
     if (!strcmp(v, "delta")) d.bigNumber = BigNumber::Delta;
     else if (!strcmp(v, "predicted")) d.bigNumber = BigNumber::Predicted;
     else if (!strcmp(v, "lap")) d.bigNumber = BigNumber::LapTime;
+    else return false;
+  } else if (!strcmp(key, "deltaColours")) {
+    if (!strcmp(v, "greenred")) d.deltaColours = DeltaColours::GreenRed;
+    else if (!strcmp(v, "blueorange")) d.deltaColours = DeltaColours::BlueOrange;
     else return false;
   } else if (!strcmp(key, "gpsMode")) {
     if (!strcmp(v, "20hz")) d.gpsMode = GpsMode::Fast20;

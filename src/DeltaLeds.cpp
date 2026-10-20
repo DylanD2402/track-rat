@@ -68,13 +68,13 @@ void DeltaLedPattern::render(uint32_t nowMs, Rgb* bar, Rgb& board) {
 
   int lit = litCount(delta);
   bool ahead = delta < 0;  // negative = faster than the best lap
-  Rgb c = ahead ? LED_AHEAD : LED_BEHIND;
+  Rgb c = ahead ? aheadC : behindC;
   if (lit == 0) {
     // On the pace: a dim green centre marker.
-    const Rgb& m = LED_ON_PACE;
+    const Rgb& m = onPaceC;
     if (n % 2) bar[half] = m;
     else bar[leftEnd] = bar[rightStart] = m;
-    board = LED_AHEAD;
+    board = aheadC;
     return;
   }
   bool toRight = ahead != reversed;

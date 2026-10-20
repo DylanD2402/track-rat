@@ -7,6 +7,7 @@
 #include "Config.h"
 #include "SessionLog.h"
 #include "Storage.h"
+#include "TimingScreen.h"
 #include "RaceBoxBle.h"
 #include "Settings.h"
 #include "UiTheme.h"
@@ -458,65 +459,146 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   endFrame();
 }
 
+// The delta-first timing screen (ROADMAP 2.4; the rules are in TimingScreen.h).
+// Top to bottom: the header; the big number on a full-width band, green
+// ahead and red behind (or blue and orange) with black digits, and the trend
+// bar beside it; two smaller numbers; the sector strip. At the line the whole
+// screen flashes the lap time and its gap.
+static const int BAND_Y = HEADER_H + 4, BAND_H = 104;
+static const int TREND_W = 14, TREND_X = W - 4 - TREND_W;
+static const int BAND_W = TREND_X - 6 - 4;
+static const int ROW_Y = BAND_Y + BAND_H + 4;  // the two smaller numbers
+static const int STRIP_Y = 190, STRIP_H = H - STRIP_Y - 4;
+
 void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                                  const RunningOverlay& ov, uint32_t holdMs) {
   beginFrame();
   char buf[40];
   header(runningTitle(track, timer), &gps);
+  const DeltaColours pal = Settings::get().deltaColours;
+
+  if (ov.showLap) {  // at the line: the whole screen flashes the lap time and the gap
+    const timing::LineFlash fl = timing::lineFlash(ov.lapIsPb, ov.lapIsDayBest);
+    const uint16_t bg = timing::flashColour(fl, pal), fg = timing::flashTextColour(fl);
+    gfx->fillRect(0, HEADER_H, W, H - HEADER_H, bg);
+    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb        ? "LAP %d  ·  NEW PB"
+                               : fl == timing::LineFlash::DayBest ? "LAP %d  ·  BEST OF THE DAY"
+                               : ov.lapIsBest                     ? "LAP %d  ·  SESSION BEST"
+                                                                  : "LAP %d",
+             ov.lapNumber);
+    text(buf, W / 2, HEADER_H + 14, Font::Button, fg, TC_DATUM);
+    String t = formatLapTime(ov.lapMs, 3);
+    Font f = textWidth(t, Font::NumXL) <= W - 12 ? Font::NumXL : Font::NumL;
+    text(t, W / 2, HEADER_H + 46, f, fg, TC_DATUM);
+    if (ov.lapDeltaMs != NO_DELTA) {
+      String g = formatDelta(ov.lapDeltaMs);
+      // On grey the gap takes the delta colour; on a coloured flash it's black like the rest
+      text(g, W / 2, HEADER_H + 136, Font::NumL, fl == timing::LineFlash::Lap ? timing::deltaColour(ov.lapDeltaMs, pal) : fg,
+           TC_DATUM);
+    }
+    runningOverlays(gps, holdMs, &ov);
+    endFrame();
+    return;
+  }
 
   // The Big number setting: what gets the largest digits. Delta and predicted
   // lap need a live delta against a best lap; until then it's the lap time.
   const int32_t liveDelta = gps.hasFix() ? timer.liveDeltaMs() : NO_DELTA;  // without a fix it's stale
   const bool haveDelta = deltaShown(liveDelta, timer.lapRunning()) && timer.referenceLapMs();
   const BigNumber big = settings::bigNumberShown(Settings::get().bigNumber, haveDelta);
+  const uint32_t lapMs = timer.currentLapMs(millis());
+  const uint32_t predictedMs = haveDelta ? settings::predictedLapMs(timer.referenceLapMs(), liveDelta) : 0;
 
-  // --- big time area (y 28..106) ---
-  const int top = HEADER_H + 4;
-  if (ov.showLap) {
-    // The lap just finished, on a full-width band: purple for a new PB, green for a new best
-    uint16_t bg = ov.lapIsPb ? C_PURPLE : ov.lapIsBest ? C_GREEN : C_RAISED, fg = ov.lapIsBest ? C_BG : C_TEXT;
-    gfx->fillRoundRect(4, top, W - 8, 74, CORNER, bg);
-    snprintf(buf, sizeof(buf), ov.lapIsPb ? "LAP %d  ·  NEW PB" : ov.lapIsBest ? "LAP %d  ·  BEST LAP" : "LAP %d",
-             ov.lapNumber);
-    text(buf, W / 2, top + 8, Font::Caption, fg, TC_DATUM);
-    text(formatLapTime(ov.lapMs, 3), W / 2, top + 26, Font::NumL, fg, TC_DATUM);
-  } else if (big == BigNumber::Delta) {
-    // The live diff on a full-width band, as the diff box below does it: green ahead, red behind
-    gfx->fillRoundRect(4, top, W - 8, 74, CORNER, liveDelta <= 0 ? C_GREEN : C_RED);
-    String t = deltaText(liveDelta);
-    Font f = textWidth(t, Font::NumXL) <= W - 24 ? Font::NumXL : Font::NumL;
-    text(t, W / 2, f == Font::NumXL ? top + 8 : top + 20, f, C_BG, TC_DATUM);
-  } else if (timer.lapRunning()) {
-    const bool predicted = big == BigNumber::Predicted;
-    String t = formatLapTime(predicted ? settings::predictedLapMs(timer.referenceLapMs(), liveDelta)
-                                       : timer.currentLapMs(millis()), 1);
-    Font f = textWidth(t, Font::NumXL) <= W - 10 ? Font::NumXL : Font::NumL;
-    text(t, W / 2, f == Font::NumXL ? top + (predicted ? 17 : 8) : top + 18, f, C_TEXT, TC_DATUM);  // predicted: room for its label
-    if (predicted) label("PREDICTED", 12, top);
+  // --- the band ---
+  const int bandMid = 4 + BAND_W / 2;
+  if (!timer.lapRunning()) {
+    gfx->fillRoundRect(4, BAND_Y, BAND_W, BAND_H, CORNER, C_SURFACE);
+    text("Out lap", bandMid, BAND_Y + 28, Font::Title, C_YELLOW, TC_DATUM);
+    text("Cross the start/finish line to begin timing", bandMid, BAND_Y + 64, Font::Caption, C_TEXT2, TC_DATUM);
   } else {
-    centered("Out lap", top + 16, Font::Title, C_YELLOW);
-    centered("Cross the start/finish line to begin timing", top + 48, Font::Body, C_TEXT2);
+    const uint16_t bg = haveDelta ? timing::deltaColour(liveDelta, pal) : C_SURFACE;
+    const uint16_t fg = haveDelta ? C_BG : C_TEXT;
+    gfx->fillRoundRect(4, BAND_Y, BAND_W, BAND_H, CORNER, bg);
+    String t = big == BigNumber::Delta       ? deltaText(liveDelta)
+               : big == BigNumber::Predicted ? formatLapTime(predictedMs, 1)
+                                             : formatLapTime(lapMs, 1);
+    const bool labelled = big != BigNumber::Delta && haveDelta;  // room above for a label and the sign
+    Font f = textWidth(t, Font::NumXL) <= BAND_W - 12 ? Font::NumXL : Font::NumL;
+    const int ty = f == Font::NumXL ? BAND_Y + (labelled ? 32 : 16) : BAND_Y + (labelled ? 40 : 30);
+    text(t, bandMid, ty, f, fg, TC_DATUM);
+    if (labelled) {  // the delta's sign stays big even when it isn't the big number: not colour alone
+      text(big == BigNumber::Predicted ? "PREDICTED" : "LAP TIME", 14, BAND_Y + 7, Font::Caption, fg);
+      text(deltaText(liveDelta), 4 + BAND_W - 10, BAND_Y + 4, Font::Title, fg, TR_DATUM);
+    }
   }
 
-  // --- last / best (y 110..150) ---
-  const int rowY = 112;
-  gfx->drawFastVLine(W / 2, rowY + 2, 34, C_LINE);
-  label("LAST", 12, rowY);
-  label("BEST", W / 2 + 12, rowY);
+  // --- the trend bar: up for gaining, down for losing ---
+  {
+    const int top = BAND_Y, h = STRIP_Y - 6 - BAND_Y, mid = top + h / 2;
+    gfx->fillRoundRect(TREND_X, top, TREND_W, h, 4, C_SURFACE);
+    const float fr = haveDelta ? timing::trendFraction(ov.trendMs) : 0;
+    const int len = (int)lroundf(fabsf(fr) * (h / 2 - 2));
+    if (len > 0) {
+      const uint16_t c = fr > 0 ? timing::colours(pal).ahead : timing::colours(pal).behind;
+      if (fr > 0) gfx->fillRect(TREND_X + 2, mid - len, TREND_W - 4, len, c);
+      else gfx->fillRect(TREND_X + 2, mid, TREND_W - 4, len, c);
+    }
+    gfx->drawFastHLine(TREND_X, mid, TREND_W, C_TEXT2);
+  }
+
+  // --- two smaller numbers: whichever of lap time, predicted and delta aren't on the band ---
+  auto cell = [&](int x, const char* name, const String& value, uint16_t colour) {
+    label(name, x, ROW_Y);
+    text(value, x, ROW_Y + 15, Font::Title, colour);
+  };
+  const int cell2 = 4 + BAND_W / 2 + 8;
+  gfx->drawFastVLine(cell2 - 8, ROW_Y + 2, 38, C_LINE);
   const Lap* last = timer.lastLap();
   const Lap* best = timer.bestLap();
-  text(last ? formatLapTime(last->timeMs) : String("–"), 12, rowY + 15, Font::Title, last ? C_TEXT : C_TEXT3);
-  text(best ? formatLapTime(best->timeMs) : String("–"), W / 2 + 12, rowY + 15, Font::Title,
-       best ? C_GREEN : C_TEXT3);
-
-  // --- live diff box (y 156..236); with the delta as the big number, the lap time goes here ---
-  if (big == BigNumber::Delta && !ov.showLap) {
-    const int x = 4, y = 156, w = W - 8, h = H - 156 - 4;
-    gfx->fillRoundRect(x, y, w, h, CORNER + 2, C_SURFACE);
-    label("LAP TIME", x + 12, y + 9);
-    text(formatLapTime(timer.currentLapMs(millis()), 1), W / 2, y + 23, Font::NumL, C_TEXT, TC_DATUM);
+  if (haveDelta) {
+    if (big == BigNumber::LapTime) cell(12, "PREDICTED", formatLapTime(predictedMs, 1), C_TEXT);
+    else cell(12, "LAP TIME", formatLapTime(lapMs, 1), C_TEXT);
+    if (big == BigNumber::Delta) cell(cell2, "PREDICTED", formatLapTime(predictedMs, 1), C_TEXT);
+    else cell(cell2, "BEST", best ? formatLapTime(best->timeMs) : String("–"), best ? C_TEXT : C_TEXT3);
   } else {
-    diffBox(liveDelta, timer.lapRunning(), ov);
+    cell(12, "LAST", last ? formatLapTime(last->timeMs) : String("–"), last ? C_TEXT : C_TEXT3);
+    cell(cell2, "BEST", best ? formatLapTime(best->timeMs) : String("–"), best ? C_TEXT : C_TEXT3);
+  }
+
+  // --- the sector strip: purple best ever, green best of the day, yellow slower ---
+  const size_t gates = timer.sectorGates().size();
+  if (gates > 0 && timer.lapRunning()) {
+    const std::vector<timing::Mark> marks =
+        timing::sectorStrip(timer.currentSectorMs(), ov.sectorBestEver, ov.sectorBestDay);
+    const int n = (int)marks.size(), gap = n > 12 ? 2 : 4;
+    const int bw = (W - 8 - gap * (n - 1)) / n;
+    const int x0 = 4 + (W - 8 - (bw * n + gap * (n - 1))) / 2;
+    for (int i = 0; i < n; i++) {
+      const int x = x0 + i * (bw + gap);
+      const uint16_t c = timing::markColour(marks[i], pal);
+      const bool done = marks[i] != timing::Mark::Pending;
+      gfx->fillRoundRect(x, STRIP_Y, bw, STRIP_H, 6, c);
+      if (!done) gfx->drawRoundRect(x, STRIP_Y, bw, STRIP_H, 6, C_LINE);
+      snprintf(buf, sizeof(buf), "%d", i + 1);
+      if (bw >= 16)
+        text(buf, x + bw / 2, STRIP_Y + STRIP_H / 2 + 1, Font::Caption,
+             done && marks[i] != timing::Mark::Missed ? C_BG : C_TEXT3, MC_DATUM);
+    }
+  } else if (haveDelta) {  // no corner sectors (yet): the last lap where the strip goes
+    label("LAST", 12, STRIP_Y + 2);
+    text(last ? formatLapTime(last->timeMs) : String("–"), 60, STRIP_Y + 2, Font::Body, last ? C_TEXT : C_TEXT3);
+  } else {
+    centered("Tap: map   ·   Hold: end session", STRIP_Y + 18, Font::Caption, C_TEXT3);
+  }
+
+  // For a few seconds after a split: its time and gap, over the strip
+  if (ov.splitIndex >= 0) {
+    gfx->fillRoundRect(4, STRIP_Y - 2, W - 8, STRIP_H + 2, CORNER, C_RAISED);
+    snprintf(buf, sizeof(buf), "S%d  %s", ov.splitIndex + 1, formatLapTime(ov.splitMs).c_str());
+    text(buf, 14, STRIP_Y + STRIP_H / 2, Font::Body, C_TEXT, ML_DATUM);
+    if (ov.deltaMs != NO_DELTA)
+      text(formatDelta(ov.deltaMs), W - 14, STRIP_Y + STRIP_H / 2, Font::Body, timing::deltaColour(ov.deltaMs, pal),
+           MR_DATUM);
   }
 
   runningOverlays(gps, holdMs, &ov);
@@ -558,7 +640,7 @@ static const layout::Lines NO_LINES;  // Free Roam has a path but no stored layo
 // marker at the origin and the car. Returns false if there was nothing to draw.
 bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vector<std::vector<geo::XYf>>& lines,
                                  MapPath path, bool showCar, geo::XY car, bool carFix, bool showStartFinish,
-                                 const std::vector<MapMark>* marks) {
+                                 const std::vector<MapMark>* marks, const geo::XY* ghost) {
   gfx->fillRoundRect(bx, by, bw, bh, CORNER, C_SURFACE);
   auto pt = [&](size_t i) { return (const float*)(path.base + i * path.stride); };
 
@@ -618,6 +700,14 @@ bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vect
     gfx->drawRect(x, y, 10, 10, C_TEXT);
   }
 
+  if (ghost) {  // a hollow ring, so the car (solid) reads as the one that's real
+    int gx = constrain(sx(ghost->x), bx + 8, bx + bw - 9);
+    int gy = constrain(sy(ghost->y), by + 8, by + bh - 9);
+    gfx->fillCircle(gx, gy, 8, C_BG);
+    gfx->fillCircle(gx, gy, 6, C_TEXT2);
+    gfx->fillCircle(gx, gy, 4, C_BG);
+  }
+
   if (showCar) {  // kept inside the box if it's off the drawn area
     int px = constrain(sx(car.x), bx + 8, bx + bw - 9);
     int py = constrain(sy(car.y), by + 8, by + bh - 9);
@@ -642,8 +732,20 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
   MapPath mp = {nullptr, 0, 0};
   if (path) mp = {(const uint8_t*)path->data(), path->size(), sizeof(LapTimer::TracePt)};
   geo::XY car = geo::toLocal(gps.lastFix().lat, gps.lastFix().lon, track.refLat(), track.refLon());
+  // The ghost: where the reference lap was this far into it. Its path is in metres from the
+  // timer's start/finish, the map from the track's reference point.
+  geo::XY ghost;
+  bool haveGhost = false;
+  float gx, gy;
+  if (timer.lapRunning() && gps.hasFix() &&
+      timing::ghostAt(timer.referencePath(), (int32_t)timer.currentLapMs(millis()), gx, gy)) {
+    double la, lo;
+    geo::fromLocal(gx, gy, timer.startFinish().lat, timer.startFinish().lon, la, lo);
+    ghost = geo::toLocal(la, lo, track.refLat(), track.refLon());
+    haveGhost = true;
+  }
   bool drawn = drawMapArea(MAP_X, MAP_Y, MAP_W, MAP_H, track.map, mp, gps.lastFix().rxMillis != 0, car,
-                           gps.hasFix(), track.hasStartFinish);
+                           gps.hasFix(), track.hasStartFinish, nullptr, haveGhost ? &ghost : nullptr);
   if (!drawn) {
     const int mx = MAP_X + MAP_W / 2, my = MAP_Y + MAP_H / 2;
     text("No map for this track", mx, my - 20, Font::Body, C_TEXT2, MC_DATUM);
@@ -653,11 +755,14 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
 
   // --- right-hand panel ---
   int y = MAP_Y;
+  const DeltaColours pal = Settings::get().deltaColours;
   if (ov.showLap) {
-    uint16_t bg = ov.lapIsPb ? C_PURPLE : ov.lapIsBest ? C_GREEN : C_RAISED, fg = ov.lapIsBest ? C_BG : C_TEXT;
+    const timing::LineFlash fl = timing::lineFlash(ov.lapIsPb, ov.lapIsDayBest);
+    uint16_t bg = timing::flashColour(fl, pal), fg = timing::flashTextColour(fl);
     gfx->fillRoundRect(PANEL_X - 4, y, PANEL_W + 4, 46, CORNER, bg);
     char buf[16];
-    snprintf(buf, sizeof(buf), ov.lapIsPb ? "LAP %d PB" : ov.lapIsBest ? "LAP %d BEST" : "LAP %d", ov.lapNumber);
+    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb ? "LAP %d PB" : ov.lapIsBest ? "LAP %d BEST" : "LAP %d",
+             ov.lapNumber);
     text(buf, PANEL_X + 2, y + 6, Font::Caption, fg);
     text(formatLapTime(ov.lapMs, 1), PANEL_X + 2, y + 20, Font::Title, fg);
   } else {
@@ -669,7 +774,7 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
   y += 52;
   int32_t d = gps.hasFix() ? timer.liveDeltaMs() : NO_DELTA;
   bool haveDelta = deltaShown(d, timer.lapRunning());
-  uint16_t bg = !haveDelta ? C_SURFACE : (d <= 0 ? C_GREEN : C_RED), fg = haveDelta ? C_BG : C_TEXT3;
+  uint16_t bg = !haveDelta ? C_SURFACE : timing::deltaColour(d, pal), fg = haveDelta ? C_BG : C_TEXT3;
   gfx->fillRoundRect(PANEL_X - 4, y, PANEL_W + 4, 48, CORNER, bg);
   text("LIVE DIFF", PANEL_X + 2, y + 6, Font::Caption, haveDelta ? C_BG : C_TEXT2);
   text(haveDelta ? deltaText(d) : String("–"), PANEL_X + 2, y + 21, Font::Title, fg);
@@ -680,7 +785,7 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
     char buf[24];
     snprintf(buf, sizeof(buf), "S%d %s", ov.splitIndex + 1, ov.deltaMs == NO_DELTA ? "" : formatDelta(ov.deltaMs).c_str());
     gfx->fillRoundRect(PANEL_X - 4, y, PANEL_W + 4, 26, CORNER, C_SURFACE);
-    text(buf, PANEL_X + 2, y + 13, Font::Body, ov.deltaMs == NO_DELTA ? C_TEXT : (ov.deltaMs <= 0 ? C_GREEN : C_RED),
+    text(buf, PANEL_X + 2, y + 13, Font::Body, ov.deltaMs == NO_DELTA ? C_TEXT : timing::deltaColour(ov.deltaMs, pal),
          ML_DATUM);
   } else {
     const Lap* best = timer.bestLap();
@@ -695,31 +800,6 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
 
   runningOverlays(gps, holdMs, &ov);
   endFrame();
-}
-
-// Live gap to the best lap: green = ahead, red = behind, black digits.
-void DisplayManager::diffBox(int32_t delta, bool lapRunning, const RunningOverlay& ov) {
-  const int x = 4, y = 156, w = W - 8, h = H - 156 - 4;
-  bool have = deltaShown(delta, lapRunning);
-  uint16_t bg = !have ? C_SURFACE : (delta <= 0 ? C_GREEN : C_RED);
-  uint16_t fg = have ? C_BG : C_TEXT2;
-  gfx->fillRoundRect(x, y, w, h, CORNER + 2, bg);
-  text("LIVE DIFF", x + 12, y + 9, Font::Caption, fg);
-
-  // Split result for a few seconds after each split
-  if (ov.splitIndex >= 0) {
-    char sbuf[40];
-    snprintf(sbuf, sizeof(sbuf), "S%d  %s  %s", ov.splitIndex + 1, formatLapTime(ov.splitMs).c_str(),
-             ov.deltaMs == NO_DELTA ? "" : formatDelta(ov.deltaMs).c_str());
-    text(sbuf, x + w - 12, y + 9, Font::Caption, have ? C_BG : C_TEXT, TR_DATUM);
-  }
-
-  if (!have) {
-    if (lapRunning) text("–", W / 2, y + h / 2 - 2, Font::Title, C_TEXT3, MC_DATUM);
-    text("Tap: map   ·   Hold: end session", W / 2, y + h - 8, Font::Caption, C_TEXT3, BC_DATUM);
-    return;
-  }
-  text(deltaText(delta), W / 2, y + 23, Font::NumL, C_BG, TC_DATUM);
 }
 
 // ---------------------------------------------------------------------------

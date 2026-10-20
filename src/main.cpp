@@ -42,6 +42,7 @@
 #include "Storage.h"
 #include "TrackDatabase.h"
 #include "TrackOrder.h"
+#include "TimingScreen.h"
 #include "UiTheme.h"
 #include "WifiPortal.h"
 
@@ -96,6 +97,7 @@ static bool logPending = false;   // open the log at the next fix
 static RunningOverlay overlay;
 static bool showMap = false;  // timing screen: false = big clock, true = track map
 static uint32_t lapOverlayUntil = 0;
+static timing::DeltaTrend deltaTrend;  // the timing screen's trend bar
 static uint32_t splitOverlayUntil = 0;
 
 // Layout check: after the first lap (or 2 km without crossing the line),
@@ -212,6 +214,8 @@ static bool loadBestLap(BestLapStore::Kind kind, bestlap::Record& r, bool withPa
   return false;
 }
 
+static void updateSectorBests();
+
 // At the start of timing: the PB and today's best, and the one the Compare
 // with setting picks becomes the live delta's reference until this session
 // has a faster lap.
@@ -223,6 +227,7 @@ static void loadBestLaps() {
   loadBestLap(BestLapStore::Kind::Ever, pbRecord, false);
   loadBestLap(BestLapStore::Kind::Day, dayRecord, false);
   BestLapStore::loadStats(t.id, trackStats);
+  updateSectorBests();
   const uint32_t today = bestlap::dateFromStamp(sessionStamp.c_str());
   const bestlap::Ref ref = bestlap::pickReference(Settings::get().compareTo, pbRecord, dayRecord, today);
   bestlap::Record r;
@@ -238,13 +243,15 @@ static void loadBestLaps() {
 }
 
 // A new best lap of the session: is it the PB, or today's best? Saves it
-// if so, and says whether it's a PB. Tagged laps never count.
-static bool saveBestLaps(const Lap& lap) {
+// if so, and says whether it's a PB (and in isDayBest, today's best). Tagged laps never count.
+static bool saveBestLaps(const Lap& lap, bool& isDayBest) {
+  isDayBest = false;
   const Track& t = selectedTrack();
   if (lap.tags || !t.hasStartFinish || settingLine) return false;
   const uint32_t today = bestlap::dateFromStamp(sessionStamp.c_str());
   const bool pb = bestlap::beats(lap.timeMs, lap.tags, pbRecord);
   const bool dayBest = bestlap::beatsDay(lap.timeMs, lap.tags, dayRecord, today);
+  isDayBest = dayBest;
   if (!pb && !dayBest) return false;
 
   bestlap::Record r;  // the lap timer's best path is this lap's
@@ -272,6 +279,7 @@ static void beginLapTiming(const Track& t) {
   sectorsTried = !t.sectors.empty();
   overlay = RunningOverlay();
   lapOverlayUntil = splitOverlayUntil = 0;
+  deltaTrend.clear();
 }
 
 // A new session's files: no name until it's needed (the first fix, or the
@@ -331,6 +339,24 @@ static std::vector<int32_t> allTimeSectorBests(const debrief::Result& r) {
   return debrief::mergeBest(same ? trackStats.sectorBestMs : std::vector<int32_t>(), r);
 }
 
+// The best in each sector today: the stored ones (if from today, through these gates) with this session's.
+static std::vector<int32_t> todaySectorBests(const debrief::Result& r) {
+  const bool same = debrief::sameGates(trackStats.sectorGates, lapTimer.sectorGates()) &&
+                    trackStats.dayDate == bestlap::dateFromStamp(sessionStamp.c_str());
+  return debrief::mergeBest(same ? trackStats.daySectorBestMs : std::vector<int32_t>(), r);
+}
+
+// The timing screen's sector strip compares with these (TimingScreen.h). Worked out
+// when timing starts and after each lap, not every frame.
+static void updateSectorBests() {
+  overlay.sectorBestEver.clear();
+  overlay.sectorBestDay.clear();
+  if (lapTimer.sectorGates().empty()) return;
+  const debrief::Result r = analyseSession();
+  overlay.sectorBestEver = allTimeSectorBests(r);
+  overlay.sectorBestDay = todaySectorBests(r);
+}
+
 // When the car parks: the theoretical best, the three sectors that cost the
 // most, and a hint for each from the two laps' speed through it.
 static void buildDebrief() {
@@ -377,6 +403,8 @@ static void saveTrackStats() {
   debrief::Result r = analyseSession();
   if (r.valid) {
     s.sectorBestMs = allTimeSectorBests(r);
+    s.daySectorBestMs = todaySectorBests(r);
+    s.dayDate = bestlap::dateFromStamp(sessionStamp.c_str());
     s.sectorGates.clear();
     for (const TrackPoint& g : lapTimer.sectorGates()) s.sectorGates.push_back({g.lat, g.lon});
   }
@@ -683,7 +711,10 @@ static void onLapEvent(const LapEvent& ev) {
       overlay.lapMs = lap->timeMs;
       overlay.lapIsBest = ev.isBest;
       overlay.lapIsPb = false;
+      overlay.lapIsDayBest = false;
+      overlay.lapDeltaMs = ev.deltaMs;
       lapOverlayUntil = now + 4000;
+      deltaTrend.clear();  // the delta starts again at the line
 
       // Save after every lap so a power cut doesn't lose the session.
       if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
@@ -697,10 +728,11 @@ static void onLapEvent(const LapEvent& ev) {
       }
       if (ev.isBest && !switched) {
         saveMapFromLap();
-        overlay.lapIsPb = saveBestLaps(*lap);
+        overlay.lapIsPb = saveBestLaps(*lap, overlay.lapIsDayBest);
         makeSectors(*lap);
         LedBar::onBestLap(overlay.lapIsPb);
       }
+      updateSectorBests();  // with this lap's sectors in
       break;
     }
 
@@ -834,6 +866,7 @@ static void applySettings() {
   RaceBoxBle::setEnabled(s.bluetooth);
 #endif
   gps.setUtcOffsetMinutes(s.utcOffsetMin);
+  LedBar::setBlueOrange(s.deltaColours == DeltaColours::BlueOrange);
   lastRender = 0;
 }
 
@@ -916,7 +949,8 @@ static void handleInput(InputEvent ev) {
         else pitView = false;
         lastRender = 0;
       }
-      else {                                    // any tap or short BOOT press: switch view
+      else if (ev == InputEvent::BootShort ||  // a press, or a tap that isn't a bump while moving: switch view
+               timing::tapSwitchesView(gps.hasFix(), gps.lastFix().speedKmh, input.lastTapMs())) {
         showMap = !showMap;
         lastRender = 0;
       }
@@ -1311,6 +1345,9 @@ void loop() {
       if (!settingLine) {
         LapEvents evs = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis, fix.hAccM);
         for (const LapEvent& ev : evs) onLapEvent(ev);
+        const int32_t d = lapTimer.liveDeltaMs();
+        deltaTrend.add(fix.gpsTimeMs, d, lapTimer.lapRunning() && d != NO_DELTA);
+        overlay.trendMs = deltaTrend.change();
         onPitEvent(pitWatch.onFix(fix.speedKmh, fix.gpsTimeMs));
       }
       if (state == AppState::Running) trackDrivenPath(fix);  // (the session may have just ended)

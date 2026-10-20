@@ -39,7 +39,7 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 10, SECTIONS = 5;
+  static constexpr int ROWS = 11, SECTIONS = 5;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
@@ -77,7 +77,8 @@ struct SettingsScreenState {
     static const Row rows[ROWS] = {
         {SettingItem::Units, RowKind::Choice},      {SettingItem::Upside, RowKind::Toggle},
         {SettingItem::Brightness, RowKind::Level},  {SettingItem::Big, RowKind::Choice},
-        {SettingItem::Compare, RowKind::Choice},    {SettingItem::Gps, RowKind::Choice},
+        {SettingItem::Compare, RowKind::Choice},    {SettingItem::Colours, RowKind::Choice},
+        {SettingItem::Gps, RowKind::Choice},
         {SettingItem::Bluetooth, RowKind::Toggle},  {SettingItem::RoadDrives, RowKind::Toggle},
         {SettingItem::TimeZone, RowKind::Level},    {SettingItem::Count, RowKind::Back},
     };
@@ -86,10 +87,10 @@ struct SettingsScreenState {
   static const Section& section(int i) {
     static const Section sections[SECTIONS] = {
         {"DISPLAY", 0, 3, nullptr},
-        {"TIMING", 3, 2, nullptr},
-        {"GPS & BLUETOOTH", 5, 2, "GPS mode is used from the next restart"},
-        {"RECORDING", 7, 2, nullptr},
-        {nullptr, 9, 1, nullptr},
+        {"TIMING", 3, 3, nullptr},
+        {"GPS & BLUETOOTH", 6, 2, "GPS mode is used from the next restart"},
+        {"RECORDING", 8, 2, nullptr},
+        {nullptr, 10, 1, nullptr},
     };
     return sections[i];
   }
@@ -111,6 +112,7 @@ struct SettingsScreenState {
       case SettingItem::Brightness: return "Brightness";
       case SettingItem::Compare: return "Compare with";
       case SettingItem::Big: return "Big number";
+      case SettingItem::Colours: return "Delta colours";
       case SettingItem::Gps: return "GPS mode";
       case SettingItem::Bluetooth: return "Bluetooth";
       case SettingItem::TimeZone: return "Time zone";
@@ -173,6 +175,7 @@ struct SettingsScreenState {
       case SettingItem::Units: return 2;
       case SettingItem::Compare: return 3;
       case SettingItem::Big: return 3;
+      case SettingItem::Colours: return 2;
       case SettingItem::Gps: return 2;
       default: return 0;
     }
@@ -182,6 +185,7 @@ struct SettingsScreenState {
       case SettingItem::Units: return (int)d.units;
       case SettingItem::Compare: return (int)d.compareTo;
       case SettingItem::Big: return (int)d.bigNumber;
+      case SettingItem::Colours: return (int)d.deltaColours;
       case SettingItem::Gps: return (int)d.gpsMode;
       default: return 0;
     }
@@ -192,6 +196,7 @@ struct SettingsScreenState {
       case SettingItem::Units: d.units = (SpeedUnits)i; break;
       case SettingItem::Compare: d.compareTo = (CompareTo)i; break;
       case SettingItem::Big: d.bigNumber = (BigNumber)i; break;
+      case SettingItem::Colours: d.deltaColours = (DeltaColours)i; break;
       case SettingItem::Gps: d.gpsMode = (GpsMode)i; break;
       default: break;
     }

@@ -93,6 +93,8 @@ bool loadStats(const String& trackId, Stats& out) {
   if (err) return false;
   for (JsonArray g : doc["sectorGates"].as<JsonArray>()) out.sectorGates.push_back({g[0] | 0.0, g[1] | 0.0});
   for (JsonVariant v : doc["sectorBestMs"].as<JsonArray>()) out.sectorBestMs.push_back(v | -1);
+  out.dayDate = doc["day"]["date"] | 0;
+  for (JsonVariant v : doc["day"]["sectorBestMs"].as<JsonArray>()) out.daySectorBestMs.push_back(v | -1);
   out.lastSession = doc["lastSession"]["session"] | 0;
   out.lastDate = doc["lastSession"]["date"] | 0;
   out.lastBestMs = doc["lastSession"]["bestMs"] | 0;
@@ -105,7 +107,7 @@ bool saveStats(const String& trackId, const Stats& s) {
   const String dir = String(DIR) + "/" + trackId;
   if (!fs->exists(DIR)) fs->mkdir(DIR);
   if (!fs->exists(dir)) fs->mkdir(dir);
-  DynamicJsonDocument doc(1024 + s.sectorGates.size() * 96 + s.sectorBestMs.size() * 16);
+  DynamicJsonDocument doc(1024 + s.sectorGates.size() * 96 + (s.sectorBestMs.size() + s.daySectorBestMs.size()) * 16);
   JsonArray gates = doc.createNestedArray("sectorGates");
   for (const geo::XY& g : s.sectorGates) {
     JsonArray p = gates.createNestedArray();
@@ -114,6 +116,11 @@ bool saveStats(const String& trackId, const Stats& s) {
   }
   JsonArray best = doc.createNestedArray("sectorBestMs");
   for (int32_t v : s.sectorBestMs) best.add(v);
+  if (s.dayDate) {
+    doc["day"]["date"] = s.dayDate;
+    JsonArray day = doc["day"].createNestedArray("sectorBestMs");
+    for (int32_t v : s.daySectorBestMs) day.add(v);
+  }
   if (s.lastSession > 0 || s.lastBestMs > 0) {
     doc["lastSession"]["session"] = s.lastSession;
     doc["lastSession"]["date"] = s.lastDate;

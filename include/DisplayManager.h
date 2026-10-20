@@ -30,10 +30,16 @@ struct RunningOverlay {
   uint32_t lapMs = 0;
   bool lapIsBest = false;
   bool lapIsPb = false;        // a new personal best: purple
-  int32_t deltaMs = NO_DELTA;  // lap delta vs best, or split delta
+  bool lapIsDayBest = false;   // the best of the day: green (blue)
+  int32_t lapDeltaMs = NO_DELTA;  // the lap's gap to the reference it was timed against
+  int32_t deltaMs = NO_DELTA;  // split delta
   int splitIndex = -1;         // >= 0: delta box shows a split
   uint32_t splitMs = 0;
   String notice;  // e.g. "Layout: Short" after switching layout
+  // Kept while timing (TimingScreen.h)
+  int32_t trendMs = INT32_MIN;          // the delta's change over the last few seconds (timing::NO_TREND: none)
+  std::vector<int32_t> sectorBestEver;  // per corner sector, -1: none (the sector strip)
+  std::vector<int32_t> sectorBestDay;
 };
 
 // What the pit debrief shows (worked out by main.cpp when the car parks; see Debrief.h).
@@ -149,7 +155,6 @@ private:
   void endFrame();
   void header(const String& title, const GPSHandler* gps);
   void gpsBadge(const GPSHandler& gps);
-  void diffBox(int32_t delta, bool lapRunning, const RunningOverlay& ov);
   struct MapPath {
     const uint8_t* base;  // points start with float x, y (metres)
     size_t n;
@@ -161,9 +166,10 @@ private:
     uint16_t color;
     int number;
   };
+  // ghost: where the reference lap was at this moment (a hollow ring), if not null
   bool drawMapArea(int x, int y, int w, int h, const std::vector<std::vector<geo::XYf>>& lines, MapPath path,
                    bool showCar, geo::XY car, bool carFix, bool showStartFinish,
-                   const std::vector<MapMark>* marks = nullptr);
+                   const std::vector<MapMark>* marks = nullptr, const geo::XY* ghost = nullptr);
   void runningOverlays(const GPSHandler& gps, uint32_t holdMs, const RunningOverlay* ov = nullptr);
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);

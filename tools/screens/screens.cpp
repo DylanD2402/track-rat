@@ -20,6 +20,7 @@
 #include "Settings.h"
 #include "Storage.h"
 #include "Sectors.h"
+#include "TimingScreen.h"
 #include "UiTheme.h"
 #include "track_data.h"  // TRACK_NAME, TRACK_LOCATION, TRACK_LENGTH_M, SF_LAT, SF_LON, TRACK_PTS (lat, lon pairs)
 
@@ -198,6 +199,7 @@ int main(int argc, char** argv) {
   LapTimer timer;
   timer.begin(track.startFinish, track.splits, MIN_LAP_TIME_MS);
   RunningOverlay ov;
+  timing::DeltaTrend trend;
   const double paces[] = {0.93, 1.0, 1.03, 0.99, 1.01};
   double s = -150;  // start on the out lap, before the line
   uint32_t gpsMs = 36000000;
@@ -213,9 +215,22 @@ int main(int argc, char** argv) {
       gpsMs += 50;
       mockMillis += 50;
       loop.at(s, la, lo);
-      timer.onFix(la, lo, kmh, gpsMs, mockMillis);
+      LapEvents evs = timer.onFix(la, lo, kmh, gpsMs, mockMillis);
+      if (evs.find(LapEventType::LapCompleted)) trend.clear();
+      trend.add(gpsMs, timer.liveDeltaMs(), timer.lapRunning() && timer.liveDeltaMs() != NO_DELTA);
     }
     setGps(gps, true, la, lo, kmh, gpsMs);
+  };
+  // What main.cpp keeps in the overlay while timing: the trend, and the sector strip's bests
+  // (this session's, with a made-up best ever a little faster in some sectors)
+  auto timingExtras = [&](RunningOverlay& o) {
+    o.trendMs = trend.change();
+    o.sectorBestDay.clear();
+    for (size_t i = 0; i <= timer.sectorGates().size() && !timer.sectorGates().empty(); i++)
+      o.sectorBestDay.push_back(timer.sectorBestMs(i));
+    o.sectorBestEver = o.sectorBestDay;
+    for (size_t i = 0; i < o.sectorBestEver.size(); i++)
+      if (i % 3 == 1 && o.sectorBestEver[i] > 0) o.sectorBestEver[i] -= 400;
   };
 
   drive(-60);
@@ -233,9 +248,14 @@ int main(int argc, char** argv) {
     }
     timer.setSectors(gates);
   }
-  drive(loop.length * 2 + 900);  // into lap 3, on a faster pace than lap 2
+  drive(loop.length * 2 + 1900);  // into lap 3, on a faster pace than lap 2
+  timingExtras(ov);
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "09_running_ahead");
+  mockSettings.deltaColours = DeltaColours::BlueOrange;  // the Delta colours setting
+  d.drawRunning(track, timer, gps, ov, 0);
+  save(d, "09d_running_blue_orange");
+  mockSettings.deltaColours = DeltaColours::GreenRed;
   mockSettings.bigNumber = BigNumber::Delta;  // the Big number setting
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "09b_running_big_delta");
@@ -246,6 +266,7 @@ int main(int argc, char** argv) {
   d.drawRunningMap(track, timer, gps, ov, 0);
   save(d, "10_map");
   drive(loop.length * 4 + 1200);  // lap 5, slower
+  timingExtras(ov);
   ov.splitIndex = 0;
   ov.splitMs = 41230;
   ov.deltaMs = 380;
@@ -255,18 +276,36 @@ int main(int argc, char** argv) {
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "11b_running_big_delta_behind");
   mockSettings.bigNumber = BigNumber::LapTime;
+  ov.splitIndex = -1;
+  d.drawRunning(track, timer, gps, ov, 0);
+  save(d, "11c_running_behind_strip");
   ov = RunningOverlay();
   const Lap* best = timer.bestLap();
   ov.showLap = true;
   ov.lapNumber = best->number;
   ov.lapMs = best->timeMs;
+  ov.lapDeltaMs = -1234;
   ov.lapIsBest = true;
   d.drawRunning(track, timer, gps, ov, 0);
-  save(d, "12_lap_flash_best");
+  save(d, "12_lap_flash_session_best");
+  ov.lapIsDayBest = true;
+  d.drawRunning(track, timer, gps, ov, 0);
+  save(d, "12a_lap_flash_day_best");
   ov.lapIsPb = true;
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "12b_lap_flash_pb");
-  ov.lapIsPb = false;
+  ov = RunningOverlay();
+  ov.showLap = true;
+  ov.lapNumber = 6;
+  ov.lapMs = best->timeMs + 830;
+  ov.lapDeltaMs = 830;
+  d.drawRunning(track, timer, gps, ov, 0);
+  save(d, "12c_lap_flash_slower");
+  ov = RunningOverlay();
+  ov.showLap = true;
+  ov.lapNumber = best->number;
+  ov.lapMs = best->timeMs;
+  ov.lapIsBest = ov.lapIsDayBest = true;
   d.drawRunningMap(track, timer, gps, ov, 0);
   save(d, "13_map_lap_flash");
   ov = RunningOverlay();
