@@ -19,6 +19,7 @@
 #include "RaceBoxBle.h"
 #include "EngineData.h"
 #include "ObdBle.h"
+#include "CameraBle.h"
 #include "Settings.h"
 #include "Storage.h"
 #include "Sectors.h"
@@ -39,6 +40,9 @@ static ObdBle::Status obdStatus;
 static obd::Values obdValues;
 bool ObdBle::connected() { return obdStatus.connected; }
 ObdBle::Status ObdBle::status() { return obdStatus; }
+static CameraBle::Status camStatus;
+bool CameraBle::connected() { return camStatus.phase == dji::Remote::Phase::Connected; }
+CameraBle::Status CameraBle::status() { return camStatus; }
 bool EngineData::coolantHot(uint32_t) { return obdValues.coolantC >= COOLANT_WARN_C; }
 void Power::backlight(bool) {}
 static SettingsData mockSettings = [] {
@@ -531,6 +535,29 @@ int main(int argc, char** argv) {
   eng.tap(20, DeviceScreenState::BTN_Y + 5, 0);
   d.drawEngineData(eng, obdStatus, found, 3, false, false);
   save(d, "36c_engine_data_find");
+
+  // Settings > Camera (6.2): pairing (the code to match), then connected and recording
+  DeviceScreenState cam;
+  cam.begin(true);
+  camStatus.configured = camStatus.linked = true;
+  snprintf(camStatus.name, sizeof(camStatus.name), "OsmoAction4-1A2B");
+  snprintf(camStatus.address, sizeof(camStatus.address), "60:60:1f:aa:bb:cc");
+  camStatus.phase = dji::Remote::Phase::Waiting;
+  camStatus.pairing = true;
+  camStatus.code = 4821;
+  d.drawCamera(cam, camStatus, true, nullptr, 0, false, true);
+  save(d, "37_camera_pairing");
+  camStatus.phase = dji::Remote::Phase::Connected;
+  camStatus.cam.known = true;
+  camStatus.cam.status = 0x03;
+  camStatus.cam.battery = 78;
+  camStatus.gpsSent = 5123;
+  d.drawCamera(cam, camStatus, true, nullptr, 0, false, true);
+  save(d, "37b_camera_recording");
+  CameraBle::Found cams[1] = {{"OsmoAction4-1A2B", "60:60:1f:aa:bb:cc", 0, -61}};
+  cam.tap(20, DeviceScreenState::BTN_Y + 5, 0);
+  d.drawCamera(cam, camStatus, true, cams, 1, false, true);
+  save(d, "37c_camera_pair_list");
   d.drawSetup(0, 0, true);
   save(d, "40_setup_which_way_up");
   d.drawSetup(0, 1, false);

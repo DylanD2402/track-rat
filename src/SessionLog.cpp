@@ -6,6 +6,7 @@
 #include <ArduinoJson.h>
 #include <SD_MMC.h>
 #include <atomic>
+#include <vector>
 #include <memory>
 #include <mutex>
 #include "Config.h"
@@ -80,6 +81,42 @@ String newSessionBase(const String& stamp, const String& name) {
   return base;
 }
 
+// When a paired DJI camera started recording during the live session (6.2): GPS
+// times, for 6.4's overlays. Rewrites (recovery, re-timing) carry them over from
+// the file they replace.
+static std::mutex cameraLock;
+static String cameraPath;
+static std::vector<String> cameraStarts;
+
+void addCameraStart(const String& path, const String& utc) {
+  std::lock_guard<std::mutex> g(cameraLock);
+  if (path != cameraPath) cameraStarts.clear(), cameraPath = path;
+  cameraStarts.push_back(utc);
+}
+
+static void putCameraStarts(fs::FS& fs, const String& path, JsonDocument& doc) {
+  std::vector<String> starts;
+  {
+    std::lock_guard<std::mutex> g(cameraLock);
+    if (path == cameraPath) starts = cameraStarts;
+  }
+  if (starts.empty() && fs.exists(path)) {  // a rewrite: keep what the old file had
+    File f = fs.open(path, "r");
+    if (f) {
+      StaticJsonDocument<64> filter;
+      filter["cameraStartsUtc"] = true;
+      DynamicJsonDocument old(1024);
+      if (!deserializeJson(old, f, DeserializationOption::Filter(filter)))
+        for (JsonVariant v : old["cameraStartsUtc"].as<JsonArray>()) starts.push_back(v.as<const char*>());
+      f.close();
+    }
+  }
+  if (starts.empty()) return;
+  doc["cameraStartUtc"] = starts.front();  // the first video of the session
+  JsonArray a = doc.createNestedArray("cameraStartsUtc");  // one per video (each time out of the pits)
+  for (const String& s : starts) a.add(s);
+}
+
 bool save(const String& path, const Track& track, const String& stamp, int session, const LapTimer& timer,
           const String& logName, bool finished, bool recovered) {
   fs::FS* fs = Storage::sessionFS();
@@ -133,6 +170,7 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
       for (int32_t v : l.sectorMs) s.add(v);
     }
   }
+  putCameraStarts(*fs, path, doc);
   return writeJsonFile(*fs, path, doc, true) > 0;
 }
 

@@ -29,6 +29,7 @@
 #include "FreeRoam.h"
 #include "GPSHandler.h"
 #include "GeoMath.h"
+#include "CameraBle.h"
 #include "CanObd.h"
 #include "EngineData.h"
 #include "ObdBle.h"
@@ -57,10 +58,10 @@
 #include "WifiPortal.h"
 
 enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
-                      Setup, SettingsScreen, NewTrack, EngineScreen };
+                      Setup, SettingsScreen, NewTrack, EngineScreen, CameraScreen };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
-                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK",         "ENGINE_DATA"};
+                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK",         "ENGINE_DATA", "CAMERA"};
 static int newTrackHighlight = 0;  // the NEW TRACK screen: 0 = Circuit, 1 = Course (BOOT button)
 
 static DisplayManager display;
@@ -100,6 +101,12 @@ static int pitPage = 0;           // the debrief's page
 static DebriefView debriefView;   // worked out when the car parks
 static bool nextSessionArmed = false;  // a session ended by itself: the summary starts the next one on driving off
 static String sessionPath;        // its summary (.json)
+// A paired DJI camera (CameraBle.h): it records while the session is moving, and
+// when it started goes into the summary (6.4 lines the log up with the video)
+static dji::FollowSessions cameraFollow;
+static std::vector<String> cameraStartsPending;  // until the session has a summary file
+static GpsFix cameraFix;                         // the latest fix, to turn millis() into GPS time
+static bool haveCameraFix = false;
 static String sessionStamp;
 // Lap-timing and Free Roam sessions: every fix goes to a .vbo log (SD card)
 static String sessionBase;        // "/sessions/<stamp>_<track>", shared by the .json and .vbo
@@ -155,6 +162,9 @@ static SetupState setupUi;
 static DeviceScreenState engineUi;  // Settings > Engine data (DeviceScreen.h)
 static ObdBle::Found engineFound[ObdBle::MAX_FOUND];  // the Find adapter list as last shown
 static int engineFoundCount = 0;
+static DeviceScreenState cameraUi;  // Settings > Camera
+static CameraBle::Found cameraFound[CameraBle::MAX_FOUND];
+static int cameraFoundCount = 0;
 static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
 
 static uint32_t lastRender = 0;
@@ -476,6 +486,7 @@ static void enterState(AppState next) {
     sessionStamp = gps.timestampString();
     sessionNumber = Settings::nextSessionNumber(t.id.c_str(), sessionStamp.c_str());
     sessionPath = "";
+    cameraStartsPending.clear();
     startSessionFiles();
     loadBestLaps();
     pitWatch.reset();
@@ -1203,6 +1214,9 @@ static void handleInput(InputEvent ev) {
       } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Engine) {
         engineUi.begin(input.touchAvailable());
         enterState(AppState::EngineScreen);
+      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Camera) {
+        cameraUi.begin(input.touchAvailable());
+        enterState(AppState::CameraScreen);
       }
       lastRender = 0;
       break;
@@ -1221,6 +1235,24 @@ static void handleInput(InputEvent ev) {
         ObdBle::choose(engineFound[engineUi.chosen]);
       } else if (a == DeviceScreenState::Action::Forget) {
         ObdBle::forget();
+      }
+      lastRender = 0;
+      break;
+    }
+
+    case AppState::CameraScreen: {  // the same screen, for the DJI camera
+      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
+      const DeviceScreenState::Action a = tapped ? cameraUi.tap(input.lastTapX(), input.lastTapY(), cameraFoundCount)
+                                                 : cameraUi.handle(toKey(ev), cameraFoundCount);
+      if (a == DeviceScreenState::Action::Back) {
+        enterState(AppState::SettingsScreen);
+      } else if (a == DeviceScreenState::Action::Scan) {
+        cameraFoundCount = 0;
+        CameraBle::startScan();
+      } else if (a == DeviceScreenState::Action::Choose && cameraUi.chosen >= 0 && cameraUi.chosen < cameraFoundCount) {
+        CameraBle::choose(cameraFound[cameraUi.chosen]);
+      } else if (a == DeviceScreenState::Action::Forget) {
+        CameraBle::forget();
       }
       lastRender = 0;
       break;
@@ -1336,6 +1368,11 @@ static void render() {
     case AppState::EngineScreen:
       if (engineUi.page == DeviceScreenState::Page::Find) engineFoundCount = ObdBle::found(engineFound, ObdBle::MAX_FOUND);
       display.drawEngineData(engineUi, ObdBle::status(), engineFound, engineFoundCount, ObdBle::scanning(), input.touchAvailable());
+      break;
+    case AppState::CameraScreen:
+      if (cameraUi.page == DeviceScreenState::Page::Find) cameraFoundCount = CameraBle::found(cameraFound, CameraBle::MAX_FOUND);
+      display.drawCamera(cameraUi, CameraBle::status(), Settings::get().cameraWithSessions, cameraFound, cameraFoundCount,
+                         CameraBle::scanning(), input.touchAvailable());
       break;
     case AppState::Setup:
       display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());
@@ -1531,6 +1568,7 @@ void setup() {
   CanObd::begin(gps.rxPinUsed(), gps.txPinUsed());  // (off unless CAN_ENABLED, and if the GPS is on its pins)
   applySettings();  // touch the right way up, Bluetooth if it's on, the time zone for file names
   ObdBle::begin();  // (nothing until an adapter has been chosen in Settings > Engine data)
+  CameraBle::begin();  // (nothing until a camera has been paired in Settings > Camera)
 
   addBenchTrack();
   SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut, in the background
@@ -1558,12 +1596,36 @@ void setup() {
   sleepTimer.begin(millis());
 }
 
+// "2026-10-20T14:03:12.350Z": the GPS time at millis() `at`, from the latest fix
+static String gpsTimeAt(const GpsFix& f, uint32_t at) {
+  int64_t ms = (int64_t)f.gpsTimeMs + (int32_t)(at - f.rxMillis);
+  ms = ((ms % 86400000) + 86400000) % 86400000;  // (a start a moment before midnight keeps the fix's date)
+  char b[32];
+  snprintf(b, sizeof(b), "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ", f.year, f.month, f.day, (unsigned)(ms / 3600000), (unsigned)(ms / 60000 % 60),
+           (unsigned)(ms / 1000 % 60), (unsigned)(ms % 1000));
+  return String(b);
+}
+
+// The camera started recording: note the GPS time with the session
+static void noteCameraStart() {
+  uint32_t at;
+  if (CameraBle::takeStarted(at) && haveCameraFix && state == AppState::Running) {
+    cameraStartsPending.push_back(gpsTimeAt(cameraFix, at));
+    DEBUG_PRINTF("Camera: recording from %s\n", cameraStartsPending.back().c_str());
+  }
+  if (!cameraStartsPending.empty() && sessionPath.length()) {
+    for (const String& s : cameraStartsPending) SessionLog::addCameraStart(sessionPath, s);
+    cameraStartsPending.clear();
+  }
+}
+
 void loop() {
   uint32_t now = millis();
   gps.update();
   Imu::poll();
   CanObd::poll();
   ObdBle::poll();
+  CameraBle::poll();
 
   GpsFix fix;
   while (gps.takeFix(fix)) {
@@ -1571,6 +1633,10 @@ void loop() {
 #if BLE_ENABLED
     RaceBoxBle::sendFix(fix, gps);
 #endif
+    CameraBle::onFix(fix, gps.hasFix());
+    CameraBle::setRecording(cameraFollow.update(state == AppState::Running, pitWatch.parked(), fix.speedKmh));
+    cameraFix = fix;
+    haveCameraFix = fix.year != 0;
     if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) noteActivity(now);  // moving: never sleep
     if (state == AppState::Running) {
       if (!replaying) onTrackFix(fix);
@@ -1607,6 +1673,7 @@ void loop() {
 #if TRACK_LEARNING_ENABLED
   if (replaying && state == AppState::Running) replayFixes();
 #endif
+  noteCameraStart();
 
   LogWriter::poll();
   InputEvent ev = input.poll();

@@ -132,6 +132,9 @@ void DisplayManager::settingsList(const SettingsData& s, const SettingsScreenSta
         if (rw.item == SettingItem::Engine) {  // the adapter, not a setting
           const ObdBle::Status st = ObdBle::status();
           snprintf(buf, sizeof(buf), "%s", st.connected ? "Connected" : st.configured ? st.name : "None");
+        } else if (rw.item == SettingItem::Camera) {
+          const CameraBle::Status st = CameraBle::status();
+          snprintf(buf, sizeof(buf), "%s", st.phase == dji::Remote::Phase::Connected ? "Connected" : st.configured ? st.name : "None");
         } else {
           settings::valueText(s, rw.item, buf, sizeof(buf));
         }
@@ -294,6 +297,73 @@ void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::S
     }
     header("‹  Back", nullptr);
     text("Find adapter", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+    if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
+  }
+  endFrame();
+}
+
+// Settings > Camera (6.2): the same two pages, for the DJI camera
+void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::Status& st, bool withSessions, const CameraBle::Found* found, int n,
+                                bool scanning, bool touchOk) {
+  beginFrame();
+  char buf[64];
+  if (ui.page == ES::Page::Status) {
+    const int x = 14;
+    int y = 44;
+    auto line = [&](const char* s, uint16_t c, Font f = Font::Body) {
+      text(fit(s, f, W - 2 * x), x, y, f, c, ML_DATUM);
+      y += f == Font::Body ? 22 : 18;
+    };
+    using P = dji::Remote::Phase;
+    if (!st.configured) {
+      line("No camera paired", C_TEXT);
+      wrappedCaption("For an Osmo Action 4, 5 Pro, 6 or Osmo 360. Switch the camera on, then Pair. Track Rat becomes its GPS "
+                     "remote: the camera's own remote slot, so DJI Mimo can't be its remote too.",
+                     x, y, W - 2 * x, C_TEXT2, false);
+    } else {
+      snprintf(buf, sizeof(buf), "%s  %s", st.name, st.address);
+      line(buf, C_TEXT);
+      if (st.linked && st.pairing && (st.phase == P::Asking || st.phase == P::Waiting)) {
+        snprintf(buf, sizeof(buf), "Code %04u: accept it on the camera", st.code);
+        line(buf, C_YELLOW);
+      } else if (st.phase == P::Connected) {
+        line("Connected: Track Rat is its GPS", C_GREEN);
+        if (st.cam.known) {
+          snprintf(buf, sizeof(buf), "%s   battery %u%%%s", st.cam.recording() ? "Recording" : "Not recording", st.cam.battery,
+                   st.cam.tempOver >= 2 ? "   TOO HOT" : st.cam.tempOver == 1 ? "   warm" : "");
+          line(buf, st.cam.tempOver >= 2 ? C_ORANGE : C_TEXT2, Font::Caption);
+        }
+        snprintf(buf, sizeof(buf), "%lu GPS fixes sent", (unsigned long)st.gpsSent);
+        line(buf, C_TEXT2, Font::Caption);
+      } else {
+        line(st.linked ? "Asking the camera" : "Not connected: trying every 5-10 s", C_YELLOW);
+      }
+      line(withSessions ? "Records with the sessions (Settings)" : "Recording: its own button (Settings)", C_TEXT2,
+           Font::Caption);
+    }
+    button(ES::FIND_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Pair camera", !st.configured, ui.showHighlight && ui.highlight == 0);
+    button(ES::FORGET_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Forget", false, ui.showHighlight && ui.highlight == 1);
+    header("‹  Settings", nullptr);
+    text("Camera", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+    if (!touchOk) settingsHint("BOOT: press for the other, hold to choose");
+  } else {
+    if (scanning) text("Looking for DJI cameras...", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
+    else text(n ? "Tap yours" : "None found. Camera on? Try again", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
+    if (n) gfx->fillRoundRect(ES::CARD_X, ES::LIST_Y, ES::CARD_W, n * ES::ROW_H, CORNER, C_SURFACE);
+    for (int i = 0; i < n; i++) {
+      const int ry = ES::listRowY(i), cy = ry + ES::ROW_H / 2;
+      if (ui.showHighlight && ui.highlight == i) {
+        gfx->fillRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_RAISED);
+        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_TEXT3);
+      } else if (i > 0) {
+        gfx->drawFastHLine(ES::CARD_X + 14, ry, ES::CARD_W - 14, C_LINE);
+      }
+      snprintf(buf, sizeof(buf), "%d dBm", found[i].rssi);
+      const int rw = text(buf, ES::CARD_X + ES::CARD_W - 14, cy, Font::Caption, C_TEXT2, MR_DATUM);
+      text(fit(found[i].name, Font::Body, ES::CARD_W - 40 - rw), ES::CARD_X + 14, cy, Font::Body, C_TEXT, ML_DATUM);
+    }
+    header("‹  Back", nullptr);
+    text("Pair camera", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
     if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
   }
   endFrame();

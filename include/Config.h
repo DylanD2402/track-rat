@@ -129,6 +129,12 @@
 #define OBD_BLE_ENABLED 1
 #define OBD_SCAN_S 10                // Find adapter scans this long
 #define COOLANT_WARN_C 110           // a red HOT tag in the header at this coolant temperature; 0 = never
+// Track Rat as a DJI Osmo Action's GPS remote (Action 4, 5 Pro, 6, Osmo 360): GPS into the video
+// at 10 Hz, recording with the sessions (CameraBle.h). Paired in Settings > Camera; nothing happens
+// until then. Untested with a camera.
+#define CAMERA_BLE_ENABLED 1
+#define CAMERA_SCAN_S 10
+#define DJI_HOUR_OFFSET 8            // DJI's demo sends the hour + 8 (China time). 0 if the video's GPS times come out 8 h ahead
 
 // ---------------------------------------------------------------------------
 // SD card (SDIO 4-bit)

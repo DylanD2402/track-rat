@@ -40,6 +40,11 @@ String newSessionBase(const String& stamp, const String& name);
 bool save(const String& path, const Track& track, const String& stamp, int session, const LapTimer& timer,
           const String& logName, bool finished, bool recovered = false);
 
+// A DJI camera started recording during the session whose summary is at path:
+// its GPS time ("2026-10-20T14:03:12.350Z"). Saved with the summary as
+// cameraStartUtc (the first) and cameraStartsUtc (all), for 6.4's overlays.
+void addCameraStart(const String& path, const String& utc);
+
 // Free Roam summary: time, distance and speeds. Includes the route (a point
 // every ~10 m) only when there's no full log.
 bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive, uint32_t durationMs,

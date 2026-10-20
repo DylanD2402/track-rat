@@ -11,6 +11,7 @@
 #include "RaceBoxBle.h"
 #include "EngineData.h"
 #include "ObdBle.h"
+#include "CameraBle.h"
 #include "Settings.h"
 #include "UiTheme.h"
 #include "fonts/InterBody.h"
@@ -211,7 +212,7 @@ static String accuracyText(float m) {
 void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t titleColor) {
   gfx->drawFastHLine(0, HEADER_H - 1, W, C_LINE);
 
-  // Status, right to left: signal bars, GPS accuracy, battery, BENCH, BT, OBD, HOT
+  // Status, right to left: signal bars, GPS accuracy, battery, BENCH, BT, OBD, CAM, HOT
   int right = W - 8;
   auto tag = [&](const char* s, uint16_t bg, uint16_t fg) {
     int w = textWidth(s, Font::Caption) + 12;
@@ -239,6 +240,17 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
 #if BLE_ENABLED
     if (RaceBoxBle::connected()) tag("BT", C_BLUE, C_TEXT);  // a phone app is receiving GPS
     if (ObdBle::connected()) tag("OBD", C_BLUE, C_TEXT);     // the Bluetooth OBD-II adapter is connected
+    if (CameraBle::connected()) {  // the DJI camera: REC while it records, its battery, and a warning when too hot
+      const CameraBle::Status cs = CameraBle::status();
+      char t[16];
+      if (cs.cam.known && cs.cam.tempOver >= 2) tag("CAM HOT", C_ORANGE, C_BG);
+      else if (cs.cam.known) {
+        snprintf(t, sizeof(t), "%s %u%%", cs.cam.recording() ? "REC" : "CAM", cs.cam.battery);
+        tag(t, cs.cam.recording() ? C_RED : C_BLUE, cs.cam.recording() ? C_BG : C_TEXT);
+      } else {
+        tag("CAM", C_BLUE, C_TEXT);
+      }
+    }
 #endif
     if (EngineData::coolantHot(millis())) tag("HOT", C_RED, C_BG);  // coolant at COOLANT_WARN_C or more
   }

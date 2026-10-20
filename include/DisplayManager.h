@@ -22,6 +22,7 @@
 #include "SettingsFlow.h"
 #include "DeviceScreen.h"
 #include "ObdBle.h"
+#include "CameraBle.h"
 #include "TrackDatabase.h"
 #include "Debrief.h"
 
@@ -135,6 +136,9 @@ public:
   void drawSettings(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs);
   // Settings > Engine data: the adapter's status, or the Find adapter list (found: n of them)
   void drawEngineData(const DeviceScreenState& ui, const ObdBle::Status& st, const ObdBle::Found* found, int n, bool scanning, bool touchOk);
+  // Settings > Camera: the DJI camera's status and pairing code, or the Pair list
+  void drawCamera(const DeviceScreenState& ui, const CameraBle::Status& st, bool withSessions, const CameraBle::Found* found, int n,
+                  bool scanning, bool touchOk);
   // First boot: step 0 asks which way up (highlight 0 = the left arrow, 1 = the right), step 1 km/h or mph.
   void drawSetup(int step, int highlight, bool touchOk);
 
