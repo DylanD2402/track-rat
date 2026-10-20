@@ -109,6 +109,10 @@
 #define BOARD_LED_ENABLED 1          // mirror the delta colour on the board's own WS2812
 #define BOARD_LED_PIN 42
 #define BOARD_LED_BRIGHTNESS 40      // 0-255
+// An LSM6DSO-class IMU on the I2C header (with the touch controller): real g in the log and the
+// RaceBox output once it has learned how it's mounted (Imu.h). Harmless with none fitted.
+// Untested on hardware.
+#define IMU_ENABLED 1
 
 // ---------------------------------------------------------------------------
 // SD card (SDIO 4-bit)

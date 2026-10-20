@@ -4,6 +4,7 @@
 
 #include "RaceBoxBle.h"
 #include "Config.h"
+#include "Imu.h"
 #include "RaceBoxPacket.h"
 #include <NimBLEDevice.h>
 
@@ -131,7 +132,20 @@ void sendFix(const GpsFix& fix, const GPSHandler& gps) {
   f.vAccM = fix.vAccM;
   f.speedAccMs = fix.speedAccMs;
   f.headingAccDeg = fix.headingAccDeg;
-  f.gZ = 1000;  // no IMU: report a device at rest
+  imu::CarG g;
+  imu::CarRates r;
+  if (Imu::carG(g, r)) {  // the IMU, in the car's frame: x forward, y right, z up (untested with the apps)
+    auto mg = [](float v) { return (int16_t)constrain(lroundf(v * 1000.0f), -32768L, 32767L); };
+    auto cdps = [](float v) { return (int16_t)constrain(lroundf(v * 100.0f), -32768L, 32767L); };
+    f.gX = mg(g.lon);
+    f.gY = mg(g.lat);
+    f.gZ = mg(g.vert);
+    f.rX = cdps(r.roll);
+    f.rY = cdps(r.pitch);
+    f.rZ = cdps(r.yaw);
+  } else {
+    f.gZ = 1000;  // no IMU (or not learned yet): report a device at rest
+  }
   f.batteryPercent = 100;
 
   uint8_t pkt[RACEBOX_PACKET_LEN];

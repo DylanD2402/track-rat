@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include "Config.h"
+#include "Imu.h"
 #include "JsonFile.h"
 #include "LogWriter.h"
 #include "BestLapStore.h"
@@ -284,6 +285,12 @@ void logFix(const GpsFix& f, uint16_t lap) {
   s.lap = lap;
   s.latG = gforce.lateral();
   s.longG = gforce.longitudinal();
+  imu::CarG g;
+  imu::CarRates rates;
+  if (Imu::carG(g, rates)) {  // an IMU that knows how it's mounted: real g
+    s.latG = g.lat;
+    s.longG = g.lon;
+  }
   const int32_t gap = fixCount + fixesMissed ? vbo::utcDiffMs(lastFixMs, f.gpsTimeMs) : 0;
   s.tag = laptags::fixFlags(f.speedKmh, f.hAccM, gap > 0 ? (uint32_t)gap : 0);
   lastFixMs = f.gpsTimeMs;

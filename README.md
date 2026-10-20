@@ -316,6 +316,17 @@ These are set in `include/Config.h`.
 | `LED_BAR_REVERSED` | 0 | 1 = flip left and right |
 | `LED_BAR_FULL_SCALE_MS` | 1000 | Delta that lights a whole side of the bar |
 | `BOARD_LED_ENABLED`, `BOARD_LED_PIN`, `BOARD_LED_BRIGHTNESS` | 1, 42, 40 | The board's own LED |
+| `IMU_ENABLED` | 1 | Look for an IMU on the I2C header at boot (see below). Harmless with none fitted |
+
+### IMU (optional, untested on hardware)
+
+**Not yet tried on a board: no IMU has been fitted.** The maths is tested on a PC; the I2C driver is written to the datasheet.
+
+An LSM6DSO-class IMU (LSM6DSO, DSOX, DSR, DSL, DS3, DS3TR-C: a breakout from Adafruit, SparkFun or Pololu) on the board's I2C header, alongside the touch controller: 3.3 V, GND, SDA (IO16) and SCL (IO15). It's found at boot at address 0x6A or 0x6B (the touch controller is at 0x38); the serial log says which. With none fitted, nothing changes.
+
+- **Mounted any way round:** it learns how at every boot. **Up** from two seconds of standing still, **forward** from speeding up and braking in a straight line (about 8 g of it added up: a few seconds of driving). Until then the g-forces still come from the GPS.
+- **Then** the `.vbo` log's lateral and longitudinal g are the IMU's (+ = turning right, + = speeding up, as before), and the RaceBox Bluetooth packet carries its g (x forward, y right, z up, in milli-g) and rotation rates (roll, pitch, yaw) instead of a device at rest. Real g is quicker and smoother than g from the GPS, which lags by a fix or two.
+- Read at 104 Hz and averaged between GPS fixes; ±4 g and ±500 °/s.
 
 ## Acceleration and braking
 
@@ -792,6 +803,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src
 
 ```bash
 python test/test_fetch_tracks.py
+```
+
+`test/test_imu.cpp` checks the IMU maths: reading the chip's raw bytes, which chips answer, and learning the mount (up from standing still, forward from straight-line speeding up and braking) at eight different angles, flat, on its side, upside down and tilted, then the car's g and rotation rates; that corners, too little speeding up, readings that disagree, and engine shake while parked teach it nothing; and averaging between fixes:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_imu.cpp -o /tmp/imu && /tmp/imu
 ```
 
 `test/test_tracklearn.cpp` checks tracks that learn themselves: a loop driven twice is found, with the line where the first loop began, and the lap timer then times every loop from the kept fixes; a tight kart track whose straights run back alongside each other still counts; one lap round the block, a road driven out and back over and over, a figure of eight driven once, a short loop then a long one, a loop under 300 m, a slow car park and loops too long for the window are not tracks; a long drive keeps a bounded path; and the kept fixes stay in order:

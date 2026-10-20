@@ -29,6 +29,7 @@
 #include "FreeRoam.h"
 #include "GPSHandler.h"
 #include "GeoMath.h"
+#include "Imu.h"
 #include "InputManager.h"
 #include "LedBar.h"
 #include "LapTimer.h"
@@ -1491,6 +1492,7 @@ void setup() {
   trackDB.begin();
   SessionLog::begin();
   input.begin();
+  Imu::begin();  // on the touch controller's I2C bus, started just now
 
   display.drawBoot("Detecting GPS...");
   gps.begin();
@@ -1527,9 +1529,11 @@ void setup() {
 void loop() {
   uint32_t now = millis();
   gps.update();
+  Imu::poll();
 
   GpsFix fix;
   while (gps.takeFix(fix)) {
+    Imu::onFix(fix);  // its g for this fix, for the log and Bluetooth
 #if BLE_ENABLED
     RaceBoxBle::sendFix(fix, gps);
 #endif
