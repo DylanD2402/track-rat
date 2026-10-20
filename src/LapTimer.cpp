@@ -5,10 +5,12 @@
 #include "LapTimer.h"
 #include "Config.h"
 
-void LapTimer::begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits, uint32_t minLapMs) {
+void LapTimer::begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits, uint32_t minLapMs,
+                     const std::vector<TrackPoint>& sectorGates) {
   sf = startFinish;
   minLap = minLapMs;
   splitPts = splits;
+  sectorPts = sectorGates;
   reset();
 }
 
@@ -18,6 +20,11 @@ void LapTimer::changeGates(const TrackPoint& startFinish, const std::vector<Trac
   sfHeadingConfirmed = false;
   sfWrongWay = false;
   if (running) lapSplits.assign(splitPts.size(), -1);
+}
+
+void LapTimer::setSectors(const std::vector<TrackPoint>& gates) {
+  sectorPts = gates;
+  lapSectors.assign(sectorPts.size(), -1);  // the lap under way is timed through them from here
 }
 
 void LapTimer::reset() {
@@ -59,6 +66,7 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
   lapSpeedSum = 0;
   lapSpeedCount = 0;
   lapSplits.assign(splitPts.size(), -1);
+  lapSectors.assign(sectorPts.size(), -1);
   lapDistance = 0;
   lapTags = 0;
   curTrace.clear();
@@ -72,12 +80,21 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
 // fraction is above `after` and at most `upTo`, in the order they were crossed. Called once for the
 // part of the segment before the start/finish and once for the part after it.
 void LapTimer::crossSplits(double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out) {
+  crossGates(false, lat, lon, dt, after, upTo, out);
+  crossGates(true, lat, lon, dt, after, upTo, out);
+}
+
+// The same for one set of gates: the splits, or the corner sectors' gates.
+void LapTimer::crossGates(bool sectorGates, double lat, double lon, int64_t dt, double after, double upTo,
+                          LapEvents& out) {
+  const std::vector<TrackPoint>& gates = sectorGates ? sectorPts : splitPts;
+  std::vector<int32_t>& times = sectorGates ? lapSectors : lapSplits;
   for (;;) {
     int next = -1;
     double nextFrac = 0;
-    for (size_t i = 0; i < splitPts.size(); i++) {
-      if (lapSplits[i] >= 0) continue;  // already crossed this lap
-      const TrackPoint& sp = splitPts[i];
+    for (size_t i = 0; i < gates.size() && i < times.size(); i++) {
+      if (times[i] >= 0) continue;  // already crossed this lap
+      const TrackPoint& sp = gates[i];
       geo::XY a = geo::toLocal(prevLat, prevLon, sp.lat, sp.lon);
       geo::XY b = geo::toLocal(lat, lon, sp.lat, sp.lon);
       double frac;
@@ -91,14 +108,15 @@ void LapTimer::crossSplits(double lat, double lon, int64_t dt, double after, dou
     if (next < 0) return;
 
     int64_t tc = prevT + (int64_t)(nextFrac * dt + 0.5);
-    lapSplits[next] = (int32_t)(tc - lapStartT);
+    times[next] = (int32_t)(tc - lapStartT);
     LapEvent ev;
-    ev.type = LapEventType::SplitCrossed;
+    ev.type = sectorGates ? LapEventType::SectorCrossed : LapEventType::SplitCrossed;
     ev.splitIndex = next;
-    ev.timeMs = lapSplits[next];
+    ev.timeMs = times[next];
     const Lap* best = bestLap();
-    if (best && (size_t)next < best->splitMs.size() && best->splitMs[next] >= 0) {
-      ev.deltaMs = lapSplits[next] - best->splitMs[next];
+    const std::vector<int32_t>* bestTimes = best ? (sectorGates ? &best->sectorMs : &best->splitMs) : nullptr;
+    if (bestTimes && (size_t)next < bestTimes->size() && (*bestTimes)[next] >= 0) {
+      ev.deltaMs = times[next] - (*bestTimes)[next];
     }
     out.add(ev);
   }
@@ -156,6 +174,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
             lap.maxSpeedKmh = lapMaxSpeed;
             lap.avgSpeedKmh = lapSpeedCount ? (float)(lapSpeedSum / lapSpeedCount) : 0;
             lap.splitMs = lapSplits;
+            lap.sectorMs = lapSectors;
             lap.distanceM = lapDistance;
             lap.tags = lapTags;
 

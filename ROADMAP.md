@@ -146,6 +146,8 @@ Sizes are relative: S small, M medium, L large.
 - Each sector covers a braking zone, the corner and the straight after it, so a good exit counts for the corner that earned it. Where the cuts fall matters: one reviewer found a stitched "optimal lap" that joined pieces no car could drive in sequence (a gear change that never happened).
 - Saved with the track like splits. That keeps them the same across sessions, lets you edit them on the Wi-Fi page, and puts them in the VBO so Circuit Tools shows the same sectors. Your own splits stay as S1, S2, S3.
 
+**Status: done** (2026-10-20, commit 1ab4e1f)
+
 **2.3 Theoretical best and the debrief (M)**
 
 - **Theoretical best:** the sum of your best time in each sector, for this session and for all time.

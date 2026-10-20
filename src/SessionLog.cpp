@@ -82,7 +82,7 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
   if (!fs || path.length() == 0) return false;
 
   size_t splitTimes = 0;
-  for (size_t i = 0; i < timer.lapCount(); i++) splitTimes += timer.lap(i).splitMs.size();
+  for (size_t i = 0; i < timer.lapCount(); i++) splitTimes += timer.lap(i).splitMs.size() + timer.lap(i).sectorMs.size();
   DynamicJsonDocument doc(4096 + timer.lapCount() * 384 + splitTimes * 16);  // a lap with every tag takes about 300
   doc["track"] = track.id;
   doc["trackName"] = track.name;
@@ -123,6 +123,10 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
     if (!l.splitMs.empty()) {
       JsonArray s = o.createNestedArray("splitsMs");
       for (int32_t v : l.splitMs) s.add(v);
+    }
+    if (!l.sectorMs.empty()) {  // corner sectors: elapsed at the end of T1, T2... (the last ends at the line)
+      JsonArray s = o.createNestedArray("sectorsMs");
+      for (int32_t v : l.sectorMs) s.add(v);
     }
   }
   return writeJsonFile(*fs, path, doc, true) > 0;
@@ -216,6 +220,8 @@ bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, i
     h.comments.push_back("Start/finish: " + vbo::pointText(t.startFinish));
     for (size_t i = 0; i < t.splits.size(); i++)
       h.comments.push_back("Split " + std::to_string(i + 1) + ": " + vbo::pointText(t.splits[i]));
+    for (size_t i = 0; i < t.sectors.size(); i++)
+      h.comments.push_back("Sector " + std::to_string(i + 1) + ": " + vbo::pointText(t.sectors[i]));
     // Circuit Tools needs a line across the track, so it needs the track's
     // direction at the start/finish: from the stored map, if there is one.
     if (vbo::gateFromMap(t.map, t.refLat(), t.refLon(), t.startFinish, h.start)) {
@@ -227,6 +233,14 @@ bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, i
           break;
         }
         h.splits.push_back(g);
+      }
+      for (const TrackPoint& sp : t.sectors) {  // made from a lap, so they know their direction
+        vbo::Gate g;
+        if (!vbo::gateAcross(sp, g)) {
+          h.sectors.clear();  // all or none, as the splits
+          break;
+        }
+        h.sectors.push_back(g);
       }
     }
   }
@@ -447,6 +461,7 @@ void recoverUnfinished(const TrackDatabase& tracks) {
     c.hasStartFinish = t->hasStartFinish;
     c.startFinish = t->startFinish;
     c.splits = t->splits;
+    c.sectors = t->sectors;
     recoveryTracks.push_back(c);
   }
   // Idle priority on core 0: the log writer, Wi-Fi and BLE go first, and the

@@ -137,6 +137,10 @@
 #define PIT_PARK_KMH 5.0
 #define PIT_PARK_MS 60000UL
 #define SESSION_RESUME_MS (10UL * 60UL * 1000UL)  // driving off within this of stopping: same session; later: the next one
+// Automatic corner sectors (see Sectors.h), made from the first clean lap at a track
+#define SECTOR_BRAKE_DROP_KMH 10.0f      // a braking zone loses at least this much speed from its peak
+#define SECTOR_MIN_MS 3000               // pieces shorter than this are merged
+#define SECTOR_SMOOTH_MS 600             // GPS speed is smoothed over this before looking for peaks
 // Lap tags (see LapTags.h). Tagged laps are never the best lap or the reference, and aren't averaged.
 #define PIT_STOP_KMH 5.0                 // a lap with a fix below this is a pit lap
 #define SLOW_LAP_PERCENT 107             // a lap over this % of the best clean lap is slow
