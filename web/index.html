@@ -123,6 +123,7 @@ canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10
         <button class="btn plain" id="edFlip">Flip direction</button>
         <button class="btn plain" data-mode="add">Add split</button>
         <button class="btn plain" data-mode="remove">Remove split</button>
+        <button class="btn plain" data-mode="finish" id="edFinish" hidden>Set finish</button>
         <button class="btn plain" id="edLayout">New layout</button>
       </div>
       <h2>Corners</h2>
@@ -567,6 +568,15 @@ function setLine(obj, lat, lon, heading) {
   delete obj.sectors;
   return had;
 }
+// A point-to-point track ("type": "stage": autocross, hill climb): its start is the
+// startFinish, and runs end at "finish"
+const isStage = (t) => !!t && (t.obj.type === "stage" || t.venue.type === "stage");
+function setFinish(obj, lat, lon, heading) {
+  const radius = (obj.finish && obj.finish.radius) || 15;
+  obj.type = "stage";
+  obj.finish = {lat: round7(lat), lon: round7(lon), radius, heading};
+}
+
 function flipLine(obj) {
   if (!obj.startFinish || typeof obj.startFinish.heading !== "number") return false;
   obj.startFinish.heading = Math.round(((obj.startFinish.heading + 180) % 360) * 10) / 10;
@@ -777,6 +787,7 @@ function edSetUp() {
   const laps = ed.pts.filter((p) => p.lap > 0).map((p) => p.lap);
   const first = laps.length ? Math.min(...laps) : 0;
   ed.lapPts = first ? ed.pts.filter((p) => p.lap === first) : ed.pts;
+  $("edFinish").hidden = !isStage(t);
   edMode("");
   edDraw();
   edSectors();
@@ -827,7 +838,8 @@ function edDraw() {
   };
   (t.obj.sectors || []).forEach((sc, i) => gate(sc, "#bf5af2", sc.name || "T" + (i + 1)));
   (t.obj.splits || []).forEach((sp, i) => gate(sp, "#0a84ff", "S" + (i + 1)));
-  gate(t.obj.startFinish, "#30d158", "Start/finish");
+  gate(t.obj.startFinish, "#30d158", isStage(t) ? "Start" : "Start/finish");
+  if (isStage(t)) gate(t.obj.finish, "#ff453a", "Finish");
 }
 
 // The corners, with a name each
@@ -847,7 +859,7 @@ function edMode(m) {
   ed.mode = ed.mode === m ? "" : m;
   for (const b of document.querySelectorAll("#edTools [data-mode]")) b.classList.toggle("on", b.dataset.mode === ed.mode);
   $("edHint").textContent = {line: "Tap the path where the start/finish should be.", add: "Tap the path where a split goes.",
-                              remove: "Tap a split to remove it."}[ed.mode] || "";
+                              remove: "Tap a split to remove it.", finish: "Tap the path where the finish is."}[ed.mode] || "";
 }
 $("edTools").addEventListener("click", (e) => {
   const b = e.target.closest("button");
@@ -884,6 +896,10 @@ $("edMap").addEventListener("click", (e) => {
     const heading = headingAt(ed.lapPts, i);
     if (ed.mode === "line") {
       if (setLine(t.obj, p.lat, p.lon, heading)) edMsg("The corner sectors go with the old line: Track Rat makes them again from the next clean lap.");
+      edMode("");
+    } else if (ed.mode === "finish") {
+      setFinish(t.obj, p.lat, p.lon, heading);
+      edMsg("Save the lines, then re-time to time the runs to this finish.");
       edMode("");
     } else {
       addSplit(t.obj, p.lat, p.lon, heading, ed.lapPts, ed.ref.lat, ed.ref.lon);

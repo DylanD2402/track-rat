@@ -135,6 +135,7 @@ static void readEntry(JsonObject t, std::vector<Track>& out) {
   venue.centerLat = t["center"]["lat"] | 0.0;
   venue.centerLon = t["center"]["lon"] | 0.0;
 
+  venue.stage = strcmp(t["type"] | "", "stage") == 0;  // every layout of a stage venue is a stage
   JsonArray layouts = t["layouts"];
   if (layouts.size() == 0) {
     readLayout(t, venue);

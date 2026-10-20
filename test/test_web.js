@@ -51,7 +51,7 @@ if (!cm) {
 // The comparison uses the editor's parseVbo and toLocal, as on the page
 const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistance, compareLaps, fasterRuns, season, lapTimeText, gapText};")();
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
-                        " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout};")();
+                        " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish};")();
 
 let failures = 0;
 function check(cond, msg) {
@@ -403,6 +403,23 @@ console.log("Wi-Fi page track editor tests");
   check(ED.addLayout(d, "calabogie.short", "  ") === null, "no name");
   check(ED.addLayout(d, "calabogie.short", "Club") === "calabogie.club" && v.layouts.length === 3, "a third layout");
   check(ED.addLayout(d, "nope", "X") === null, "no such track");
+}
+
+// Point to point: a course made on the device ("type": "stage") gets its finish set on the page
+{
+  const d = {tracks: [{id: "course-2026-10-20", name: "Course 2026-10-20", type: "stage",
+                       startFinish: {lat: 45.1, lon: -76.1, radius: 15}},
+                      {id: "calabogie", name: "Calabogie", startFinish: {lat: 45.3, lon: -76.7, radius: 15}}]};
+  const course = ED.findTrack(d, "course-2026-10-20"), circuit = ED.findTrack(d, "calabogie");
+  check(ED.isStage(course) && !ED.isStage(circuit), "a stage is a stage, a circuit isn't");
+  ED.setFinish(course.obj, 45.10512345, -76.0987654321, 87.5);
+  const f = d.tracks[0].finish;
+  check(f && f.lat === 45.1051235 && f.lon === -76.0987654 && f.radius === 15 && f.heading === 87.5,
+        "finish saved, rounded like the line: " + JSON.stringify(f));
+  ED.setFinish(course.obj, 45.2, -76.2, null);
+  check(d.tracks[0].finish.lat === 45.2 && d.tracks[0].finish.heading === null && d.tracks[0].type === "stage",
+        "moved, no direction");
+  check(JSON.stringify(d.tracks[0].startFinish) === JSON.stringify({lat: 45.1, lon: -76.1, radius: 15}), "start untouched");
 }
 
 
