@@ -21,6 +21,7 @@
 #include "SettingsData.h"
 #include "SettingsFlow.h"
 #include "TrackDatabase.h"
+#include "Debrief.h"
 
 struct RunningOverlay {
   // Shown for a few seconds after a lap or split
@@ -33,6 +34,17 @@ struct RunningOverlay {
   int splitIndex = -1;         // >= 0: delta box shows a split
   uint32_t splitMs = 0;
   String notice;  // e.g. "Layout: Short" after switching layout
+};
+
+// What the pit debrief shows (worked out by main.cpp when the car parks; see Debrief.h).
+struct DebriefView {
+  debrief::Result r;
+  std::string hints[3];               // for r.top, "" if none
+  uint32_t allTimeTheoreticalMs = 0;  // 0: not known
+  int session = 0;
+  int lastSession = 0;                // the session before at this track (0: none)
+  uint32_t lastBestMs = 0;
+  bool lastToday = false;
 };
 
 class DisplayManager {
@@ -73,6 +85,10 @@ public:
   // the session (driving off carries on), so no buttons. session: "Session
   // N" of the day, 0 if not known.
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath, int session, bool inPits);
+  // The pit debrief (DisplayDebrief.cpp). Page 0: best lap, theoretical best and the three
+  // sectors that cost most, on the map. Page 1: every lap with its tags, every sector, and
+  // this session against the last.
+  void drawDebrief(const Track& track, const LapTimer& timer, const DebriefView& d, int page);
   // Mode menu: highlight is for BOOT-button navigation (0..5: the three tiles, then Performance, Settings, Wi-Fi)
   void drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk);
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
@@ -139,8 +155,15 @@ private:
     size_t n;
     size_t stride;
   };
+  // A stretch of the path drawn in colour, with a numbered dot (the debrief's sectors).
+  struct MapMark {
+    size_t from, to;  // path indices
+    uint16_t color;
+    int number;
+  };
   bool drawMapArea(int x, int y, int w, int h, const std::vector<std::vector<geo::XYf>>& lines, MapPath path,
-                   bool showCar, geo::XY car, bool carFix, bool showStartFinish);
+                   bool showCar, geo::XY car, bool carFix, bool showStartFinish,
+                   const std::vector<MapMark>* marks = nullptr);
   void runningOverlays(const GPSHandler& gps, uint32_t holdMs, const RunningOverlay* ov = nullptr);
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);

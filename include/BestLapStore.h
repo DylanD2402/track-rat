@@ -22,6 +22,19 @@ enum class Kind { Ever, Day };
 bool load(const String& trackId, Kind kind, bestlap::Record& out, bool withPath = true);
 bool save(const String& trackId, Kind kind, const bestlap::Record& r);
 
+// The rest kept per track for the debrief (stats.json): the best time ever
+// in each corner sector, with the gates they were set through, and the last
+// session's number, date and best lap.
+struct Stats {
+  std::vector<geo::XY> sectorGates;  // x = lat, y = lon
+  std::vector<int32_t> sectorBestMs;
+  int lastSession = 0;
+  uint32_t lastDate = 0;    // YYYYMMDD
+  uint32_t lastBestMs = 0;  // 0: no lap
+};
+bool loadStats(const String& trackId, Stats& out);
+bool saveStats(const String& trackId, const Stats& s);
+
 }  // namespace BestLapStore
 
 #endif  // BEST_LAP_STORE_H
