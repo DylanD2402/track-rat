@@ -1,6 +1,7 @@
 /**
  * Host-side tests for the settings rules (include/SettingsData.h) and the
- * input flow of the settings screen and first-boot setup (include/SettingsFlow.h).
+ * Settings list (layout, hit-testing, scrolling, touch and BOOT input) and
+ * first-boot setup (include/SettingsFlow.h).
  * The last group drives a first boot and a two-lap session through them.
  *
  *   g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
@@ -667,110 +668,512 @@ static void testBigNumber() {
 
 // --- 9. settings screen ----------------------------------------------------------------
 
-static void testSettingsScreen() {
-  using R = SettingsScreenState::Result;
+using ST = SettingsScreenState;
+using Res = ST::Result;
 
-  {  // Center walks the items, then the done page, then leaves
-    SettingsScreenState st;
-    SettingsData s = defaults();
-    const SettingsData before = s;
-    bool ok = true;
-    for (int i = 0; i < SETTING_ITEM_COUNT; i++) {
-      ok = ok && st.item == i && !st.donePage();
-      ok = ok && st.handle(Key::Center, s) == R::Nothing;
+// Screen x in the middle of the cards, y in the middle of row r (the row must be on screen)
+static int midX() { return ST::CARD_X + ST::CARD_W / 2; }
+static int midY(const ST& st, int r) { return st.rowScreenY(r) + ST::ROW_H / 2; }
+static bool rowOnScreen(const ST& st, int r) {
+  return st.rowScreenY(r) >= ST::TOP && st.rowScreenY(r) + ST::ROW_H <= st.viewBottom;
+}
+// Taps row r (scrolling to it first, as a finger would)
+static Res tapRow(ST& st, int r, SettingsData& s) {
+  st.setScroll(ST::rowTop(r) - 60);
+  return st.tap(midX(), midY(st, r), s);
+}
+static int rowOf(SettingItem it) { return ST::rowOfItem(it); }
+
+static void testSettingsLayout() {
+  // Every setting is one row, in four sections, and then the Back row
+  bool seen[SETTING_ITEM_COUNT] = {};
+  int n = 0, lastKind = -1;
+  for (int r = 0; r < ST::ROWS; r++) {
+    const ST::Row& rw = ST::row(r);
+    if (rw.kind == ST::RowKind::Back) {
+      lastKind = r;
+      continue;
     }
-    EXPECT(ok, "Center walks item 0..%d", SETTING_ITEM_COUNT - 1);
-    EXPECT(st.item == SETTING_ITEM_COUNT && st.donePage(), "then the done page, item %d", st.item);
-    EXPECT(st.handle(Key::Center, s) == R::Exit, "Center on the done page exits");
-    EXPECT(s == before, "walking must not change a value");
+    EXPECT((int)rw.item >= 0 && (int)rw.item < SETTING_ITEM_COUNT && !seen[(int)rw.item], "row %d: item %d is listed twice or is not a setting", r, (int)rw.item);
+    seen[(int)rw.item] = true;
+    n++;
+    EXPECT(ST::rowOfItem(rw.item) == r, "rowOfItem(%d)", (int)rw.item);
+    EXPECT(strlen(ST::rowLabel(rw.item)) > 0, "row %d needs a label", r);
+    // kinds: choices have options, toggles and levels do not
+    EXPECT((rw.kind == ST::RowKind::Choice) == (ST::choiceCount(rw.item) > 0), "row %d: kind and choiceCount disagree", r);
   }
-  {  // Header and Hold leave from anywhere
-    for (int i = 0; i <= SETTING_ITEM_COUNT; i++) {
-      for (Key k : {Key::Header, Key::Hold}) {
-        SettingsScreenState st;
-        st.item = i;
+  EXPECT(n == SETTING_ITEM_COUNT && lastKind == ST::ROWS - 1, "all %d settings then Back: %d rows, Back at %d", SETTING_ITEM_COUNT, n, lastKind);
+
+  // Sections hold the rows in order, each exactly once
+  int next = 0;
+  for (int i = 0; i < ST::SECTIONS; i++) {
+    EXPECT(ST::section(i).first == next && ST::section(i).count > 0, "section %d starts at row %d", i, ST::section(i).first);
+    for (int r = ST::section(i).first; r < ST::section(i).first + ST::section(i).count; r++) EXPECT(ST::sectionOf(r) == i, "row %d in section %d", r, i);
+    next += ST::section(i).count;
+  }
+  EXPECT(next == ST::ROWS, "sections cover %d of %d rows", next, ST::ROWS);
+
+  // Cards: rows stack inside, sections are apart, nothing is wider than the screen
+  EXPECT(ST::CARD_X > 0 && ST::CARD_X + ST::CARD_W < ST::SCREEN_W, "the cards fit with a margin");
+  EXPECT(ST::ROW_H >= 36, "rows must be big enough for a finger, %d", ST::ROW_H);
+  for (int r = 1; r < ST::ROWS; r++) {
+    const int gap = ST::rowTop(r) - ST::rowTop(r - 1) - ST::ROW_H;
+    if (ST::sectionOf(r) == ST::sectionOf(r - 1)) EXPECT(gap == 0, "rows %d and %d touch, gap %d", r - 1, r, gap);
+    else EXPECT(gap >= ST::SECTION_GAP, "sections of rows %d and %d are %d px apart", r - 1, r, gap);
+  }
+  EXPECT(ST::rowTop(0) >= ST::CAPTION_H, "the first caption fits above the first row");
+  EXPECT(ST::contentHeight() >= ST::rowTop(ST::ROWS - 1) + ST::ROW_H, "content height covers the last row");
+
+  // The list is taller than the screen, and the scroll range follows the view
+  ST touch, boot;
+  touch.begin(true);
+  boot.begin(false);
+  EXPECT(touch.viewBottom == ST::SCREEN_H && boot.viewBottom == ST::SCREEN_H - ST::HINT_H, "view bottom %d / %d", touch.viewBottom, boot.viewBottom);
+  EXPECT(ST::contentHeight() > touch.viewH() && touch.maxScroll() == ST::contentHeight() - touch.viewH(), "the list must scroll: %d in %d", ST::contentHeight(), touch.viewH());
+  EXPECT(boot.maxScroll() == touch.maxScroll() + ST::HINT_H, "the hint takes the bottom, so the list scrolls %d more", ST::HINT_H);
+  EXPECT(touch.showHighlight == false && boot.showHighlight == true, "highlight is shown when there is no touch");
+
+  // The scroll bar: at the top of the view at the top of the list, at the bottom at the bottom, always inside
+  int y, h;
+  EXPECT(touch.scrollBar(y, h) && y == ST::TOP && h >= 16 && h < touch.viewH(), "scroll bar at the top: y %d h %d", y, h);
+  touch.setScroll(100000);
+  EXPECT(touch.scrollBar(y, h) && y + h == touch.viewBottom, "scroll bar at the end: y %d h %d", y, h);
+  touch.setScroll(touch.maxScroll() / 2);
+  EXPECT(touch.scrollBar(y, h) && y > ST::TOP && y + h < touch.viewBottom, "scroll bar in the middle: y %d h %d", y, h);
+
+  // The footnote is on the GPS section only
+  int notes = 0;
+  for (int i = 0; i < ST::SECTIONS; i++) notes += ST::section(i).foot != nullptr;
+  EXPECT(notes == 1 && ST::section(ST::sectionOf(rowOf(SettingItem::Gps))).foot, "one footnote, under the GPS group");
+  printf("  settings layout: %d rows in %d sections, %d px tall, scrolls %d\n", ST::ROWS, ST::SECTIONS, ST::contentHeight(), touch.maxScroll() );
+}
+
+static void testSettingsHitTesting() {
+  for (int touchMode = 0; touchMode < 2; touchMode++) {
+    ST st;
+    st.begin(touchMode == 1);
+    bool reached[ST::ROWS] = {};
+    int mismatches = 0;
+    for (int scroll = 0; scroll <= st.maxScroll(); scroll++) {
+      st.setScroll(scroll);
+      for (int y = 0; y < ST::SCREEN_H; y++) {
+        for (int x : {ST::CARD_X, midX(), ST::CARD_X + ST::CARD_W - 1}) {
+          const int hit = st.hitRow(x, y);
+          // What the layout says should be there
+          int want = -1;
+          if (y >= ST::TOP && y < st.viewBottom)
+            for (int r = 0; r < ST::ROWS; r++)
+              if (y - ST::TOP + scroll >= ST::rowTop(r) && y - ST::TOP + scroll < ST::rowTop(r) + ST::ROW_H) want = r;
+          if (hit != want) mismatches++;
+          if (hit >= 0) reached[hit] = true;
+        }
+      }
+    }
+    EXPECT(mismatches == 0, "hit test disagrees with the layout %d times (touch %d)", mismatches, touchMode);
+    bool all = true;
+    for (int r = 0; r < ST::ROWS; r++) all = all && reached[r];
+    EXPECT(all, "every row can be reached by scrolling (touch %d)", touchMode);
+  }
+  {  // Between cards, on captions, outside the card columns, in the top bar and in the hint: nothing
+    ST st;
+    st.begin(false);
+    for (int scroll : {0, 40, st.maxScroll()}) {
+      st.setScroll(scroll);
+      for (int sec = 0; sec < ST::SECTIONS; sec++) {
+        const int gapTop = ST::TOP + ST::cardBottom(sec) - scroll;
+        const int gapEnd = sec + 1 < ST::SECTIONS ? ST::TOP + ST::cardTop(sec + 1) - scroll : gapTop + ST::SECTION_GAP;
+        for (int y = gapTop; y < gapEnd; y++)
+          if (y >= ST::TOP && y < st.viewBottom) EXPECT(st.hitRow(midX(), y) == -1, "y %d between cards (scroll %d) hit row %d", y, scroll, st.hitRow(midX(), y));
+      }
+      bool beside = true;
+      for (int y = 0; y < ST::SCREEN_H; y++) beside = beside && st.hitRow(ST::CARD_X - 1, y) == -1 && st.hitRow(ST::CARD_X + ST::CARD_W, y) == -1;
+      EXPECT(beside, "nothing beside the cards (scroll %d)", scroll);
+      EXPECT(st.hitRow(midX(), ST::TOP - 1) == -1 && st.hitRow(midX(), 0) == -1, "the top bar is not a row");
+      EXPECT(st.hitRow(midX(), st.viewBottom) == -1 && st.hitRow(midX(), ST::SCREEN_H - 1) == -1, "the hint is not a row");
+    }
+  }
+  {  // taps: above y 30 is the top bar; below the view and between cards do nothing; the list scroll never moves
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    st.setScroll(70);
+    EXPECT(st.tap(midX(), 0, s) == Res::Exit && st.tap(midX(), ST::TOP - 1, s) == Res::Exit, "taps above y %d leave", ST::TOP);
+    st.begin(true);
+    st.setScroll(0);
+    const int gapY = ST::TOP + ST::cardBottom(0) + 2;  // between DISPLAY and TIMING
+    EXPECT(st.tap(midX(), gapY, s) == Res::Nothing && st.page == ST::Page::List && s == defaults(), "a tap between cards does nothing");
+    EXPECT(st.tap(ST::CARD_X - 5, midY(st, 0), s) == Res::Nothing && st.page == ST::Page::List, "a tap beside the card does nothing");
+    ST b;
+    b.begin(false);
+    EXPECT(b.tap(midX(), ST::SCREEN_H - 3, s) == Res::Nothing && b.page == ST::Page::List && s == defaults(), "a tap on the BOOT hint does nothing");
+    EXPECT(b.tap(midX(), 5, s) == Res::Exit, "the top bar still works without touch hardware");
+  }
+  printf("  settings hit testing: every row reachable, gaps hit nothing, top bar above y %d\n", ST::TOP);
+}
+
+static void testSettingsScroll() {
+  ST st;
+  st.begin(true);
+  const int mx = st.maxScroll();
+  EXPECT(st.scroll == 0, "starts at the top");
+  st.setScroll(-30);
+  EXPECT(st.scroll == 0, "clamped at the top, %d", st.scroll);
+  st.setScroll(mx + 500);
+  EXPECT(st.scroll == mx, "clamped at the bottom, %d vs %d", st.scroll, mx);
+  st.setScroll(0);
+
+  // A drag reports how far the finger has moved in total; the content follows it
+  st.drag(-30);
+  EXPECT(st.scroll == 30, "finger up 30 -> content up 30, got %d", st.scroll);
+  st.drag(-90);
+  EXPECT(st.scroll == 90, "finger up 90 in all -> %d", st.scroll);
+  st.drag(-20);
+  EXPECT(st.scroll == 20, "finger comes back to 20 -> %d (the drag is relative to where it began)", st.scroll);
+  st.drag(60);
+  EXPECT(st.scroll == 0, "finger down past the top stops at 0, got %d", st.scroll);
+  st.drag(-40);
+  EXPECT(st.scroll == 40, "and follows again, %d", st.scroll);
+  st.dragEnd();
+  EXPECT(st.scroll == 40, "released: it stays, %d", st.scroll);
+  st.drag(-10);  // a new drag starts from where the list is
+  EXPECT(st.scroll == 50, "the next drag starts from 40: %d", st.scroll);
+  st.drag(-100000);
+  EXPECT(st.scroll == mx, "finger far up stops at the bottom, %d vs %d", st.scroll, mx);
+  st.drag(100000);
+  EXPECT(st.scroll == 0, "and far down at the top, %d", st.scroll);
+  st.dragEnd();
+  st.setScroll(mx);
+  st.drag(-50);
+  EXPECT(st.scroll == mx, "already at the bottom, pulling up stays");
+  st.dragEnd();
+
+  {  // a drag does nothing on a page
+    ST p;
+    p.begin(true);
+    SettingsData s = defaults();
+    tapRow(p, rowOf(SettingItem::Units), s);
+    const int at = p.scroll;
+    p.drag(-100);
+    p.dragEnd();
+    EXPECT(p.page == ST::Page::Choice && p.scroll == at, "dragging on a page leaves the list alone");
+  }
+  {  // drag, release, tap: the tap uses where the list ended up
+    ST d;
+    d.begin(true);
+    SettingsData s = defaults();
+    d.drag(-200);
+    d.dragEnd();
+    const int at = d.scroll;
+    EXPECT(at == 200, "dragged to 200, got %d", at);
+    int r = d.hitRow(midX(), 150);
+    EXPECT(r >= 0 && d.rowScreenY(r) <= 150 && 150 < d.rowScreenY(r) + ST::ROW_H, "row %d is at y 150 after the drag", r);
+    EXPECT(d.tap(midX(), 150, s) != Res::Exit, "the tap is a row");
+    EXPECT(d.scroll == at, "a tap does not scroll");
+    const ST::Row& rw = ST::row(r);
+    if (rw.kind == ST::RowKind::Toggle) EXPECT(s != defaults() && d.page == ST::Page::List, "the toggle under the finger flipped");
+    else EXPECT(d.page != ST::Page::List && d.item == rw.item, "the page of the row under the finger opened");
+  }
+  printf("  settings scroll: clamped at both ends, drag follows the finger, release stays\n");
+}
+
+static void testSettingsPages() {
+  {  // sub-pages keep the scroll of the list; the top bar goes back to it, the list's top bar to the menu
+    for (int r = 0; r < ST::ROWS; r++) {
+      const ST::Row& rw = ST::row(r);
+      if (rw.kind == ST::RowKind::Toggle || rw.kind == ST::RowKind::Back) continue;
+      for (int how = 0; how < 3; how++) {
+        ST st;
+        st.begin(true);
         SettingsData s = defaults();
-        EXPECT(st.handle(k, s) == R::Exit && s == defaults(), "item %d: key %d should exit", i, (int)k);
+        EXPECT(tapRow(st, r, s) == Res::Nothing && st.page != ST::Page::List && st.item == rw.item, "row %d opens its page", r);
+        const int scroll = st.scroll;
+        EXPECT(scroll > 0 || r < 3, "test needs a scrolled list for row %d", r);
+        st.drag(-50);  // nothing on a page
+        st.dragEnd();
+        if (how == 0) EXPECT(st.tap(100, 5, s) == Res::Nothing, "page %d: the top bar goes back to the list", r);
+        else if (how == 1) EXPECT(st.handle(Key::Header, s) == Res::Nothing, "page %d: Header goes back", r);
+        else EXPECT(st.handle(Key::Hold, s) == Res::Nothing, "page %d: Hold goes back", r);
+        EXPECT(st.page == ST::Page::List && st.scroll == scroll, "page %d: back on the list at scroll %d (was %d)", r, st.scroll, scroll);
+        EXPECT(s == defaults(), "opening and closing a page changes nothing");
+        // and from the list the top bar leaves
+        EXPECT(st.handle(Key::Header, s) == Res::Exit && st.handle(Key::Hold, s) == Res::Exit, "the list's top bar and hold go back to the menu");
       }
     }
   }
-  {  // BOOT short goes round, through the done page
-    SettingsScreenState st;
-    SettingsData s = defaults();
-    bool ok = true;
-    for (int i = 1; i <= SETTING_ITEM_COUNT + 1; i++) {
-      ok = ok && st.handle(Key::BootShort, s) == R::Nothing && st.item == i % (SETTING_ITEM_COUNT + 1);
-    }
-    EXPECT(ok && st.item == 0, "BOOT short goes round %d pages, ended on %d", SETTING_ITEM_COUNT + 1, st.item);
-    st.item = SETTING_ITEM_COUNT - 1;
-    st.handle(Key::BootShort, s);
-    EXPECT(st.donePage(), "BOOT short from the last item reaches the done page");
-    EXPECT(s == defaults(), "BOOT short changes nothing");
-  }
-  {  // Left and Right on the done page go back into the list
-    SettingsScreenState st;
-    SettingsData s = defaults();
-    st.item = SETTING_ITEM_COUNT;
-    EXPECT(st.handle(Key::Left, s) == R::Nothing && st.item == SETTING_ITEM_COUNT - 1, "Left on done -> last item, got %d", st.item);
-    st.item = SETTING_ITEM_COUNT;
-    EXPECT(st.handle(Key::Right, s) == R::Nothing && st.item == 0, "Right on done -> first item, got %d", st.item);
-    EXPECT(s == defaults(), "going back in changes nothing");
-  }
-  {  // Left and Right on items
-    SettingsScreenState st;
-    SettingsData s = defaults();  // brightness 100 at the top, compare "this session" at the end of its list
-    st.item = (int)SettingItem::Brightness;
-    EXPECT(s.brightness == 100, "test needs brightness 100");
-    EXPECT(st.handle(Key::Right, s) == R::Nothing && s.brightness == 100 && st.item == 2, "Right at brightness 100");
-    EXPECT(st.handle(Key::Left, s) == R::Changed && s.brightness == 90 && st.item == 2, "Left from 100");
-    EXPECT(st.handle(Key::Right, s) == R::Changed && s.brightness == 100, "Right back to 100");
-    for (int i = 0; i < 9; i++) EXPECT(st.handle(Key::Left, s) == R::Changed, "Left %d", i);
-    EXPECT(s.brightness == 10 && st.handle(Key::Left, s) == R::Nothing && s.brightness == 10, "Left at 10 stops");
-
-    st.item = (int)SettingItem::Compare;
-    s.compareTo = CompareTo::Session;
-    EXPECT(st.handle(Key::Right, s) == R::Nothing, "Right at the last compare choice");
-    EXPECT(st.handle(Key::Left, s) == R::Changed && s.compareTo == CompareTo::Ever, "Left -> ever");
-    EXPECT(st.handle(Key::Left, s) == R::Changed && s.compareTo == CompareTo::Day, "Left -> day");
-    EXPECT(st.handle(Key::Left, s) == R::Nothing && s.compareTo == CompareTo::Day, "Left at the first compare choice");
-
-    st.item = (int)SettingItem::Units;  // two choices: either key flips
-    SpeedUnits u = s.units;
-    EXPECT(st.handle(Key::Left, s) == R::Changed && s.units != u, "Left flips units");
-    EXPECT(st.handle(Key::Right, s) == R::Changed && s.units == u, "Right flips units back");
-
-    st.item = (int)SettingItem::TimeZone;
-    s.utcOffsetMin = 840;
-    EXPECT(st.handle(Key::Right, s) == R::Nothing && s.utcOffsetMin == 840, "Right at UTC+14");
-    EXPECT(st.handle(Key::Left, s) == R::Changed && s.utcOffsetMin == 810, "Left from UTC+14");
-    EXPECT(st.item == (int)SettingItem::TimeZone, "Left and Right keep the item");
-  }
-  {  // BOOT long changes with wrap, and leaves on the done page
-    SettingsScreenState st;
-    SettingsData s = defaults();
-    st.item = (int)SettingItem::Brightness;
-    EXPECT(st.handle(Key::BootLong, s) == R::Changed && s.brightness == 10, "BOOT long wraps 100 -> 10, got %d", s.brightness);
-    for (int i = 0; i < SETTING_ITEM_COUNT; i++) {
-      SettingsScreenState one;
-      one.item = i;
-      SettingsData x = defaults(), before = x;
-      EXPECT(one.handle(Key::BootLong, x) == R::Changed && x != before && text(x, itemAt(i)) != text(before, itemAt(i)),
-             "BOOT long on item %d must change it", i);
-      EXPECT(one.item == i, "BOOT long keeps the item");
-    }
-    st.item = SETTING_ITEM_COUNT;
-    SettingsData before = s;
-    EXPECT(st.handle(Key::BootLong, s) == R::Exit && s == before, "BOOT long on the done page exits");
-  }
-  {  // Key::None does nothing, on an item or on the done page
-    for (int i = 0; i <= SETTING_ITEM_COUNT; i++) {
-      SettingsScreenState st;
-      st.item = i;
+  {  // switches flip on a tap, and flip back
+    for (SettingItem it : {SettingItem::Upside, SettingItem::Bluetooth, SettingItem::RoadDrives}) {
+      ST st;
+      st.begin(true);
       SettingsData s = defaults();
-      EXPECT(st.handle(Key::None, s) == R::Nothing && st.item == i && s == defaults(), "Key::None at %d", i);
+      const bool was = ST::toggleOn(s, it);
+      const int row = rowOf(it);
+      EXPECT(ST::row(row).kind == ST::RowKind::Toggle, "row %d is a switch", row);
+      EXPECT(tapRow(st, row, s) == Res::Changed && ST::toggleOn(s, it) == !was && st.page == ST::Page::List, "tap flips %d", (int)it);
+      EXPECT(tapRow(st, row, s) == Res::Changed && ST::toggleOn(s, it) == was, "and back");
+      SettingsData rest = defaults();
+      EXPECT(s == rest, "only that one setting");
+    }
+    SettingsData s = defaults();
+    ST st;
+    st.begin(true);
+    tapRow(st, rowOf(SettingItem::Upside), s);
+    EXPECT(settings::upsideDown(s) && s.rotation != DISPLAY_ROTATION, "Screen upside down turns the screen");
+  }
+  {  // choice pages: tap an option, it is set and the list is back
+    for (int r = 0; r < ST::ROWS; r++) {
+      const ST::Row& rw = ST::row(r);
+      if (rw.kind != ST::RowKind::Choice) continue;
+      const int count = ST::choiceCount(rw.item);
+      EXPECT(count >= 2 && count <= 3, "row %d has %d options", r, count);
+      for (int start = 0; start < count; start++) {
+        for (int pick = 0; pick < count; pick++) {
+          ST st;
+          st.begin(true);
+          SettingsData s = defaults();
+          ST::choiceSet(s, rw.item, start);
+          const SettingsData before = s;
+          EXPECT(tapRow(st, r, s) == Res::Nothing && st.page == ST::Page::Choice && st.choiceHl == start, "row %d opens on its current option %d", r, start);
+          const int scroll = st.scroll;
+          EXPECT(st.hitChoice(midX(), st.choiceRowY(pick) + 3) == pick && st.hitChoice(midX(), st.choiceRowY(pick) + ST::ROW_H - 1) == pick, "option %d is hit", pick);
+          const Res res = st.tap(midX(), st.choiceRowY(pick) + ST::ROW_H / 2, s);
+          EXPECT(res == (pick == start ? Res::Nothing : Res::Changed), "row %d: %d -> %d gives %d", r, start, pick, (int)res);
+          EXPECT(ST::choiceIndex(s, rw.item) == pick, "row %d: option %d chosen, is %d", r, pick, ST::choiceIndex(s, rw.item));
+          EXPECT(st.page == ST::Page::List && st.scroll == scroll && st.highlight == r, "back on the list, scroll %d, row %d", st.scroll, st.highlight);
+          // nothing else changed
+          SettingsData expect = before;
+          ST::choiceSet(expect, rw.item, pick);
+          EXPECT(s == expect, "only that setting changes");
+          EXPECT(rowOnScreen(st, r), "the row just changed is on screen");
+        }
+      }
+      ST st;
+      st.begin(true);
+      SettingsData s = defaults();
+      tapRow(st, r, s);
+      const int n = ST::choiceCount(rw.item);
+      EXPECT(st.hitChoice(midX(), st.choiceRowY(n) + 1) == -1 && st.hitChoice(midX(), ST::CHOICE_TOP - 2) == -1 && st.hitChoice(ST::CARD_X - 2, st.choiceRowY(0) + 5) == -1, "outside the options hits none");
+      EXPECT(st.tap(midX(), st.choiceRowY(n) + 12, s) == Res::Nothing && st.page == ST::Page::Choice && s == defaults(), "a tap below the options stays on the page");
+      EXPECT(settings::itemNote(rw.item)[0] != 0, "a choice page has its note");
     }
   }
-  printf("  settings screen: Center, Header/Hold, BOOT short/long, Left/Right\n");
+  printf("  settings pages: scroll kept, switches flip, choices select and return\n");
+}
+
+static void testSettingsLevels() {
+  const int bright = rowOf(SettingItem::Brightness), zone = rowOf(SettingItem::TimeZone);
+  {  // brightness: the bar, rounded to 10
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    EXPECT(tapRow(st, bright, s) == Res::Nothing && st.page == ST::Page::Brightness, "brightness opens its page");
+    const int y = ST::BAR_Y + ST::BAR_H / 2;
+    struct { int x; int want; } cases[] = {
+        {ST::BAR_X, 10},                        // the left end is the lowest level
+        {ST::BAR_X - 10, 10},                   // beside the end still counts
+        {ST::BAR_X + ST::BAR_W, 100},           // the right end
+        {ST::BAR_X + ST::BAR_W + 9, 100},
+        {ST::BAR_X + ST::BAR_W / 2, 50},        // the middle
+        {ST::BAR_X + ST::BAR_W * 34 / 100, 30}, // 34% rounds down to 30
+        {ST::BAR_X + ST::BAR_W * 36 / 100, 40}, // 36% rounds up to 40
+        {ST::BAR_X + ST::BAR_W * 3 / 100, 10},  // 3% would be 0: the lowest is 10
+        {ST::BAR_X + ST::BAR_W * 96 / 100, 100},
+        {ST::BAR_X + ST::BAR_W * 70 / 100, 70},
+    };
+    for (const auto& c : cases) {
+      s.brightness = c.want == 60 ? 50 : 60;  // never the wanted level, so Changed is expected
+      EXPECT(st.tap(c.x, y, s) == Res::Changed && s.brightness == c.want, "bar at x %d should give %d, got %d", c.x, c.want, s.brightness);
+      EXPECT(s.brightness % 10 == 0 && s.brightness >= 10 && s.brightness <= 100, "valid level %d", s.brightness);
+      EXPECT(ST::barLevel(c.x) == c.want, "barLevel(%d) = %d", c.x, ST::barLevel(c.x));
+    }
+    s.brightness = 50;
+    EXPECT(st.tap(ST::BAR_X + ST::BAR_W / 2, y, s) == Res::Nothing && s.brightness == 50, "the level you already have is not a change");
+    EXPECT(st.tap(ST::BAR_X + 100, ST::BAR_Y + ST::BAR_H + ST::BAR_HIT + 2, s) == Res::Nothing, "below the bar is not the bar");
+    EXPECT(st.tap(ST::BAR_X + 100, ST::BAR_Y - ST::BAR_HIT - 2, s) == Res::Nothing, "above the bar is not the bar");
+    EXPECT(s.brightness == 50 && st.page == ST::Page::Brightness, "still on the page");
+    // every pixel along the bar gives a level in range, going up with x
+    int last = 0;
+    bool ok = true;
+    for (int x = ST::BAR_X - 10; x <= ST::BAR_X + ST::BAR_W + 10; x++) {
+      const int v = ST::barLevel(x);
+      ok = ok && v >= last && v >= 10 && v <= 100 && v % 10 == 0;
+      last = v;
+    }
+    EXPECT(ok, "bar levels rise with x, 10 to 100 in tens");
+
+    // - and +: steps of 10, stop at the ends
+    s.brightness = 100;
+    EXPECT(st.tap(ST::PLUS_X + 5, ST::BTN_Y + 5, s) == Res::Nothing && s.brightness == 100, "+ at 100 stops");
+    EXPECT(st.tap(ST::MINUS_X + 5, ST::BTN_Y + 5, s) == Res::Changed && s.brightness == 90, "- from 100");
+    EXPECT(st.tap(ST::PLUS_X + ST::BTN_W - 1, ST::BTN_Y + ST::BTN_H - 1, s) == Res::Changed && s.brightness == 100, "+ back");
+    for (int i = 0; i < 9; i++) EXPECT(st.tap(ST::MINUS_X + 70, ST::BTN_Y + 20, s) == Res::Changed, "- %d", i);
+    EXPECT(s.brightness == 10 && st.tap(ST::MINUS_X + 70, ST::BTN_Y + 20, s) == Res::Nothing && s.brightness == 10, "- at 10 stops");
+    EXPECT(st.page == ST::Page::Brightness, "buttons keep the page");
+    EXPECT(st.tap(ST::MINUS_X + ST::BTN_W + 2, ST::BTN_Y + 20, s) == Res::Nothing && s.brightness == 10, "between the buttons is nothing");
+    EXPECT(!ST::onMinus(ST::MINUS_X - 1, ST::BTN_Y) && !ST::onPlus(ST::PLUS_X + ST::BTN_W, ST::BTN_Y), "button edges");
+    EXPECT(ST::MINUS_X + ST::BTN_W < ST::PLUS_X && ST::PLUS_X + ST::BTN_W <= ST::SCREEN_W && ST::BTN_Y + ST::BTN_H <= ST::SCREEN_H - ST::HINT_H, "buttons fit the screen");
+    EXPECT(ST::BAR_Y + ST::BAR_H + ST::BAR_HIT < ST::BTN_Y, "the bar's touch area stays off the buttons");
+  }
+  {  // time zone: 30 minute steps, stops at the ends, nothing else changes
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    EXPECT(tapRow(st, zone, s) == Res::Nothing && st.page == ST::Page::TimeZone, "time zone opens its page");
+    EXPECT(st.tap(ST::PLUS_X + 10, ST::BTN_Y + 10, s) == Res::Changed && s.utcOffsetMin == 30, "+ is half an hour");
+    EXPECT(st.tap(ST::MINUS_X + 10, ST::BTN_Y + 10, s) == Res::Changed && s.utcOffsetMin == 0, "- is half an hour");
+    EXPECT(st.tap(ST::MINUS_X + 10, ST::BTN_Y + 10, s) == Res::Changed && s.utcOffsetMin == -30, "below zero");
+    s.utcOffsetMin = settings::UTC_MAX;
+    EXPECT(st.tap(ST::PLUS_X + 10, ST::BTN_Y + 10, s) == Res::Nothing && s.utcOffsetMin == settings::UTC_MAX, "+ at UTC+14 stops");
+    s.utcOffsetMin = settings::UTC_MIN;
+    EXPECT(st.tap(ST::MINUS_X + 10, ST::BTN_Y + 10, s) == Res::Nothing && s.utcOffsetMin == settings::UTC_MIN, "- at UTC-12 stops");
+    int steps = 0;
+    while (st.tap(ST::PLUS_X + 10, ST::BTN_Y + 10, s) == Res::Changed) steps++;
+    EXPECT(steps == (settings::UTC_MAX - settings::UTC_MIN) / settings::UTC_STEP && s.utcOffsetMin == settings::UTC_MAX, "%d steps to the other end", steps);
+    EXPECT(text(s, SettingItem::TimeZone) == "UTC+14:00", "reads %s", text(s, SettingItem::TimeZone).c_str());
+    s.utcOffsetMin = -270;
+    EXPECT(text(s, SettingItem::TimeZone) == "UTC" MINUS "4:30", "reads %s", text(s, SettingItem::TimeZone).c_str());
+    EXPECT(st.tap(ST::BAR_X + 50, ST::BAR_Y + 3, s) == Res::Nothing && s.utcOffsetMin == -270, "there is no bar on the time zone page");
+    SettingsData rest = defaults();
+    rest.utcOffsetMin = -270;
+    EXPECT(s == rest, "only the time zone changed");
+  }
+  printf("  settings levels: brightness bar rounds to 10, - and + clamp, time zone steps by 30\n");
+}
+
+static void testSettingsBoot() {
+  {  // the highlight walks every row and wraps, and the list scrolls to keep it in view
+    ST st;
+    st.begin(false);
+    SettingsData s = defaults();
+    EXPECT(st.highlight == 0 && st.showHighlight && rowOnScreen(st, 0), "starts on the first row");
+    bool ok = true, moved = false;
+    for (int i = 1; i <= 3 * ST::ROWS; i++) {
+      const int prev = st.scroll;
+      ok = ok && st.handle(Key::BootShort, s) == Res::Nothing && st.highlight == i % ST::ROWS && rowOnScreen(st, st.highlight);
+      ok = ok && st.scroll >= 0 && st.scroll <= st.maxScroll() && s == defaults() && st.page == ST::Page::List;
+      moved = moved || st.scroll != prev;
+    }
+    EXPECT(ok, "BOOT short goes round the %d rows and keeps the row in view", ST::ROWS);
+    EXPECT(moved && st.highlight == 0 && st.scroll == 0, "the list scrolled along, and is back at the top after the wrap (scroll %d)", st.scroll);
+    // going to the first row of a section shows its caption; the last row shows the footnote
+    for (int i = 0; i < ST::ROWS; i++) {
+      st.handle(Key::BootShort, s);
+      const int h = st.highlight;
+      const ST::Section& sc = ST::section(ST::sectionOf(h));
+      if (h == sc.first && sc.title) EXPECT(st.rowScreenY(h) - ST::CAPTION_H >= ST::TOP, "the caption of row %d is in view", h);
+      if (h == sc.first + sc.count - 1 && sc.foot) EXPECT(st.rowScreenY(h) + ST::ROW_H + ST::FOOT_H <= st.viewBottom, "the footnote under row %d is in view", h);
+    }
+    st.setScroll(0);
+    st.highlight = ST::ROWS - 1;
+    st.handle(Key::BootShort, s);
+    st.handle(Key::BootShort, s);
+    EXPECT(st.highlight == 1, "wraps to the second row");
+  }
+  {  // BOOT works with a touch screen too: the first press shows the highlight
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    EXPECT(!st.showHighlight, "no highlight while touching");
+    st.handle(Key::BootShort, s);
+    EXPECT(st.showHighlight && st.highlight == 1, "BOOT shows it");
+    st.tap(midX(), midY(st, 1), s);
+    EXPECT(!st.showHighlight, "a touch hides it again");
+  }
+  {  // hold on every row does what a tap would
+    for (int target = 0; target < ST::ROWS; target++) {
+      ST st;
+      st.begin(false);
+      SettingsData s = defaults();
+      for (int i = 0; i < target; i++) st.handle(Key::BootShort, s);
+      const ST::Row& rw = ST::row(target);
+      const Res r = st.handle(Key::BootLong, s);
+      if (rw.kind == ST::RowKind::Back) {
+        EXPECT(r == Res::Exit && s == defaults(), "hold on Back leaves");
+      } else if (rw.kind == ST::RowKind::Toggle) {
+        EXPECT(r == Res::Changed && ST::toggleOn(s, rw.item) != ST::toggleOn(defaults(), rw.item) && st.page == ST::Page::List, "hold flips row %d", target);
+      } else {
+        EXPECT(r == Res::Nothing && st.page != ST::Page::List && st.item == rw.item && s == defaults(), "hold opens row %d", target);
+        if (rw.kind == ST::RowKind::Choice) EXPECT(st.choiceHl == ST::choiceIndex(s, rw.item), "a choice page starts on the current option");
+      }
+    }
+  }
+  {  // choice pages: press walks the options and wraps, hold chooses and goes back
+    for (int r = 0; r < ST::ROWS; r++) {
+      const ST::Row& rw = ST::row(r);
+      if (rw.kind != ST::RowKind::Choice) continue;
+      const int count = ST::choiceCount(rw.item);
+      for (int steps = 0; steps <= count; steps++) {
+        ST st;
+        st.begin(false);
+        SettingsData s = defaults();
+        for (int i = 0; i < r; i++) st.handle(Key::BootShort, s);
+        st.handle(Key::BootLong, s);
+        const int start = st.choiceHl;
+        for (int i = 0; i < steps; i++) EXPECT(st.handle(Key::BootShort, s) == Res::Nothing && s == defaults(), "moving the highlight changes nothing");
+        EXPECT(st.choiceHl == (start + steps) % count, "row %d: %d presses from %d -> %d", r, steps, start, st.choiceHl);
+        const int scroll = st.scroll;
+        const Res res = st.handle(Key::BootLong, s);
+        const bool same = (start + steps) % count == start;
+        EXPECT(res == (same ? Res::Nothing : Res::Changed) && ST::choiceIndex(s, rw.item) == (start + steps) % count, "row %d: hold chooses option %d", r, (start + steps) % count);
+        EXPECT(st.page == ST::Page::List && st.highlight == r && st.scroll == scroll && rowOnScreen(st, r), "and goes back to the row");
+      }
+    }
+  }
+  {  // level pages: press is + and wraps, hold goes back
+    ST st;
+    st.begin(false);
+    SettingsData s = defaults();
+    const int bright = rowOf(SettingItem::Brightness), zone = rowOf(SettingItem::TimeZone);
+    for (int i = 0; i < bright; i++) st.handle(Key::BootShort, s);
+    st.handle(Key::BootLong, s);
+    EXPECT(st.page == ST::Page::Brightness, "opened brightness");
+    EXPECT(st.handle(Key::BootShort, s) == Res::Changed && s.brightness == 10, "100 wraps to 10, got %d", s.brightness);
+    EXPECT(st.handle(Key::BootShort, s) == Res::Changed && s.brightness == 20, "then 20");
+    for (int i = 0; i < 8; i++) st.handle(Key::BootShort, s);
+    EXPECT(s.brightness == 100, "ten presses go round, %d", s.brightness);
+    EXPECT(st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::List && st.highlight == bright, "hold goes back");
+    for (int i = bright; i != zone; i = (i + 1) % ST::ROWS) st.handle(Key::BootShort, s);
+    st.handle(Key::BootLong, s);
+    EXPECT(st.page == ST::Page::TimeZone, "opened the time zone");
+    s.utcOffsetMin = settings::UTC_MAX;
+    EXPECT(st.handle(Key::BootShort, s) == Res::Changed && s.utcOffsetMin == settings::UTC_MIN, "UTC+14 wraps to UTC-12");
+    EXPECT(st.handle(Key::BootShort, s) == Res::Changed && s.utcOffsetMin == settings::UTC_MIN + 30, "then half an hour on");
+    EXPECT(st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::List && st.highlight == zone, "hold goes back");
+  }
+  {  // a full BOOT-only visit: every row, every page; nothing is missed, nothing is changed except on purpose
+    ST st;
+    st.begin(false);
+    SettingsData s = defaults();
+    bool opened[SETTING_ITEM_COUNT] = {};
+    for (int r = 0; r < ST::ROWS - 1; r++) {
+      const ST::Row& rw = ST::row(st.highlight);
+      EXPECT(st.highlight == r, "visiting row %d", r);
+      if (rw.kind == ST::RowKind::Toggle) {
+        st.handle(Key::BootLong, s);
+        st.handle(Key::BootLong, s);  // flip and flip back
+      } else {
+        st.handle(Key::BootLong, s);
+        opened[(int)st.item] = st.page != ST::Page::List;
+        st.handle(Key::Hold, s);  // the hold also backs out of a page
+        EXPECT(st.page == ST::Page::List, "back from row %d", r);
+      }
+      st.handle(Key::BootShort, s);
+    }
+    int pages = 0;
+    for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
+    EXPECT(pages == 6, "visited 6 pages (4 choices, brightness, time zone), got %d", pages);
+    EXPECT(s == defaults(), "a look round changes nothing");
+    EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
+    EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");
+  }
+  {  // Key::None, Left, Right, Center do nothing; nothing outside a page can leave a bad state
+    for (Key k : {Key::None, Key::Left, Key::Center, Key::Right}) {
+      ST st;
+      st.begin(true);
+      SettingsData s = defaults();
+      EXPECT(st.handle(k, s) == Res::Nothing && s == defaults() && st.page == ST::Page::List && st.scroll == 0, "key %d does nothing", (int)k);
+    }
+  }
+  printf("  settings BOOT: highlight walks and wraps, hold opens/flips/chooses, pages wrap\n");
 }
 
 // --- 10. first-boot setup ----------------------------------------------------------------
@@ -879,14 +1282,16 @@ static void testEndToEnd() {
     EXPECT(!back.setupDone && back.rotation == half.rotation, "half-finished setup asks again, keeps the screen");
   }
 
-  // The settings screen, BOOT only: item 4 (big number) twice -> predicted
+  // The settings screen, BOOT only: open Big number, move to Predicted, choose it, then walk down to Back and leave
   SettingsScreenState screen;
-  for (int i = 0; i < (int)SettingItem::Big; i++) screen.handle(Key::BootShort, s);
+  screen.begin(false);
+  for (int i = 0; i < screen.rowOfItem(SettingItem::Big); i++) screen.handle(Key::BootShort, s);
   screen.handle(Key::BootLong, s);
-  screen.handle(Key::BootLong, s);
+  for (int i = 0; i < 3 && screen.choiceHl != (int)BigNumber::Predicted; i++) screen.handle(Key::BootShort, s);
+  EXPECT(screen.handle(Key::BootLong, s) == SettingsScreenState::Result::Changed, "choosing a different big number is a change");
   EXPECT(s.bigNumber == BigNumber::Predicted, "big number set to predicted, got %d", (int)s.bigNumber);
-  for (int i = (int)SettingItem::Big; i < SETTING_ITEM_COUNT; i++) screen.handle(Key::BootShort, s);
-  EXPECT(screen.donePage() && screen.handle(Key::BootLong, s) == SettingsScreenState::Result::Exit, "leave from the done page");
+  for (int i = screen.highlight; i < SettingsScreenState::ROWS - 1; i++) screen.handle(Key::BootShort, s);
+  EXPECT(screen.highlight == SettingsScreenState::ROWS - 1 && screen.handle(Key::BootLong, s) == SettingsScreenState::Result::Exit, "leave from the Back row");
   sanitize(s);
   EXPECT(s.bigNumber == BigNumber::Predicted && s.setupDone, "saved");
 
@@ -957,10 +1362,15 @@ int main() {
   testNeedsRestartAndGps();
   testConversions();
   testBigNumber();
-  testSettingsScreen();
+  testSettingsLayout();
+  testSettingsHitTesting();
+  testSettingsScroll();
+  testSettingsPages();
+  testSettingsLevels();
+  testSettingsBoot();
   testSetup();
   testEndToEnd();
-  printf("\n%d checks in 12 groups\n", checks);
+  printf("\n%d checks in 17 groups\n", checks);
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

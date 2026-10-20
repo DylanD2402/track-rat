@@ -19,6 +19,7 @@
 #include "LapTimer.h"
 #include "PerfRun.h"
 #include "SettingsData.h"
+#include "SettingsFlow.h"
 #include "TrackDatabase.h"
 
 struct RunningOverlay {
@@ -86,8 +87,8 @@ public:
 
   // Settings (DisplaySettings.cpp). The screen turns round at once when the Screen setting changes.
   void setRotation(uint8_t r);
-  // One item at a time; item == SETTING_ITEM_COUNT is the "done" page. localMs: local time of day, or -1.
-  void drawSettings(const SettingsData& s, int item, bool touchOk, int64_t localMs);
+  // The scrolling list, or the page of one setting, as ui says. localMs: local time of day, or -1.
+  void drawSettings(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs);
   // First boot: step 0 asks which way up (highlight 0 = the left arrow, 1 = the right), step 1 km/h or mph.
   void drawSetup(int step, int highlight, bool touchOk);
 
@@ -132,6 +133,12 @@ private:
   void runningOverlays(const GPSHandler& gps, uint32_t holdMs, const RunningOverlay* ov = nullptr);
   String runningTitle(const Track& track, const LapTimer& timer);
   void footerButtons(const char* left, const char* center, const char* right);
+  // Settings (DisplaySettings.cpp)
+  void settingsList(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
+  void settingsChoicePage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
+  void settingsLevelPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs);
+  void settingsHint(const char* line);
+  void wrappedCaption(const char* note, int x, int y, int maxW, uint16_t color, bool center);
   void button(int x, int y, int w, int h, const char* label, bool primary, bool highlight = false);
   void holdBar(uint32_t holdMs, const char* what);  // progress while the screen is held
   // Centred on the screen; a Title too wide for the screen drops to Body, then is shortened

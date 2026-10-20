@@ -10,6 +10,7 @@
 static const int SCREEN_W = 320;
 static const int SCREEN_H = 240;
 static const uint32_t TAP_MAX_MS = 800;
+static const int DRAG_PX = 12;  // a finger that moves further than this is dragging, not tapping
 
 void InputManager::begin() {
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
@@ -122,15 +123,22 @@ InputEvent InputManager::poll() {
   if (pressed && !touching) {
     touching = true;
     holdFired = false;
+    dragged = false;
     touchStart = now;
-    startX = x;
-    startY = y;
-  } else if (pressed && touching && !holdFired && now - touchStart >= END_SESSION_HOLD_MS) {
-    holdFired = true;
-    return InputEvent::Hold;
+    startX = curX = x;
+    startY = curY = y;
+  } else if (pressed && touching) {
+    curX = x;
+    curY = y;
+    if (abs(x - startX) > DRAG_PX || abs(y - startY) > DRAG_PX) dragged = true;
+    if (!holdFired && !dragged && now - touchStart >= END_SESSION_HOLD_MS) {
+      holdFired = true;
+      return InputEvent::Hold;
+    }
   } else if (!pressed && touching) {
     touching = false;
-    if (!holdFired && now - touchStart <= TAP_MAX_MS) {
+    if (!holdFired && !dragged && now - touchStart <= TAP_MAX_MS) {
+      tapX = startX;
       tapY = startY;
       if (startY < 30) return InputEvent::TapHeader;  // the top bar
       if (startX < SCREEN_W / 3) return InputEvent::TapLeft;
@@ -142,6 +150,6 @@ InputEvent InputManager::poll() {
 }
 
 uint32_t InputManager::touchHeldMs() const {
-  if (!touching || holdFired) return 0;
+  if (!touching || holdFired || dragged) return 0;
   return millis() - touchStart;
 }
