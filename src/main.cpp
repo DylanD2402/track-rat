@@ -858,6 +858,7 @@ static void onPitEvent(PitWatch::Event ev) {
       lastRender = 0;
       break;
     case PitWatch::Event::SessionOver:
+      if (lapTimer.isStage()) break;  // waiting in line between runs: the day's runs stay one session
       DEBUG_PRINTF("Parked for %lu min - session %d ended; driving off starts the next\n",
                    (unsigned long)(SESSION_RESUME_MS / 60000), sessionNumber);
       enterState(AppState::Summary);
@@ -1108,7 +1109,7 @@ static void handleInput(InputEvent ev) {
         else pitView = false;
         lastRender = 0;
       }
-      else if (slowWatch.slow()) {  // the slow screen has no other view: the screen follows the situation
+      else if (slowWatch.slow() && !(lapTimer.isStage() && lapTimer.lapRunning())) {  // the slow screen has no other view
       } else if (ev == InputEvent::BootShort ||  // a press, or a tap that isn't a bump while moving: switch view
                timing::tapSwitchesView(gps.hasFix(), gps.lastFix().speedKmh, input.lastTapMs())) {
         showMap = !showMap;
@@ -1272,7 +1273,7 @@ static void render() {
         display.drawSummary(selectedTrack(), lapTimer,
                             sessionPath.length() || sessionLog.length() == 0 ? sessionPath : sessionBase + ".vbo",
                             sessionNumber, true);
-      else if (slowWatch.slow() && !overlay.showLap)  // slow, or in the pit lane (the lap flash still shows)
+      else if (slowWatch.slow() && !overlay.showLap && !(lapTimer.isStage() && lapTimer.lapRunning()))  // slow, or in the pit lane (the lap flash still shows; never mid-run on a stage)
         display.drawSlow(selectedTrack(), lapTimer, gps, inPitLane, input.touchHeldMs());
       else if (showMap) display.drawRunningMap(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       else display.drawRunning(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
@@ -1327,7 +1328,10 @@ static void autoPickTrack() {
   int nearest = trackDB.findNearest(gps.lastFix().lat, gps.lastFix().lon, TRACK_DETECTION_RADIUS_M, &dist);
   if (nearest >= 0) {
     selectedIndex = nearest;
-    if (gps.lastFix().speedKmh >= AUTO_START_KMH) {
+    if (selectedTrack().stage) {  // a stage: timing from now, so the first run's standing start is caught
+      DEBUG_PRINTF("Nearest track: %s (%.0f m) - a stage, timing runs\n", selectedTrack().name.c_str(), dist);
+      enterState(AppState::Running);
+    } else if (gps.lastFix().speedKmh >= AUTO_START_KMH) {
       DEBUG_PRINTF("Nearest track: %s (%.0f m) - already moving, starting a session\n", selectedTrack().name.c_str(), dist);
       enterState(AppState::Running);
     } else {

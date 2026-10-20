@@ -234,6 +234,8 @@ Sizes are relative: S small, M medium, L large.
 - Each run counts as a lap: best run, live delta to it, sector colours.
 - **NEW COURSE** makes a stage named with the date, since autocross courses change at every event.
 
+**Status: done** (2026-10-20, commit COMMIT). NEW COURSE is **Course** on the NEW TRACK screen (the menu has no room for a seventh button).
+
 **4.3 Acceleration and braking runs (M)**
 
 - A mode showing big speed, armed while stopped: 0–100 km/h (or 0–60 mph), 100–200 km/h, ⅛ and ¼ mile with trap speed, and 100–0 braking distance. Starts on movement, with an optional 1-foot rollout (the US drag-strip convention). A result card for each run, and a history.
