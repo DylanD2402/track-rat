@@ -48,6 +48,24 @@ inline void stamp(int y, int mo, int d, int h, int mi, int s, int offsetMin, cha
            (int)(secs % 60));
 }
 
+// Milliseconds since 1970-01-01 UTC for a GPS date and time of day
+inline int64_t unixMs(int y, int mo, int d, uint32_t msOfDay) {
+  return (int64_t)daysFromCivil(y, mo, d) * 86400000LL + msOfDay;
+}
+
+// The POSIX TZ string for a fixed offset (minutes east of UTC): "UTC0",
+// "LT+4" for -240, "LT-5:30" for 330. POSIX counts west as positive.
+inline void posixTz(int offsetMin, char* buf, size_t len) {
+  if (offsetMin == 0) {
+    snprintf(buf, len, "UTC0");
+    return;
+  }
+  const int west = -offsetMin;
+  const int a = west < 0 ? -west : west;
+  if (a % 60) snprintf(buf, len, "LT%c%d:%02d", west < 0 ? '-' : '+', a / 60, a % 60);
+  else snprintf(buf, len, "LT%c%d", west < 0 ? '-' : '+', a / 60);
+}
+
 }  // namespace localtime_
 
 #endif  // LOCAL_TIME_H

@@ -21,6 +21,7 @@
  */
 
 #include <Arduino.h>
+#include <sys/time.h>
 #include "AutoStart.h"
 #include "BestLapStore.h"
 #include "Config.h"
@@ -36,6 +37,7 @@
 #include "Imu.h"
 #include "InputManager.h"
 #include "LedBar.h"
+#include "LocalTime.h"
 #include "LapTimer.h"
 #include "LogWriter.h"
 #include "Power.h"
@@ -111,6 +113,7 @@ static bool haveCameraFix = false;
 // for SYNC_FLASH_MS, for a camera to film; its GPS time goes into the summary
 static uint32_t syncUntil = 0;  // millis() it ends; 0: not showing
 static void startSyncFlash();
+static void setClockFromGps(const GpsFix& f);
 static String gpsTimeAt(const GpsFix& f, uint32_t at);
 static String sessionStamp;
 // Lap-timing and Free Roam sessions: every fix goes to a .vbo log (SD card)
@@ -1050,6 +1053,12 @@ static void applySettings() {
   RaceBoxBle::setEnabled(s.bluetooth);
 #endif
   gps.setUtcOffsetMinutes(s.utcOffsetMin);
+  {  // the system clock's zone: the SD card's file dates are local time
+    char tz[16];
+    localtime_::posixTz(s.utcOffsetMin, tz, sizeof(tz));
+    setenv("TZ", tz, 1);
+    tzset();
+  }
   LedBar::setBlueOrange(s.deltaColours == DeltaColours::BlueOrange);
   lastRender = 0;
 }
@@ -1529,7 +1538,7 @@ static void offerFirmwareUpdate() {
   char modified[24] = "";
   if (offer.modified > 0) {
     struct tm t;
-    gmtime_r(&offer.modified, &t);  // FAT stores local time, so no zone conversion
+    localtime_r(&offer.modified, &t);  // back to the local time FAT stores
     strftime(modified, sizeof(modified), "%Y-%m-%d %H:%M", &t);
   }
   display.drawFirmwarePrompt(modified, offer.size, input.touchAvailable());
@@ -1630,6 +1639,27 @@ static String gpsTimeAt(const GpsFix& f, uint32_t at) {
   return String(b);
 }
 
+// The system clock from the GPS. The SD card's file dates come from it: never
+// set, every file was dated 1980. Set at the first fix with a date, then again
+// if it drifts by more than CLOCK_RESYNC_MS (checked once a minute)
+static void setClockFromGps(const GpsFix& f) {
+  static bool set = false;
+  static uint32_t lastCheck = 0;
+  const uint32_t now = millis();
+  if (f.year < 2024 || (set && now - lastCheck < 60000)) return;
+  lastCheck = now;
+  const int64_t gpsMs = localtime_::unixMs(f.year, f.month, f.day, f.gpsTimeMs) + (int32_t)(now - f.rxMillis);
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  const int64_t clockMs = (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+  if (set && llabs(gpsMs - clockMs) < CLOCK_RESYNC_MS) return;
+  tv.tv_sec = (time_t)(gpsMs / 1000);
+  tv.tv_usec = (suseconds_t)(gpsMs % 1000) * 1000;
+  settimeofday(&tv, nullptr);
+  if (!set) DEBUG_PRINTF("Clock set from GPS: %04u-%02u-%02u\n", f.year, f.month, f.day);
+  set = true;
+}
+
 // SYNC: noted with the session (its summary) at the moment it appears
 static void startSyncFlash() {
   if (!haveCameraFix) return;  // no GPS time to show
@@ -1668,6 +1698,7 @@ void loop() {
 #if BLE_ENABLED
     RaceBoxBle::sendFix(fix, gps);
 #endif
+    setClockFromGps(fix);
     CameraBle::onFix(fix, gps.hasFix());
     CameraBle::setRecording(cameraFollow.update(state == AppState::Running, pitWatch.parked(), fix.speedKmh));
     cameraFix = fix;

@@ -136,6 +136,7 @@
 #define CAMERA_SCAN_S 10
 #define CAM_REC_BLINK_MS 700        // the camera's REC tag blinks red this slowly (on, then off)
 #define CAM_ASK_SHOW_MS 3000         // after a tap on the camera's tag: "REC..." until its status follows, at most this long
+#define CLOCK_RESYNC_MS 2000         // the system clock (file dates on the card) is set again from GPS if this far off
 #define SYNC_FLASH_MS 3000           // the SYNC flash for lining up a video (tap the summary's top bar)
 #define DJI_HOUR_OFFSET 8            // DJI's demo sends the hour + 8 (China time). 0 if the video's GPS times come out 8 h ahead
 

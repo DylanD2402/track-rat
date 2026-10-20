@@ -29,6 +29,23 @@ int main() {
   expect(2026, 7, 1, 12, 0, 0, -150, "20260701_093000", "Newfoundland summer");
   expect(2026, 7, 1, 12, 0, 0, 840, "20260702_020000", "UTC+14");
   expect(2026, 7, 1, 12, 0, 0, -720, "20260701_000000", "UTC-12");
+  // The system clock's time and zone (for the SD card's file dates)
+  {
+    char tz[16];
+    const struct { int off; const char* want; } zones[] = {
+        {0, "UTC0"}, {-240, "LT+4"}, {-300, "LT+5"}, {-150, "LT+2:30"}, {330, "LT-5:30"}, {60, "LT-1"}, {840, "LT-14"}, {-720, "LT+12"}};
+    for (const auto& z : zones) {
+      localtime_::posixTz(z.off, tz, sizeof(tz));
+      if (strcmp(tz, z.want) != 0) {
+        printf("FAIL posixTz(%d) = %s, want %s\n", z.off, tz, z.want);
+        failures++;
+      }
+    }
+    if (localtime_::unixMs(1970, 1, 1, 0) != 0 || localtime_::unixMs(2026, 10, 20, 68414600) != 1792522814600LL) {
+      printf("FAIL unixMs\n");
+      failures++;
+    }
+  }
   for (int y = 2020; y <= 2100; y++) {  // round trip of every day
     for (int day = 0; day < 366; day++) {
       int32_t z = localtime_::daysFromCivil(y, 1, 1) + day;
