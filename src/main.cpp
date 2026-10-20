@@ -348,6 +348,8 @@ static void buildDebrief() {
       const bool mph = Settings::get().units == SpeedUnits::Mph;
       for (size_t k = 0; k < d.r.top.size(); k++) {
         const int s = d.r.top[k];
+        // The kept path must be from the lap the debrief names (a lap tagged slow later isn't)
+        if (lapTimer.sectorBestMs(s) != d.r.best[s].ms) continue;
         const int32_t from = s == 0 ? 0 : gates[s - 1];
         const int32_t to = s < (int)gates.size() ? gates[s] : (int32_t)d.r.bestMs;
         debrief::Trace mine = debrief::slice(lapTimer.bestPath(), from, to);

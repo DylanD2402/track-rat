@@ -19,6 +19,7 @@
 #include "RaceBoxBle.h"
 #include "Settings.h"
 #include "Storage.h"
+#include "Sectors.h"
 #include "UiTheme.h"
 #include "track_data.h"  // TRACK_NAME, TRACK_LOCATION, TRACK_LENGTH_M, SF_LAT, SF_LON, TRACK_PTS (lat, lon pairs)
 
@@ -220,6 +221,18 @@ int main(int argc, char** argv) {
   drive(-60);
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "08_running_outlap");
+  drive(loop.length + 20);  // lap 1 done: corner sectors from it, as the firmware makes them
+  {
+    std::vector<sectors::PathPt> p;
+    for (const LapTimer::TracePt& tp : timer.bestPath()) p.push_back({tp.x, tp.y, tp.t, tp.speedKmh});
+    std::vector<TrackPoint> gates;
+    for (const sectors::Cut& c : sectors::findCuts(p)) {
+      TrackPoint g = {0, 0, 15, c.headingDeg, HeadingFrom::Set};
+      geo::fromLocal(c.x, c.y, track.startFinish.lat, track.startFinish.lon, g.lat, g.lon);
+      gates.push_back(g);
+    }
+    timer.setSectors(gates);
+  }
   drive(loop.length * 2 + 900);  // into lap 3, on a faster pace than lap 2
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "09_running_ahead");
@@ -275,6 +288,49 @@ int main(int argc, char** argv) {
   save(d, "17_summary");
   d.drawSummary(track, timer, "/sessions/20261019_093012_calabogie.json", 2, true);
   save(d, "17b_in_the_pits");
+  {  // The debrief, worked out as main.cpp's buildDebrief does
+    std::vector<debrief::LapIn> laps;
+    for (size_t i = 0; i < timer.lapCount(); i++)
+      laps.push_back({timer.lap(i).number, timer.lap(i).timeMs, timer.lap(i).tags, timer.lap(i).sectorMs});
+    DebriefView dv;
+    dv.r = debrief::analyse(laps, timer.sectorGates().size() + 1);
+    dv.session = 2;
+    dv.lastSession = 1;
+    dv.lastBestMs = dv.r.bestMs + 1040;
+    dv.lastToday = true;
+    dv.allTimeTheoreticalMs = dv.r.theoreticalMs - 420;
+    if (dv.r.valid && timer.bestPathLapIndex() == dv.r.bestIndex) {
+      const std::vector<int32_t>& g = timer.lap(dv.r.bestIndex).sectorMs;
+      for (size_t k = 0; k < dv.r.top.size(); k++) {
+        int s = dv.r.top[k];
+        if (timer.sectorBestMs(s) != dv.r.best[s].ms) continue;
+        int32_t from = s == 0 ? 0 : g[s - 1], to = s < (int)g.size() ? g[s] : (int32_t)dv.r.bestMs;
+        dv.hints[k] = debrief::hintText(debrief::hint(debrief::slice(timer.bestPath(), from, to),
+                                                      debrief::slice(timer.sectorBestPath(s), INT32_MIN, INT32_MAX)));
+      }
+    }
+    // The made-up laps all have the same shape, so nothing is lost anywhere: show three
+    // sectors with made-up losses (as from laps 3 and 4), still adding up
+    const int32_t loss[3] = {310, 220, 170};
+    const char* hint[3] = {"braked 8 m early", "4 km/h slower at the apex", "3 km/h slower on exit"};
+    if (dv.r.valid && dv.r.top.empty() && dv.r.sectors >= 4) {
+      const int which[3] = {1, 3, (int)dv.r.sectors - 1};
+      for (int k = 0; k < 3; k++) {
+        dv.r.best[which[k]].ms -= loss[k];
+        dv.r.best[which[k]].lap = k == 1 ? 4 : 3;
+        dv.r.gaps[which[k]] += loss[k];
+        dv.r.theoreticalMs -= loss[k];
+        dv.r.top.push_back(which[k]);
+        dv.hints[k] = hint[k];
+      }
+    }
+    printf("render_screens: debrief %s, %zu sectors, top %zu\n", dv.r.valid ? "valid" : "NOT valid", dv.r.sectors,
+           dv.r.top.size());
+    d.drawDebrief(track, timer, dv, 0);
+    save(d, "17c_debrief");
+    d.drawDebrief(track, timer, dv, 1);
+    save(d, "17d_debrief_laps_sectors");
+  }
 
   // --- Free Roam ---
   FreeRoam fr;

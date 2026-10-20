@@ -156,6 +156,8 @@ public:
 
   // For the debrief (Debrief.h): the path through each corner sector of the
   // clean lap with the best time there, and that time (-1 / empty if none).
+  // "Clean" when the lap was completed: a lap tagged slow later still counts
+  // here, so check the time against the debrief's before using the path.
   const std::vector<TracePt>& sectorBestPath(size_t sector) const;
   int32_t sectorBestMs(size_t sector) const { return sector < sectorBest.size() ? sectorBest[sector] : -1; }
   bool usingStoredReference() const;

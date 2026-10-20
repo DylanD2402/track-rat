@@ -94,7 +94,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 **At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically. If you're already moving (20 km/h or more), the session starts at once. If you're parked, you get that track's Ready screen, and the session starts by itself when you drive off (20 km/h for 2 seconds). Until then **MENU** (or pressing BOOT) takes you to the main menu, so a track made at home doesn't trap you in a session. Timing begins the first time you cross the start/finish line; everything before that is the out lap.
 
-**Sessions run themselves.** Park (under 5 km/h) for a minute and you're in the pits: the session's summary comes up, with its laps and their tags. Drive off again within 10 minutes of stopping (a red flag, a quick check) and the same session carries on, back on the timing screen. Stay parked longer and the session ends; the next time you drive off at the track, Session 2 starts by itself, then 3, and so on (leaving the track doesn't start one). Sessions are numbered per track and per local day, and the count is kept in flash, so the first run after a power cut is the next session too. Holding the screen still ends a session at any time.
+**Sessions run themselves.** Park (under 5 km/h) for a minute and you're in the pits: the [debrief](#the-pit-debrief) comes up (or, before there are corner sectors, the session's summary with its laps and their tags). Drive off again within 10 minutes of stopping (a red flag, a quick check) and the same session carries on, back on the timing screen. Stay parked longer and the session ends; the next time you drive off at the track, Session 2 starts by itself, then 3, and so on (leaving the track doesn't start one). Sessions are numbered per track and per local day, and the count is kept in flash, so the first run after a power cut is the next session too. Holding the screen still ends a session at any time.
 
 **Away from a track:** you get a menu:
 
@@ -117,7 +117,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | GPS Status (top bar of the menu or track list) | tap: back | press: back |
 | Ready | centre: start, left: menu (back, if you came from the track list), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from the track list) |
 | Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
-| In the pits (parked a minute while timing) | tap: back to the timing screen, hold 2 s: end; driving off goes back by itself | press: timing screen, hold 1 s: end |
+| In the pits (parked a minute while timing): the debrief | tap: second page, then the timing screen, hold 2 s: end; driving off goes back by itself | press: the same as a tap, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
 | Performance | left: rollout / demo, centre: results, right: menu, hold 2 s: menu | press: next screen, hold 1 s: menu |
@@ -147,6 +147,16 @@ When you complete a lap, its time shows full-screen for 4 s: purple for a new pe
 Whichever is picked, a quicker lap in this session takes over as the reference. Only clean laps (no [tags](#using-it)) become a PB or the best of the day. Moving the start/finish line more than 5 m (SET LINE) starts the PB again, as times at another line can't be compared.
 
 The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
+
+### The pit debrief
+
+When you park, the screen answers "where's the time?":
+
+- **Best lap, theoretical best and the gap** ("0.70 s on the table"). The theoretical best is the sum of your best time in each corner sector this session. Underneath: how many laps were used (clean laps timed through every sector; tagged laps are left out) and the theoretical best ever at this track (layout).
+- **The three sectors where your best lap lost the most** against your best in that sector, marked 1, 2, 3 on the map, each with the lap the best came from and one hint from comparing the two laps' GPS speed through it: **braked 8 m early**, **4 km/h slower at the apex** (the slowest point) or **3 km/h slower on exit**, whichever cost the most. The losses in every sector add up exactly to the gap.
+- **Tap** for the second page: every lap with its tag, every sector's best time with the lap it came from and what your best lap lost there, and this session against the last one here ("Best 1.04 s quicker than session 1"). Tap again for the timing screen; driving off goes back to it by itself.
+
+The best sector times ever and the last session's best are kept in `/tracks/<track id>/stats.json`, next to the [best laps](#session-logs). Sector times set through other gates (sectors made again after SET LINE) start afresh.
 
 **Corner sectors.** After your first clean lap at a track, Track Rat cuts that lap into sectors, one per corner or complex: each starts at the fastest point before a braking zone, so it holds the braking, the corner and the straight after it, and a good exit counts for the corner that earned it. Braking zones closer than 3 s are joined (a chicane is one sector), and a fast sweeper you take flat out isn't one. They're numbered T1, T2 and so on from the line, saved with the track in `tracks.json` (`"sectors"`) when the session ends, and every lap after is timed through them. Your own splits stay separate, as S1, S2... Moving the start/finish line (SET LINE) makes them again from the next clean lap; to make them again otherwise, delete the track's `"sectors"` from `tracks.json`.
 
@@ -603,6 +613,12 @@ It checks that the timer:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
+```
+
+`test/test_debrief.cpp` checks the theoretical best and the debrief: sector times from the gates (none for a lap that missed one), the best in each sector from clean laps only and the lap it came from, gaps that add up exactly to best lap minus theoretical best, the three biggest, the all-time bests (ignored when the gates have moved), the three kinds of hint from speed traces (and none when the lap was as good), and the per-sector paths the lap timer keeps for them:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_debrief.cpp src/LapTimer.cpp -o /tmp/db && /tmp/db
 ```
 
 `test/test_sectors.cpp` builds a synthetic track with known corners (a hairpin, 90° and 45° corners, a flat-out sweeper), drives it with a realistic speed profile, and checks that each braking corner gets a cut just before its braking zone and the sweeper doesn't; that a chicane is joined, a lift doesn't cut, and nothing lands within 3 s of the line; and that laps through the real lap timer get sector times at the cuts, apart from the splits, with the gates in the VBO as T1, T2...:

@@ -58,9 +58,9 @@ inline std::vector<int32_t> sectorTimes(uint32_t lapMs, const std::vector<int32_
   return out;
 }
 
-struct SectorBest {
-  int32_t ms = -1;  // -1: none
-  uint16_t lap = 0;  // the lap it came from
+struct SectorBest {  // a plain aggregate: the firmware builds as C++11
+  int32_t ms;    // -1: none
+  uint16_t lap;  // the lap it came from
 };
 
 struct Result {
@@ -79,7 +79,7 @@ struct Result {
 inline Result analyse(const std::vector<LapIn>& laps, size_t sectors) {
   Result r;
   r.sectors = sectors;
-  r.best.assign(sectors, SectorBest());
+  r.best.assign(sectors, SectorBest{-1, 0});
   for (size_t i = 0; i < laps.size(); i++) {
     const LapIn& l = laps[i];
     std::vector<int32_t> st = sectorTimes(l.timeMs, l.gateMs, sectors);
@@ -170,8 +170,8 @@ Trace slice(const std::vector<Pt>& path, int32_t fromMs, int32_t toMs) {
 
 enum class HintKind { None, Braking, MinSpeed, Exit };
 struct Hint {
-  HintKind kind = HintKind::None;
-  float value = 0;  // Braking: m earlier (+) than the best; MinSpeed / Exit: km/h slower (+)
+  HintKind kind;
+  float value;  // Braking: m earlier (+) than the best; MinSpeed / Exit: km/h slower (+)
 };
 
 // Where braking starts: the first point after the sector's fastest point
@@ -198,7 +198,7 @@ inline float minSpeed(const Trace& t) {
 // through the corner or onto the next straight. None if neither trace
 // says anything, or `mine` wasn't worse at any of them.
 inline Hint hint(const Trace& mine, const Trace& best) {
-  Hint h;
+  Hint h = {HintKind::None, 0};
   if (mine.speedKmh.size() < 3 || best.speedKmh.size() < 3) return h;
   float score = 0;
   const float bm = brakingPoint(mine), bb = brakingPoint(best);
@@ -216,19 +216,19 @@ inline Hint hint(const Trace& mine, const Trace& best) {
     score = dExit / 2.0f;
     h = {HintKind::Exit, dExit};
   }
-  if (score < 0.5f) h = Hint();  // under 2.5 m or 1 km/h: nothing worth saying
+  if (score < 0.5f) h = {HintKind::None, 0};  // under 2.5 m or 1 km/h: nothing worth saying
   return h;
 }
 
-// "braked 8 m earlier", "4 km/h slower at the slowest point", "3 km/h slower at the exit"
+// "braked 8 m early", "4 km/h slower at the apex" (the slowest point), "3 km/h slower on exit"
 inline std::string hintText(const Hint& h, bool mph = false) {
   char buf[48];
   const float v = mph ? h.value / 1.609344f : h.value;
   const char* unit = mph ? "mph" : "km/h";
   switch (h.kind) {
-    case HintKind::Braking: snprintf(buf, sizeof(buf), "braked %.0f m earlier", h.value); break;
-    case HintKind::MinSpeed: snprintf(buf, sizeof(buf), "%.0f %s slower at the slowest point", v, unit); break;
-    case HintKind::Exit: snprintf(buf, sizeof(buf), "%.0f %s slower at the exit", v, unit); break;
+    case HintKind::Braking: snprintf(buf, sizeof(buf), "braked %.0f m early", h.value); break;
+    case HintKind::MinSpeed: snprintf(buf, sizeof(buf), "%.0f %s slower at the apex", v, unit); break;
+    case HintKind::Exit: snprintf(buf, sizeof(buf), "%.0f %s slower on exit", v, unit); break;
     default: return std::string();
   }
   return buf;

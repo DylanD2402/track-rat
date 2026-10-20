@@ -20,7 +20,8 @@ static String secs(int32_t ms) { return String(debrief::seconds(ms).c_str()); }
 void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, const DebriefView& d, int page) {
   beginFrame();
   const debrief::Result& r = d.r;
-  String title = d.session > 0 ? "Pits   ·   Session " + String(d.session) : String("In the pits");
+  String title = d.session > 0 ? "Session " + String(d.session) : String("In the pits");
+  if (page == 0 && d.session > 0) title = "Pits   ·   " + title;
   header(title + "   ·   " + (page == 0 ? track.displayName() : String("laps and sectors")), nullptr);
   char buf[64];
 
@@ -39,11 +40,12 @@ void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, cons
     text(fit(used, Font::Caption, W - 20), 10, y + 46, Font::Caption, C_TEXT3);
 
     // The best lap's path, with the sectors that cost the most marked 1, 2, 3
-    const int my = HEADER_H + 66, mh = 116, mw = 148;
+    const int my = HEADER_H + 66, mh = 116, mw = 130;
     std::vector<MapMark> marks;
     const std::vector<LapTimer::TracePt>& path = timer.bestPath();
     const bool pathIsBest = timer.bestPathLapIndex() == r.bestIndex;
-    if (pathIsBest && r.bestIndex >= 0 && r.bestIndex < (int)timer.lapCount()) {
+    if (pathIsBest && r.bestIndex >= 0 && r.bestIndex < (int)timer.lapCount() &&
+        timer.lap(r.bestIndex).sectorMs.size() + 1 == r.sectors) {
       const std::vector<int32_t>& gates = timer.lap(r.bestIndex).sectorMs;
       for (size_t k = 0; k < r.top.size(); k++) {
         const int s = r.top[k];
@@ -63,7 +65,7 @@ void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, cons
 
     // The three sectors, biggest loss first
     int ry = my + 2;
-    const int rx = 160;
+    const int rx = 140;
     if (r.top.empty()) {
       text("Nothing lost in any sector:", rx, ry + 8, Font::Body, C_TEXT);
       text("your best lap is your", rx, ry + 28, Font::Body, C_TEXT);
@@ -98,7 +100,9 @@ void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, cons
     text(tag, 100, y, Font::Caption, best ? C_GREEN : laptags::suspect(l.tags) ? C_ORANGE : C_YELLOW);
   }
   gfx->drawFastVLine(156, top, rows * rowH + 12, C_LINE);
-  label("SECTOR   BEST     LAP   GAP", 164, top);
+  label("BEST", 196, top);
+  label("LAP", 246, top);
+  label("LOST", 274, top);
   y = top + 14;
   for (size_t s = 0; s < r.sectors && (int)s < rows; s++, y += rowH) {
     snprintf(buf, sizeof(buf), "T%u", (unsigned)(s + 1));

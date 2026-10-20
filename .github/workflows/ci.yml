@@ -54,6 +54,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_trackorder.cpp -o /tmp/to && /tmp/to
       - name: test_bestlap
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_bestlap.cpp src/LapTimer.cpp -o /tmp/bl && /tmp/bl
+      - name: test_debrief
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_debrief.cpp src/LapTimer.cpp -o /tmp/db && /tmp/db
       - name: test_sectors
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_sectors.cpp src/LapTimer.cpp src/VboFormat.cpp -o /tmp/sec && /tmp/sec
       - name: test_sessions
