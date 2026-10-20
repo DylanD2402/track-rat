@@ -51,6 +51,7 @@ static SettingsData randomSettings() {
   d.bigNumber = (BigNumber)(testRand() % 3);
   d.gpsMode = (GpsMode)(testRand() % 2);
   d.deltaColours = (DeltaColours)(testRand() % 2);
+  d.sessionLength = (uint8_t)(testRand() % 4);
   d.bluetooth = testRand() & 1;
   d.utcOffsetMin = (int16_t)(15 * (testRand() % 105 - 48));  // -720..840 in quarter hours
   d.recordRoadDrives = testRand() & 1;
@@ -95,6 +96,7 @@ static void testDefaults() {
   EXPECT(d.compareTo == (CompareTo)DEFAULT_COMPARE_TO, "compareTo");
   EXPECT(d.bigNumber == (BigNumber)DEFAULT_BIG_NUMBER, "bigNumber");
   EXPECT(d.deltaColours == (DeltaColours)DEFAULT_DELTA_COLOURS, "deltaColours");
+  EXPECT(d.sessionLength == DEFAULT_SESSION_LENGTH, "sessionLength");
   EXPECT(d.gpsMode == (GPS_TARGET_RATE_HZ >= 20 ? GpsMode::Fast20 : GpsMode::AllSystems10), "gpsMode");
   EXPECT(d.bluetooth == (BLE_ENABLED != 0), "bluetooth");
   EXPECT(d.utcOffsetMin == DEFAULT_UTC_OFFSET_MIN, "utc offset %d", d.utcOffsetMin);
@@ -157,9 +159,10 @@ static void testSanitize() {
     d.bigNumber = (BigNumber)v;
     d.gpsMode = (GpsMode)v;
     d.deltaColours = (DeltaColours)v;
+    d.sessionLength = (uint8_t)(v + 1);
     sanitize(d);
     EXPECT(d.compareTo == def.compareTo && d.bigNumber == def.bigNumber && d.gpsMode == def.gpsMode &&
-               d.deltaColours == def.deltaColours,
+               d.deltaColours == def.deltaColours && d.sessionLength == def.sessionLength,
            "enums %d: %d %d %d", v, (int)d.compareTo, (int)d.bigNumber, (int)d.gpsMode);
   }
   for (int v = 0; v <= 2; v++) {  // good values stay
@@ -394,6 +397,12 @@ static void testValueText() {
   d.bigNumber = BigNumber::LapTime;
   EXPECT(text(d, SettingItem::Big) == "Lap time", "big text");
   d.gpsMode = GpsMode::Fast20;
+  for (int i = 0; i < 4; i++) {
+    d.sessionLength = (uint8_t)i;
+    EXPECT(text(d, SettingItem::SessionLen) == (i ? std::to_string(15 + 5 * i) + " min" : std::string("Off")), "session %d", i);
+    EXPECT(sessionMinutes(d) == (i ? 15 + 5 * i : 0), "minutes %d", i);
+  }
+  d.sessionLength = 0;
   d.deltaColours = DeltaColours::GreenRed;
   EXPECT(text(d, SettingItem::Colours) == "Green / red", "colours text");
   d.deltaColours = DeltaColours::BlueOrange;
@@ -453,6 +462,7 @@ static void testJson() {
   d.compareTo = CompareTo::Ever;
   d.bigNumber = BigNumber::Predicted;
   d.deltaColours = DeltaColours::BlueOrange;
+  d.sessionLength = 2;
   d.gpsMode = GpsMode::AllSystems10;
   d.bluetooth = false;
   d.utcOffsetMin = -330;
@@ -461,7 +471,7 @@ static void testJson() {
   char buf[400];
   size_t len = toJson(d, buf, sizeof(buf));
   std::string want = std::string("{\"units\":\"mph\",\"upsideDown\":true,\"brightness\":70,\"compareTo\":\"ever\",") +
-                     "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
+                     "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"sessionMin\":\"25\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
                      "\"recordRoadDrives\":false,\"bluetoothBuilt\":" + (BLE_ENABLED ? "true" : "false") + "}";
   EXPECT(len == strlen(buf) && len > 0, "length %zu vs strlen %zu", len, strlen(buf));
   EXPECT(want == buf, "json:\n  got  %s\n  want %s", buf, want.c_str());
@@ -474,8 +484,8 @@ static void testJson() {
     size_t n = toJson(r, buf, sizeof(buf));
     std::string j(buf);
     bool ok = n == j.size() && j.front() == '{' && j.back() == '}' && std::count(j.begin(), j.end(), '"') % 2 == 0 &&
-              std::count(j.begin(), j.end(), ',') == 10;
-    for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "deltaColours", "gpsMode", "bluetooth", "tzMin",
+              std::count(j.begin(), j.end(), ',') == 11;
+    for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "deltaColours", "sessionMin", "gpsMode", "bluetooth", "tzMin",
                             "recordRoadDrives", "bluetoothBuilt"})
       ok = ok && j.find(std::string("\"") + key + "\":") != std::string::npos;
     formed = formed && ok;
@@ -539,6 +549,7 @@ static void testSetField() {
       {"brightness", "99999999999999"}, {"brightness", "-99999999999999"},
       {"compareTo", "week"}, {"compareTo", ""}, {"compareTo", "0"},
       {"bigNumber", "big"}, {"bigNumber", ""}, {"bigNumber", "Delta"},
+      {"sessionMin", "15"}, {"sessionMin", "21"}, {"sessionMin", "0"}, {"sessionMin", "Off"}, {"deltaColours", "red"},
       {"gpsMode", "20"}, {"gpsMode", "5hz"}, {"gpsMode", ""},
       {"bluetooth", "yes"}, {"bluetooth", ""}, {"bluetooth", "2"},
       {"tzMin", "841"}, {"tzMin", "-721"}, {"tzMin", "9999"}, {"tzMin", "abc"}, {"tzMin", ""}, {"tzMin", "5h"},
@@ -587,7 +598,7 @@ static void testSetField() {
     if (start != target) printf("    round trip failed for %s\n", json);
   }
   EXPECT(restored, "toJson then setField must restore the settings");
-  EXPECT(sent == 10 && refused == 1, "10 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
+  EXPECT(sent == 11 && refused == 1, "11 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
   printf("  toJson, setField (valid, refused, unchanged on failure), round trip\n");
 }
 
@@ -937,7 +948,7 @@ static void testSettingsPages() {
       const ST::Row& rw = ST::row(r);
       if (rw.kind != ST::RowKind::Choice) continue;
       const int count = ST::choiceCount(rw.item);
-      EXPECT(count >= 2 && count <= 3, "row %d has %d options", r, count);
+      EXPECT(count >= 2 && count <= 4, "row %d has %d options", r, count);
       for (int start = 0; start < count; start++) {
         for (int pick = 0; pick < count; pick++) {
           ST st;
@@ -1173,7 +1184,7 @@ static void testSettingsBoot() {
     }
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
-    EXPECT(pages == 7, "visited 7 pages (5 choices, brightness, time zone), got %d", pages);
+    EXPECT(pages == 8, "visited 8 pages (6 choices, brightness, time zone), got %d", pages);
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
     EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");

@@ -69,6 +69,17 @@ static void readLayout(JsonObject src, Track& track) {
   readPoint(src["startFinish"], track.startFinish);
   track.hasStartFinish = track.startFinish.lat != 0.0 || track.startFinish.lon != 0.0;
   track.hasMap = src["map"].as<JsonArray>().size() > 0;
+  // "pit" counts lines of "map"; readMapLines leaves out lines under two points, so count as it does
+  uint16_t kept = 0, idx = 0;
+  for (JsonArray line : src["map"].as<JsonArray>()) {
+    bool pit = false;
+    for (JsonVariant v : src["pit"].as<JsonArray>()) pit = pit || (v.is<int>() && v.as<int>() == idx);
+    if (line.size() >= 2) {
+      if (pit) track.pitLines.push_back(kept);
+      kept++;
+    }
+    idx++;
+  }
   for (JsonObject s : src["splits"].as<JsonArray>()) {
     TrackPoint p;
     readPoint(s, p);
@@ -545,6 +556,7 @@ void TrackDatabase::setMap(int index, const std::vector<geo::XYf>& line) {
   Track& t = tracks[index];
   t.map.clear();
   t.map.push_back(line);
+  t.pitLines.clear();
   t.hasMap = true;
   t.mapUnsaved = !t.bench;
   DEBUG_PRINTF("Tracks: map for '%s' kept (%d points)%s\n", t.displayName().c_str(), (int)line.size(),

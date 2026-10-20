@@ -53,6 +53,9 @@ struct Track {
   // not saved yet.
   std::vector<std::vector<geo::XYf>> map;
   bool mapUnsaved = false;  // map made on the device (setMap), not in tracks.json yet
+  // Which lines of map are the pit lane ("pit" in tracks.json: indexes into "map",
+  // tagged by tools/fetch_track_map.py). In the pit lane the slow screen shows.
+  std::vector<uint16_t> pitLines;
   bool bench = false;  // the built-in bench-test track: driven by the simulated car
 
   double refLat() const { return hasStartFinish ? startFinish.lat : centerLat; }

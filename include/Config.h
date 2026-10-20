@@ -57,6 +57,7 @@
 #define DEFAULT_UTC_OFFSET_MIN 0     // minutes east of UTC, for file names
 #define DEFAULT_RECORD_ROAD_DRIVES 1 // 0 = Free Roam drives aren't saved
 #define DEFAULT_DELTA_COLOURS 0      // 0 = green ahead, red behind; 1 = blue ahead, orange behind
+#define DEFAULT_SESSION_LENGTH 0     // header countdown: 0 = off (time since the start), 1 = 20 min, 2 = 25, 3 = 30
 
 // ---------------------------------------------------------------------------
 // Display (ILI9341V 240x320, used in landscape 320x240)
@@ -154,6 +155,10 @@
 #define TREND_FULL_SCALE_MS 300          // ...and is full height at this much gained or lost
 #define TAP_MOVING_KMH 10.0              // at or above this speed a quick tap on the timing screen is ignored...
 #define FIRM_PRESS_MS 250                // ...and a press this long switches the view
+// The screen follows the situation (see SituationScreen.h)
+#define SLOW_SCREEN_KMH 40.0             // under this for SLOW_SCREEN_MS: the slow screen (below the slowest hairpins)
+#define SLOW_SCREEN_MS 5000
+#define PIT_LANE_M 10.0                  // this close to a map line marked "pit" (and nearer it than any other): in the pit lane
 
 // ---------------------------------------------------------------------------
 // Performance runs (acceleration and braking)
