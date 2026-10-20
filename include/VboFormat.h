@@ -52,7 +52,8 @@ struct Header {
   std::vector<std::string> comments;  // [comments] lines, "Key: value" where they're read back
   bool hasStart = false;              // [laptiming] is written only with a start/finish
   Gate start = {0, 0, 0, 0};
-  std::vector<Gate> splits;
+  std::vector<Gate> splits;            // named S1, S2...
+  std::vector<Gate> sectors;           // corner sector gates, written as splits named T1, T2... after the splits
 };
 
 // Everything before the first data line, ending with "[data]".
@@ -112,6 +113,10 @@ bool parsePoint(const std::string& s, TrackPoint& p);
 // refLat/refLon, as Track::map). False if no map line passes that close.
 bool gateFromMap(const std::vector<std::vector<geo::XYf>>& map, double refLat, double refLon, const TrackPoint& p,
                  Gate& out, double maxOffsetM = 30.0);
+
+// A line across the track at `p`, `p.radius` metres either side, square
+// to its direction of travel. False if it has no direction.
+bool gateAcross(const TrackPoint& p, Gate& out);
 
 // Reads a VBO a line at a time.
 class Reader {

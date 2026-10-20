@@ -32,6 +32,9 @@
  * delta works from the first lap. Whichever is faster, it or this
  * session's reference lap, is used.
  *
+ * Corner sectors (Sectors.h) are timed the same way as splits, through their
+ * own gates, and kept apart from them: Lap::sectorMs, SectorCrossed events.
+ *
  * No Arduino dependencies: unit-tested on a PC in test/test_laptimer.cpp.
  */
 
@@ -53,17 +56,18 @@ struct Lap {
   float maxSpeedKmh;
   float avgSpeedKmh;
   std::vector<int32_t> splitMs;  // elapsed time at each split, -1 if missed
+  std::vector<int32_t> sectorMs; // elapsed time at the end of each corner sector but the last (its gate), -1 if missed
   float distanceM = 0;           // driven, fix to fix
   uint8_t tags = 0;              // laptags:: bits
   bool clean() const { return laptags::clean(tags); }
 };
 
-enum class LapEventType { None, LapStarted, LapCompleted, SplitCrossed };
+enum class LapEventType { None, LapStarted, LapCompleted, SplitCrossed, SectorCrossed };
 
 struct LapEvent {
   LapEventType type = LapEventType::None;
   uint32_t timeMs = 0;         // lap time (LapCompleted) or split time (SplitCrossed)
-  int splitIndex = -1;
+  int splitIndex = -1;         // the split, or for SectorCrossed the sector gate (0 = the end of T1)
   int32_t deltaMs = NO_DELTA;  // vs best lap (or best lap's split)
   bool isBest = false;
 };
@@ -93,7 +97,7 @@ class LapTimer {
 public:
   // Start/finish crossings sooner than minLapMs after the last are ignored (GPS jitter).
   void begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits,
-             uint32_t minLapMs = MIN_LAP_TIME_MS);
+             uint32_t minLapMs = MIN_LAP_TIME_MS, const std::vector<TrackPoint>& sectorGates = {});
   void reset();
 
   // Swap in another layout's lines without losing the laps so far (used
@@ -101,6 +105,10 @@ public:
   void changeGates(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits);
   const TrackPoint& startFinish() const { return sf; }
   const std::vector<TrackPoint>& splits() const { return splitPts; }
+  // Corner sector gates, in order from the line (made after the first clean
+  // lap: see Sectors.h). Laps from now on are timed through them.
+  void setSectors(const std::vector<TrackPoint>& gates);
+  const std::vector<TrackPoint>& sectorGates() const { return sectorPts; }
 
   // rxMillis is the device clock when the fix arrived; only used to run the
   // live on-screen clock between fixes. hAccM: the fix's horizontal
@@ -161,6 +169,7 @@ private:
 
   TrackPoint sf = {0, 0, 0};
   std::vector<TrackPoint> splitPts;
+  std::vector<TrackPoint> sectorPts;
   bool sfHeadingConfirmed = false;  // crossed the right way at least once
   bool sfWrongWay = false;          // crossed the wrong way since the last right-way crossing...
   geo::XY sfWrongAt = {0, 0};       // ...here, in metres from the start/finish
@@ -188,6 +197,7 @@ private:
   double lapSpeedSum = 0;
   uint32_t lapSpeedCount = 0;
   std::vector<int32_t> lapSplits;
+  std::vector<int32_t> lapSectors;
   float lapDistance = 0;
   uint8_t lapTags = 0;
 
@@ -196,6 +206,7 @@ private:
   int64_t continuousTime(uint32_t gpsTimeMs);
   bool startFinishCounts(geo::XY a, geo::XY b, double frac);
   void crossSplits(double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out);
+  void crossGates(bool sectorGates, double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out);
   void startLap(int64_t t, uint32_t startMillis);
   int32_t matchBestTrace(float x, float y, int32_t elapsed);
   void retagLaps();

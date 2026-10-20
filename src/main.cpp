@@ -33,6 +33,7 @@
 #include "PerfLog.h"
 #include "PerfRun.h"
 #include "RaceBoxBle.h"
+#include "Sectors.h"
 #include "SessionLog.h"
 #include "Settings.h"
 #include "SettingsFlow.h"
@@ -79,6 +80,7 @@ static DriveOffDetector driveOff;
 
 // Lap-timing session
 static bool settingLine = false;  // waiting for the driver to tap at the start/finish line
+static bool sectorsTried = false; // the track has corner sectors, or this session tried to make them
 static int sessionNumber = 0;     // "Session N" of the day at this track
 static PitWatch pitWatch;         // parked: in the pits (see AutoStart.h)
 static bool pitView = false;      // parked, showing the summary (a tap goes back to timing)
@@ -260,7 +262,8 @@ static bool saveBestLaps(const Lap& lap) {
 }
 
 static void beginLapTiming(const Track& t) {
-  lapTimer.begin(t.startFinish, t.splits, minLapMs(t));
+  lapTimer.begin(t.startFinish, t.splits, minLapMs(t), t.sectors);
+  sectorsTried = !t.sectors.empty();
   overlay = RunningOverlay();
   lapOverlayUntil = splitOverlayUntil = 0;
 }
@@ -464,6 +467,8 @@ static void switchLayout(int index, layout::Lines& map) {
   settingLine = false;  // only layouts with a line are switched to
   if (keepLaps) {
     lapTimer.changeGates(t.startFinish, t.splits);  // the laps so far were timed at this line too
+    lapTimer.setSectors(t.sectors);
+    sectorsTried = !t.sectors.empty();
     if (sessionBase.length()) {  // carry on in the same files, renamed for this layout
       String renamedBase = SessionLog::newSessionBase(sessionStamp, t.id);
       fs::FS* fs = Storage::sessionFS();
@@ -547,6 +552,33 @@ static void trackDrivenPath(const GpsFix& f) {
 }
 
 // After a lap on a track with no map, save the lap's path as its map.
+// After the first clean lap at a track with no corner sectors: cut that lap
+// into sectors (Sectors.h). Laps are timed through them from now on, and
+// they're saved with the track when the session ends.
+static void makeSectors(const Lap& lap) {
+  if (sectorsTried || lap.tags || settingLine) return;
+  sectorsTried = true;  // once a session: a track with no braking zones doesn't get them later
+  std::vector<sectors::PathPt> path;
+  path.reserve(lapTimer.bestPath().size());
+  for (const LapTimer::TracePt& p : lapTimer.bestPath()) path.push_back({p.x, p.y, p.t, p.speedKmh});
+  std::vector<sectors::Cut> cuts = sectors::findCuts(path);
+  if (cuts.empty()) {
+    DEBUG_PRINTLN("Sectors: no braking zones on that lap - no corner sectors");
+    return;
+  }
+  const TrackPoint& sf = lapTimer.startFinish();
+  std::vector<TrackPoint> gates;
+  for (const sectors::Cut& c : cuts) {
+    TrackPoint g = {0, 0, (float)DEFAULT_GATE_HALF_WIDTH_M, c.headingDeg, HeadingFrom::Set};
+    geo::fromLocal(c.x, c.y, sf.lat, sf.lon, g.lat, g.lon);
+    gates.push_back(g);
+    DEBUG_PRINTF("Sectors: T%d ends %.1f s into the lap at %.0f km/h\n", (int)gates.size(), c.t / 1000.0,
+                 c.speedKmh);
+  }
+  trackDB.setSectors(selectedIndex, gates);
+  lapTimer.setSectors(gates);
+}
+
 static void saveMapFromLap() {
   const Track& t = selectedTrack();
   if (t.hasMap || t.bench || lapTimer.bestPath().size() < 10) return;
@@ -587,10 +619,16 @@ static void onLapEvent(const LapEvent& ev) {
       if (ev.isBest && !switched) {
         saveMapFromLap();
         overlay.lapIsPb = saveBestLaps(*lap);
+        makeSectors(*lap);
         LedBar::onBestLap(overlay.lapIsPb);
       }
       break;
     }
+
+    case LapEventType::SectorCrossed:  // (used by the debrief later)
+      DEBUG_PRINTF("T%d: %s  (delta %s)\n", ev.splitIndex + 1, formatLapTime(ev.timeMs).c_str(),
+                   formatDelta(ev.deltaMs).c_str());
+      break;
 
     case LapEventType::SplitCrossed:
       DEBUG_PRINTF("Split %d: %s  (delta %s)\n", ev.splitIndex + 1, formatLapTime(ev.timeMs).c_str(),

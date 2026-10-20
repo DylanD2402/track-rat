@@ -43,6 +43,10 @@ struct Track {
   TrackPoint startFinish = {0, 0, 0};
   double centerLat = 0, centerLon = 0;  // used to find the track when there's no start/finish yet
   std::vector<TrackPoint> splits;
+  // Corner sector gates ("sectors" in tracks.json), made from the first clean
+  // lap (Sectors.h). Kept apart from the splits: T1, T2... not S1, S2...
+  std::vector<TrackPoint> sectors;
+  bool sectorsUnsaved = false;  // made on the device (setSectors), not in tracks.json yet
   bool hasMap = false;  // tracks.json has a "map" for it (or will: mapUnsaved)
   // Layout for the map screen, metres east/north of refLat()/refLon().
   // Only filled for the track in use (loadMap), the bench track, and a map
@@ -101,7 +105,9 @@ public:
   // kept in memory, as saving it takes a while: saveMaps writes it to
   // tracks.json, when nothing is being timed. The bench track's is never saved.
   void setMap(int index, const std::vector<geo::XYf>& line);
-  bool saveMaps();
+  // Corner sector gates, the same way: kept in memory, written by saveMaps.
+  void setSectors(int index, const std::vector<TrackPoint>& gates);
+  bool saveMaps();  // maps and sectors made on the device
 
 private:
   std::vector<Track> tracks;

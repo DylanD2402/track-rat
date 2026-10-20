@@ -84,6 +84,10 @@ std::string headerText(const Header& h) {
       snprintf(buf, sizeof(buf), "S%u", (unsigned)(i + 1));
       appendGate(s, "Split  ", h.splits[i], buf);
     }
+    for (size_t i = 0; i < h.sectors.size(); i++) {  // the gate at the end of T1 is T1
+      snprintf(buf, sizeof(buf), "T%u", (unsigned)(i + 1));
+      appendGate(s, "Split  ", h.sectors[i], buf);
+    }
   }
   s += "\r\n[column names]\r\n";
   s += COLUMN_NAMES;
@@ -212,6 +216,16 @@ bool gateFromMap(const std::vector<std::vector<geo::XYf>>& map, double refLat, d
   const double r = p.radius > 0 ? p.radius : 15.0;
   geo::fromLocal(c.x + nx * r, c.y + ny * r, refLat, refLon, out.lat1, out.lon1);
   geo::fromLocal(c.x - nx * r, c.y - ny * r, refLat, refLon, out.lat2, out.lon2);
+  return true;
+}
+
+bool gateAcross(const TrackPoint& p, Gate& out) {
+  if (!p.hasHeading()) return false;
+  const double h = p.heading * geo::DEG2RAD;
+  const double nx = cos(h), ny = -sin(h);  // square to the direction (sin h, cos h)
+  const double r = p.radius > 0 ? p.radius : 15.0;
+  geo::fromLocal(nx * r, ny * r, p.lat, p.lon, out.lat1, out.lon1);
+  geo::fromLocal(-nx * r, -ny * r, p.lat, p.lon, out.lat2, out.lon2);
   return true;
 }
 

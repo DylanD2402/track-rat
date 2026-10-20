@@ -74,6 +74,11 @@ static void readLayout(JsonObject src, Track& track) {
     readPoint(s, p);
     track.splits.push_back(p);
   }
+  for (JsonObject s : src["sectors"].as<JsonArray>()) {
+    TrackPoint p;
+    readPoint(s, p);
+    track.sectors.push_back(p);
+  }
 
   // No centre: use the start/finish, or else the middle of the map
   if (track.centerLat == 0.0 && track.centerLon == 0.0) {
@@ -542,16 +547,32 @@ void TrackDatabase::setMap(int index, const std::vector<geo::XYf>& line) {
                t.mapUnsaved ? ", saved when the session ends" : "");
 }
 
+void TrackDatabase::setSectors(int index, const std::vector<TrackPoint>& gates) {
+  if (index < 0 || index >= (int)tracks.size()) return;
+  Track& t = tracks[index];
+  t.sectors = gates;
+  t.sectorsUnsaved = !t.bench;
+  DEBUG_PRINTF("Tracks: %d corner sectors for '%s' kept%s\n", (int)gates.size() + 1, t.displayName().c_str(),
+               t.sectorsUnsaved ? ", saved when the session ends" : "");
+}
+
 bool TrackDatabase::saveMaps() {
-  size_t points = 0;
-  for (const Track& t : tracks)
+  size_t points = 0, gates = 0;
+  for (const Track& t : tracks) {
     if (t.mapUnsaved)
       for (const std::vector<geo::XYf>& line : t.map) points += line.size();
-  if (!points) return true;
+    if (t.sectorsUnsaved) gates += t.sectors.size() + 1;
+  }
+  if (!points && !gates) return true;
 
-  // Each point: three slots ([lat,lon] and its two numbers) and two copied ~11-character numbers
-  bool ok = editFile(points * (JSON_ARRAY_SIZE(3) + 24) + 1024, [&](JsonArray arr) {
+  // Each point: three slots ([lat,lon] and its two numbers) and two copied ~11-character numbers.
+  // Each gate: an object of four members and three copied numbers.
+  bool ok = editFile(points * (JSON_ARRAY_SIZE(3) + 24) + gates * (JSON_OBJECT_SIZE(4) + 48) + 1024, [&](JsonArray arr) {
     for (const Track& t : tracks) {
+      if (t.sectorsUnsaved) {
+        JsonArray s = findOrAddLayout(arr, t).createNestedArray("sectors");  // replaces any there
+        for (const TrackPoint& g : t.sectors) writePoint(s.createNestedObject(), g);
+      }
       if (!t.mapUnsaved) continue;
       JsonObject o = findOrAddLayout(arr, t);
       JsonArray m = o.createNestedArray("map");  // replaces any existing map
@@ -568,11 +589,16 @@ bool TrackDatabase::saveMaps() {
     }
     return true;
   });
-  for (Track& t : tracks)
+  for (Track& t : tracks) {
     if (t.mapUnsaved) {
       DEBUG_PRINTF("Tracks: map for '%s' %s\n", t.displayName().c_str(), ok ? "saved" : "NOT saved");
       t.mapUnsaved = !ok;  // not saved: kept in memory, tried again after the next session
     }
+    if (t.sectorsUnsaved) {
+      DEBUG_PRINTF("Tracks: sectors for '%s' %s\n", t.displayName().c_str(), ok ? "saved" : "NOT saved");
+      t.sectorsUnsaved = !ok;
+    }
+  }
   return ok;
 }
 

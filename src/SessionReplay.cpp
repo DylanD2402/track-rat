@@ -42,8 +42,14 @@ void SessionReplay::setUpFromHeader() {
     trackName.clear();  // the header's is the old layout's; the track list has this one's
     switchedLayout = true;
   }
+  std::vector<TrackPoint> sectorGates;  // corner sectors (only with the lines in the header)
+  for (int i = 1; !switchedLayout; i++) {
+    TrackPoint g;
+    if (!vbo::parsePoint(rdr.comment("Sector " + std::to_string(i)), g)) break;
+    sectorGates.push_back(g);
+  }
   long minLap = atol(rdr.comment("Min lap ms").c_str());
-  if (timed) timer.begin(sf, splits, minLap > 0 ? (uint32_t)minLap : (uint32_t)MIN_LAP_TIME_MS);
+  if (timed) timer.begin(sf, splits, minLap > 0 ? (uint32_t)minLap : (uint32_t)MIN_LAP_TIME_MS, sectorGates);
 }
 
 void SessionReplay::endLine() {
