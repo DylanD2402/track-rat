@@ -206,7 +206,7 @@ static String accuracyText(float m) {
   return String(buf);
 }
 
-void DisplayManager::header(const String& title, const GPSHandler* gps) {
+void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t titleColor) {
   gfx->drawFastHLine(0, HEADER_H - 1, W, C_LINE);
 
   // Status, right to left: signal bars, GPS accuracy, battery, BENCH, BT
@@ -239,7 +239,7 @@ void DisplayManager::header(const String& title, const GPSHandler* gps) {
 #endif
   }
 
-  text(fit(title, Font::Body, right - 12), 10, HEADER_H / 2, Font::Body, C_TEXT, ML_DATUM);
+  text(fit(title, Font::Body, right - 12), 10, HEADER_H / 2, Font::Body, titleColor, ML_DATUM);
 }
 
 // primary: white with black text, for the action the screen is about.
@@ -474,7 +474,7 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
                                  const RunningOverlay& ov, uint32_t holdMs) {
   beginFrame();
   char buf[40];
-  header(runningTitle(track, timer), &gps);
+  header(runningTitle(track, timer), &gps, sessionClockEnding ? C_YELLOW : C_TEXT);
   const DeltaColours pal = Settings::get().deltaColours;
 
   if (ov.showLap) {  // at the line: the whole screen flashes the lap time and the gap
@@ -620,11 +620,44 @@ void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs, con
   holdBar(holdMs, "Keep holding to end the session");
 }
 
+// "Lap 5   12:34": the lap and the session clock, or the lap and the track
+// without a clock. Lap number first so a long name gets shortened, not the lap.
 String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
-  if (!timer.lapRunning()) return track.displayName();
+  const String clock = sessionClock.length() ? sessionClock + "   " : String();
+  if (!timer.lapRunning()) return clock + track.displayName();
   char buf[16];
   snprintf(buf, sizeof(buf), "Lap %d   ", timer.currentLapNumber());
-  return buf + track.displayName();  // lap number first so a long name gets shortened, not the lap
+  return sessionClock.length() ? buf + sessionClock : buf + track.displayName();
+}
+
+void DisplayManager::drawSlow(const Track& track, const LapTimer& timer, const GPSHandler& gps, bool inPitLane,
+                              uint32_t holdMs) {
+  beginFrame();
+  header(runningTitle(track, timer), &gps, sessionClockEnding ? C_YELLOW : C_TEXT);
+
+  const int top = HEADER_H + 4;
+  gfx->fillRoundRect(4, top, W - 8, 104, CORNER, C_SURFACE);
+  label(inPitLane ? "PIT LANE" : "SLOW", 14, top + 8);
+  text(Settings::speedUnit(), W - 14, top + 8, Font::Caption, C_TEXT2, TR_DATUM);
+  text(String((long)lroundf(Settings::speed(gps.lastFix().speedKmh))), W / 2, top + 16, Font::NumXL,
+       inPitLane ? C_YELLOW : C_TEXT, TC_DATUM);
+
+  const int rowY = top + 112;
+  gfx->drawFastVLine(W / 2, rowY + 2, 38, C_LINE);
+  const Lap* last = timer.lastLap();
+  label("LAST LAP", 12, rowY);
+  text(last ? formatLapTime(last->timeMs) : String("–"), 12, rowY + 15, Font::Title, last ? C_TEXT : C_TEXT3);
+  label("SESSION", W / 2 + 12, rowY);
+  text(sessionClock.length() ? sessionClock : String("–"), W / 2 + 12, rowY + 15, Font::Title,
+       sessionClockEnding ? C_YELLOW : C_TEXT);
+
+  char buf[48];
+  if (inPitLane) snprintf(buf, sizeof(buf), "Timing comes back out of the pit lane");
+  else snprintf(buf, sizeof(buf), "Timing comes back above %.0f %s", Settings::speed(SLOW_SCREEN_KMH), Settings::speedUnit());
+  centered(buf, H - 22, Font::Caption, C_TEXT3);
+
+  runningOverlays(gps, holdMs);
+  endFrame();
 }
 
 // ---------------------------------------------------------------------------
@@ -720,7 +753,7 @@ bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vect
 void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                                     const RunningOverlay& ov, uint32_t holdMs) {
   beginFrame();
-  header(runningTitle(track, timer), &gps);
+  header(runningTitle(track, timer), &gps, sessionClockEnding ? C_YELLOW : C_TEXT);
 
   // What to draw: the stored layout, else the best lap's path, else the
   // path driven so far this lap.

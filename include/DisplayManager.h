@@ -87,6 +87,15 @@ public:
                    const RunningOverlay& overlay, uint32_t holdMs);
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                       const RunningOverlay& overlay, uint32_t holdMs);
+  // The slow screen (SituationScreen.h): big speed, last lap and the session clock.
+  // inPitLane: the track's map says the car is in the pit lane.
+  void drawSlow(const Track& track, const LapTimer& timer, const GPSHandler& gps, bool inPitLane, uint32_t holdMs);
+  // The session clock in the timing screens' header ("12:34", "7:26 left"); "" for none.
+  // ending: under a minute left, drawn yellow.
+  void setSessionClock(const String& text, bool ending) {
+    sessionClock = text;
+    sessionClockEnding = ending;
+  }
   // The lap summary, with each lap's tags. inPits: shown while parked in
   // the session (driving off carries on), so no buttons. session: "Session
   // N" of the day, 0 if not known.
@@ -131,6 +140,8 @@ public:
 
 private:
   uint32_t pbMs = 0, pbDate = 0;  // setPersonalBest
+  String sessionClock;             // setSessionClock
+  bool sessionClockEnding = false;
   String pbText() const;          // "PB 1:42.345  ·  19 Oct 2026"
   void wifiButton(int y, int h, bool highlight, bool holdHint = false);
   TFT_eSPI tft;
@@ -153,7 +164,7 @@ private:
 
   void beginFrame();
   void endFrame();
-  void header(const String& title, const GPSHandler* gps);
+  void header(const String& title, const GPSHandler* gps, uint16_t titleColor = 0xFFFF);
   void gpsBadge(const GPSHandler& gps);
   struct MapPath {
     const uint8_t* base;  // points start with float x, y (metres)

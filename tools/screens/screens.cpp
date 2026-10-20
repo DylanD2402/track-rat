@@ -234,8 +234,10 @@ int main(int argc, char** argv) {
   };
 
   drive(-60);
+  d.setSessionClock("1:12", false);  // the session clock in the header (main.cpp sets it each frame)
   d.drawRunning(track, timer, gps, ov, 0);
   save(d, "08_running_outlap");
+  d.setSessionClock("14:05", false);
   drive(loop.length + 20);  // lap 1 done: corner sectors from it, as the firmware makes them
   {
     std::vector<sectors::PathPt> p;
@@ -308,6 +310,18 @@ int main(int argc, char** argv) {
   ov.lapIsBest = ov.lapIsDayBest = true;
   d.drawRunningMap(track, timer, gps, ov, 0);
   save(d, "13_map_lap_flash");
+  {  // The slow screen: behind a safety car, then in the pit lane with a session length set
+    setGps(gps, true, la, lo, 34, gpsMs);
+    d.setSessionClock("7:26 left", false);
+    d.drawSlow(track, timer, gps, false, 0);
+    save(d, "14a_slow");
+    setGps(gps, true, la, lo, 58, gpsMs);
+    d.setSessionClock("0:42 left", true);
+    d.drawSlow(track, timer, gps, true, 0);
+    save(d, "14b_slow_pit_lane");
+    d.setSessionClock("14:05", false);
+    setGps(gps, true, la, lo, kmh, gpsMs);
+  }
   ov = RunningOverlay();
   ov.notice = "Layout: Full";
   d.drawRunning(track, timer, gps, ov, 0);

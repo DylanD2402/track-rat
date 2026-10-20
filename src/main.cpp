@@ -43,6 +43,7 @@
 #include "TrackDatabase.h"
 #include "TrackOrder.h"
 #include "TimingScreen.h"
+#include "SituationScreen.h"
 #include "UiTheme.h"
 #include "WifiPortal.h"
 
@@ -98,6 +99,9 @@ static RunningOverlay overlay;
 static bool showMap = false;  // timing screen: false = big clock, true = track map
 static uint32_t lapOverlayUntil = 0;
 static timing::DeltaTrend deltaTrend;  // the timing screen's trend bar
+static situation::SlowWatch slowWatch;  // slow or in the pit lane: the slow screen
+static bool inPitLane = false;           // the last fix was in the pit lane (tracks.json marks it)
+static uint32_t sessionStartMs = 0;      // millis() when the session started: its clock
 static uint32_t splitOverlayUntil = 0;
 
 // Layout check: after the first lap (or 2 km without crossing the line),
@@ -448,6 +452,9 @@ static void enterState(AppState next) {
     loadBestLaps();
     pitWatch.reset();
     pitView = false;
+    slowWatch.reset();
+    inPitLane = false;
+    sessionStartMs = millis();
     layoutChecked = t.bench;
     drivenPath.clear();
     drivenM = 0;
@@ -949,7 +956,8 @@ static void handleInput(InputEvent ev) {
         else pitView = false;
         lastRender = 0;
       }
-      else if (ev == InputEvent::BootShort ||  // a press, or a tap that isn't a bump while moving: switch view
+      else if (slowWatch.slow()) {  // the slow screen has no other view: the screen follows the situation
+      } else if (ev == InputEvent::BootShort ||  // a press, or a tap that isn't a bump while moving: switch view
                timing::tapSwitchesView(gps.hasFix(), gps.lastFix().speedKmh, input.lastTapMs())) {
         showMap = !showMap;
         lastRender = 0;
@@ -1092,12 +1100,19 @@ static void render() {
       if (overlay.showLap && now > lapOverlayUntil) overlay.showLap = false;
       if (overlay.splitIndex >= 0 && now > splitOverlayUntil) overlay.splitIndex = -1;
       if (overlay.notice.length() && now > layoutNoticeUntil) overlay.notice = "";
+      {
+        const int len = settings::sessionMinutes(Settings::get());
+        display.setSessionClock(situation::sessionClock(now - sessionStartMs, len).c_str(),
+                                situation::sessionEnding(now - sessionStartMs, len));
+      }
       if (pitView && debriefView.r.valid)
         display.drawDebrief(selectedTrack(), lapTimer, debriefView, pitPage);
       else if (pitView)  // no laps yet: the log is what's saved
         display.drawSummary(selectedTrack(), lapTimer,
                             sessionPath.length() || sessionLog.length() == 0 ? sessionPath : sessionBase + ".vbo",
                             sessionNumber, true);
+      else if (slowWatch.slow() && !overlay.showLap)  // slow, or in the pit lane (the lap flash still shows)
+        display.drawSlow(selectedTrack(), lapTimer, gps, inPitLane, input.touchHeldMs());
       else if (showMap) display.drawRunningMap(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       else display.drawRunning(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       break;
@@ -1348,6 +1363,13 @@ void loop() {
         const int32_t d = lapTimer.liveDeltaMs();
         deltaTrend.add(fix.gpsTimeMs, d, lapTimer.lapRunning() && d != NO_DELTA);
         overlay.trendMs = deltaTrend.change();
+        const Track& t = selectedTrack();
+        inPitLane = false;
+        if (!t.pitLines.empty()) {
+          const geo::XY at = geo::toLocal(fix.lat, fix.lon, t.refLat(), t.refLon());
+          inPitLane = situation::inPitLane(t.map, t.pitLines, (float)at.x, (float)at.y);
+        }
+        slowWatch.onFix(fix.speedKmh, fix.gpsTimeMs, inPitLane);
         onPitEvent(pitWatch.onFix(fix.speedKmh, fix.gpsTimeMs));
       }
       if (state == AppState::Running) trackDrivenPath(fix);  // (the session may have just ended)
