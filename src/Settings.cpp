@@ -41,6 +41,7 @@ void begin() {
     d.kartEverywhere = prefs.getBool("kart", d.kartEverywhere);
     d.minLap = prefs.getUChar("minlap", d.minLap);
     d.cameraWithSessions = prefs.getBool("camrec", d.cameraWithSessions);
+    d.bleProfile = (BleProfile)prefs.getUChar("bleprof", (uint8_t)d.bleProfile);
   } else {
     DEBUG_PRINTLN("Settings: flash storage unavailable - using defaults, changes won't be kept");
   }
@@ -93,6 +94,7 @@ void set(const SettingsData& s) {
       if (n.kartEverywhere != o.kartEverywhere) prefs.putBool("kart", n.kartEverywhere);
       if (n.minLap != o.minLap) prefs.putUChar("minlap", n.minLap);
       if (n.cameraWithSessions != o.cameraWithSessions) prefs.putBool("camrec", n.cameraWithSessions);
+      if (n.bleProfile != o.bleProfile) prefs.putUChar("bleprof", (uint8_t)n.bleProfile);
     }
   }
   if (writeLock) xSemaphoreGive(writeLock);

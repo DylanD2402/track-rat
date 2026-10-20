@@ -6,6 +6,8 @@
 #include "Config.h"
 #include "Imu.h"
 #include "RaceBoxPacket.h"
+#include "RaceChronoBle.h"
+#include "Settings.h"
 #include <NimBLEDevice.h>
 
 namespace RaceBoxBle {
@@ -38,22 +40,29 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   }
   void onDisconnect(NimBLEServer* server) override {
     isConnected = server->getConnectedCount() > 0;
+    if (!isConnected) RaceChronoBle::onDisconnect();
     DEBUG_PRINTLN("BLE: phone disconnected");
   }
   void onMTUChange(uint16_t mtu, ble_gap_conn_desc*) override { DEBUG_PRINTF("BLE: MTU %u\n", mtu); }
 };
 
-// Starts the Bluetooth stack under the RaceBox name, once. The OBD adapter's
-// central role (ObdBle.cpp) shares it, so whichever starts first calls this.
+// The Bluetooth profile, fixed at start-up (Settings > Bluetooth profile): RaceBox
+// Mini, or RaceChrono's DIY device (RaceChronoBle.h). One at a time.
+static bool raceChrono = false;
+
+// Starts the Bluetooth stack under the profile's name, once. The OBD adapter's and
+// the camera's central roles share it, so whichever starts first calls this.
 void initRadio() {
   static bool radioOn = false;
   if (radioOn) return;
   radioOn = true;
+  raceChrono = Settings::get().bleProfile == BleProfile::RaceChrono;
   // Stable per-board number from the chip ID; the RaceBox app only accepts
   // numbers below 4000000000.
   uint64_t mac = ESP.getEfuseMac();
   char buf[32];
-  snprintf(buf, sizeof(buf), "RaceBox Mini %010lu", (unsigned long)(mac % 4000000000ULL));
+  if (raceChrono) snprintf(buf, sizeof(buf), "Track Rat %04u", (unsigned)(mac % 10000));
+  else snprintf(buf, sizeof(buf), "RaceBox Mini %010lu", (unsigned long)(mac % 4000000000ULL));
   name = buf;
 
   NimBLEDevice::init(name.c_str());
@@ -67,6 +76,17 @@ void begin() {
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
   server->advertiseOnDisconnect(true);
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+
+  if (raceChrono) {
+    RaceChronoBle::build(server);  // and nothing else: iOS drops DIY data beside a UART-style service
+    adv->setScanResponse(true);
+    adv->start();
+    DEBUG_PRINTF("BLE: advertising as \"%s\" (RaceChrono DIY device)\n", name.c_str());
+    started = true;
+    enabled = true;
+    return;
+  }
 
   NimBLEService* svc = server->createService(SERVICE_UUID);
   tx = svc->createCharacteristic(TX_UUID, NIMBLE_PROPERTY::NOTIFY);
@@ -82,7 +102,6 @@ void begin() {
   addText(info, "2A29", "RaceBox");                   // manufacturer
   info->start();
 
-  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(SERVICE_UUID);
   adv->setScanResponse(true);
   adv->start();
@@ -114,6 +133,10 @@ void setEnabled(bool on) {
 }
 
 void sendFix(const GpsFix& fix, const GPSHandler& gps) {
+  if (enabled && raceChrono) {
+    RaceChronoBle::sendFix(fix, gps.hasFix(), isConnected);
+    return;
+  }
   if (!enabled || !tx || !isConnected) return;
 
   RaceBoxFix f = {};

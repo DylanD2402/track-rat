@@ -39,7 +39,7 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 17, SECTIONS = 5;
+  static constexpr int ROWS = 18, SECTIONS = 5;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
@@ -80,7 +80,8 @@ struct SettingsScreenState {
         {SettingItem::Compare, RowKind::Choice},    {SettingItem::Colours, RowKind::Choice},
         {SettingItem::SessionLen, RowKind::Choice}, {SettingItem::MinLap, RowKind::Choice},
         {SettingItem::Kart, RowKind::Toggle},       {SettingItem::Gps, RowKind::Choice},
-        {SettingItem::Bluetooth, RowKind::Toggle},  {SettingItem::Engine, RowKind::Open},
+        {SettingItem::Bluetooth, RowKind::Toggle},  {SettingItem::Profile, RowKind::Choice},
+        {SettingItem::Engine, RowKind::Open},
         {SettingItem::Camera, RowKind::Open},       {SettingItem::CameraRec, RowKind::Choice},
         {SettingItem::RoadDrives, RowKind::Toggle}, {SettingItem::TimeZone, RowKind::Level},
         {SettingItem::Count, RowKind::Back},
@@ -91,9 +92,9 @@ struct SettingsScreenState {
     static const Section sections[SECTIONS] = {
         {"DISPLAY", 0, 3, nullptr},
         {"TIMING", 3, 6, nullptr},
-        {"GPS & BLUETOOTH", 9, 5, "GPS mode is used from the next restart"},
-        {"RECORDING", 14, 2, nullptr},
-        {nullptr, 16, 1, nullptr},
+        {"GPS & BLUETOOTH", 9, 6, "GPS mode and Bluetooth profile are used from the next restart"},
+        {"RECORDING", 15, 2, nullptr},
+        {nullptr, 17, 1, nullptr},
     };
     return sections[i];
   }
@@ -126,6 +127,7 @@ struct SettingsScreenState {
       case SettingItem::Engine: return "Engine data";
       case SettingItem::Camera: return "Camera";
       case SettingItem::CameraRec: return "Camera recording";
+      case SettingItem::Profile: return "Bluetooth profile";
       default: return "Back to menu";
     }
   }
@@ -190,6 +192,7 @@ struct SettingsScreenState {
       case SettingItem::Gps: return 2;
       case SettingItem::MinLap: return settings::MIN_LAP_CHOICES;
       case SettingItem::CameraRec: return 2;
+      case SettingItem::Profile: return 2;
       default: return 0;
     }
   }
@@ -203,6 +206,7 @@ struct SettingsScreenState {
       case SettingItem::Gps: return (int)d.gpsMode;
       case SettingItem::MinLap: return d.minLap;
       case SettingItem::CameraRec: return d.cameraWithSessions ? 0 : 1;
+      case SettingItem::Profile: return (int)d.bleProfile;
       default: return 0;
     }
   }
@@ -217,6 +221,7 @@ struct SettingsScreenState {
       case SettingItem::Gps: d.gpsMode = (GpsMode)i; break;
       case SettingItem::MinLap: d.minLap = (uint8_t)i; break;
       case SettingItem::CameraRec: d.cameraWithSessions = i == 0; break;
+      case SettingItem::Profile: d.bleProfile = (BleProfile)i; break;
       default: break;
     }
   }

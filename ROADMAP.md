@@ -320,6 +320,8 @@ Why a hub: a Bluetooth adapter talks to one device at a time. If the phone takes
 - RaceChrono Pro then films with the iPhone and draws speed, the map, lap times, g, RPM and throttle live. It can also link Osmo Action videos afterwards and sync them.
 - A Bluetooth setting chooses the profile: **RaceBox Mini** (works with most apps) or **RaceChrono** (GPS and engine data), one at a time. A RaceChrono forum report found iOS stopped receiving DIY data when a second UART-style service was present, and the RaceBox profile is one.
 
+**Status: done, untested with RaceChrono** (2026-10-20, queue/6.3). `include/RaceChrono.h` has every encoding (GPS main and time with sync bits, CAN packets, the filter), host-tested in `test/test_racechrono.cpp`; `src/RaceChronoBle.cpp` is the 0x1FF8 service with 0x0001–0x0004. **Settings → Bluetooth profile** (RaceBox Mini or RaceChrono) is applied at the next restart rather than by restarting Bluetooth live, as NimBLE doesn't restart reliably on this core; the Wi-Fi page offers Restart now. Engine values go as packets 0x100–0x103 and IMU g as 0x110/0x111, each a big-endian int16 at the filter's interval. The README has the RaceChrono Pro set-up with each channel's equation.
+
 **6.4 Overlay videos on the PC (L)**
 
 - **Tools that already read our files:** RaceRender reads VBO (its free edition is limited to 3 minutes with a logo; $40–60 to unlock). Telemetry Overlay ($199, one-time) reads DJI Action GPS and CSV or GPX. Add a CSV download for them with plain column names: time, lat, lon, speed, lap, delta, g, rpm, throttle.

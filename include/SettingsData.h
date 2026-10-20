@@ -22,6 +22,7 @@ enum class CompareTo : uint8_t { Day = 0, Ever = 1, Session = 2 };       // what
 enum class BigNumber : uint8_t { Delta = 0, Predicted = 1, LapTime = 2 };  // the largest number on the timing screen
 enum class GpsMode : uint8_t { Fast20 = 0, AllSystems10 = 1 };
 enum class DeltaColours : uint8_t { GreenRed = 0, BlueOrange = 1 };  // ahead / behind on the timing screen and LED bar
+enum class BleProfile : uint8_t { RaceBox = 0, RaceChrono = 1 };  // what the phone sees: one at a time (6.3)
 
 struct SettingsData {
   bool setupDone;          // false until the first-boot questions are answered
@@ -39,6 +40,7 @@ struct SettingsData {
   bool kartEverywhere;     // every track is timed as a kart track (else only "kind": "kart" in tracks.json)
   uint8_t minLap;          // the shortest lap: 0 = auto (MIN_LAP_TIME_MS, KART_MIN_LAP_MS for karts), else MIN_LAP_S[minLap] s
   bool cameraWithSessions; // a paired DJI camera records with the sessions (6.2); else only from its own button
+  BleProfile bleProfile;   // applied at the next restart (Bluetooth is set up once)
 };
 
 inline bool operator==(const SettingsData& a, const SettingsData& b) {
@@ -46,13 +48,14 @@ inline bool operator==(const SettingsData& a, const SettingsData& b) {
          a.compareTo == b.compareTo && a.bigNumber == b.bigNumber && a.deltaColours == b.deltaColours && a.sessionLength == b.sessionLength &&
          a.gpsMode == b.gpsMode &&
          a.bluetooth == b.bluetooth && a.utcOffsetMin == b.utcOffsetMin && a.recordRoadDrives == b.recordRoadDrives &&
-         a.kartEverywhere == b.kartEverywhere && a.minLap == b.minLap && a.cameraWithSessions == b.cameraWithSessions;
+         a.kartEverywhere == b.kartEverywhere && a.minLap == b.minLap && a.cameraWithSessions == b.cameraWithSessions &&
+         a.bleProfile == b.bleProfile;
 }
 inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(a == b); }
 
 // The items on the settings screen, in the order they appear.
 enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives,
-                                   MinLap, Kart, CameraRec, Count,
+                                   MinLap, Kart, CameraRec, Profile, Count,
                                    Engine, Camera };  // after Count: rows that open a screen of their own, not values
 constexpr int SETTING_ITEM_COUNT = (int)SettingItem::Count;
 
@@ -82,6 +85,7 @@ inline SettingsData defaults() {
   d.kartEverywhere = false;
   d.minLap = 0;
   d.cameraWithSessions = true;
+  d.bleProfile = BleProfile::RaceBox;
   return d;
 }
 
@@ -99,6 +103,7 @@ inline void sanitize(SettingsData& d) {
   if (d.sessionLength > 3) d.sessionLength = def.sessionLength;
   if ((uint8_t)d.gpsMode > (uint8_t)GpsMode::AllSystems10) d.gpsMode = def.gpsMode;
   if (d.minLap >= MIN_LAP_CHOICES) d.minLap = def.minLap;
+  if ((uint8_t)d.bleProfile > (uint8_t)BleProfile::RaceChrono) d.bleProfile = def.bleProfile;
   if (d.utcOffsetMin < UTC_MIN) d.utcOffsetMin = UTC_MIN;
   if (d.utcOffsetMin > UTC_MAX) d.utcOffsetMin = UTC_MAX;
   d.utcOffsetMin = (int16_t)(((d.utcOffsetMin + (d.utcOffsetMin >= 0 ? 7 : -7)) / 15) * 15);  // whole quarter hours
@@ -136,6 +141,7 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
     case SettingItem::MinLap: d.minLap = choice(d.minLap, MIN_LAP_CHOICES); break;
     case SettingItem::Kart: d.kartEverywhere = !d.kartEverywhere; break;
     case SettingItem::CameraRec: d.cameraWithSessions = !d.cameraWithSessions; break;
+    case SettingItem::Profile: d.bleProfile = (BleProfile)choice((uint8_t)d.bleProfile, 2); break;
     default: break;
   }
 }
@@ -144,7 +150,8 @@ inline bool upsideDown(const SettingsData& d) { return d.rotation != DISPLAY_ROT
 
 // A change that only takes effect after a restart (the GPS is set up at boot).
 inline bool needsRestart(const SettingsData& before, const SettingsData& after) {
-  return before.gpsMode != after.gpsMode || before.kartEverywhere != after.kartEverywhere;  // the track list reads it at boot
+  return before.gpsMode != after.gpsMode || before.kartEverywhere != after.kartEverywhere ||  // the track list reads it at boot
+         before.bleProfile != after.bleProfile;                                               // Bluetooth is set up once
 }
 
 inline const char* itemName(SettingItem item) {
@@ -163,6 +170,7 @@ inline const char* itemName(SettingItem item) {
     case SettingItem::MinLap: return "MIN LAP TIME";
     case SettingItem::Kart: return "KART EVERYWHERE";
     case SettingItem::CameraRec: return "CAMERA RECORDING";
+    case SettingItem::Profile: return "BLUETOOTH PROFILE";
     case SettingItem::Engine: return "ENGINE DATA";
     case SettingItem::Camera: return "CAMERA";
     default: return "";
@@ -185,6 +193,7 @@ inline const char* itemNote(SettingItem item) {
     case SettingItem::MinLap: return "Line crossings sooner are ignored. Auto: 20 s, karts 10 s";
     case SettingItem::Kart: return "8 m lines, karts' min lap everywhere. Restart to apply";
     case SettingItem::CameraRec: return "A paired DJI camera starts and stops with each session";
+    case SettingItem::Profile: return "What the phone sees, one at a time. Restart to apply";
     case SettingItem::Engine: return "A Bluetooth OBD-II adapter";
     case SettingItem::Camera: return "A DJI Osmo Action camera: Track Rat as its GPS remote";
     default: return "";
@@ -224,6 +233,9 @@ inline void valueText(const SettingsData& d, SettingItem item, char* buf, size_t
       break;
     case SettingItem::Kart: snprintf(buf, n, "%s", d.kartEverywhere ? "On" : "Off"); break;
     case SettingItem::CameraRec: snprintf(buf, n, "%s", d.cameraWithSessions ? "With sessions" : "Manual"); break;
+    case SettingItem::Profile:
+      snprintf(buf, n, "%s", d.bleProfile == BleProfile::RaceChrono ? "RaceChrono (GPS + engine data)" : "RaceBox Mini (most apps)");
+      break;
     default: if (n) buf[0] = 0;
   }
 }
@@ -239,13 +251,14 @@ inline size_t toJson(const SettingsData& d, char* buf, size_t n) {
   int len = snprintf(buf, n,
                      "{\"units\":\"%s\",\"upsideDown\":%s,\"brightness\":%d,\"compareTo\":\"%s\",\"bigNumber\":\"%s\","
                      "\"deltaColours\":\"%s\",\"sessionMin\":\"%s\",\"gpsMode\":\"%s\",\"bluetooth\":%s,\"tzMin\":%d,\"recordRoadDrives\":%s,"
-                     "\"minLap\":\"%s\",\"kartEverywhere\":%s,\"cameraRecording\":\"%s\",\"bluetoothBuilt\":%s}",
+                     "\"minLap\":\"%s\",\"kartEverywhere\":%s,\"cameraRecording\":\"%s\",\"bleProfile\":\"%s\",\"bluetoothBuilt\":%s}",
                      d.units == SpeedUnits::Mph ? "mph" : "kmh", upsideDown(d) ? "true" : "false", d.brightness,
                      COMPARE[(int)d.compareTo % 3], BIG[(int)d.bigNumber % 3],
                      d.deltaColours == DeltaColours::BlueOrange ? "blueorange" : "greenred", SESSION_TEXT[sessionMinutes(d) ? d.sessionLength : 0], d.gpsMode == GpsMode::Fast20 ? "20hz" : "10hz",
                      d.bluetooth ? "true" : "false", d.utcOffsetMin, d.recordRoadDrives ? "true" : "false",
                      MIN_LAP_TEXT[d.minLap < MIN_LAP_CHOICES ? d.minLap : 0], d.kartEverywhere ? "true" : "false",
-                     d.cameraWithSessions ? "sessions" : "manual", BLE_ENABLED ? "true" : "false");
+                     d.cameraWithSessions ? "sessions" : "manual", d.bleProfile == BleProfile::RaceChrono ? "racechrono" : "racebox",
+                     BLE_ENABLED ? "true" : "false");
   return len > 0 && (size_t)len < n ? (size_t)len : 0;
 }
 
@@ -326,6 +339,10 @@ inline bool setField(SettingsData& d, const char* key, const char* v) {
   } else if (!strcmp(key, "kartEverywhere")) {
     if (!parseBool(v, &b)) return false;
     d.kartEverywhere = b;
+  } else if (!strcmp(key, "bleProfile")) {  // "racebox" or "racechrono"
+    if (!strcmp(v, "racebox")) d.bleProfile = BleProfile::RaceBox;
+    else if (!strcmp(v, "racechrono")) d.bleProfile = BleProfile::RaceChrono;
+    else return false;
   } else if (!strcmp(key, "cameraRecording")) {  // "sessions" or "manual"
     if (!strcmp(v, "sessions")) d.cameraWithSessions = true;
     else if (!strcmp(v, "manual")) d.cameraWithSessions = false;

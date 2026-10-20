@@ -234,6 +234,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | Delta colours | Green / red (default), blue / orange | Ahead and behind on the timing screen and the LED bar, and the best-of-the-day colour. Blue and orange read better with red-green colour blindness |
 | GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
+| Bluetooth profile | RaceBox Mini (default), RaceChrono | What the phone sees, one at a time: a RaceBox Mini (most apps), or a RaceChrono DIY device with GPS and engine data. See [RaceChrono with engine data](#racechrono-with-engine-data). **Applied at the next restart** |
 | Engine data | A screen, not a setting | Find, choose or forget a Bluetooth OBD-II adapter, and see how fast it answers. The row shows the adapter's name, Connected, or None |
 | Camera | A screen, not a setting | Pair or forget a DJI Osmo Action camera: see [DJI Osmo Action](#dji-osmo-action-track-rat-as-its-gps-remote-untested-on-hardware) |
 | Camera recording | With sessions (default), manual | With sessions: a paired camera starts recording when you drive off in a session and stops when you park in the pits. Manual: only its own button |
@@ -549,6 +550,32 @@ Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**,
 
 Track Rat isn't affiliated with RaceBox. The device name is used only so apps recognise the data format.
 
+### RaceChrono with engine data
+
+**Untested with RaceChrono:** the encodings follow RaceChrono's [DIY Bluetooth API](https://github.com/aollin/racechrono-ble-diy-device) and are tested on a PC, but nobody has connected an iPhone yet.
+
+With **Bluetooth profile** set to **RaceChrono** (then restart Track Rat), it stops being a RaceBox Mini and becomes a RaceChrono "DIY" device named `Track Rat` and 4 digits. It sends its GPS at the fix rate (20 a second) and, with an OBD-II adapter or CAN fitted (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)), the engine's values as CAN packets. With an IMU fitted, its lateral and longitudinal g go too. Only one profile at a time: iOS has been seen to stop receiving DIY data when a second serial-style service (the RaceBox one) is there.
+
+**In RaceChrono Pro (iPhone or Android):**
+
+1. **Add a DIY device:** in RaceChrono's settings, add an "other device" of the type RaceChrono DIY, Bluetooth LE, and pick `Track Rat ####`. Turn on its GPS and CAN-Bus. (The menu names vary a little between app versions.)
+2. **Vehicle profile:** create one for the car (or edit it), then **CAN-Bus channels → Add**, one per value below. *Packet ID* is the decimal of the hex ID; the *Equation* turns the packet into the value.
+
+   | Channel | Packet ID | Equation | Unit |
+   |---|---|---|---|
+   | Engine RPM | 256 (0x100) | `bytesToInt(raw, 0, 2)` | rpm |
+   | Throttle position | 257 (0x101) | `bytesToInt(raw, 0, 2) / 10.0` | % |
+   | Coolant temperature | 258 (0x102) | `bytesToInt(raw, 0, 2) / 10.0` | °C |
+   | Intake air temperature | 259 (0x103) | `bytesToInt(raw, 0, 2) / 10.0` | °C |
+   | Lateral acceleration (IMU) | 272 (0x110) | `bytesToInt(raw, 0, 2) / 1000.0` | G, + = turning right |
+   | Longitudinal acceleration (IMU) | 273 (0x111) | `bytesToInt(raw, 0, 2) / 1000.0` | G, + = speeding up |
+
+   RaceChrono then asks Track Rat for just those packets at the rate it wants (until it does, Track Rat sends none). A value Track Rat hasn't had in the last second isn't sent.
+3. **Filming with the iPhone:** in RaceChrono, turn on video recording for the session. It films with the phone and draws speed, the map, lap times, g, RPM and throttle on the video, live, from Track Rat's data.
+4. **Osmo Action videos:** after the session, in RaceChrono's session view, **Add video** and pick the Osmo Action file; RaceChrono lines it up by its time (check it with the sync slider). With Track Rat as the camera's GPS remote ([DJI Osmo Action](#dji-osmo-action-track-rat-as-its-gps-remote-untested-on-hardware)), the camera's clock and GPS agree with Track Rat's.
+
+The RaceBox profile stays the default: it works with more apps.
+
 ## Battery and sleep
 
 Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit keeps running when the car's USB power goes off. The board charges it from USB.
@@ -862,6 +889,12 @@ python test/test_fetch_tracks.py
 g++ -std=c++17 -Iinclude test/test_dji.cpp -o /tmp/dji && /tmp/dji
 ```
 
+`test/test_racechrono.cpp` checks the RaceChrono profile's encodings: latitude and longitude, both altitude and speed forms and where they switch (2776.7 m, 327.67 km/h), bearing (never 360.00), HDOP, the time since the hour and the date-hour, the sync bits going up with the hour and wrapping in 3 bits, the invalid values without a fix, CAN packets (the little-endian ID, 1 to 16 bytes), the value packets' equations, and the filter commands (deny all, allow all at an interval, allow one ID at its own, bad lengths ignored):
+
+```bash
+g++ -std=c++17 -Iinclude test/test_racechrono.cpp -o /tmp/rc && /tmp/rc
+```
+
 `test/test_elm327.cpp` checks the Bluetooth adapter's ELM327 conversation against a simulated adapter: the set-up commands in order, the supported-PID questions, a clone that rejects the "1" suffix or multi-PID requests, `SEARCHING...` before a slow first reply, spaces left on, replies cut into 1, 7 and 20-byte notifications, a missing prompt (a timeout, then ATZ after three), the engine stopping answering and coming back, the pedal as throttle, values stamped at the middle of their request, reading `NO DATA`, `?`, `STOPPED`, bus errors, multi-ECU, multi-PID and multi-frame replies, which scanned devices are listed, and the schedule's rates at 10, 20 and 40 replies a second:
 
 ```bash
@@ -969,7 +1002,7 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            Retime.h (which sessions are re-timed, when best laps are replaced),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
            the Settings and first-boot screens), Obd.h (OBD-II values and schedules),
-           Elm327.h (the Bluetooth adapter's conversation), DjiRemote.h (the DJI camera remote, ported
+           Elm327.h (the Bluetooth adapter's conversation), RaceChrono.h (RaceChrono's DIY encodings), DjiRemote.h (the DJI camera remote, ported
            from DJI's demo), DeviceScreen.h (Settings > Engine data and Camera), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
            DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
@@ -982,7 +1015,7 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            DisplaySettings (Settings and first-boot screens)
            Settings (kept in flash)
            CanObd (OBD-II over CAN), ObdBle (the Bluetooth OBD-II adapter), EngineData (either),
-           CameraBle (the DJI camera's GPS remote)
+           CameraBle (the DJI camera's GPS remote), RaceBoxBle, RaceChronoBle (the phone's two profiles)
            WifiPortal (Wi-Fi page)
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)

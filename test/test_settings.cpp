@@ -59,6 +59,7 @@ static SettingsData randomSettings() {
   d.kartEverywhere = testRand() & 1;
   d.minLap = (uint8_t)(testRand() % settings::MIN_LAP_CHOICES);
   d.cameraWithSessions = testRand() & 1;
+  d.bleProfile = (BleProfile)(testRand() & 1);
   return d;
 }
 
@@ -479,7 +480,7 @@ static void testJson() {
   size_t len = toJson(d, buf, sizeof(buf));
   std::string want = std::string("{\"units\":\"mph\",\"upsideDown\":true,\"brightness\":70,\"compareTo\":\"ever\",") +
                      "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"sessionMin\":\"25\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
-                     "\"recordRoadDrives\":false,\"minLap\":\"15\",\"kartEverywhere\":true,\"cameraRecording\":\"manual\",\"bluetoothBuilt\":" +
+                     "\"recordRoadDrives\":false,\"minLap\":\"15\",\"kartEverywhere\":true,\"cameraRecording\":\"manual\",\"bleProfile\":\"racebox\",\"bluetoothBuilt\":" +
                      (BLE_ENABLED ? "true" : "false") + "}";
   EXPECT(len == strlen(buf) && len > 0, "length %zu vs strlen %zu", len, strlen(buf));
   EXPECT(want == buf, "json:\n  got  %s\n  want %s", buf, want.c_str());
@@ -492,9 +493,9 @@ static void testJson() {
     size_t n = toJson(r, buf, sizeof(buf));
     std::string j(buf);
     bool ok = n == j.size() && j.front() == '{' && j.back() == '}' && std::count(j.begin(), j.end(), '"') % 2 == 0 &&
-              std::count(j.begin(), j.end(), ',') == 14;
+              std::count(j.begin(), j.end(), ',') == 15;
     for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "deltaColours", "sessionMin", "gpsMode", "bluetooth", "tzMin",
-                            "recordRoadDrives", "minLap", "kartEverywhere", "cameraRecording", "bluetoothBuilt"})
+                            "recordRoadDrives", "minLap", "kartEverywhere", "cameraRecording", "bleProfile", "bluetoothBuilt"})
       ok = ok && j.find(std::string("\"") + key + "\":") != std::string::npos;
     formed = formed && ok;
   }
@@ -606,7 +607,7 @@ static void testSetField() {
     if (start != target) printf("    round trip failed for %s\n", json);
   }
   EXPECT(restored, "toJson then setField must restore the settings");
-  EXPECT(sent == 14 && refused == 1, "14 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
+  EXPECT(sent == 15 && refused == 1, "15 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
 
   // Karting: Min lap time and Kart everywhere
   {
@@ -641,7 +642,7 @@ static void testNeedsRestartAndGps() {
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) {
       SettingsData b = a;
       adjust(b, itemAt(i), +1, true);
-      EXPECT(needsRestart(a, b) == (itemAt(i) == SettingItem::Gps || itemAt(i) == SettingItem::Kart), "item %d: needsRestart %d", i, needsRestart(a, b));
+      EXPECT(needsRestart(a, b) == (itemAt(i) == SettingItem::Gps || itemAt(i) == SettingItem::Kart || itemAt(i) == SettingItem::Profile), "item %d: needsRestart %d", i, needsRestart(a, b));
     }
     EXPECT(!needsRestart(a, a), "same settings never need a restart");
   }
@@ -1223,7 +1224,7 @@ static void testSettingsBoot() {
     }
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
-    EXPECT(pages == 10, "visited 10 pages (8 choices, brightness, time zone), got %d", pages);
+    EXPECT(pages == 11, "visited 11 pages (9 choices, brightness, time zone), got %d", pages);
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
     EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");

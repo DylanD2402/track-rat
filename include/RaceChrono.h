@@ -21,7 +21,7 @@
 namespace rc {
 
 // Track Rat's packet IDs. Each carries one big-endian signed 16-bit value:
-// RaceChrono equation bytesToInt(raw, 0, 2), divided as the comment says.
+// RaceChrono equation bytesToInt(raw, 0, 2), divided as the comment says (10.0, 1000.0).
 constexpr uint32_t ID_RPM = 0x100;       // rpm
 constexpr uint32_t ID_THROTTLE = 0x101;  // % x 10
 constexpr uint32_t ID_COOLANT = 0x102;   // deg C x 10
