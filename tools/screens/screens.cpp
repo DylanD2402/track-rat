@@ -43,7 +43,9 @@ ObdBle::Status ObdBle::status() { return obdStatus; }
 static CameraBle::Status camStatus;
 bool CameraBle::connected() { return camStatus.phase == dji::Remote::Phase::Connected; }
 CameraBle::Status CameraBle::status() { return camStatus; }
-bool EngineData::coolantHot(uint32_t) { return obdValues.coolantC >= COOLANT_WARN_C; }
+static bool coolantKnown = false, oilKnown = false;  // the engine's temperatures in the top bar (6.5)
+bool EngineData::coolant(uint32_t, float& c) { return coolantKnown && (c = obdValues.coolantC, true); }
+bool EngineData::oil(uint32_t, float& c) { return oilKnown && (c = obdValues.oilC, true); }
 void Power::backlight(bool) {}
 static SettingsData mockSettings = [] {
   SettingsData s = settings::defaults();
@@ -226,6 +228,9 @@ int main(int argc, char** argv) {
       gpsMs += 50;
       mockMillis += 50;
       loop.at(s, la, lo);
+      // The engine warming lap by lap, for the summary's and debrief's hottest (6.5)
+      const float coolC = 84.0f + 4.5f * std::max(lap, 0) + (float)fmod(s, loop.length) / loop.length * 3.0f;
+      timer.noteTemps(true, coolC, true, coolC + 24.0f);
       LapEvents evs = timer.onFix(la, lo, kmh, gpsMs, mockMillis);
       if (evs.find(LapEventType::LapCompleted)) trend.clear();
       trend.add(gpsMs, timer.liveDeltaMs(), timer.lapRunning() && timer.liveDeltaMs() != NO_DELTA);
@@ -562,6 +567,51 @@ int main(int argc, char** argv) {
   // The SYNC flash (6.4), for lining a video up with the log
   d.drawSync("14:03:12.3");
   save(d, "38_sync_flash");
+
+  // Coolant (6.5): the top bar's tag in each band, the overheat warning, the Coolant page
+  {
+    RunningOverlay o;
+    obdStatus.configured = obdStatus.connected = true;
+    coolantKnown = true;
+    const struct { float c; const char* name; } bands[] = {{55, "45_coolant_tag_cold"}, {92, "45b_coolant_tag_normal"},
+                                                           {104, "45c_coolant_tag_warm"}, {112, "45d_coolant_tag_hot"}};
+    for (auto& b : bands) {
+      obdValues.coolantC = b.c;
+      const uint32_t keep = mockMillis;
+      mockMillis -= mockMillis % (2 * CAM_REC_BLINK_MS);  // the hot tag's "on" half
+      d.drawRunning(track, timer, gps, o, 0);
+      save(d, b.name);
+      mockMillis = keep;
+    }
+    coolantKnown = false;
+    d.drawRunning(track, timer, gps, o, 0);
+    save(d, "45e_obd_tag_no_coolant_yet");
+    obdStatus.connected = false;
+    d.drawTempAlert(false, 112);
+    save(d, "46_overheat_coolant");
+    mockSettings.units = SpeedUnits::Mph;
+    d.drawTempAlert(true, 131);
+    save(d, "46b_overheat_oil_mph");
+    mockSettings.units = SpeedUnits::Kmh;
+    SettingsScreenState cool;
+    cool.begin(true);
+    const int coolRow = SettingsScreenState::rowOfItem(SettingItem::Coolant);
+    cool.setScroll(SettingsScreenState::rowTop(coolRow) - 40);
+    d.drawSettings(sd, cool, true, localNow);
+    save(d, "47_settings_list_coolant_row");
+    cool.tap(100, cool.rowScreenY(coolRow) + 10, scratch);
+    d.drawSettings(sd, cool, true, localNow);
+    save(d, "47b_settings_coolant");
+    SettingsScreenState coolBoot;
+    coolBoot.begin(false);
+    while (coolBoot.highlight != coolRow) coolBoot.handle(Key::BootShort, scratch);
+    coolBoot.handle(Key::BootLong, scratch);
+    coolBoot.handle(Key::BootLong, scratch);
+    SettingsData f = sd;
+    f.units = SpeedUnits::Mph;
+    d.drawSettings(f, coolBoot, false, localNow);
+    save(d, "47c_settings_coolant_boot_mph");
+  }
   d.drawSetup(0, 0, true);
   save(d, "40_setup_which_way_up");
   d.drawSetup(0, 1, false);

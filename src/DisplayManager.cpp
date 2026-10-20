@@ -201,7 +201,8 @@ void DisplayManager::drawTempAlert(bool oil, float c) {
   const String num = String(tempalert::inUnits(c, f));
   const int w = textWidth(num, Font::NumL), x = (W - w - 18) / 2, y = 104;
   text(num, x, y, Font::NumL, C_BG, TL_DATUM);
-  for (int r = 5; r <= 7; r++) gfx->drawCircle(x + w + 10, y + 9, r, C_BG);
+  gfx->fillCircle(x + w + 10, y + 9, 7, C_BG);
+  gfx->fillCircle(x + w + 10, y + 9, 4, C_RED);
   char buf[48];
   const tempalert::Limits l = settings::tempLimits(s);
   snprintf(buf, sizeof(buf), "%s at %d\xC2\xB0%s or more", oil ? "Oil hot" : "Hot", tempalert::inUnits(oil ? l.oilHotAtC : l.hotAtC, f),

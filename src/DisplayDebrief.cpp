@@ -93,19 +93,19 @@ void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, cons
   const int top = HEADER_H + 6, rowH = 13, rows = 12;
   const bool temps = hasTemp(timer.sessionCoolantMaxC());
   const bool f = settings::fahrenheit(Settings::get());
-  const int tagX = temps ? 112 : 100;
+  const int tagX = temps ? 118 : 100;
   label("LAPS", 10, top);
-  if (temps) label("MAX", 84, top);
+  if (temps) label("MAX", 86, top);
   int y = top + 14;
   for (int i = (int)timer.lapCount() - 1, n = 0; i >= 0 && n < rows; i--, n++, y += rowH) {
     const Lap& l = timer.lap(i);
     const bool best = i == r.bestIndex;
     snprintf(buf, sizeof(buf), "%u", (unsigned)l.number);
     text(buf, 10, y, Font::Caption, C_TEXT2);
-    text(formatLapTime(l.timeMs), temps ? 30 : 34, y, Font::Caption, best ? C_GREEN : C_TEXT);
+    text(formatLapTime(l.timeMs), temps ? 26 : 34, y, Font::Caption, best ? C_GREEN : C_TEXT);
     if (temps && hasTemp(l.coolantMaxC)) {
       snprintf(buf, sizeof(buf), "%d\xC2\xB0", tempalert::inUnits(l.coolantMaxC, f));
-      text(buf, 108, y, Font::Caption, tempColor(l.coolantMaxC, false), TR_DATUM);
+      text(buf, 112, y, Font::Caption, tempColor(l.coolantMaxC, false), TR_DATUM);
     }
     const char* tag = best ? "BEST" : laptags::shortLabel(l.tags);
     text(temps ? fit(tag, Font::Caption, 154 - tagX) : String(tag), tagX, y, Font::Caption, best ? C_GREEN : laptags::suspect(l.tags) ? C_ORANGE : C_YELLOW);
