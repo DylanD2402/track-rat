@@ -48,6 +48,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_perfrun.cpp -o /tmp/pr && /tmp/pr
       - name: test_jsontext
         run: g++ -std=c++17 -Iinclude test/test_jsontext.cpp -o /tmp/jt && /tmp/jt
+      - name: test_trackorder
+        run: g++ -std=c++17 -Iinclude test/test_trackorder.cpp -o /tmp/to && /tmp/to
 
   firmware:
     name: Firmware build
