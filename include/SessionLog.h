@@ -86,6 +86,7 @@ struct RetimeStatus {
   String message;           // the last thing it did, or why it stopped
 };
 RetimeStatus retimeStatus();
+bool retiming();  // the re-time task is running (cheap: for every loop)
 
 String fileName(const String& path);  // "/sessions/a.vbo" -> "a.vbo"
 

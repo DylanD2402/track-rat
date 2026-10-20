@@ -1421,6 +1421,12 @@ void loop() {
 
   autoPickTrack();
   WifiPortal::loop(gps);
+  {  // A re-time finished: the PBs it may have rewritten are read from the card again
+    static bool wasRetiming = false;
+    const bool retiming = SessionLog::retiming();
+    if (wasRetiming && !retiming) pbCache.clear();
+    wasRetiming = retiming;
+  }
   if (Settings::changeCount() != settingsApplied) applySettings();  // e.g. changed on the Wi-Fi page
 
   Power::update(now);

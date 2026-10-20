@@ -498,6 +498,8 @@ static void setRetimeState(int done, int total, int laps, const String& message,
   retimeState.message = message;
 }
 
+bool retiming() { return retimeRunning; }
+
 RetimeStatus retimeStatus() {
   std::lock_guard<std::mutex> g(retimeLock);
   return retimeState;

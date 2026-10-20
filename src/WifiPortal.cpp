@@ -612,7 +612,7 @@ static void setupRoutes() {
       return;
     }
     std::lock_guard<std::mutex> g(retimeAskLock);
-    if (retimeAsked || SessionLog::retimeStatus().running) {
+    if (retimeAsked || SessionLog::retiming()) {
       req->send(409, "text/plain", "Already re-timing");
       return;
     }
@@ -761,7 +761,7 @@ int updateProgress() { return fwProgress; }
 
 int uploadCodeValue() { return uploadCode.value(); }
 
-bool busy() { return (fwProgress >= 0 && fwProgress < 100) || rebootAt != 0 || SessionLog::retimeStatus().running; }
+bool busy() { return (fwProgress >= 0 && fwProgress < 100) || rebootAt != 0 || SessionLog::retiming(); }
 
 void onRetime(RetimeHandler handler) { retimeHandler = handler; }
 
