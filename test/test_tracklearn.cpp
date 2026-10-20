@@ -218,7 +218,9 @@ int main() {
     r.push(1);  // before begin: nothing kept
     CHECK(r.size() == 0, "no ring yet");
     r.begin(4);
-    for (int i = 1; i <= 6; i++) r.push(i);
+    int dropped = 0;
+    for (int i = 1; i <= 6; i++) dropped += r.push(i);
+    CHECK(dropped == 2, "two dropped: %d", dropped);
     CHECK(r.size() == 4 && r[0] == 3 && r[3] == 6, "newest four: %d..%d", r[0], r[3]);
     r.clear();
     r.push(9);

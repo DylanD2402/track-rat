@@ -204,11 +204,16 @@ public:
     std::vector<T>().swap(buf);
     head = n = 0;
   }
-  void push(const T& v) {
-    if (buf.empty()) return;
+  // True if the oldest was dropped to make room (what was [i] is now [i - 1])
+  bool push(const T& v) {
+    if (buf.empty()) return false;
     buf[(head + n) % buf.size()] = v;
-    if (n < buf.size()) n++;
-    else head = (head + 1) % buf.size();
+    if (n < buf.size()) {
+      n++;
+      return false;
+    }
+    head = (head + 1) % buf.size();
+    return true;
   }
   size_t size() const { return n; }
   const T& operator[](size_t i) const { return buf[(head + i) % buf.size()]; }  // 0 = oldest
