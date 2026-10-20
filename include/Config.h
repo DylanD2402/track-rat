@@ -133,6 +133,18 @@
 #define MAX_TRACE_POINTS 30000           // path points kept per lap for live diff (50 min at 10 Hz)
 #define LIVE_DELTA_MAX_OFFSET_M 40.0     // further than this from the best lap's line = no live diff
 
+// Automatic sessions (see AutoStart.h): parked this slow for this long = in the pits (summary shown)
+#define PIT_PARK_KMH 5.0
+#define PIT_PARK_MS 60000UL
+#define SESSION_RESUME_MS (10UL * 60UL * 1000UL)  // driving off within this of stopping: same session; later: the next one
+// Lap tags (see LapTags.h). Tagged laps are never the best lap or the reference, and aren't averaged.
+#define PIT_STOP_KMH 5.0                 // a lap with a fix below this is a pit lap
+#define SLOW_LAP_PERCENT 107             // a lap over this % of the best clean lap is slow
+#define SUSPECT_GAP_MS 1000              // a gap between fixes over this makes a lap suspect...
+#define SUSPECT_ACCURACY_M 5.0           // ...or a fix less accurate than this (when the GPS says)...
+#define SUSPECT_DISTANCE_PERCENT 5.0     // ...or a lap this % longer or shorter than the median lap...
+#define SUSPECT_DISTANCE_MIN_LAPS 3      // ...once there are this many laps to take the median from
+
 // ---------------------------------------------------------------------------
 // Performance runs (acceleration and braking)
 // ---------------------------------------------------------------------------

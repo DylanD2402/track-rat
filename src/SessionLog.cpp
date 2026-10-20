@@ -76,22 +76,25 @@ String newSessionBase(const String& stamp, const String& name) {
   return base;
 }
 
-bool save(const String& path, const Track& track, const String& stamp, const LapTimer& timer,
+bool save(const String& path, const Track& track, const String& stamp, int session, const LapTimer& timer,
           const String& logName, bool finished, bool recovered) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs || path.length() == 0) return false;
 
   size_t splitTimes = 0;
   for (size_t i = 0; i < timer.lapCount(); i++) splitTimes += timer.lap(i).splitMs.size();
-  DynamicJsonDocument doc(4096 + timer.lapCount() * 256 + splitTimes * 16);
+  DynamicJsonDocument doc(4096 + timer.lapCount() * 384 + splitTimes * 16);  // a lap with every tag takes about 300
   doc["track"] = track.id;
   doc["trackName"] = track.name;
   if (track.layoutName.length()) doc["layout"] = track.layoutName;
   doc["started"] = stamp;
+  if (session > 0) doc["session"] = session;
   if (logName.length()) doc["log"] = logName;
   doc["finished"] = finished;
   if (recovered) doc["recovered"] = true;
   doc["lapCount"] = timer.lapCount();
+  doc["cleanLaps"] = timer.untaggedLapCount();
+  if (uint32_t avg = timer.averageLapMs()) doc["averageMs"] = avg;  // of the untagged laps
   if (const Lap* best = timer.bestLap()) {
     doc["bestLap"] = best->number;
     doc["bestTimeMs"] = best->timeMs;
@@ -108,6 +111,15 @@ bool save(const String& path, const Track& track, const String& stamp, const Lap
     o["time"] = formatLapTime(l.timeMs);
     o["maxKmh"] = serialized(String(l.maxSpeedKmh, 1));
     o["avgKmh"] = serialized(String(l.avgSpeedKmh, 1));
+    o["distanceM"] = (int32_t)lroundf(l.distanceM);
+    if (l.tags) {  // "pit", "slow", "suspect"; why it's suspect: "gps gap", "accuracy", "distance"
+      JsonArray tags = o.createNestedArray("tags");
+      for (const char* t : laptags::names(l.tags)) tags.add(t);
+      if (laptags::suspect(l.tags)) {
+        JsonArray why = o.createNestedArray("suspect");
+        for (const char* r : laptags::suspectReasons(l.tags)) why.add(r);
+      }
+    }
     if (!l.splitMs.empty()) {
       JsonArray s = o.createNestedArray("splitsMs");
       for (int32_t v : l.splitMs) s.add(v);
@@ -157,6 +169,7 @@ static String logPath;
 static uint32_t fixCount = 0;
 static uint32_t fixesMissed = 0;
 static vbo::GForce gforce;
+static uint32_t lastFixMs = 0;  // GPS time of the last fix logged (for the gap mark)
 
 void begin() {
   if (Storage::sdMounted()) LogWriter::begin(SD_MMC);
@@ -190,13 +203,14 @@ static bool beginLog(const String& path, const vbo::Header& h) {
   return true;
 }
 
-bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, bool timing, uint32_t minLapMs,
-                   const GpsFix& first) {
+bool beginTrackLog(const String& vboPath, const Track& t, const String& stamp, int session, bool timing,
+                   uint32_t minLapMs, const GpsFix& first) {
   vbo::Header h = headerFor(stamp, first);
   char buf[96];
   h.comments.push_back("Type: laps");
   h.comments.push_back(std::string("Track: ") + t.id.c_str());
   h.comments.push_back(std::string("Track name: ") + t.name.c_str());
+  if (session > 0) h.comments.push_back("Session: " + std::to_string(session));
   if (timing) {
     // Exactly what the lap timer uses, direction included, so the session can be timed again from the log
     h.comments.push_back("Start/finish: " + vbo::pointText(t.startFinish));
@@ -250,6 +264,9 @@ void logFix(const GpsFix& f, uint16_t lap) {
   s.lap = lap;
   s.latG = gforce.lateral();
   s.longG = gforce.longitudinal();
+  const int32_t gap = fixCount + fixesMissed ? vbo::utcDiffMs(lastFixMs, f.gpsTimeMs) : 0;
+  s.tag = laptags::fixFlags(f.speedKmh, f.hAccM, gap > 0 ? (uint32_t)gap : 0);
+  lastFixMs = f.gpsTimeMs;
   char line[128];
   size_t n = vbo::formatLine(s, line, sizeof(line));
   if (n && LogWriter::append(line, n)) fixCount++;
@@ -356,7 +373,7 @@ static void recoverSession(fs::FS& fs, const String& vboPath) {
     if (const Track* known = recoveryTrack(replay->trackId)) track = *known;
     track.id = replay->trackId.c_str();
     if (replay->trackName.size()) track.name = replay->trackName.c_str();
-    ok = save(base + ".json", track, stamp, replay->timer, logName, true, true);
+    ok = save(base + ".json", track, stamp, replay->session, replay->timer, logName, true, true);
   }
   const Lap* best = replay->timer.bestLap();
   DEBUG_PRINTF("Session: %s %s from its log: %lu fixes, %u laps%s%s%s%s, %lu bad lines%s (%lu ms)\n",

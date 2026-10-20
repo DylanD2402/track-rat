@@ -32,6 +32,7 @@ void LapTimer::reset() {
   sessionMaxSpeed = 0;
   curTrace.clear();
   bestTrace.clear();
+  refIndex = -1;
   matchIdx = 0;
   liveDelta = NO_DELTA;
   sfHeadingConfirmed = false;
@@ -56,6 +57,8 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
   lapSpeedSum = 0;
   lapSpeedCount = 0;
   lapSplits.assign(splitPts.size(), -1);
+  lapDistance = 0;
+  lapTags = 0;
   curTrace.clear();
   curTrace.reserve(2048);
   curTrace.push_back({0, 0, 0});  // the start/finish is the origin
@@ -99,13 +102,16 @@ void LapTimer::crossSplits(double lat, double lon, int64_t dt, double after, dou
   }
 }
 
-LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis) {
+LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis, float hAccM) {
   LapEvents evs;
   int64_t t = continuousTime(gpsTimeMs);
 
   if (speedKmh > sessionMaxSpeed) sessionMaxSpeed = speedKmh;
 
   int64_t dt = t - prevT;
+  // A gap before this fix: suspect, for the lap it happened in (and any lap starting at this fix)
+  const uint8_t gapFlag = havePrev && dt > 0 ? laptags::gapFlag(dt > UINT32_MAX ? UINT32_MAX : (uint32_t)dt) : 0;
+  if (running) lapTags |= gapFlag;
   bool usable = havePrev && dt > 0 && dt <= MAX_FIX_GAP_MS;
 
   if (usable) {
@@ -123,6 +129,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
       if (speedKmh > lapMaxSpeed) lapMaxSpeed = speedKmh;
       lapSpeedSum += speedKmh;
       lapSpeedCount++;
+      if (moving) lapDistance += (float)hypot(b.x - a.x, b.y - a.y);  // not GPS wander while parked; the segment that ends a lap counts to it
       // A split at the very same point as the line counts as before it: it was checked first before this too.
       if (moving) crossSplits(lat, lon, dt, -1.0, lineCrossed ? frac : 2.0, evs);
     }
@@ -147,15 +154,25 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
             lap.maxSpeedKmh = lapMaxSpeed;
             lap.avgSpeedKmh = lapSpeedCount ? (float)(lapSpeedSum / lapSpeedCount) : 0;
             lap.splitMs = lapSplits;
+            lap.distanceM = lapDistance;
+            lap.tags = lapTags;
 
             const Lap* prevBest = bestLap();
             if (prevBest) ev.deltaMs = (int32_t)lap.timeMs - (int32_t)prevBest->timeMs;
             laps.push_back(lap);
-            if (!prevBest || lap.timeMs < prevBest->timeMs) {
-              bestIndex = laps.size() - 1;
-              ev.isBest = true;
+            retagLaps();
+            const int idx = (int)laps.size() - 1;
+            ev.isBest = bestIndex == idx;
+            // A reference whose lap turned out tagged is dropped; this lap's path becomes the
+            // reference if it's the new best, or stands in while there's none.
+            if (refIndex >= 0 && !laps[refIndex].clean()) {
+              bestTrace.clear();
+              refIndex = -1;
+            }
+            if (ev.isBest || (refIndex < 0 && laps[idx].tags == 0)) {  // a stand-in has no tags at all, not even slow
               curTrace.push_back({0, 0, (int32_t)lap.timeMs});
-              bestTrace.swap(curTrace);  // this lap's path becomes the reference
+              bestTrace.swap(curTrace);
+              refIndex = idx;
             }
             ev.type = LapEventType::LapCompleted;
             ev.timeMs = lap.timeMs;
@@ -174,6 +191,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
   }
 
   if (running) {
+    lapTags |= gapFlag | laptags::fixFlags(speedKmh, hAccM, 0);  // stopped, or a poor fix, in the lap running now
     int32_t elapsed = (int32_t)(t - lapStartT);
     geo::XY p = geo::toLocal(lat, lon, sf.lat, sf.lon);
     if (curTrace.size() < MAX_TRACE_POINTS) curTrace.push_back({(float)p.x, (float)p.y, elapsed});
@@ -223,10 +241,26 @@ uint32_t LapTimer::currentLapMs(uint32_t nowMillis) const {
 }
 
 uint32_t LapTimer::averageLapMs() const {
-  if (laps.empty()) return 0;
   uint64_t total = 0;
-  for (const Lap& l : laps) total += l.timeMs;
-  return total / laps.size();
+  size_t n = 0;
+  for (const Lap& l : laps)
+    if (!l.tags) total += l.timeMs, n++;
+  return n ? total / n : 0;
+}
+
+size_t LapTimer::untaggedLapCount() const {
+  size_t n = 0;
+  for (const Lap& l : laps) n += l.tags == 0;
+  return n;
+}
+
+// The slow and distance tags, and so the best lap, from all the laps so far (LapTags.h).
+void LapTimer::retagLaps() {
+  std::vector<laptags::LapInfo> info;
+  info.reserve(laps.size());
+  for (const Lap& l : laps) info.push_back({l.timeMs, l.distanceM, l.tags});
+  bestIndex = laptags::retag(info);
+  for (size_t i = 0; i < laps.size(); i++) laps[i].tags = info[i].tags;
 }
 
 // Finds where on the best lap's path we are now, and how long the best lap

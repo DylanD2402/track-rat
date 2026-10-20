@@ -856,12 +856,16 @@ void DisplayManager::drawSetLine(const Track& track, const GPSHandler& gps, uint
   endFrame();
 }
 
-void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, const String& savedPath) {
+void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, const String& savedPath, int session,
+                                 bool inPits) {
   beginFrame();
-  header("Session summary   ·   " + track.displayName(), nullptr);
+  String title = session > 0 ? "Session " + String(session) : String(inPits ? "" : "Session summary");
+  if (inPits) title = title.length() ? "Pits   ·   " + title : String("In the pits");
+  header(title + "   ·   " + track.displayName(), nullptr);
 
   char buf[48];
   const Lap* best = timer.bestLap();
+  const uint32_t avg = timer.averageLapMs();  // of the untagged laps
   // Laps, best and average across the top
   int y = HEADER_H + 6;
   label("LAPS", 12, y);
@@ -869,8 +873,7 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
   label("AVERAGE", 196, y);
   text(String((int)timer.lapCount()), 12, y + 14, Font::Title, C_TEXT);
   text(best ? formatLapTime(best->timeMs) : String("–"), 76, y + 14, Font::Title, best ? C_GREEN : C_TEXT3);
-  text(timer.lapCount() ? formatLapTime(timer.averageLapMs()) : String("–"), 196, y + 14, Font::Title,
-       timer.lapCount() ? C_TEXT : C_TEXT3);
+  text(avg ? formatLapTime(avg) : String("–"), 196, y + 14, Font::Title, avg ? C_TEXT : C_TEXT3);
 
   // The latest laps, newest first
   const int ly = 76, rowH = 20, maxRows = 5;
@@ -884,7 +887,8 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
     text(buf, 20, y, Font::Body, C_TEXT2, ML_DATUM);
     text(formatLapTime(l.timeMs), 92, y, Font::Body, isBest ? C_GREEN : C_TEXT, ML_DATUM);
     if (isBest) text("BEST", 168, y, Font::Caption, C_GREEN, ML_DATUM);
-    snprintf(buf, sizeof(buf), "top %.0f %s", Settings::speed(l.maxSpeedKmh), Settings::speedUnit());
+    else if (l.tags) text(laptags::shortLabel(l.tags), 168, y, Font::Caption, laptags::suspect(l.tags) ? C_ORANGE : C_YELLOW, ML_DATUM);
+    snprintf(buf, sizeof(buf), "%.0f %s", Settings::speed(l.maxSpeedKmh), Settings::speedUnit());  // top speed
     text(buf, W - 20, y, Font::Body, C_TEXT3, MR_DATUM);
     if (rows < maxRows - 1 && i > 0) gfx->drawFastHLine(20, y + rowH / 2, W - 40, C_LINE);
     y += rowH;
@@ -893,6 +897,12 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
 
   String saved = savedPath.length() ? "Saved to " + String(Storage::sessionFSName()) + ": " + savedPath : String("Not saved");
   text(fit(saved, Font::Caption, W - 24), 12, 186, Font::Caption, C_TEXT3, ML_DATUM);
+  if (inPits) {  // still in the session: no buttons to bump
+    centered("Drive off to carry on", WIFI_BUTTON_Y + 8, Font::Body, C_TEXT);
+    centered("Tap: timing screen   ·   Hold: end the session", WIFI_BUTTON_Y + 30, Font::Caption, C_TEXT3);
+    endFrame();
+    return;
+  }
   // Menu and Again in the left and centre thirds, Wi-Fi in the right (the taps are in main.cpp)
   const int bw = W / 3, bh = H - WIFI_BUTTON_Y - 4;
   button(4, WIFI_BUTTON_Y, bw - 8, bh, "Menu", false);

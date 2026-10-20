@@ -266,8 +266,10 @@ int main(int argc, char** argv) {
   setGps(gps, true, la, lo, 96, gpsMs);
   d.drawSetLine(track, gps, 0);
   save(d, "16_set_line");
-  d.drawSummary(track, timer, "/sessions/20261019_093012_calabogie.json");
+  d.drawSummary(track, timer, "/sessions/20261019_093012_calabogie.json", 2, false);
   save(d, "17_summary");
+  d.drawSummary(track, timer, "/sessions/20261019_093012_calabogie.json", 2, true);
+  save(d, "17b_in_the_pits");
 
   // --- Free Roam ---
   FreeRoam fr;

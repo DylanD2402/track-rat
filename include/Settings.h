@@ -15,6 +15,7 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
+#include <string>
 #include "SettingsData.h"
 
 namespace Settings {
@@ -23,6 +24,11 @@ void begin();  // load from flash; call before anything that reads get()
 SettingsData get();
 void set(const SettingsData& s);  // validate, use, and save what changed
 uint32_t changeCount();           // goes up by one with every change
+
+// "Session N" for a session starting now at trackId (see nextSessionNumber
+// in AutoStart.h). The count is kept in flash with the settings, so a
+// session after a power cut is still the next one of the day.
+int nextSessionNumber(const std::string& trackId, const std::string& stamp);
 
 // A speed in km/h as the driver wants to see it, and its unit.
 inline float speed(float kmh) { return settings::speedValue(kmh, get().units); }

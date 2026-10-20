@@ -33,9 +33,11 @@ void begin();
 // empty if the GPS date is unknown. "" if there's no storage.
 String newSessionBase(const String& stamp, const String& name);
 
-// The lap summary. `logName` is the session's .vbo file name ("" if none);
-// `finished` marks a session that was ended, not just saved after a lap.
-bool save(const String& path, const Track& track, const String& stamp, const LapTimer& timer,
+// The lap summary, with each lap's tags (LapTags.h). `session` is its
+// number that day at the track (0: not known). `logName` is the session's
+// .vbo file name ("" if none); `finished` marks a session that was ended,
+// not just saved after a lap.
+bool save(const String& path, const Track& track, const String& stamp, int session, const LapTimer& timer,
           const String& logName, bool finished, bool recovered = false);
 
 // Free Roam summary: time, distance and speeds. Includes the route (a point
@@ -52,9 +54,11 @@ bool fullLogAvailable();
 // header). `timing`: the start/finish line is known now, so it's recorded
 // in the header (and as a Circuit Tools timing line if the map shows which
 // way the track runs there).
-bool beginTrackLog(const String& vboPath, const Track& track, const String& stamp, bool timing,
+bool beginTrackLog(const String& vboPath, const Track& track, const String& stamp, int session, bool timing,
                    uint32_t minLapMs, const GpsFix& first);
 bool beginFreeRoamLog(const String& vboPath, const String& stamp, const GpsFix& first);
+// Each fix is marked in the "Lap tag" channel with the flags it gives its
+// lap (stopped, after a gap, poor accuracy: laptags::fixFlags).
 void logFix(const GpsFix& fix, uint16_t lap);
 void endLog();
 bool logging();

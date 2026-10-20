@@ -15,12 +15,12 @@ namespace vbo {
 // the rest need a line each in [channel units].
 static const char* const CHANNELS[] = {"satellites", "time",  "latitude",  "longitude",
                                        "velocity kmh", "heading", "height", "HDOP",
-                                       "Lap",        "Lateral G", "Longitudinal G"};
+                                       "Lap",        "Lateral G", "Longitudinal G", "Lap tag"};
 static const int STANDARD_CHANNELS = 7;
-static const char* const UNITS[] = {"-", "-", "g", "g"};
+static const char* const UNITS[] = {"-", "-", "g", "g", "-"};
 static_assert(sizeof(CHANNELS) / sizeof(CHANNELS[0]) - STANDARD_CHANNELS == sizeof(UNITS) / sizeof(UNITS[0]),
               "one [channel units] line per non-standard channel");
-static const char* const COLUMN_NAMES ="sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG";
+static const char* const COLUMN_NAMES ="sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag";
 
 static const double G0 = 9.80665;
 
@@ -38,11 +38,11 @@ size_t formatLine(const Sample& s, char* out, size_t cap) {
   float heading = fmodf(s.headingDeg, 360.0f);
   if (heading < 0) heading += 360.0f;
   if (heading >= 359.995f) heading = 0;  // would print as 360.00
-  int n = snprintf(out, cap, "%03u %s %012.5f %012.5f %07.3f %06.2f %+09.2f %05.2f %03u %+06.3f %+06.3f\r\n",
+  int n = snprintf(out, cap, "%03u %s %012.5f %012.5f %07.3f %06.2f %+09.2f %05.2f %03u %+06.3f %+06.3f %03u\r\n",
                    (unsigned)(s.sats > 99 ? 99 : s.sats), t, latToVbo(s.lat), lonToVbo(s.lon),
                    clampf(s.speedKmh, 0, 999.999f), heading, clampf(s.heightM, -99999.99f, 99999.99f),
                    clampf(s.hdop, 0, 99.99f), (unsigned)(s.lap > 999 ? 999 : s.lap),
-                   clampf(s.latG, -GForce::MAX_G, GForce::MAX_G), clampf(s.longG, -GForce::MAX_G, GForce::MAX_G));
+                   clampf(s.latG, -GForce::MAX_G, GForce::MAX_G), clampf(s.longG, -GForce::MAX_G, GForce::MAX_G), (unsigned)s.tag);
   return (n > 0 && (size_t)n < cap) ? (size_t)n : 0;
 }
 
@@ -244,6 +244,7 @@ void Reader::mapColumns() {
     else if (c == "lap") colLap = i;
     else if (c == "lateral g") colLatG = i;
     else if (c == "longitudinal g") colLongG = i;
+    else if (c == "lap tag") colTag = i;
   }
 }
 
@@ -352,6 +353,7 @@ bool Reader::feed(const char* line, Sample& out) {
   if (colLap >= 0) out.lap = (uint16_t)v[colLap];
   if (colLatG >= 0) out.latG = (float)v[colLatG];
   if (colLongG >= 0) out.longG = (float)v[colLongG];
+  if (colTag >= 0) out.tag = (uint8_t)v[colTag];
   return true;
 }
 

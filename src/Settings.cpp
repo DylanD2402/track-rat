@@ -10,6 +10,7 @@
 #include "Settings.h"
 #include <Arduino.h>
 #include <Preferences.h>
+#include "AutoStart.h"
 
 namespace Settings {
 
@@ -85,6 +86,24 @@ void set(const SettingsData& s) {
     }
   }
   if (writeLock) xSemaphoreGive(writeLock);
+}
+
+int nextSessionNumber(const std::string& trackId, const std::string& stamp) {
+  if (writeLock) xSemaphoreTake(writeLock, portMAX_DELAY);
+  SessionCount last;
+  if (open) {
+    last.trackId = prefs.getString("ses_trk", "").c_str();
+    last.date = prefs.getString("ses_day", "").c_str();
+    last.number = prefs.getInt("ses_num", 0);
+  }
+  int n = ::nextSessionNumber(last, trackId, stamp);
+  if (open) {
+    prefs.putString("ses_trk", last.trackId.c_str());
+    prefs.putString("ses_day", last.date.c_str());
+    prefs.putInt("ses_num", last.number);
+  }
+  if (writeLock) xSemaphoreGive(writeLock);
+  return n;
 }
 
 }  // namespace Settings

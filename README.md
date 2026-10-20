@@ -94,6 +94,8 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 **At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically. If you're already moving (20 km/h or more), the session starts at once. If you're parked, you get that track's Ready screen, and the session starts by itself when you drive off (20 km/h for 2 seconds). Until then **MENU** (or pressing BOOT) takes you to the main menu, so a track made at home doesn't trap you in a session. Timing begins the first time you cross the start/finish line; everything before that is the out lap.
 
+**Sessions run themselves.** Park (under 5 km/h) for a minute and you're in the pits: the session's summary comes up, with its laps and their tags. Drive off again within 10 minutes of stopping (a red flag, a quick check) and the same session carries on, back on the timing screen. Stay parked longer and the session ends; the next time you drive off at the track, Session 2 starts by itself, then 3, and so on (leaving the track doesn't start one). Sessions are numbered per track and per local day, and the count is kept in flash, so the first run after a power cut is the next session too. Holding the screen still ends a session at any time.
+
 **Away from a track:** you get a menu:
 
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card, unless **Record road drives** is off in [Settings](#settings). Then the drive is shown but not saved.
@@ -115,10 +117,11 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | GPS Status (top bar of the menu or track list) | tap: back | press: back |
 | Ready | centre: start, left: menu (back, if you came from the track list), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from the track list) |
 | Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
+| In the pits (parked a minute while timing) | tap: back to the timing screen, hold 2 s: end; driving off goes back by itself | press: timing screen, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
 | Performance | left: rollout / demo, centre: results, right: menu, hold 2 s: menu | press: next screen, hold 1 s: menu |
-| Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page | press: Ready screen again, hold 1 s: Wi-Fi page |
+| Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page. After a session that ended by itself, driving off starts the next | press: Ready screen again, hold 1 s: Wi-Fi page |
 | Free Roam summary | tap: menu; WI-FI button: Wi-Fi page | press: menu, hold 1 s: Wi-Fi page |
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
 | Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back) |
@@ -136,6 +139,14 @@ While timing, the screen shows:
 When you complete a lap, its time shows full-screen for 4 s, in green if it's a new best.
 
 The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
+
+**Lap tags.** Each lap is checked, and a lap that can't be trusted is tagged:
+
+- **PIT:** the car stopped (under 5 km/h) during the lap: a pit stop, a red flag, a spin.
+- **SLOW:** more than 107% of the best lap: a cool-down lap, traffic, yellow flags.
+- **SUSPECT:** a gap of more than 1 s between GPS fixes, a fix less accurate than ±5 m (u-blox only), or a lap more than 5% longer or shorter than the session's usual lap (a cut, once there are 3 laps to compare).
+
+A tagged lap is never the best lap or the live-diff reference, and isn't counted in the average. The summary lists the tags beside the lap times. The slow and length checks are made again after every lap, so a short first lap that looked like the best loses that place once later laps show it was cut; the next clean lap then stands in as the live-diff reference until there's a new best.
 
 ## Settings
 
@@ -479,8 +490,8 @@ Without it, the board shows a plain page with the session list, `tracks.json` an
 
 Sessions are saved in `/sessions` on the SD card, as two files with the same name. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the summary also names the layout.
 
-- **`<date>_<time>_<track id>.vbo`:** every GPS fix, up to 20 a second (10 in the 10 Hz GPS mode): UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, and lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up). About 6.5 MB per hour of driving.
-- **`<date>_<time>_<track id>.json`:** the summary: every lap and split time, max and average speed per lap, the best lap, and the name of its `.vbo`.
+- **`<date>_<time>_<track id>.vbo`:** every GPS fix, up to 20 a second (10 in the 10 Hz GPS mode): UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up), and a lap tag mark. About 6.8 MB per hour of driving. The **Lap tag** channel marks the fixes that tag a lap where they happened: 1 = stopped, 4 = after a gap of more than 1 s, 8 = accuracy worse than ±5 m (added together when there are several). The header names the session number (`Session: 2`).
+- **`<date>_<time>_<track id>.json`:** the summary: the session number (`"session"`), every lap and split time, max and average speed and distance per lap, each lap's tags (`"tags": ["pit", "slow", "suspect"]`, and for a suspect lap why: `"suspect": ["gps gap", "accuracy", "distance"]`), the best clean lap, the average of the untagged laps, and the name of its `.vbo`.
 
 File names use UTC until the **Time zone** setting is set, either on the Settings screen or by a phone opening the Wi-Fi page. Then they use your local time. Times inside the `.vbo` are always UTC. Speeds in the files are always km/h, whatever the Speed units setting.
 
@@ -530,6 +541,12 @@ What a driver chooses (units, brightness and so on) is a [setting](#settings), c
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
 | `PERF_ROLLOUT_DEFAULT` | 0 | 1 = Performance starts with the 1-foot rollout on |
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
+| `PIT_PARK_KMH`, `PIT_PARK_MS` | 5, 60 s | Parked this slow for this long while timing: in the pits, the summary shows |
+| `SESSION_RESUME_MS` | 10 minutes | Driving off within this of stopping carries on the same session; parked longer, the session ends |
+| `SLOW_LAP_PERCENT` | 107 | A lap over this % of the best lap is tagged slow |
+| `PIT_STOP_KMH` | 5 | A lap with a fix below this speed is a pit lap |
+| `SUSPECT_GAP_MS`, `SUSPECT_ACCURACY_M` | 1000, 5 | A gap between fixes over this, or a fix less accurate than this, makes a lap suspect |
+| `SUSPECT_DISTANCE_PERCENT`, `SUSPECT_DISTANCE_MIN_LAPS` | 5, 3 | A lap this % longer or shorter than the median makes it suspect, once there are this many laps |
 | `AUTO_START_KMH`, `AUTO_START_HOLD_MS` | 20, 2000 | A track picked at boot with the car parked starts its session when the car stays at this speed or more for this long. Already at this speed at boot: starts at once |
 | `BATTERY_ENABLED` | 1 | 0 = ignore the battery pin completely |
 | `BATTERY_CAL_OFFSET_MV` | 0 | Added to the battery voltage reading, to match a multimeter |
@@ -572,6 +589,12 @@ It checks that the timer:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
+```
+
+`test/test_sessions.cpp` drives a simulated day at a track through the real lap timer: a red flag, every kind of glitchy lap (a GPS gap, poor accuracy, a cut across the infield, a cool-down lap), a pit stop that ends the session, and a power cut. It checks each lap's tags, that no tagged lap becomes the best or the live-diff reference (even one that only shows up as cut later), the average of the clean laps, when the pits and the end of a session are detected, the session numbers through the day, and that a summary rebuilt from the log has the same tags:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_sessions.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/ses && /tmp/ses
 ```
 
 `test/test_trackorder.cpp` checks the track list order: nearest first, layouts of one venue together at the distance of its closest layout, `tracks.json` order with no GPS fix, and Bench Test last:

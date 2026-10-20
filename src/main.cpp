@@ -10,6 +10,10 @@
  *       one button away) : menu (Free Roam / New Track / Track list). Tracks
  *       without a start/finish line get one by tapping the screen while
  *       crossing it.
+ *
+ * Sessions run themselves (AutoStart.h): parked for a minute shows the
+ * summary; driving off within 10 minutes carries on, later it's the next
+ * session of the day. Holding the screen still ends one.
  */
 
 #include <Arduino.h>
@@ -74,6 +78,10 @@ static DriveOffDetector driveOff;
 
 // Lap-timing session
 static bool settingLine = false;  // waiting for the driver to tap at the start/finish line
+static int sessionNumber = 0;     // "Session N" of the day at this track
+static PitWatch pitWatch;         // parked: in the pits (see AutoStart.h)
+static bool pitView = false;      // parked, showing the summary (a tap goes back to timing)
+static bool nextSessionArmed = false;  // a session ended by itself: the summary starts the next one on driving off
 static String sessionPath;        // its summary (.json)
 static String sessionStamp;
 // Lap-timing and Free Roam sessions: every fix goes to a .vbo log (SD card)
@@ -190,7 +198,7 @@ static void openSessionLog(const GpsFix& f) {
   if (base.length() == 0) return;
   String path = base + ".vbo";
   bool ok = roam ? SessionLog::beginFreeRoamLog(path, sessionStamp, f)
-                 : SessionLog::beginTrackLog(path, selectedTrack(), sessionStamp, !settingLine,
+                 : SessionLog::beginTrackLog(path, selectedTrack(), sessionStamp, sessionNumber, !settingLine,
                                              minLapMs(selectedTrack()), f);
   if (ok) {
     sessionBase = base;
@@ -209,7 +217,7 @@ static void recordFix(const GpsFix& f, uint16_t lap) {
 static void finishSessionFiles() {
   if (lapTimer.lapCount() > 0 || SessionLog::logging()) {
     if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
-    SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer, sessionLog, true);
+    SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, true);
   }
   SessionLog::endLog();
   logPending = false;
@@ -233,18 +241,21 @@ static void enterState(AppState next) {
     if (!t.hasStartFinish) settingLine = true;
     beginLapTiming(t);
     sessionStamp = gps.timestampString();
+    sessionNumber = Settings::nextSessionNumber(t.id.c_str(), sessionStamp.c_str());
     sessionPath = "";
     startSessionFiles();
+    pitWatch.reset();
+    pitView = false;
     layoutChecked = t.bench;
     drivenPath.clear();
     drivenM = 0;
     nextLayoutCheckM = 2000;
     if (settingLine) {
-      DEBUG_PRINTF("Session at %s: waiting for the start/finish line to be marked\n", t.displayName().c_str());
+      DEBUG_PRINTF("Session %d at %s: waiting for the start/finish line to be marked\n", sessionNumber, t.displayName().c_str());
     } else {
       static const char* FROM[] = {"either way", "set", "from the map"};
-      DEBUG_PRINTF("Session started at %s (S/F %.6f, %.6f, gate +/-%.0f m, direction %.0f %s, %d splits)\n",
-                   t.displayName().c_str(), t.startFinish.lat, t.startFinish.lon, t.startFinish.radius,
+      DEBUG_PRINTF("Session %d started at %s (S/F %.6f, %.6f, gate +/-%.0f m, direction %.0f %s, %d splits)\n",
+                   sessionNumber, t.displayName().c_str(), t.startFinish.lat, t.startFinish.lon, t.startFinish.radius,
                    t.startFinish.heading, FROM[(int)t.startFinish.headingFrom], (int)t.splits.size());
     }
   }
@@ -255,7 +266,9 @@ static void enterState(AppState next) {
     trackDB.saveMaps();  // the map from this session's best lap: saved now that nothing is being timed
     gps.setSimulated(false);
     settingLine = false;
+    pitView = false;
   }
+  if (state == AppState::Summary) nextSessionArmed = false;  // set again by whoever ends a session by itself
 
   if (next == AppState::Performance) {
     perfRun.clear();
@@ -375,14 +388,14 @@ static void switchLayout(int index, layout::Lines& map) {
         sessionBase = renamedBase;
         sessionPath = newJson;
         if (renamedVbo) sessionLog = SessionLog::fileName(newVbo);
-        SessionLog::save(sessionPath, t, sessionStamp, lapTimer, sessionLog, false);
+        SessionLog::save(sessionPath, t, sessionStamp, sessionNumber, lapTimer, sessionLog, false);
       } else {
         DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldJson.c_str(), newJson.c_str());
       }
     }
   } else {  // timing starts again at this layout's line, in new session files
     beginLapTiming(t);
-    sessionStamp = gps.timestampString();
+    sessionStamp = gps.timestampString();  // (the same run: it keeps its session number)
     sessionPath = "";
     startSessionFiles();
   }
@@ -456,8 +469,9 @@ static void onLapEvent(const LapEvent& ev) {
 
     case LapEventType::LapCompleted: {
       const Lap* lap = lapTimer.lastLap();
-      DEBUG_PRINTF("LAP %d: %s  (delta %s)%s  max %.0f km/h\n", lap->number, formatLapTime(lap->timeMs).c_str(),
-                   formatDelta(ev.deltaMs).c_str(), ev.isBest ? "  BEST" : "", lap->maxSpeedKmh);
+      DEBUG_PRINTF("LAP %d: %s  (delta %s)%s%s%s  max %.0f km/h, %.0f m\n", lap->number,
+                   formatLapTime(lap->timeMs).c_str(), formatDelta(ev.deltaMs).c_str(), ev.isBest ? "  BEST" : "",
+                   lap->tags ? "  " : "", laptags::shortLabel(lap->tags), lap->maxSpeedKmh, lap->distanceM);
       overlay.showLap = true;
       overlay.lapNumber = lap->number;
       overlay.lapMs = lap->timeMs;
@@ -466,7 +480,7 @@ static void onLapEvent(const LapEvent& ev) {
 
       // Save after every lap so a power cut doesn't lose the session.
       if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
-      if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, lapTimer, sessionLog, false)) {
+      if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false)) {
         DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
       }
       bool switched = false;
@@ -491,6 +505,35 @@ static void onLapEvent(const LapEvent& ev) {
       LedBar::onSplit();
       break;
 
+    default:
+      break;
+  }
+}
+
+// Parked in the pits, off again, or parked so long the session is over (see PitWatch in AutoStart.h).
+static void onPitEvent(PitWatch::Event ev) {
+  switch (ev) {
+    case PitWatch::Event::Parked:
+      DEBUG_PRINTF("Parked: in the pits - session %d summary shown, drive off within %lu min to carry on\n",
+                   sessionNumber, (unsigned long)(SESSION_RESUME_MS / 60000));
+      pitView = true;
+      lastRender = 0;
+      if (sessionPath.length() == 0 && lapTimer.lapCount() > 0) sessionPath = summaryPath(selectedTrack().id);
+      if (sessionPath.length())
+        SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false);
+      break;
+    case PitWatch::Event::MovedOff:
+      DEBUG_PRINTF("Driving off - session %d carries on\n", sessionNumber);
+      pitView = false;
+      lastRender = 0;
+      break;
+    case PitWatch::Event::SessionOver:
+      DEBUG_PRINTF("Parked for %lu min - session %d ended; driving off starts the next\n",
+                   (unsigned long)(SESSION_RESUME_MS / 60000), sessionNumber);
+      enterState(AppState::Summary);
+      nextSessionArmed = true;
+      driveOff.reset();
+      break;
     default:
       break;
   }
@@ -651,6 +694,10 @@ static void handleInput(InputEvent ev) {
     case AppState::Running:
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) enterState(AppState::Summary);
       else if (settingLine) markStartFinish();  // any tap marks the line
+      else if (pitView) {                       // parked: any tap or press goes back to the timing screen
+        pitView = false;
+        lastRender = 0;
+      }
       else {                                    // any tap or short BOOT press: switch view
         showMap = !showMap;
         lastRender = 0;
@@ -784,11 +831,15 @@ static void render() {
       if (overlay.showLap && now > lapOverlayUntil) overlay.showLap = false;
       if (overlay.splitIndex >= 0 && now > splitOverlayUntil) overlay.splitIndex = -1;
       if (overlay.notice.length() && now > layoutNoticeUntil) overlay.notice = "";
-      if (showMap) display.drawRunningMap(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
+      if (pitView)  // no laps yet: the log is what's saved
+        display.drawSummary(selectedTrack(), lapTimer,
+                            sessionPath.length() || sessionLog.length() == 0 ? sessionPath : sessionBase + ".vbo",
+                            sessionNumber, true);
+      else if (showMap) display.drawRunningMap(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       else display.drawRunning(selectedTrack(), lapTimer, gps, overlay, input.touchHeldMs());
       break;
     case AppState::Summary:
-      display.drawSummary(selectedTrack(), lapTimer, sessionPath);
+      display.drawSummary(selectedTrack(), lapTimer, sessionPath, sessionNumber, false);
       break;
     case AppState::FreeRoam:
       display.drawFreeRoam(freeRoam, gps, input.touchHeldMs());
@@ -1029,17 +1080,23 @@ void loop() {
     if (state == AppState::Running) {
       recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
       if (!settingLine) {
-        LapEvents evs = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis);
+        LapEvents evs = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis, fix.hAccM);
         for (const LapEvent& ev : evs) onLapEvent(ev);
+        onPitEvent(pitWatch.onFix(fix.speedKmh, fix.gpsTimeMs));
       }
-      trackDrivenPath(fix);
+      if (state == AppState::Running) trackDrivenPath(fix);  // (the session may have just ended)
     } else if (state == AppState::FreeRoam) {
       recordFix(fix, 0);
       freeRoam.onFix(fix.lat, fix.lon, fix.speedKmh);
     } else if (state == AppState::Performance) {
       if (perfRun.onFix(fix.gpsTimeMs, fix.speedKmh, fix.altM) > 0) onPerfResult();
-    } else if (state == AppState::TrackConfirm && autoStart && gps.hasFix()) {
-      if (driveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
+    } else if ((state == AppState::TrackConfirm && autoStart) || (state == AppState::Summary && nextSessionArmed)) {
+      // The next session only starts at the track: driving home from it isn't one
+      const double d = state == AppState::Summary ? distanceToTrack(selectedIndex) : 0;
+      if (d > TRACK_DETECTION_RADIUS_M || d < 0) {
+        nextSessionArmed = false;
+        DEBUG_PRINTLN("Left the track - no next session");
+      } else if (driveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
         DEBUG_PRINTLN("Driving off - starting a session");
         enterState(AppState::Running);
       }
@@ -1063,7 +1120,7 @@ void loop() {
     lastRender = 0;  // draw the list where it ended
   }
 
-  bool timing = state == AppState::Running && !settingLine && lapTimer.lapRunning();
+  bool timing = state == AppState::Running && !settingLine && !pitWatch.parked() && lapTimer.lapRunning();
   int32_t liveDelta = lapTimer.liveDeltaMs();
   LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
 

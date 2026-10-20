@@ -98,6 +98,8 @@ Sizes are relative: S small, M medium, L large.
   - *Suspect:* a GPS gap over 1 s, poor accuracy, or a lap distance more than 5% off the usual. Never becomes a best lap or a reference.
 - **Why:** a bad lap must never become your reference or your PB. One Catalyst owner found that short in-laps confused its optimal lap.
 
+**Status: done** (2026-10-20, commit bda0d37)
+
 **1.4 Settings on the device (M)**
 
 - Stored in flash (Preferences) and changed on a big-button settings screen, or later on the Wi-Fi page. Today they're `#define`s in `Config.h`; pins stay there.

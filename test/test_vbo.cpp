@@ -82,7 +82,8 @@ static void testCoordinates() {
   s.lap = 3;
   s.latG = 0.123f;
   s.longG = -0.456f;
-  const std::string want = "007 140208.800 001832.29573 005773.42012 030.725 223.24 +00043.70 00.80 003 +0.123 -0.456\r\n";
+  s.tag = 5;
+  const std::string want = "007 140208.800 001832.29573 005773.42012 030.725 223.24 +00043.70 00.80 003 +0.123 -0.456 005\r\n";
   CHECK(line(s) == want, "line:\n  got  %s  want %s", line(s).c_str(), want.c_str());
   printf("  coordinates: N/S/E/W signs, minutes x 100000 resolution, sample line matches\n");
 }
@@ -307,7 +308,7 @@ static void checkLayout(const SessionFile& s, const char* where) {
   const std::vector<std::string> wantOrder = {"[header]", "[channel units]", "[comments]", "[laptiming]",
                                               "[column names]", "[data]"};
   CHECK(order == wantOrder, "%s: sections out of order", where);
-  CHECK(channels == 11, "%zu channels", channels);
+  CHECK(channels == 12, "%zu channels", channels);
   CHECK(units == channels - 7, "%zu unit lines for %zu non-standard channels", units, channels - 7);
   CHECK(columns == channels, "%zu column names for %zu channels", columns, channels);
   CHECK(gates == 2, "%zu timing lines", gates);

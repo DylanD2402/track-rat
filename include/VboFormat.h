@@ -37,6 +37,7 @@ struct Sample {
   uint16_t lap = 0;    // lap number, 0 before timing starts (out lap)
   float latG = 0;      // + = turning right
   float longG = 0;     // + = speeding up
+  uint8_t tag = 0;     // laptags:: flags this fix gives its lap (stopped, after a gap, poor accuracy)
 };
 
 // A timing line for [laptiming], by its two ends.
@@ -132,7 +133,7 @@ private:
   std::vector<std::string> comms;
   bool columnsMapped = false;
   int colSats = -1, colTime = -1, colLat = -1, colLon = -1, colSpeed = -1, colHeading = -1, colHeight = -1,
-      colHdop = -1, colLap = -1, colLatG = -1, colLongG = -1;
+      colHdop = -1, colLap = -1, colLatG = -1, colLongG = -1, colTag = -1;
   uint32_t bad = 0;
   void mapColumns();
 };
