@@ -128,6 +128,11 @@ int main() {
   show(e, 30100, true, true, 0, pic);
   CHECK(!strcmp(pic, "PPPPPPPPPP"), "best flash over split: %s", pic);
 
+  // A best lap that isn't a PB flashes green instead
+  e.bestLap(40000, LED_SESSION_BEST);
+  show(e, 40000, true, true, 0, pic, &board);
+  CHECK(board == LED_SESSION_BEST && pic[0] != 'P', "session best: green, not purple (%s)", pic);
+
   // millis() wrap in the middle of a flash
   DeltaLedPattern w;
   w.begin(10);

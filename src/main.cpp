@@ -322,8 +322,7 @@ static std::vector<geo::XYf> lapPath(const std::vector<LapTimer::TracePt>& trace
 }
 
 static void enterState(AppState next) {
-  DEBUG_PRINTF("State: %s -> %s
-", STATE_NAMES[(int)state], STATE_NAMES[(int)next]);
+  DEBUG_PRINTF("State: %s -> %s\n", STATE_NAMES[(int)state], STATE_NAMES[(int)next]);
 
   if (next == AppState::Running) {
     const Track& t = selectedTrack();
@@ -343,12 +342,10 @@ static void enterState(AppState next) {
     drivenM = 0;
     nextLayoutCheckM = 2000;
     if (settingLine) {
-      DEBUG_PRINTF("Session %d at %s: waiting for the start/finish line to be marked
-", sessionNumber, t.displayName().c_str());
+      DEBUG_PRINTF("Session %d at %s: waiting for the start/finish line to be marked\n", sessionNumber, t.displayName().c_str());
     } else {
       static const char* FROM[] = {"either way", "set", "from the map"};
-      DEBUG_PRINTF("Session %d started at %s (S/F %.6f, %.6f, gate +/-%.0f m, direction %.0f %s, %d splits)
-",
+      DEBUG_PRINTF("Session %d started at %s (S/F %.6f, %.6f, gate +/-%.0f m, direction %.0f %s, %d splits)\n",
                    sessionNumber, t.displayName().c_str(), t.startFinish.lat, t.startFinish.lon, t.startFinish.radius,
                    t.startFinish.heading, FROM[(int)t.startFinish.headingFrom], (int)t.splits.size());
     }
@@ -385,8 +382,7 @@ static void enterState(AppState next) {
     startSessionFiles();
     freeRoamSaved = Settings::get().recordRoadDrives;  // Record road drives off: shown, but nothing saved
     if (!freeRoamSaved) logPending = false;
-    DEBUG_PRINTF("Free roam started%s
-", freeRoamSaved ? "" : " (not saved: Record road drives is off)");
+    DEBUG_PRINTF("Free roam started%s\n", freeRoamSaved ? "" : " (not saved: Record road drives is off)");
   }
   if (state == AppState::FreeRoam && next != AppState::FreeRoam) {
     freeRoamDurationMs = freeRoam.elapsedMs(millis());
@@ -448,8 +444,7 @@ static void switchLayout(int index, layout::Lines& map) {
   // Timing carries on if the new layout shares the line it's been timed at
   const bool keepLaps =
       from.hasStartFinish && layout::sharesLine(from.startFinish, to.startFinish) && lapTimer.lapRunning();
-  DEBUG_PRINTF("Layout: switching from '%s' to '%s'%s
-", from.displayName().c_str(), to.displayName().c_str(),
+  DEBUG_PRINTF("Layout: switching from '%s' to '%s'%s\n", from.displayName().c_str(), to.displayName().c_str(),
                keepLaps ? " (same start/finish, laps kept)" : " - new session");
 
   // Move the map to the new track's reference point (saves reading tracks.json again)
@@ -481,15 +476,13 @@ static void switchLayout(int index, layout::Lines& map) {
       if (renamedJson) {
         bool renamedVbo = sessionLog.length() && SessionLog::logging() && LogWriter::rename(oldVbo, newVbo);
         if (sessionLog.length() && !renamedVbo)
-          DEBUG_PRINTF("Layout: could not queue renaming %s - the log keeps its old name
-", oldVbo.c_str());
+          DEBUG_PRINTF("Layout: could not queue renaming %s - the log keeps its old name\n", oldVbo.c_str());
         sessionBase = renamedBase;
         sessionPath = newJson;
         if (renamedVbo) sessionLog = SessionLog::fileName(newVbo);
         SessionLog::save(sessionPath, t, sessionStamp, sessionNumber, lapTimer, sessionLog, false);
       } else {
-        DEBUG_PRINTF("Layout: could not rename %s to %s
-", oldJson.c_str(), newJson.c_str());
+        DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldJson.c_str(), newJson.c_str());
       }
     }
   } else {  // timing starts again at this layout's line, in new session files
@@ -524,8 +517,7 @@ static bool checkLayout(const std::vector<geo::XYf>& path, bool afterLap) {
   }
   float bestScore = 0;
   int k = layout::pickLayout(path, curScore, cands, &bestScore);
-  DEBUG_PRINTF("Layout check (%s): '%s' scores %.2f, best other %.2f (%lu ms)%s
-",
+  DEBUG_PRINTF("Layout check (%s): '%s' scores %.2f, best other %.2f (%lu ms)%s\n",
                afterLap ? "first lap" : "no line crossed yet", cur.displayName().c_str(), curScore, bestScore,
                (unsigned long)(millis() - startMs), k >= 0 ? "" : " - staying");
   if (k < 0) return false;
@@ -565,14 +557,12 @@ static void onLapEvent(const LapEvent& ev) {
   uint32_t now = millis();
   switch (ev.type) {
     case LapEventType::LapStarted:
-      DEBUG_PRINTF("Lap %d started
-", lapTimer.currentLapNumber());
+      DEBUG_PRINTF("Lap %d started\n", lapTimer.currentLapNumber());
       break;
 
     case LapEventType::LapCompleted: {
       const Lap* lap = lapTimer.lastLap();
-      DEBUG_PRINTF("LAP %d: %s  (delta %s)%s%s%s  max %.0f km/h, %.0f m
-", lap->number,
+      DEBUG_PRINTF("LAP %d: %s  (delta %s)%s%s%s  max %.0f km/h, %.0f m\n", lap->number,
                    formatLapTime(lap->timeMs).c_str(), formatDelta(ev.deltaMs).c_str(), ev.isBest ? "  BEST" : "",
                    lap->tags ? "  " : "", laptags::shortLabel(lap->tags), lap->maxSpeedKmh, lap->distanceM);
       overlay.showLap = true;
@@ -585,8 +575,7 @@ static void onLapEvent(const LapEvent& ev) {
       // Save after every lap so a power cut doesn't lose the session.
       if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
       if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false)) {
-        DEBUG_PRINTF("Saved %s:%s
-", Storage::sessionFSName(), sessionPath.c_str());
+        DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
       }
       bool switched = false;
       if (!layoutChecked && lapTimer.lapCount() == 1) {  // first full lap: right layout?
@@ -602,8 +591,7 @@ static void onLapEvent(const LapEvent& ev) {
     }
 
     case LapEventType::SplitCrossed:
-      DEBUG_PRINTF("Split %d: %s  (delta %s)
-", ev.splitIndex + 1, formatLapTime(ev.timeMs).c_str(),
+      DEBUG_PRINTF("Split %d: %s  (delta %s)\n", ev.splitIndex + 1, formatLapTime(ev.timeMs).c_str(),
                    formatDelta(ev.deltaMs).c_str());
       overlay.splitIndex = ev.splitIndex;
       overlay.splitMs = ev.timeMs;
@@ -621,8 +609,7 @@ static void onLapEvent(const LapEvent& ev) {
 static void onPitEvent(PitWatch::Event ev) {
   switch (ev) {
     case PitWatch::Event::Parked:
-      DEBUG_PRINTF("Parked: in the pits - session %d summary shown, drive off within %lu min to carry on
-",
+      DEBUG_PRINTF("Parked: in the pits - session %d summary shown, drive off within %lu min to carry on\n",
                    sessionNumber, (unsigned long)(SESSION_RESUME_MS / 60000));
       pitView = true;
       lastRender = 0;
@@ -631,14 +618,12 @@ static void onPitEvent(PitWatch::Event ev) {
         SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false);
       break;
     case PitWatch::Event::MovedOff:
-      DEBUG_PRINTF("Driving off - session %d carries on
-", sessionNumber);
+      DEBUG_PRINTF("Driving off - session %d carries on\n", sessionNumber);
       pitView = false;
       lastRender = 0;
       break;
     case PitWatch::Event::SessionOver:
-      DEBUG_PRINTF("Parked for %lu min - session %d ended; driving off starts the next
-",
+      DEBUG_PRINTF("Parked for %lu min - session %d ended; driving off starts the next\n",
                    (unsigned long)(SESSION_RESUME_MS / 60000), sessionNumber);
       enterState(AppState::Summary);
       nextSessionArmed = true;
@@ -663,25 +648,20 @@ static void startPerfDemo() {
 static void onPerfResult() {
   const perf::PerfResult& r = perfRun.results().back();
   if (!r.valid) {
-    DEBUG_PRINTF("PERF %s: INVALID (GPS gap)
-",
+    DEBUG_PRINTF("PERF %s: INVALID (GPS gap)\n",
                  r.kind == perf::RunKind::Brake ? "brake" : r.kind == perf::RunKind::Roll ? "roll" : "launch");
   } else if (r.kind == perf::RunKind::Brake) {
-    DEBUG_PRINTF("PERF brake 100-0: %.1f m in %.2f s
-", r.brakeM, r.brakeS);
+    DEBUG_PRINTF("PERF brake 100-0: %.1f m in %.2f s\n", r.brakeM, r.brakeS);
   } else if (r.kind == perf::RunKind::Roll) {
-    DEBUG_PRINTF("PERF roll 100-200: %.2f s
-", r.t100to200);
+    DEBUG_PRINTF("PERF roll 100-200: %.2f s\n", r.t100to200);
   } else {
-    DEBUG_PRINTF("PERF launch: 0-60 %.2f  0-100 %.2f  0-60mph %.2f  100-200 %.2f  1/8 %.2f @ %.0f  1/4 %.2f @ %.0f km/h%s
-",
+    DEBUG_PRINTF("PERF launch: 0-60 %.2f  0-100 %.2f  0-60mph %.2f  100-200 %.2f  1/8 %.2f @ %.0f  1/4 %.2f @ %.0f km/h%s\n",
                  r.t0to60, r.t0to100, r.t0to60mph, r.t100to200, r.et8, r.trap8Kmh, r.et4, r.trap4Kmh,
                  r.notLevel ? "  NOT LEVEL" : "");
   }
   if (perfPath.length() == 0) perfPath = PerfLog::newPath(perfStamp);
   if (PerfLog::save(perfPath, perfStamp, perfRun)) {
-    DEBUG_PRINTF("Saved %s:%s
-", Storage::sessionFSName(), perfPath.c_str());
+    DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), perfPath.c_str());
   }
   perfCard = (int)perfRun.results().size() - 1;
   perfView = PerfView::Card;
@@ -903,8 +883,7 @@ static void handleInput(InputEvent ev) {
         Settings::set(s);
         applySettings();  // the screen turns round as soon as the way up is chosen
         if (s.setupDone) {
-          DEBUG_PRINTF("Setup: %s, %s
-", settings::upsideDown(s) ? "upside down" : "normal",
+          DEBUG_PRINTF("Setup: %s, %s\n", settings::upsideDown(s) ? "upside down" : "normal",
                        s.units == SpeedUnits::Mph ? "mph" : "km/h");
           enterState(AppState::GpsWait);
         }
@@ -1011,20 +990,17 @@ static void autoPickTrack() {
   if (nearest >= 0) {
     selectedIndex = nearest;
     if (gps.lastFix().speedKmh >= AUTO_START_KMH) {
-      DEBUG_PRINTF("Nearest track: %s (%.0f m) - already moving, starting a session
-", selectedTrack().name.c_str(), dist);
+      DEBUG_PRINTF("Nearest track: %s (%.0f m) - already moving, starting a session\n", selectedTrack().name.c_str(), dist);
       enterState(AppState::Running);
     } else {
-      DEBUG_PRINTF("Nearest track: %s (%.0f m) - ready, starts when you drive off
-", selectedTrack().name.c_str(), dist);
+      DEBUG_PRINTF("Nearest track: %s (%.0f m) - ready, starts when you drive off\n", selectedTrack().name.c_str(), dist);
       enterState(AppState::TrackConfirm);
       autoStart = true;
       driveOff.reset();
     }
   } else {
     noTrackNearby = true;
-    DEBUG_PRINTF("No track within %.0f km
-", TRACK_DETECTION_RADIUS_M / 1000.0);
+    DEBUG_PRINTF("No track within %.0f km\n", TRACK_DETECTION_RADIUS_M / 1000.0);
     if (state == AppState::GpsWait) enterState(AppState::Menu);
   }
 }
@@ -1079,8 +1055,7 @@ static bool noteActivity(uint32_t now) {
 }
 
 static void lowBatterySleep() {
-  DEBUG_PRINTF("Battery low (%d mV): saving and sleeping
-", Power::batteryMillivolts());
+  DEBUG_PRINTF("Battery low (%d mV): saving and sleeping\n", Power::batteryMillivolts());
   saveForSleep();
   display.setBacklight(true);
   display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
@@ -1140,8 +1115,7 @@ static void offerFirmwareUpdate() {
   DEBUG_PRINTLN("Firmware: installing");
   const char* error = FirmwareUpdate::install(offer, drawInstallProgress);
   if (error) {
-    DEBUG_PRINTF("Firmware: install failed: %s
-", error);
+    DEBUG_PRINTF("Firmware: install failed: %s\n", error);
     display.drawMessage("UPDATE FAILED", error, "The old firmware is unchanged", ui::C_RED);
     delay(5000);
     return;
@@ -1158,8 +1132,7 @@ void setup() {
 #endif
   delay(300);
   DEBUG_PRINTLN("\n=== Track Rat - ES3C28P ===");
-  DEBUG_PRINTF("PSRAM: %u bytes free
-", ESP.getFreePsram());
+  DEBUG_PRINTF("PSRAM: %u bytes free\n", ESP.getFreePsram());
 
   Power::begin();
   Settings::begin();  // before the display: it starts the right way up, at the saved brightness
@@ -1295,8 +1268,7 @@ void loop() {
                (unsigned long)SessionLog::fixesLogged(), (unsigned long)(LogWriter::bytesWritten() / 1024),
                (unsigned long)LogWriter::bufferedBytes(), (unsigned long)LogWriter::slowestWriteMs());
     }
-    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s%s%s
-",
+    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s%s%s\n",
                  gps.receivingData() ? "yes" : "NO", gps.usingUbx() ? "UBX" : "NMEA", gps.satellites(),
                  gps.usingUbx() ? "pdop" : "hdop", gps.hdop(), gps.accuracyM(), gps.hasFix() ? "yes" : "no",
                  gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "",
