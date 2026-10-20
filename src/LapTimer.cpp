@@ -33,6 +33,8 @@ void LapTimer::reset() {
   curTrace.clear();
   bestTrace.clear();
   refIndex = -1;
+  storedTrace.clear();
+  storedMs = 0;
   matchIdx = 0;
   liveDelta = NO_DELTA;
   sfHeadingConfirmed = false;
@@ -61,7 +63,7 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
   lapTags = 0;
   curTrace.clear();
   curTrace.reserve(2048);
-  curTrace.push_back({0, 0, 0});  // the start/finish is the origin
+  curTrace.push_back({0, 0, 0, 0});  // the start/finish is the origin
   matchIdx = 0;
   liveDelta = NO_DELTA;
 }
@@ -170,7 +172,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
               refIndex = -1;
             }
             if (ev.isBest || (refIndex < 0 && laps[idx].tags == 0)) {  // a stand-in has no tags at all, not even slow
-              curTrace.push_back({0, 0, (int32_t)lap.timeMs});
+              curTrace.push_back({0, 0, (int32_t)lap.timeMs, speedKmh});
               bestTrace.swap(curTrace);
               refIndex = idx;
             }
@@ -194,7 +196,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
     lapTags |= gapFlag | laptags::fixFlags(speedKmh, hAccM, 0);  // stopped, or a poor fix, in the lap running now
     int32_t elapsed = (int32_t)(t - lapStartT);
     geo::XY p = geo::toLocal(lat, lon, sf.lat, sf.lon);
-    if (curTrace.size() < MAX_TRACE_POINTS) curTrace.push_back({(float)p.x, (float)p.y, elapsed});
+    if (curTrace.size() < MAX_TRACE_POINTS) curTrace.push_back({(float)p.x, (float)p.y, elapsed, speedKmh});
     liveDelta = matchBestTrace((float)p.x, (float)p.y, elapsed);
   }
 
@@ -266,7 +268,36 @@ void LapTimer::retagLaps() {
 // Finds where on the best lap's path we are now, and how long the best lap
 // took to get there. Searches a window around the last match so the start
 // and end of the lap (both near the start/finish) don't get confused.
+void LapTimer::setReference(std::vector<TracePt> path, uint32_t lapMs) {
+  if (path.size() < 2 || lapMs == 0) return clearReference();
+  storedTrace = std::move(path);
+  storedMs = lapMs;
+}
+
+void LapTimer::clearReference() {
+  std::vector<TracePt>().swap(storedTrace);
+  storedMs = 0;
+}
+
+bool LapTimer::usingStoredReference() const {
+  return !storedTrace.empty() && (bestTrace.empty() || storedMs < (uint32_t)bestTrace.back().t);
+}
+
+const std::vector<LapTimer::TracePt>& LapTimer::activeTrace() const {
+  return usingStoredReference() ? storedTrace : bestTrace;
+}
+
+uint32_t LapTimer::referenceLapMs() const {
+  if (usingStoredReference()) return storedMs;
+  return bestTrace.size() >= 2 ? (uint32_t)bestTrace.back().t : 0;
+}
+
 int32_t LapTimer::matchBestTrace(float x, float y, int32_t elapsed) {
+  const std::vector<TracePt>& bestTrace = activeTrace();  // (shadows the member: the reference in use)
+  if (usingStoredReference() != matchedStored) {  // another reference: search it from the start
+    matchedStored = !matchedStored;
+    matchIdx = 0;
+  }
   const size_t n = bestTrace.size();
   if (n < 2) return NO_DELTA;
 

@@ -37,8 +37,8 @@ void DeltaLedPattern::render(uint32_t nowMs, Rgb* bar, Rgb& board) {
     if (age >= LED_BEST_FLASH_MS) {
       bestActive = false;
     } else if (age % (2 * LED_BEST_BLINK_MS) < LED_BEST_BLINK_MS) {
-      for (int i = 0; i < n; i++) bar[i] = LED_BEST;
-      board = LED_BEST;
+      for (int i = 0; i < n; i++) bar[i] = bestColour;
+      board = bestColour;
       return;
     } else {
       return;  // dark half of a blink

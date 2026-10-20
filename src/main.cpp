@@ -18,6 +18,7 @@
 
 #include <Arduino.h>
 #include "AutoStart.h"
+#include "BestLapStore.h"
 #include "Config.h"
 #include "DisplayManager.h"
 #include "FirmwareUpdate.h"
@@ -168,6 +169,95 @@ static void moveInTrackList(int step) {
 
 static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : MIN_LAP_TIME_MS; }
 
+// Best laps (BestLap.h): the PB and today's best at the track being timed,
+// without their paths (the reference lap's path is in the lap timer)
+static bestlap::Record pbRecord, dayRecord;
+// PBs for the track list and Ready screen, read from the card once per track
+struct PbInfo {
+  bool read = false;
+  uint32_t ms = 0, date = 0;
+};
+static std::vector<PbInfo> pbCache;
+
+static void personalBestFor(int index, uint32_t& ms, uint32_t& date) {
+  if ((int)pbCache.size() != trackDB.count()) pbCache.assign(trackDB.count(), PbInfo());
+  PbInfo& c = pbCache[index];
+  if (!c.read) {
+    c.read = true;
+    const Track* t = trackDB.get(index);
+    bestlap::Record r;
+    if (t->hasStartFinish && BestLapStore::load(t->id, BestLapStore::Kind::Ever, r, false) &&
+        bestlap::sameLine(r, t->startFinish.lat, t->startFinish.lon)) {
+      c.ms = r.lapMs;
+      c.date = r.date;
+    }
+  }
+  ms = c.ms;
+  date = c.date;
+}
+
+// One stored best lap of the selected track, if it was timed at its line as it is now.
+static bool loadBestLap(BestLapStore::Kind kind, bestlap::Record& r, bool withPath) {
+  const Track& t = selectedTrack();
+  if (BestLapStore::load(t.id, kind, r, withPath) && bestlap::sameLine(r, t.startFinish.lat, t.startFinish.lon))
+    return true;
+  r = bestlap::Record();
+  return false;
+}
+
+// At the start of timing: the PB and today's best, and the one the Compare
+// with setting picks becomes the live delta's reference until this session
+// has a faster lap.
+static void loadBestLaps() {
+  const Track& t = selectedTrack();
+  pbRecord = dayRecord = bestlap::Record();
+  lapTimer.clearReference();
+  if (!t.hasStartFinish || settingLine) return;
+  loadBestLap(BestLapStore::Kind::Ever, pbRecord, false);
+  loadBestLap(BestLapStore::Kind::Day, dayRecord, false);
+  const uint32_t today = bestlap::dateFromStamp(sessionStamp.c_str());
+  const bestlap::Ref ref = bestlap::pickReference(Settings::get().compareTo, pbRecord, dayRecord, today);
+  bestlap::Record r;
+  if (ref != bestlap::Ref::None &&
+      loadBestLap(ref == bestlap::Ref::Day ? BestLapStore::Kind::Day : BestLapStore::Kind::Ever, r, true)) {
+    std::vector<LapTimer::TracePt> path;
+    path.reserve(r.path.size());
+    for (const bestlap::Point& p : r.path) path.push_back({p.x, p.y, p.t, p.speedKmh});
+    lapTimer.setReference(std::move(path), r.lapMs);
+    DEBUG_PRINTF("Best lap: comparing with %s %s (%s)\n", ref == bestlap::Ref::Day ? "today's best" : "the PB",
+                 formatLapTime(r.lapMs).c_str(), bestlap::dateText(r.date).c_str());
+  }
+}
+
+// A new best lap of the session: is it the PB, or today's best? Saves it
+// if so, and says whether it's a PB. Tagged laps never count.
+static bool saveBestLaps(const Lap& lap) {
+  const Track& t = selectedTrack();
+  if (lap.tags || !t.hasStartFinish || settingLine) return false;
+  const uint32_t today = bestlap::dateFromStamp(sessionStamp.c_str());
+  const bool pb = bestlap::beats(lap.timeMs, lap.tags, pbRecord);
+  const bool dayBest = bestlap::beatsDay(lap.timeMs, lap.tags, dayRecord, today);
+  if (!pb && !dayBest) return false;
+
+  bestlap::Record r;  // the lap timer's best path is this lap's
+  r.lapMs = lap.timeMs;
+  r.date = today;
+  r.sfLat = lapTimer.startFinish().lat;
+  r.sfLon = lapTimer.startFinish().lon;
+  r.path.reserve(lapTimer.bestPath().size());
+  for (const LapTimer::TracePt& p : lapTimer.bestPath()) r.path.push_back({p.x, p.y, p.t, p.speedKmh});
+  if (pb) BestLapStore::save(t.id, BestLapStore::Kind::Ever, r);
+  if (dayBest) BestLapStore::save(t.id, BestLapStore::Kind::Day, r);
+  r.path.clear();
+  if (pb) pbRecord = r;
+  if (dayBest) dayRecord = r;
+  // Comparing with today's best: until now that was the PB (no lap today yet); now it's this session's best
+  if (dayBest && Settings::get().compareTo == CompareTo::Day) lapTimer.clearReference();
+  if (selectedIndex < (int)pbCache.size()) pbCache[selectedIndex].read = false;
+  DEBUG_PRINTF("Best lap: %s%s%s\n", pb ? "new PB" : "", pb && dayBest ? ", " : "", dayBest ? "best of the day" : "");
+  return pb;
+}
+
 static void beginLapTiming(const Track& t) {
   lapTimer.begin(t.startFinish, t.splits, minLapMs(t));
   overlay = RunningOverlay();
@@ -232,7 +322,8 @@ static std::vector<geo::XYf> lapPath(const std::vector<LapTimer::TracePt>& trace
 }
 
 static void enterState(AppState next) {
-  DEBUG_PRINTF("State: %s -> %s\n", STATE_NAMES[(int)state], STATE_NAMES[(int)next]);
+  DEBUG_PRINTF("State: %s -> %s
+", STATE_NAMES[(int)state], STATE_NAMES[(int)next]);
 
   if (next == AppState::Running) {
     const Track& t = selectedTrack();
@@ -244,6 +335,7 @@ static void enterState(AppState next) {
     sessionNumber = Settings::nextSessionNumber(t.id.c_str(), sessionStamp.c_str());
     sessionPath = "";
     startSessionFiles();
+    loadBestLaps();
     pitWatch.reset();
     pitView = false;
     layoutChecked = t.bench;
@@ -251,10 +343,12 @@ static void enterState(AppState next) {
     drivenM = 0;
     nextLayoutCheckM = 2000;
     if (settingLine) {
-      DEBUG_PRINTF("Session %d at %s: waiting for the start/finish line to be marked\n", sessionNumber, t.displayName().c_str());
+      DEBUG_PRINTF("Session %d at %s: waiting for the start/finish line to be marked
+", sessionNumber, t.displayName().c_str());
     } else {
       static const char* FROM[] = {"either way", "set", "from the map"};
-      DEBUG_PRINTF("Session %d started at %s (S/F %.6f, %.6f, gate +/-%.0f m, direction %.0f %s, %d splits)\n",
+      DEBUG_PRINTF("Session %d started at %s (S/F %.6f, %.6f, gate +/-%.0f m, direction %.0f %s, %d splits)
+",
                    sessionNumber, t.displayName().c_str(), t.startFinish.lat, t.startFinish.lon, t.startFinish.radius,
                    t.startFinish.heading, FROM[(int)t.startFinish.headingFrom], (int)t.splits.size());
     }
@@ -291,7 +385,8 @@ static void enterState(AppState next) {
     startSessionFiles();
     freeRoamSaved = Settings::get().recordRoadDrives;  // Record road drives off: shown, but nothing saved
     if (!freeRoamSaved) logPending = false;
-    DEBUG_PRINTF("Free roam started%s\n", freeRoamSaved ? "" : " (not saved: Record road drives is off)");
+    DEBUG_PRINTF("Free roam started%s
+", freeRoamSaved ? "" : " (not saved: Record road drives is off)");
   }
   if (state == AppState::FreeRoam && next != AppState::FreeRoam) {
     freeRoamDurationMs = freeRoam.elapsedMs(millis());
@@ -339,6 +434,7 @@ static void markStartFinish() {
   trackDB.setStartFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
   settingLine = false;
   beginLapTiming(selectedTrack());
+  loadBestLaps();  // a line put back where it was keeps its best laps
   lapTimer.startLapNow(f.gpsTimeMs, f.rxMillis);
   layoutChecked = true;  // the driver just put the line here
   DEBUG_PRINTLN("Start/finish set - lap 1 started");
@@ -352,7 +448,8 @@ static void switchLayout(int index, layout::Lines& map) {
   // Timing carries on if the new layout shares the line it's been timed at
   const bool keepLaps =
       from.hasStartFinish && layout::sharesLine(from.startFinish, to.startFinish) && lapTimer.lapRunning();
-  DEBUG_PRINTF("Layout: switching from '%s' to '%s'%s\n", from.displayName().c_str(), to.displayName().c_str(),
+  DEBUG_PRINTF("Layout: switching from '%s' to '%s'%s
+", from.displayName().c_str(), to.displayName().c_str(),
                keepLaps ? " (same start/finish, laps kept)" : " - new session");
 
   // Move the map to the new track's reference point (saves reading tracks.json again)
@@ -384,13 +481,15 @@ static void switchLayout(int index, layout::Lines& map) {
       if (renamedJson) {
         bool renamedVbo = sessionLog.length() && SessionLog::logging() && LogWriter::rename(oldVbo, newVbo);
         if (sessionLog.length() && !renamedVbo)
-          DEBUG_PRINTF("Layout: could not queue renaming %s - the log keeps its old name\n", oldVbo.c_str());
+          DEBUG_PRINTF("Layout: could not queue renaming %s - the log keeps its old name
+", oldVbo.c_str());
         sessionBase = renamedBase;
         sessionPath = newJson;
         if (renamedVbo) sessionLog = SessionLog::fileName(newVbo);
         SessionLog::save(sessionPath, t, sessionStamp, sessionNumber, lapTimer, sessionLog, false);
       } else {
-        DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldJson.c_str(), newJson.c_str());
+        DEBUG_PRINTF("Layout: could not rename %s to %s
+", oldJson.c_str(), newJson.c_str());
       }
     }
   } else {  // timing starts again at this layout's line, in new session files
@@ -399,6 +498,7 @@ static void switchLayout(int index, layout::Lines& map) {
     sessionPath = "";
     startSessionFiles();
   }
+  loadBestLaps();  // this layout's
   overlay.notice = "Layout: " + (t.layoutName.length() ? t.layoutName : t.name);
   layoutNoticeUntil = millis() + 6000;
 }
@@ -424,7 +524,8 @@ static bool checkLayout(const std::vector<geo::XYf>& path, bool afterLap) {
   }
   float bestScore = 0;
   int k = layout::pickLayout(path, curScore, cands, &bestScore);
-  DEBUG_PRINTF("Layout check (%s): '%s' scores %.2f, best other %.2f (%lu ms)%s\n",
+  DEBUG_PRINTF("Layout check (%s): '%s' scores %.2f, best other %.2f (%lu ms)%s
+",
                afterLap ? "first lap" : "no line crossed yet", cur.displayName().c_str(), curScore, bestScore,
                (unsigned long)(millis() - startMs), k >= 0 ? "" : " - staying");
   if (k < 0) return false;
@@ -464,24 +565,28 @@ static void onLapEvent(const LapEvent& ev) {
   uint32_t now = millis();
   switch (ev.type) {
     case LapEventType::LapStarted:
-      DEBUG_PRINTF("Lap %d started\n", lapTimer.currentLapNumber());
+      DEBUG_PRINTF("Lap %d started
+", lapTimer.currentLapNumber());
       break;
 
     case LapEventType::LapCompleted: {
       const Lap* lap = lapTimer.lastLap();
-      DEBUG_PRINTF("LAP %d: %s  (delta %s)%s%s%s  max %.0f km/h, %.0f m\n", lap->number,
+      DEBUG_PRINTF("LAP %d: %s  (delta %s)%s%s%s  max %.0f km/h, %.0f m
+", lap->number,
                    formatLapTime(lap->timeMs).c_str(), formatDelta(ev.deltaMs).c_str(), ev.isBest ? "  BEST" : "",
                    lap->tags ? "  " : "", laptags::shortLabel(lap->tags), lap->maxSpeedKmh, lap->distanceM);
       overlay.showLap = true;
       overlay.lapNumber = lap->number;
       overlay.lapMs = lap->timeMs;
       overlay.lapIsBest = ev.isBest;
+      overlay.lapIsPb = false;
       lapOverlayUntil = now + 4000;
 
       // Save after every lap so a power cut doesn't lose the session.
       if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
       if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false)) {
-        DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
+        DEBUG_PRINTF("Saved %s:%s
+", Storage::sessionFSName(), sessionPath.c_str());
       }
       bool switched = false;
       if (!layoutChecked && lapTimer.lapCount() == 1) {  // first full lap: right layout?
@@ -490,13 +595,15 @@ static void onLapEvent(const LapEvent& ev) {
       }
       if (ev.isBest && !switched) {
         saveMapFromLap();
-        LedBar::onBestLap();
+        overlay.lapIsPb = saveBestLaps(*lap);
+        LedBar::onBestLap(overlay.lapIsPb);
       }
       break;
     }
 
     case LapEventType::SplitCrossed:
-      DEBUG_PRINTF("Split %d: %s  (delta %s)\n", ev.splitIndex + 1, formatLapTime(ev.timeMs).c_str(),
+      DEBUG_PRINTF("Split %d: %s  (delta %s)
+", ev.splitIndex + 1, formatLapTime(ev.timeMs).c_str(),
                    formatDelta(ev.deltaMs).c_str());
       overlay.splitIndex = ev.splitIndex;
       overlay.splitMs = ev.timeMs;
@@ -514,7 +621,8 @@ static void onLapEvent(const LapEvent& ev) {
 static void onPitEvent(PitWatch::Event ev) {
   switch (ev) {
     case PitWatch::Event::Parked:
-      DEBUG_PRINTF("Parked: in the pits - session %d summary shown, drive off within %lu min to carry on\n",
+      DEBUG_PRINTF("Parked: in the pits - session %d summary shown, drive off within %lu min to carry on
+",
                    sessionNumber, (unsigned long)(SESSION_RESUME_MS / 60000));
       pitView = true;
       lastRender = 0;
@@ -523,12 +631,14 @@ static void onPitEvent(PitWatch::Event ev) {
         SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false);
       break;
     case PitWatch::Event::MovedOff:
-      DEBUG_PRINTF("Driving off - session %d carries on\n", sessionNumber);
+      DEBUG_PRINTF("Driving off - session %d carries on
+", sessionNumber);
       pitView = false;
       lastRender = 0;
       break;
     case PitWatch::Event::SessionOver:
-      DEBUG_PRINTF("Parked for %lu min - session %d ended; driving off starts the next\n",
+      DEBUG_PRINTF("Parked for %lu min - session %d ended; driving off starts the next
+",
                    (unsigned long)(SESSION_RESUME_MS / 60000), sessionNumber);
       enterState(AppState::Summary);
       nextSessionArmed = true;
@@ -553,20 +663,25 @@ static void startPerfDemo() {
 static void onPerfResult() {
   const perf::PerfResult& r = perfRun.results().back();
   if (!r.valid) {
-    DEBUG_PRINTF("PERF %s: INVALID (GPS gap)\n",
+    DEBUG_PRINTF("PERF %s: INVALID (GPS gap)
+",
                  r.kind == perf::RunKind::Brake ? "brake" : r.kind == perf::RunKind::Roll ? "roll" : "launch");
   } else if (r.kind == perf::RunKind::Brake) {
-    DEBUG_PRINTF("PERF brake 100-0: %.1f m in %.2f s\n", r.brakeM, r.brakeS);
+    DEBUG_PRINTF("PERF brake 100-0: %.1f m in %.2f s
+", r.brakeM, r.brakeS);
   } else if (r.kind == perf::RunKind::Roll) {
-    DEBUG_PRINTF("PERF roll 100-200: %.2f s\n", r.t100to200);
+    DEBUG_PRINTF("PERF roll 100-200: %.2f s
+", r.t100to200);
   } else {
-    DEBUG_PRINTF("PERF launch: 0-60 %.2f  0-100 %.2f  0-60mph %.2f  100-200 %.2f  1/8 %.2f @ %.0f  1/4 %.2f @ %.0f km/h%s\n",
+    DEBUG_PRINTF("PERF launch: 0-60 %.2f  0-100 %.2f  0-60mph %.2f  100-200 %.2f  1/8 %.2f @ %.0f  1/4 %.2f @ %.0f km/h%s
+",
                  r.t0to60, r.t0to100, r.t0to60mph, r.t100to200, r.et8, r.trap8Kmh, r.et4, r.trap4Kmh,
                  r.notLevel ? "  NOT LEVEL" : "");
   }
   if (perfPath.length() == 0) perfPath = PerfLog::newPath(perfStamp);
   if (PerfLog::save(perfPath, perfStamp, perfRun)) {
-    DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), perfPath.c_str());
+    DEBUG_PRINTF("Saved %s:%s
+", Storage::sessionFSName(), perfPath.c_str());
   }
   perfCard = (int)perfRun.results().size() - 1;
   perfView = PerfView::Card;
@@ -788,7 +903,8 @@ static void handleInput(InputEvent ev) {
         Settings::set(s);
         applySettings();  // the screen turns round as soon as the way up is chosen
         if (s.setupDone) {
-          DEBUG_PRINTF("Setup: %s, %s\n", settings::upsideDown(s) ? "upside down" : "normal",
+          DEBUG_PRINTF("Setup: %s, %s
+", settings::upsideDown(s) ? "upside down" : "normal",
                        s.units == SpeedUnits::Mph ? "mph" : "km/h");
           enterState(AppState::GpsWait);
         }
@@ -797,6 +913,13 @@ static void handleInput(InputEvent ev) {
       break;
     }
   }
+}
+
+// The selected track's PB, for the track list and Ready screen
+static void showPersonalBest() {
+  uint32_t ms, date;
+  personalBestFor(selectedIndex, ms, date);
+  display.setPersonalBest(ms, date);
 }
 
 static void render() {
@@ -815,10 +938,12 @@ static void render() {
       // The list opened before the GPS had a fix: sort it once a fix arrives
       // (to the nearest track, unless the driver has already moved along it).
       if (!listSorted && gps.hasFix()) sortTrackList(listPos == 0 ? -1 : selectedIndex);
+      showPersonalBest();
       display.drawTrackSelect(selectedTrack(), listPos, (int)listOrder.size(), distanceToTrack(selectedIndex),
                               gps, input.touchAvailable());
       break;
     case AppState::TrackConfirm:
+      showPersonalBest();
       display.drawTrackConfirm(selectedTrack(), distanceToTrack(selectedIndex), gps.hasFix(),
                                input.touchAvailable(), trackDB.layoutNumber(selectedIndex),
                                trackDB.layoutCount(selectedIndex), readyFromList, autoStart);
@@ -886,17 +1011,20 @@ static void autoPickTrack() {
   if (nearest >= 0) {
     selectedIndex = nearest;
     if (gps.lastFix().speedKmh >= AUTO_START_KMH) {
-      DEBUG_PRINTF("Nearest track: %s (%.0f m) - already moving, starting a session\n", selectedTrack().name.c_str(), dist);
+      DEBUG_PRINTF("Nearest track: %s (%.0f m) - already moving, starting a session
+", selectedTrack().name.c_str(), dist);
       enterState(AppState::Running);
     } else {
-      DEBUG_PRINTF("Nearest track: %s (%.0f m) - ready, starts when you drive off\n", selectedTrack().name.c_str(), dist);
+      DEBUG_PRINTF("Nearest track: %s (%.0f m) - ready, starts when you drive off
+", selectedTrack().name.c_str(), dist);
       enterState(AppState::TrackConfirm);
       autoStart = true;
       driveOff.reset();
     }
   } else {
     noTrackNearby = true;
-    DEBUG_PRINTF("No track within %.0f km\n", TRACK_DETECTION_RADIUS_M / 1000.0);
+    DEBUG_PRINTF("No track within %.0f km
+", TRACK_DETECTION_RADIUS_M / 1000.0);
     if (state == AppState::GpsWait) enterState(AppState::Menu);
   }
 }
@@ -951,7 +1079,8 @@ static bool noteActivity(uint32_t now) {
 }
 
 static void lowBatterySleep() {
-  DEBUG_PRINTF("Battery low (%d mV): saving and sleeping\n", Power::batteryMillivolts());
+  DEBUG_PRINTF("Battery low (%d mV): saving and sleeping
+", Power::batteryMillivolts());
   saveForSleep();
   display.setBacklight(true);
   display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
@@ -1011,7 +1140,8 @@ static void offerFirmwareUpdate() {
   DEBUG_PRINTLN("Firmware: installing");
   const char* error = FirmwareUpdate::install(offer, drawInstallProgress);
   if (error) {
-    DEBUG_PRINTF("Firmware: install failed: %s\n", error);
+    DEBUG_PRINTF("Firmware: install failed: %s
+", error);
     display.drawMessage("UPDATE FAILED", error, "The old firmware is unchanged", ui::C_RED);
     delay(5000);
     return;
@@ -1028,7 +1158,8 @@ void setup() {
 #endif
   delay(300);
   DEBUG_PRINTLN("\n=== Track Rat - ES3C28P ===");
-  DEBUG_PRINTF("PSRAM: %u bytes free\n", ESP.getFreePsram());
+  DEBUG_PRINTF("PSRAM: %u bytes free
+", ESP.getFreePsram());
 
   Power::begin();
   Settings::begin();  // before the display: it starts the right way up, at the saved brightness
@@ -1164,7 +1295,8 @@ void loop() {
                (unsigned long)SessionLog::fixesLogged(), (unsigned long)(LogWriter::bytesWritten() / 1024),
                (unsigned long)LogWriter::bufferedBytes(), (unsigned long)LogWriter::slowestWriteMs());
     }
-    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s%s%s\n",
+    DEBUG_PRINTF("GPS: data=%s src=%s sats=%d %s=%.1f acc=%.1fm fix=%s rate=%.1fHz dropped=%lu%s%s%s
+",
                  gps.receivingData() ? "yes" : "NO", gps.usingUbx() ? "UBX" : "NMEA", gps.satellites(),
                  gps.usingUbx() ? "pdop" : "hdop", gps.hdop(), gps.accuracyM(), gps.hasFix() ? "yes" : "no",
                  gps.fixRateHz(), (unsigned long)gps.droppedFixCount(), gps.isSimulated() ? " (bench test)" : "",
