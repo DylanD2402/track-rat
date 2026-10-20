@@ -227,6 +227,8 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | Compare with | Best of the day, best ever, this session (default) | What the live diff compares with from your first lap: see [Best laps and PBs](#using-it). Used from the next session |
 | Big number | Lap time (default), delta, predicted lap | The largest number on the timing screen. Delta and predicted lap show the lap time until there is a best lap |
 | Session length | Off (default), 20, 25 or 30 min | With a length, the timing screens' header counts down the time left in the session instead of counting up |
+| Min lap time | Auto (default), 10 s, 15 s, 30 s | Line crossings sooner than this after the last are ignored (GPS jitter at the line). Auto is 20 s, or 10 s at a kart track. Used from the next session |
+| Kart everywhere | Off (default), on | On: every track is timed as a kart track (8 m lines where `tracks.json` gives no width, the kart minimum lap). Off: only tracks marked `"kind": "kart"`. **Applied at the next restart** |
 | Delta colours | Green / red (default), blue / orange | Ahead and behind on the timing screen and the LED bar, and the best-of-the-day colour. Blue and orange read better with red-green colour blindness |
 | GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
@@ -363,7 +365,8 @@ The easiest way to add your own track is to edit the file on the SD card.
 
 - **`startFinish` and `splits`:** a point on the racing line. A lap or split counts when your path passes through that point, within `radius` metres either side.
 - **`heading`:** the direction of travel across the line, in degrees (0 = north, 90 = east, 180 = south). A crossing counts only if you're heading within 90° of it, so a straight alongside the line or the pit lane, running the other way, doesn't end a lap. This matters most on compact kart tracks. Optional: without it, crossings either way count. If the track has a map, the direction is taken from the map near the line instead, and if that turns out backwards (you cross the line the "wrong" way twice in the same place), it's turned round.
-- **`radius`:** about half the track width plus a few metres. 10–20 m is typical.
+- **`radius`:** about half the track width plus a few metres. 10–20 m is typical. Without one, a line is 15 m either side, or 8 m on a kart track.
+- **`"kind": "kart"`** (on the venue or a layout): a kart track. Lines with no `radius` are 8 m either side, and the minimum lap is 10 s (the **Min lap time** setting can change it). `tools/fetch_canada_tracks.py` marks karting tracks from OpenStreetMap; the **Kart everywhere** setting treats every track as one.
 - **Placement:** put splits where no other part of the track passes within `radius`, or give them a `heading`.
 - **`splits`:** optional.
 - **`sectors`:** corner sectors, the same form as `splits`, made by the timer from your first clean lap (see [Using it](#using-it)). Each is the gate at the end of one sector: the first ends T1. You can move or delete them by hand; delete them all to have them made again.
@@ -406,7 +409,8 @@ Then copy `data/tracks.json` to the SD card.
 
 - **No start/finish lines:** OpenStreetMap doesn't record where the line is, so the timer asks you to mark it on your first visit.
 - **What's skipped:** dirt tracks, motocross and drag strips, unless you add `--include-dirt` or `--include-drag`. Karting tracks are included; `--no-karting` leaves them out.
-- **Your existing tracks are never changed.** That includes any track within 1 km of one you already have.
+- **Kart tracks:** karting venues (OSM `sport=karting`), and venues whose every raceway is a kart track, get `"kind": "kart"`. A car circuit with a kart track beside it stays a car circuit.
+- **Your existing tracks are never changed,** except that a karting track you already have gets `"kind": "kart"` if it has no `kind`. That includes any track within 1 km of one you already have.
 
 > **The pre-loaded track coordinates are approximate.** Check the start/finish point of any track you drive (satellite view in Google Maps works well) before trusting its lap times.
 
@@ -772,7 +776,7 @@ g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 node test/test_web.js
 ```
 
-`test/test_settings.cpp` checks the settings rules (defaults, limits, stepping, units, big number, predicted lap, brightness, time zone), the Settings list (where its rows are, what a tap hits, scrolling, the pages, touch and BOOT) and the first-boot questions, the field names the Wi-Fi page uses, and a simulated first boot followed by a lap session:
+`test/test_settings.cpp` checks the settings rules (defaults, limits, stepping, units, big number, predicted lap, brightness, time zone, min lap time and kart everywhere), the Settings list (where its rows are, what a tap hits, scrolling, the pages, touch and BOOT) and the first-boot questions, the field names the Wi-Fi page uses, and a simulated first boot followed by a lap session:
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
@@ -782,6 +786,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp 
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/stg && /tmp/stg
+```
+
+`test/test_fetch_tracks.py` checks `tools/fetch_canada_tracks.py`'s karting marks, from a saved OpenStreetMap result (no download): a karting venue and one with only kart raceways are kart tracks, a car circuit with a kart track beside it isn't, and a kart track already in `tracks.json` gets the mark:
+
+```bash
+python test/test_fetch_tracks.py
 ```
 
 `test/test_tracklearn.cpp` checks tracks that learn themselves: a loop driven twice is found, with the line where the first loop began, and the lap timer then times every loop from the kept fixes; a tight kart track whose straights run back alongside each other still counts; one lap round the block, a road driven out and back over and over, a figure of eight driven once, a short loop then a long one, a loop under 300 m, a slow car park and loops too long for the window are not tracks; a long drive keeps a bounded path; and the kept fixes stay in order:
