@@ -50,6 +50,7 @@ static SettingsData randomSettings() {
   d.compareTo = (CompareTo)(testRand() % 3);
   d.bigNumber = (BigNumber)(testRand() % 3);
   d.gpsMode = (GpsMode)(testRand() % 2);
+  d.deltaColours = (DeltaColours)(testRand() % 2);
   d.bluetooth = testRand() & 1;
   d.utcOffsetMin = (int16_t)(15 * (testRand() % 105 - 48));  // -720..840 in quarter hours
   d.recordRoadDrives = testRand() & 1;
@@ -93,6 +94,7 @@ static void testDefaults() {
   EXPECT(d.brightness == DEFAULT_BRIGHTNESS_PCT, "brightness %d", d.brightness);
   EXPECT(d.compareTo == (CompareTo)DEFAULT_COMPARE_TO, "compareTo");
   EXPECT(d.bigNumber == (BigNumber)DEFAULT_BIG_NUMBER, "bigNumber");
+  EXPECT(d.deltaColours == (DeltaColours)DEFAULT_DELTA_COLOURS, "deltaColours");
   EXPECT(d.gpsMode == (GPS_TARGET_RATE_HZ >= 20 ? GpsMode::Fast20 : GpsMode::AllSystems10), "gpsMode");
   EXPECT(d.bluetooth == (BLE_ENABLED != 0), "bluetooth");
   EXPECT(d.utcOffsetMin == DEFAULT_UTC_OFFSET_MIN, "utc offset %d", d.utcOffsetMin);
@@ -154,8 +156,10 @@ static void testSanitize() {
     d.compareTo = (CompareTo)v;
     d.bigNumber = (BigNumber)v;
     d.gpsMode = (GpsMode)v;
+    d.deltaColours = (DeltaColours)v;
     sanitize(d);
-    EXPECT(d.compareTo == def.compareTo && d.bigNumber == def.bigNumber && d.gpsMode == def.gpsMode,
+    EXPECT(d.compareTo == def.compareTo && d.bigNumber == def.bigNumber && d.gpsMode == def.gpsMode &&
+               d.deltaColours == def.deltaColours,
            "enums %d: %d %d %d", v, (int)d.compareTo, (int)d.bigNumber, (int)d.gpsMode);
   }
   for (int v = 0; v <= 2; v++) {  // good values stay
@@ -219,7 +223,8 @@ static void testAdjust() {
   const SettingsData base = defaults();
 
   // two-value items flip either way, with or without wrap
-  for (SettingItem it : {SettingItem::Units, SettingItem::Upside, SettingItem::Gps, SettingItem::Bluetooth, SettingItem::RoadDrives}) {
+  for (SettingItem it : {SettingItem::Units, SettingItem::Upside, SettingItem::Colours, SettingItem::Gps, SettingItem::Bluetooth,
+                         SettingItem::RoadDrives}) {
     for (int dir : {-1, 1}) {
       for (bool wrap : {false, true}) {
         SettingsData d = base;
@@ -389,6 +394,10 @@ static void testValueText() {
   d.bigNumber = BigNumber::LapTime;
   EXPECT(text(d, SettingItem::Big) == "Lap time", "big text");
   d.gpsMode = GpsMode::Fast20;
+  d.deltaColours = DeltaColours::GreenRed;
+  EXPECT(text(d, SettingItem::Colours) == "Green / red", "colours text");
+  d.deltaColours = DeltaColours::BlueOrange;
+  EXPECT(text(d, SettingItem::Colours) == "Blue / orange", "colours text");
   EXPECT(text(d, SettingItem::Gps) == "20 Hz, GPS + Galileo", "gps text");
   d.gpsMode = GpsMode::AllSystems10;
   EXPECT(text(d, SettingItem::Gps) == "10 Hz, all systems", "gps text");
@@ -443,6 +452,7 @@ static void testJson() {
   d.brightness = 70;
   d.compareTo = CompareTo::Ever;
   d.bigNumber = BigNumber::Predicted;
+  d.deltaColours = DeltaColours::BlueOrange;
   d.gpsMode = GpsMode::AllSystems10;
   d.bluetooth = false;
   d.utcOffsetMin = -330;
@@ -451,7 +461,7 @@ static void testJson() {
   char buf[400];
   size_t len = toJson(d, buf, sizeof(buf));
   std::string want = std::string("{\"units\":\"mph\",\"upsideDown\":true,\"brightness\":70,\"compareTo\":\"ever\",") +
-                     "\"bigNumber\":\"predicted\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
+                     "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
                      "\"recordRoadDrives\":false,\"bluetoothBuilt\":" + (BLE_ENABLED ? "true" : "false") + "}";
   EXPECT(len == strlen(buf) && len > 0, "length %zu vs strlen %zu", len, strlen(buf));
   EXPECT(want == buf, "json:\n  got  %s\n  want %s", buf, want.c_str());
@@ -464,8 +474,8 @@ static void testJson() {
     size_t n = toJson(r, buf, sizeof(buf));
     std::string j(buf);
     bool ok = n == j.size() && j.front() == '{' && j.back() == '}' && std::count(j.begin(), j.end(), '"') % 2 == 0 &&
-              std::count(j.begin(), j.end(), ',') == 9;
-    for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "gpsMode", "bluetooth", "tzMin",
+              std::count(j.begin(), j.end(), ',') == 10;
+    for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "deltaColours", "gpsMode", "bluetooth", "tzMin",
                             "recordRoadDrives", "bluetoothBuilt"})
       ok = ok && j.find(std::string("\"") + key + "\":") != std::string::npos;
     formed = formed && ok;
@@ -577,7 +587,7 @@ static void testSetField() {
     if (start != target) printf("    round trip failed for %s\n", json);
   }
   EXPECT(restored, "toJson then setField must restore the settings");
-  EXPECT(sent == 9 && refused == 1, "9 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
+  EXPECT(sent == 10 && refused == 1, "10 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
   printf("  toJson, setField (valid, refused, unchanged on failure), round trip\n");
 }
 
@@ -865,9 +875,12 @@ static void testSettingsScroll() {
     d.dragEnd();
     const int at = d.scroll;
     EXPECT(at == 200, "dragged to 200, got %d", at);
-    int r = d.hitRow(midX(), 150);
-    EXPECT(r >= 0 && d.rowScreenY(r) <= 150 && 150 < d.rowScreenY(r) + ST::ROW_H, "row %d is at y 150 after the drag", r);
-    EXPECT(d.tap(midX(), 150, s) != Res::Exit, "the tap is a row");
+    int ty = 150;  // the first row at or below y 150 (it may be a section's caption)
+    while (ty < 200 && d.hitRow(midX(), ty) < 0) ty++;
+    int r = d.hitRow(midX(), ty);
+    EXPECT(r >= 0 && d.rowScreenY(r) <= ty && ty < d.rowScreenY(r) + ST::ROW_H, "row %d is at y %d after the drag", r, ty);
+    if (r < 0) return;
+    EXPECT(d.tap(midX(), ty, s) != Res::Exit, "the tap is a row");
     EXPECT(d.scroll == at, "a tap does not scroll");
     const ST::Row& rw = ST::row(r);
     if (rw.kind == ST::RowKind::Toggle) EXPECT(s != defaults() && d.page == ST::Page::List, "the toggle under the finger flipped");
@@ -1160,7 +1173,7 @@ static void testSettingsBoot() {
     }
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
-    EXPECT(pages == 6, "visited 6 pages (4 choices, brightness, time zone), got %d", pages);
+    EXPECT(pages == 7, "visited 7 pages (5 choices, brightness, time zone), got %d", pages);
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
     EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");

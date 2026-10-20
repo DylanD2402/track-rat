@@ -56,6 +56,7 @@
 #define DEFAULT_BIG_NUMBER 2         // 0 = delta, 1 = predicted lap, 2 = lap time
 #define DEFAULT_UTC_OFFSET_MIN 0     // minutes east of UTC, for file names
 #define DEFAULT_RECORD_ROAD_DRIVES 1 // 0 = Free Roam drives aren't saved
+#define DEFAULT_DELTA_COLOURS 0      // 0 = green ahead, red behind; 1 = blue ahead, orange behind
 
 // ---------------------------------------------------------------------------
 // Display (ILI9341V 240x320, used in landscape 320x240)
@@ -148,6 +149,11 @@
 #define SUSPECT_ACCURACY_M 5.0           // ...or a fix less accurate than this (when the GPS says)...
 #define SUSPECT_DISTANCE_PERCENT 5.0     // ...or a lap this % longer or shorter than the median lap...
 #define SUSPECT_DISTANCE_MIN_LAPS 3      // ...once there are this many laps to take the median from
+// The timing screen (see TimingScreen.h)
+#define TREND_WINDOW_MS 3000             // the trend bar shows the delta's change over this long...
+#define TREND_FULL_SCALE_MS 300          // ...and is full height at this much gained or lost
+#define TAP_MOVING_KMH 10.0              // at or above this speed a quick tap on the timing screen is ignored...
+#define FIRM_PRESS_MS 250                // ...and a press this long switches the view
 
 // ---------------------------------------------------------------------------
 // Performance runs (acceleration and braking)

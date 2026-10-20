@@ -147,6 +147,12 @@ public:
   const std::vector<TracePt>& bestPath() const { return bestTrace; }
   int bestPathLapIndex() const { return refIndex; }  // the lap bestPath() is from (-1: none)
   const std::vector<TracePt>& currentPath() const { return curTrace; }
+  // The path the live delta is measured against (a stored lap or this
+  // session's), empty if none: the map's ghost dot.
+  const std::vector<TracePt>& referencePath() const { return activeTrace(); }
+  // The lap under way's elapsed time at each corner sector gate so far (-1:
+  // not yet, or missed), for the sector strip. Empty without a lap or sectors.
+  const std::vector<int32_t>& currentSectorMs() const { return running ? lapSectors : noSectors; }
 
   // A stored lap to compare with (its path ends at the line, at its lap
   // time). Used while it's faster than this session's reference lap.
@@ -209,6 +215,7 @@ private:
   uint32_t lapSpeedCount = 0;
   std::vector<int32_t> lapSplits;
   std::vector<int32_t> lapSectors;
+  const std::vector<int32_t> noSectors;
   float lapDistance = 0;
   uint8_t lapTags = 0;
 

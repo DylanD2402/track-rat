@@ -32,6 +32,7 @@ void begin() {
     d.brightness = prefs.getUChar("bright", d.brightness);
     d.compareTo = (CompareTo)prefs.getUChar("cmp", (uint8_t)d.compareTo);
     d.bigNumber = (BigNumber)prefs.getUChar("big", (uint8_t)d.bigNumber);
+    d.deltaColours = (DeltaColours)prefs.getUChar("dcol", (uint8_t)d.deltaColours);
     d.gpsMode = (GpsMode)prefs.getUChar("gps", (uint8_t)d.gpsMode);
     d.bluetooth = prefs.getBool("bt", d.bluetooth);
     d.utcOffsetMin = prefs.getShort("tz_min", d.utcOffsetMin);
@@ -79,6 +80,7 @@ void set(const SettingsData& s) {
       if (n.brightness != o.brightness) prefs.putUChar("bright", n.brightness);
       if (n.compareTo != o.compareTo) prefs.putUChar("cmp", (uint8_t)n.compareTo);
       if (n.bigNumber != o.bigNumber) prefs.putUChar("big", (uint8_t)n.bigNumber);
+      if (n.deltaColours != o.deltaColours) prefs.putUChar("dcol", (uint8_t)n.deltaColours);
       if (n.gpsMode != o.gpsMode) prefs.putUChar("gps", (uint8_t)n.gpsMode);
       if (n.bluetooth != o.bluetooth) prefs.putBool("bt", n.bluetooth);
       if (n.utcOffsetMin != o.utcOffsetMin) prefs.putShort("tz_min", n.utcOffsetMin);
