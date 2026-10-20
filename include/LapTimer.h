@@ -145,6 +145,7 @@ public:
   // Path driven on the best lap, and so far on the current lap (for the map
   // screen when a track has no stored layout).
   const std::vector<TracePt>& bestPath() const { return bestTrace; }
+  int bestPathLapIndex() const { return refIndex; }  // the lap bestPath() is from (-1: none)
   const std::vector<TracePt>& currentPath() const { return curTrace; }
 
   // A stored lap to compare with (its path ends at the line, at its lap
@@ -152,6 +153,13 @@ public:
   // Cleared by begin() and reset().
   void setReference(std::vector<TracePt> path, uint32_t lapMs);
   void clearReference();
+
+  // For the debrief (Debrief.h): the path through each corner sector of the
+  // clean lap with the best time there, and that time (-1 / empty if none).
+  // "Clean" when the lap was completed: a lap tagged slow later still counts
+  // here, so check the time against the debrief's before using the path.
+  const std::vector<TracePt>& sectorBestPath(size_t sector) const;
+  int32_t sectorBestMs(size_t sector) const { return sector < sectorBest.size() ? sectorBest[sector] : -1; }
   bool usingStoredReference() const;
   // The lap time of the reference the live delta is against, 0 if none.
   uint32_t referenceLapMs() const;
@@ -161,6 +169,9 @@ private:
   std::vector<TracePt> bestTrace;
   int refIndex = -1;  // the lap bestTrace is from
   std::vector<TracePt> storedTrace;  // setReference
+  std::vector<std::vector<TracePt>> sectorBestTrace;  // per corner sector
+  std::vector<int32_t> sectorBest;
+  void keepSectorBests(const Lap& lap);
   uint32_t storedMs = 0;
   bool matchedStored = false;  // the last match was against storedTrace
   const std::vector<TracePt>& activeTrace() const;

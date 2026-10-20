@@ -83,7 +83,9 @@ static bool settingLine = false;  // waiting for the driver to tap at the start/
 static bool sectorsTried = false; // the track has corner sectors, or this session tried to make them
 static int sessionNumber = 0;     // "Session N" of the day at this track
 static PitWatch pitWatch;         // parked: in the pits (see AutoStart.h)
-static bool pitView = false;      // parked, showing the summary (a tap goes back to timing)
+static bool pitView = false;      // parked, showing the debrief (or the summary without one); taps page on, then back to timing
+static int pitPage = 0;           // the debrief's page
+static DebriefView debriefView;   // worked out when the car parks
 static bool nextSessionArmed = false;  // a session ended by itself: the summary starts the next one on driving off
 static String sessionPath;        // its summary (.json)
 static String sessionStamp;
@@ -174,6 +176,9 @@ static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : MIN
 // Best laps (BestLap.h): the PB and today's best at the track being timed,
 // without their paths (the reference lap's path is in the lap timer)
 static bestlap::Record pbRecord, dayRecord;
+// The track's stats as they were when the session started (best sector
+// times ever, the session before): see BestLapStore::Stats
+static BestLapStore::Stats trackStats;
 // PBs for the track list and Ready screen, read from the card once per track
 struct PbInfo {
   bool read = false;
@@ -217,6 +222,7 @@ static void loadBestLaps() {
   if (!t.hasStartFinish || settingLine) return;
   loadBestLap(BestLapStore::Kind::Ever, pbRecord, false);
   loadBestLap(BestLapStore::Kind::Day, dayRecord, false);
+  BestLapStore::loadStats(t.id, trackStats);
   const uint32_t today = bestlap::dateFromStamp(sessionStamp.c_str());
   const bestlap::Ref ref = bestlap::pickReference(Settings::get().compareTo, pbRecord, dayRecord, today);
   bestlap::Record r;
@@ -308,11 +314,84 @@ static void recordFix(const GpsFix& f, uint16_t lap) {
 // The lap-timing session ends: its finished summary, then close the log.
 // With a log there's always a summary, laps or not, so the log isn't taken
 // for an unfinished session at the next boot.
+// This session's laps as the debrief reads them (Debrief.h).
+static debrief::Result analyseSession() {
+  std::vector<debrief::LapIn> laps;
+  laps.reserve(lapTimer.lapCount());
+  for (size_t i = 0; i < lapTimer.lapCount(); i++) {
+    const Lap& l = lapTimer.lap(i);
+    laps.push_back({l.number, l.timeMs, l.tags, l.sectorMs});
+  }
+  return debrief::analyse(laps, lapTimer.sectorGates().empty() ? 0 : lapTimer.sectorGates().size() + 1);
+}
+
+// The best sector times ever: the stored ones (if set through these gates) with this session's.
+static std::vector<int32_t> allTimeSectorBests(const debrief::Result& r) {
+  const bool same = debrief::sameGates(trackStats.sectorGates, lapTimer.sectorGates());
+  return debrief::mergeBest(same ? trackStats.sectorBestMs : std::vector<int32_t>(), r);
+}
+
+// When the car parks: the theoretical best, the three sectors that cost the
+// most, and a hint for each from the two laps' speed through it.
+static void buildDebrief() {
+  DebriefView d;
+  d.r = analyseSession();
+  d.session = sessionNumber;
+  d.lastSession = trackStats.lastSession;
+  d.lastBestMs = trackStats.lastBestMs;
+  d.lastToday = trackStats.lastDate && trackStats.lastDate == bestlap::dateFromStamp(sessionStamp.c_str());
+  if (d.r.valid) {
+    d.allTimeTheoreticalMs = debrief::sumOf(allTimeSectorBests(d.r));
+    // Hints need the best lap's own path: bestPath() is it unless that lap was tagged later
+    if (lapTimer.bestPathLapIndex() == d.r.bestIndex) {
+      const std::vector<int32_t>& gates = lapTimer.lap(d.r.bestIndex).sectorMs;
+      const bool mph = Settings::get().units == SpeedUnits::Mph;
+      for (size_t k = 0; k < d.r.top.size(); k++) {
+        const int s = d.r.top[k];
+        // The kept path must be from the lap the debrief names (a lap tagged slow later isn't)
+        if (lapTimer.sectorBestMs(s) != d.r.best[s].ms) continue;
+        const int32_t from = s == 0 ? 0 : gates[s - 1];
+        const int32_t to = s < (int)gates.size() ? gates[s] : (int32_t)d.r.bestMs;
+        debrief::Trace mine = debrief::slice(lapTimer.bestPath(), from, to);
+        debrief::Trace best = debrief::slice(lapTimer.sectorBestPath(s), INT32_MIN, INT32_MAX);
+        d.hints[k] = debrief::hintText(debrief::hint(mine, best), mph);
+      }
+    }
+    DEBUG_PRINTF("Debrief: best %s, theoretical %s (%s s on the table), %d laps used\n",
+                 formatLapTime(d.r.bestMs).c_str(), formatLapTime(d.r.theoreticalMs).c_str(),
+                 debrief::seconds(d.r.bestMs - d.r.theoreticalMs).c_str(), d.r.lapsUsed);
+    for (size_t k = 0; k < d.r.top.size(); k++)
+      DEBUG_PRINTF("  T%d: %s s, best on lap %u%s%s\n", d.r.top[k] + 1, debrief::seconds(d.r.gaps[d.r.top[k]]).c_str(),
+                   (unsigned)d.r.best[d.r.top[k]].lap, d.hints[k].size() ? ": " : "", d.hints[k].c_str());
+  }
+  debriefView = d;
+}
+
+// The track's stats with this session in: the best sector times ever, and
+// this as the last session (for the next one's "quicker than session N").
+static void saveTrackStats() {
+  const Track& t = selectedTrack();
+  const Lap* best = lapTimer.bestLap();
+  if (!best || !t.hasStartFinish) return;
+  BestLapStore::Stats s = trackStats;
+  debrief::Result r = analyseSession();
+  if (r.valid) {
+    s.sectorBestMs = allTimeSectorBests(r);
+    s.sectorGates.clear();
+    for (const TrackPoint& g : lapTimer.sectorGates()) s.sectorGates.push_back({g.lat, g.lon});
+  }
+  s.lastSession = sessionNumber;
+  s.lastDate = bestlap::dateFromStamp(sessionStamp.c_str());
+  s.lastBestMs = best->timeMs;
+  BestLapStore::saveStats(t.id, s);
+}
+
 static void finishSessionFiles() {
   if (lapTimer.lapCount() > 0 || SessionLog::logging()) {
     if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
     SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, true);
   }
+  if (!settingLine) saveTrackStats();
   SessionLog::endLog();
   logPending = false;
 }
@@ -652,10 +731,13 @@ static void onPitEvent(PitWatch::Event ev) {
       DEBUG_PRINTF("Parked: in the pits - session %d summary shown, drive off within %lu min to carry on\n",
                    sessionNumber, (unsigned long)(SESSION_RESUME_MS / 60000));
       pitView = true;
+      pitPage = 0;
       lastRender = 0;
       if (sessionPath.length() == 0 && lapTimer.lapCount() > 0) sessionPath = summaryPath(selectedTrack().id);
       if (sessionPath.length())
         SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false);
+      buildDebrief();
+      saveTrackStats();  // now, in case the power goes before the session ends
       break;
     case PitWatch::Event::MovedOff:
       DEBUG_PRINTF("Driving off - session %d carries on\n", sessionNumber);
@@ -829,8 +911,9 @@ static void handleInput(InputEvent ev) {
     case AppState::Running:
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) enterState(AppState::Summary);
       else if (settingLine) markStartFinish();  // any tap marks the line
-      else if (pitView) {                       // parked: any tap or press goes back to the timing screen
-        pitView = false;
+      else if (pitView) {  // parked: a tap or press pages through the debrief, then back to the timing screen
+        if (debriefView.r.valid && pitPage == 0) pitPage = 1;
+        else pitView = false;
         lastRender = 0;
       }
       else {                                    // any tap or short BOOT press: switch view
@@ -975,7 +1058,9 @@ static void render() {
       if (overlay.showLap && now > lapOverlayUntil) overlay.showLap = false;
       if (overlay.splitIndex >= 0 && now > splitOverlayUntil) overlay.splitIndex = -1;
       if (overlay.notice.length() && now > layoutNoticeUntil) overlay.notice = "";
-      if (pitView)  // no laps yet: the log is what's saved
+      if (pitView && debriefView.r.valid)
+        display.drawDebrief(selectedTrack(), lapTimer, debriefView, pitPage);
+      else if (pitView)  // no laps yet: the log is what's saved
         display.drawSummary(selectedTrack(), lapTimer,
                             sessionPath.length() || sessionLog.length() == 0 ? sessionPath : sessionBase + ".vbo",
                             sessionNumber, true);

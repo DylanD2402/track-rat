@@ -157,6 +157,8 @@ Sizes are relative: S small, M medium, L large.
 - Only clean laps count, and the screen says which laps were used.
 - **Why:** the Garmin Catalyst's three improvement points straight after a session are among its best-reviewed features: one owner read them in the paddock without a laptop. Reviewers also wanted to see which laps fed the result, and in-laps left out. AiM added a theoretical-best mode to the Solo 2 DL.
 
+**Status: done** (2026-10-20, commit e0d33ab)
+
 **2.4 A delta-first timing screen (M)**
 
 - **Layout, top to bottom:** a header with lap number, session clock, GPS accuracy and battery; the delta in the largest digits on a full-width band, bright green when ahead and red when behind, with black digits that hold up in sun; the current lap time and predicted lap, smaller; a strip of sector blocks. The running lap time is shown full size at the line anyway.

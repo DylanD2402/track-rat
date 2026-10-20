@@ -557,7 +557,8 @@ static const layout::Lines NO_LINES;  // Free Roam has a path but no stored layo
 // x, y in metres) scaled to fit the box, north up, plus the start/finish
 // marker at the origin and the car. Returns false if there was nothing to draw.
 bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vector<std::vector<geo::XYf>>& lines,
-                                 MapPath path, bool showCar, geo::XY car, bool carFix, bool showStartFinish) {
+                                 MapPath path, bool showCar, geo::XY car, bool carFix, bool showStartFinish,
+                                 const std::vector<MapMark>* marks) {
   gfx->fillRoundRect(bx, by, bw, bh, CORNER, C_SURFACE);
   auto pt = [&](size_t i) { return (const float*)(path.base + i * path.stride); };
 
@@ -578,11 +579,11 @@ bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vect
   float midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
   auto sx = [&](float x) { return (int)lroundf(cx + (x - midX) * scale); };
   auto sy = [&](float y) { return (int)lroundf(cy - (y - midY) * scale); };  // north up
-  auto thickLine = [&](int x0, int y0, int x1, int y1) {  // 3 px wide
-    gfx->drawLine(x0, y0, x1, y1, C_TRACK);
-    gfx->drawLine(x0 + 1, y0, x1 + 1, y1, C_TRACK);
-    gfx->drawLine(x0, y0 + 1, x1, y1 + 1, C_TRACK);
-    gfx->drawLine(x0 + 1, y0 + 1, x1 + 1, y1 + 1, C_TRACK);
+  auto thickLine = [&](int x0, int y0, int x1, int y1, uint16_t c = C_TRACK) {  // 2 px wide
+    gfx->drawLine(x0, y0, x1, y1, c);
+    gfx->drawLine(x0 + 1, y0, x1 + 1, y1, c);
+    gfx->drawLine(x0, y0 + 1, x1, y1 + 1, c);
+    gfx->drawLine(x0 + 1, y0 + 1, x1 + 1, y1 + 1, c);
   };
 
   for (const auto& line : lines)
@@ -596,6 +597,17 @@ bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vect
       prev = i;
     }
     if (prev != path.n - 1) thickLine(sx(pt(prev)[0]), sy(pt(prev)[1]), sx(pt(path.n - 1)[0]), sy(pt(path.n - 1)[1]));
+  }
+
+  for (size_t m = 0; marks && m < marks->size(); m++) {  // coloured stretches, each with its number
+    const MapMark& mk = (*marks)[m];
+    if (mk.to >= path.n || mk.from >= mk.to) continue;
+    for (size_t i = mk.from + 1; i <= mk.to; i++)
+      thickLine(sx(pt(i - 1)[0]), sy(pt(i - 1)[1]), sx(pt(i)[0]), sy(pt(i)[1]), mk.color);
+    const size_t mid = (mk.from + mk.to) / 2;
+    const int x = sx(pt(mid)[0]), y = sy(pt(mid)[1]);
+    gfx->fillCircle(x, y, 8, mk.color);
+    text(String(mk.number), x, y + 1, Font::Caption, C_BG, MC_DATUM);
   }
 
   if (showStartFinish) {  // a small chequered flag

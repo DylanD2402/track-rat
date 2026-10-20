@@ -4,6 +4,7 @@
 
 #include "LapTimer.h"
 #include "Config.h"
+#include "Debrief.h"
 
 void LapTimer::begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits, uint32_t minLapMs,
                      const std::vector<TrackPoint>& sectorGates) {
@@ -24,6 +25,8 @@ void LapTimer::changeGates(const TrackPoint& startFinish, const std::vector<Trac
 
 void LapTimer::setSectors(const std::vector<TrackPoint>& gates) {
   sectorPts = gates;
+  sectorBestTrace.clear();
+  sectorBest.clear();
   lapSectors.assign(sectorPts.size(), -1);  // the lap under way is timed through them from here
 }
 
@@ -42,6 +45,8 @@ void LapTimer::reset() {
   refIndex = -1;
   storedTrace.clear();
   storedMs = 0;
+  sectorBestTrace.clear();
+  sectorBest.clear();
   matchIdx = 0;
   liveDelta = NO_DELTA;
   sfHeadingConfirmed = false;
@@ -184,6 +189,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
             retagLaps();
             const int idx = (int)laps.size() - 1;
             ev.isBest = bestIndex == idx;
+            keepSectorBests(laps[idx]);  // before its path is handed on
             // A reference whose lap turned out tagged is dropped; this lap's path becomes the
             // reference if it's the new best, or stands in while there's none.
             if (refIndex >= 0 && !laps[refIndex].clean()) {
@@ -287,6 +293,34 @@ void LapTimer::retagLaps() {
 // Finds where on the best lap's path we are now, and how long the best lap
 // took to get there. Searches a window around the last match so the start
 // and end of the lap (both near the start/finish) don't get confused.
+// A clean lap with a sector time better than any so far: keep its path through that sector.
+void LapTimer::keepSectorBests(const Lap& lap) {
+  const size_t n = sectorPts.size() + 1;
+  std::vector<int32_t> times = debrief::sectorTimes(lap.timeMs, lap.sectorMs, n);
+  if (lap.tags || times.empty()) return;
+  if (sectorBest.size() != n) {
+    sectorBest.assign(n, -1);
+    sectorBestTrace.assign(n, std::vector<TracePt>());
+  }
+  int32_t from = 0;
+  for (size_t s = 0; s < n; s++) {
+    const int32_t to = from + times[s];
+    if (sectorBest[s] < 0 || times[s] < sectorBest[s]) {
+      sectorBest[s] = times[s];
+      std::vector<TracePt>& out = sectorBestTrace[s];
+      out.clear();
+      for (const TracePt& p : curTrace)
+        if (p.t >= from && p.t <= to) out.push_back(p);
+    }
+    from = to;
+  }
+}
+
+const std::vector<LapTimer::TracePt>& LapTimer::sectorBestPath(size_t sector) const {
+  static const std::vector<TracePt> none;
+  return sector < sectorBestTrace.size() ? sectorBestTrace[sector] : none;
+}
+
 void LapTimer::setReference(std::vector<TracePt> path, uint32_t lapMs) {
   if (path.size() < 2 || lapMs == 0) return clearReference();
   storedTrace = std::move(path);

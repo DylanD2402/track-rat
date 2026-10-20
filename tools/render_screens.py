@@ -31,6 +31,7 @@ SOURCES = [
     os.path.join(SCREENS, "mock", "TFT_eSPI.cpp"),
     os.path.join(ROOT, "src", "DisplayManager.cpp"),
     os.path.join(ROOT, "src", "DisplayPerf.cpp"),
+    os.path.join(ROOT, "src", "DisplayDebrief.cpp"),
     os.path.join(ROOT, "src", "DisplayPower.cpp"),
     os.path.join(ROOT, "src", "DisplaySettings.cpp"),
     os.path.join(ROOT, "src", "LapTimer.cpp"),
