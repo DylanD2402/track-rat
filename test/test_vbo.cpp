@@ -25,9 +25,9 @@
 #include "VboFormat.h"
 #include "check.h"
 
-static std::string line(const vbo::Sample& s) {
+static std::string line(const vbo::Sample& s, bool engine = false) {
   char buf[160];
-  size_t n = vbo::formatLine(s, buf, sizeof(buf));
+  size_t n = vbo::formatLine(s, buf, sizeof(buf), engine);
   return std::string(buf, n);
 }
 
@@ -195,6 +195,7 @@ struct SessionFile {
   std::vector<TrackPoint> splits;
   vbo::Gate start;
   std::vector<int> lapsDoneAfter;  // laps completed after each fix
+  bool engine = false;             // set before makeSession: the engine channels, coolant and oil warming lap by lap
 };
 
 static double metresPerDegLon(double lat) { return 111194.93 * cos(lat * geo::DEG2RAD); }
@@ -233,6 +234,7 @@ static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t sta
     s.start = h.start;
   }
   h.comments.push_back("Min lap ms: 20000");
+  h.engine = s.engine;
   s.text = vbo::headerText(h);
   s.headerLen = s.text.size();
 
@@ -244,6 +246,11 @@ static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t sta
     double lat, lon;
     circlePos(angle, lat, lon);
     uint32_t t = (startUtc + i * 50) % 86400000;
+    // Coolant climbs through each lap and drops back a little at the start of the next; oil isn't
+    // known for the first two seconds of every 10, and the coolant's first reading is late
+    const float coolant = 80.0f + 6.0f * s.live.lapCount() + (float)(i % 400) * 0.01f, oil = coolant + 22.5f;
+    const bool coolantKnown = s.engine && i >= 7, oilKnown = s.engine && i % 200 >= 40;
+    s.live.noteTemps(coolantKnown, coolant, oilKnown, oil);
     s.live.onFix(lat, lon, (float)(v * 3.6), t, i * 50);
     float heading = (float)fmod(360.0 - angle * 180.0 / M_PI, 360.0);  // anticlockwise
     g.update(t, (float)(v * 3.6), heading, true);
@@ -259,7 +266,12 @@ static void makeSession(SessionFile& s, double sfLat, double sfLon, uint32_t sta
     smp.lap = s.live.lapRunning() ? s.live.currentLapNumber() : 0;
     smp.latG = g.lateral();
     smp.longG = g.longitudinal();
-    std::string l = line(smp);
+    if (s.engine) {
+      smp.rpm = 5000;
+      smp.coolantC = coolantKnown ? coolant : 0;
+      smp.oilC = oilKnown ? oil : 0;
+    }
+    std::string l = line(smp, s.engine);
     if (s.lineLen == 0) s.lineLen = l.size();
     s.sameLength &= l.size() == s.lineLen;
     s.text += l;
@@ -739,9 +751,51 @@ static void testEngineChannels() {
   CHECK(!plainR.hasCoolant() && !plainR.hasOil(), "no engine columns");
 }
 
+// The laps' hottest coolant and oil (6.5): recovery and re-timing read them back from the log
+static void testLapTemperatures() {
+  SessionFile s;
+  s.engine = true;
+  makeSession(s, 45.0, -75.0, 36000000);
+  CHECK(s.live.lapCount() == 5 && s.sameLength, "an engine log of 5 laps");
+  bool rising = true;
+  for (size_t i = 0; i < s.live.lapCount(); i++) {
+    const Lap& l = s.live.lap(i);
+    rising = rising && hasTemp(l.coolantMaxC) && hasTemp(l.oilMaxC) && fabsf(l.oilMaxC - l.coolantMaxC - 22.5f) < 0.01f &&
+             (i == 0 || l.coolantMaxC > s.live.lap(i - 1).coolantMaxC);
+  }
+  CHECK(rising, "live: each lap has its hottest coolant and oil, warming lap by lap");
+  CHECK(fabsf(s.live.sessionCoolantMaxC() - s.live.lap(4).coolantMaxC) < 6.1f && s.live.sessionCoolantMaxC() >= s.live.lap(4).coolantMaxC,
+        "the session's hottest: %.2f", s.live.sessionCoolantMaxC());
+
+  SessionReplay r;
+  replay(r, s.text, 333);
+  checkSameLaps(r.timer, s.live, 5, "engine log");
+  bool same = r.timer.lapCount() == 5;
+  for (size_t i = 0; same && i < 5; i++) {
+    const Lap &a = r.timer.lap(i), &b = s.live.lap(i);
+    same = fabsf(a.coolantMaxC - b.coolantMaxC) < 0.06f && fabsf(a.oilMaxC - b.oilMaxC) < 0.06f;  // the log keeps one decimal
+    if (!same) printf("    lap %zu: coolant %.2f vs %.2f, oil %.2f vs %.2f\n", i + 1, a.coolantMaxC, b.coolantMaxC, a.oilMaxC, b.oilMaxC);
+  }
+  CHECK(same, "recovered from the log: the same hottest per lap");
+  CHECK(fabsf(r.timer.sessionCoolantMaxC() - s.live.sessionCoolantMaxC()) < 0.06f &&
+            fabsf(r.timer.sessionOilMaxC() - s.live.sessionOilMaxC()) < 0.06f,
+        "and for the session: %.2f / %.2f", r.timer.sessionCoolantMaxC(), r.timer.sessionOilMaxC());
+
+  // Without the engine channels: nothing
+  SessionFile p;
+  makeSession(p, 45.0, -75.0, 36000000);
+  SessionReplay rp;
+  replay(rp, p.text, 4096);
+  CHECK(rp.timer.lapCount() == 5 && !hasTemp(rp.timer.lap(0).coolantMaxC) && !hasTemp(rp.timer.sessionCoolantMaxC()) &&
+            !hasTemp(rp.timer.sessionOilMaxC()) && !hasTemp(p.live.sessionCoolantMaxC()),
+        "no engine: no temperatures");
+  printf("  lap temperatures: hottest coolant and oil per lap, live and recovered from the log\n");
+}
+
 int main() {
   printf("VBO log tests\n");
   testEngineChannels();
+  testLapTemperatures();
   testCoordinates();
   testTime();
   testGForce();
