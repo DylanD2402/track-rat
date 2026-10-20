@@ -69,7 +69,7 @@ public:
   void startSplash();
   void finishSplash();
   bool splashRunning() const;
-  // statusOnly: the GPS Status screen opened from the track list (no auto-advance)
+  // statusOnly: the GPS Status screen opened from the menu's top bar (no auto-advance)
   void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk, bool statusOnly);
   // The track list and Ready screens show this track's PB: set it first (0 = none).
   void setPersonalBest(uint32_t lapMs, uint32_t date) {

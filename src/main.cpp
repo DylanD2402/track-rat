@@ -1078,8 +1078,8 @@ static void handleInput(InputEvent ev) {
       break;
 
     case AppState::TrackSelect:
-      if (ev == InputEvent::TapHeader) {
-        enterState(AppState::GpsStatus);
+      if (ev == InputEvent::TapHeader) {  // the top bar: back to the menu (GPS status is on the menu's top bar)
+        enterState(AppState::Menu);
         break;
       }
       if (ev == InputEvent::Hold) enterState(AppState::Menu);
