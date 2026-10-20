@@ -435,6 +435,9 @@ python tools/fetch_canada_tracks.py
 Then copy `data/tracks.json` to the SD card.
 
 - **No start/finish lines:** OpenStreetMap doesn't record where the line is, so the timer asks you to mark it on your first visit.
+- **Town and province:** each new track's location is written as "Town, ON". The town is a nearby place the track is named after (Shannonville Motorsports Park), else the town the track is in or right next to (within 3 km), else the nearest town or city, else the nearest village. A town from the track's own OpenStreetMap address is kept, and the province comes from OpenStreetMap's reverse geocoder, Nominatim. Nearby towns come from Photon (Komoot's OpenStreetMap geocoder), or Overpass if Photon is down. `--no-locations` skips this.
+
+`tools/fill_track_locations.py` does the same for tracks already in `tracks.json`: those with no province, or every Canadian track with `--all`. `--dry-run` shows the changes without saving. It asks Nominatim once a second, as its usage policy requires, so 120 tracks take about three minutes.
 - **What's skipped:** dirt tracks, motocross and drag strips, unless you add `--include-dirt` or `--include-drag`. Karting tracks are included; `--no-karting` leaves them out.
 - **Kart tracks:** karting venues (OSM `sport=karting`), and venues whose every raceway is a kart track, get `"kind": "kart"`. A car circuit with a kart track beside it stays a car circuit.
 - **Your existing tracks are never changed,** except that a karting track you already have gets `"kind": "kart"` if it has no `kind`. That includes any track within 1 km of one you already have.

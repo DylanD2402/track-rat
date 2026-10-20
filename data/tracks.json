@@ -733,7 +733,7 @@
   {
    "id": "3-flags-motorsports-park",
    "name": "3 Flags Motorsports Park",
-   "location": "",
+   "location": "Lumsden, SK",
    "country": "Canada",
    "length": 752,
    "center": {
@@ -796,7 +796,7 @@
   {
    "id": "3-s-go-karts",
    "name": "3-S Go-Karts",
-   "location": "",
+   "location": "Sutton, ON",
    "country": "Canada",
    "length": 1398,
    "center": {
@@ -1083,7 +1083,7 @@
   {
    "id": "401-mini-indy-go-karts",
    "name": "401 Mini Indy Go-Karts",
-   "location": "",
+   "location": "Toronto, ON",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -1094,7 +1094,7 @@
   {
    "id": "5150-speedway",
    "name": "5150 Speedway",
-   "location": "",
+   "location": "Tilbury, ON",
    "country": "Canada",
    "length": 212,
    "center": {
@@ -1161,7 +1161,7 @@
   {
    "id": "abandoned-havre-boucher-speedway",
    "name": "Abandoned Havre Boucher Speedway",
-   "location": "",
+   "location": "Havre Boucher, NS",
    "country": "Canada",
    "length": 425,
    "center": {
@@ -1247,7 +1247,7 @@
   {
    "id": "aire-de-freinage-charlie-braking-pad",
    "name": "Aire de freinage \u2013 CHARLIE \u2013 Braking pad",
-   "location": "",
+   "location": "Blainville, QC",
    "country": "Canada",
    "length": 1205,
    "center": {
@@ -1282,7 +1282,7 @@
   {
    "id": "amigo-karting",
    "name": "Amigo Karting",
-   "location": "",
+   "location": "Gatineau, QC",
    "country": "Canada",
    "length": 981,
    "center": {
@@ -1513,7 +1513,7 @@
   {
    "id": "area-27",
    "name": "Area 27",
-   "location": "",
+   "location": "Oliver, BC",
    "country": "Canada",
    "length": 6087,
    "center": {
@@ -2220,7 +2220,7 @@
   {
    "id": "atlantic-motorsports-park",
    "name": "Atlantic Motorsports Park",
-   "location": "",
+   "location": "Shubenacadie, NS",
    "country": "Canada",
    "length": 2404,
    "center": {
@@ -2523,7 +2523,7 @@
   {
    "id": "autodrome-la-chaudi-re",
    "name": "Autodrome La Chaudi\u00e8re",
-   "location": "",
+   "location": "Vall\u00e9e-Jonction, QC",
    "country": "Canada",
    "length": 138,
    "center": {
@@ -2614,7 +2614,7 @@
   {
    "id": "autodrome-montmagny-speedway",
    "name": "Autodrome Montmagny Speedway",
-   "location": "",
+   "location": "Montmagny, QC",
    "country": "Canada",
    "length": 2086,
    "center": {
@@ -2895,7 +2895,7 @@
   {
    "id": "autodrome-st-eustache",
    "name": "Autodrome St-Eustache",
-   "location": "",
+   "location": "Saint-Eustache, QC",
    "country": "Canada",
    "length": 373,
    "center": {
@@ -3052,7 +3052,7 @@
   {
    "id": "autodrome-st-felicien",
    "name": "Autodrome St-Felicien",
-   "location": "",
+   "location": "Saint-F\u00e9licien, QC",
    "country": "Canada",
    "length": 2481,
    "center": {
@@ -3329,7 +3329,7 @@
   {
    "id": "autodrome-de-drummondville",
    "name": "Autodrome de Drummondville",
-   "location": "",
+   "location": "Drummondville, QC",
    "country": "Canada",
    "length": 821,
    "center": {
@@ -3494,7 +3494,7 @@
   {
    "id": "avenue-gilles-villeneuve",
    "name": "Avenue Gilles Villeneuve",
-   "location": "",
+   "location": "Trois-Rivi\u00e8res, QC",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -3505,7 +3505,7 @@
   {
    "id": "balm-beach-go-karts",
    "name": "Balm Beach Go-Karts",
-   "location": "",
+   "location": "Penetanguishene, ON",
    "country": "Canada",
    "length": 600,
    "center": {
@@ -3696,7 +3696,7 @@
   {
    "id": "brighton-speedway-park",
    "name": "Brighton Speedway Park",
-   "location": "",
+   "location": "Brighton, ON",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -3707,7 +3707,7 @@
   {
    "id": "brockville-ontario-speedway",
    "name": "Brockville Ontario Speedway",
-   "location": "",
+   "location": "Brockville, ON",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -3718,7 +3718,7 @@
   {
    "id": "bud-s-speedway",
    "name": "Bud's Speedway",
-   "location": "",
+   "location": "Grand Lake Road, NS",
    "country": "Canada",
    "length": 375,
    "center": {
@@ -3805,7 +3805,7 @@
   {
    "id": "canadian-tire-motorsport-park",
    "name": "Canadian Tire Motorsport Park",
-   "location": "",
+   "location": "Bowmanville, ON",
    "country": "Canada",
    "length": 9362,
    "center": {
@@ -4984,7 +4984,7 @@
   {
    "id": "cayuga-motor-speedway",
    "name": "Cayuga Motor Speedway",
-   "location": "",
+   "location": "Cayuga, ON",
    "country": "Canada",
    "length": 838,
    "center": {
@@ -5055,7 +5055,7 @@
   {
    "id": "central-alberta-raceways",
    "name": "Central Alberta Raceways",
-   "location": "",
+   "location": "Rimbey, AB",
    "country": "Canada",
    "length": 753,
    "center": {
@@ -5078,7 +5078,7 @@
   {
    "id": "challenge-255",
    "name": "Challenge 255",
-   "location": "",
+   "location": "Baie-du-Febvre, QC",
    "country": "Canada",
    "length": 516,
    "center": {
@@ -5101,7 +5101,7 @@
   {
    "id": "circuit-gilles-villeneuve",
    "name": "Circuit Gilles-Villeneuve",
-   "location": "",
+   "location": "Montr\u00e9al, QC",
    "country": "Canada",
    "length": 4362,
    "center": {
@@ -5432,7 +5432,7 @@
   {
    "id": "circuit-mont-tremblant",
    "name": "Circuit Mont-Tremblant",
-   "location": "",
+   "location": "Mont-Tremblant, QC",
    "country": "Canada",
    "length": 6299,
    "center": {
@@ -6393,7 +6393,7 @@
   {
    "id": "circuit-riverside-speedway-ste-croix",
    "name": "Circuit Riverside Speedway Ste-Croix",
-   "location": "",
+   "location": "Sainte-Croix, QC",
    "country": "Canada",
    "length": 1799,
    "center": {
@@ -6620,7 +6620,7 @@
   {
    "id": "circuit-stock-kart",
    "name": "Circuit Stock Kart",
-   "location": "",
+   "location": "Saint-Pie, QC",
    "country": "Canada",
    "length": 397,
    "center": {
@@ -6751,7 +6751,7 @@
   {
    "id": "circuit-yvon-duhamel",
    "name": "Circuit Yvon-Duhamel",
-   "location": "",
+   "location": "Valcourt, QC",
    "country": "Canada",
    "length": 766,
    "center": {
@@ -6846,7 +6846,7 @@
   {
    "id": "coboconk-go-karts-mini-putt",
    "name": "Coboconk Go-Karts & Mini-Putt",
-   "location": "",
+   "location": "Coboconk, ON",
    "country": "Canada",
    "length": 365,
    "center": {
@@ -7924,7 +7924,7 @@
   {
    "id": "delaware-speedway",
    "name": "Delaware Speedway",
-   "location": "",
+   "location": "Delaware, ON",
    "country": "Canada",
    "length": 708,
    "center": {
@@ -7991,7 +7991,7 @@
   {
    "id": "dunnville-autodrome",
    "name": "Dunnville Autodrome",
-   "location": "",
+   "location": "Dunnville, ON",
    "country": "Canada",
    "length": 2439,
    "center": {
@@ -8244,7 +8244,7 @@
   {
    "id": "east-coast-karting",
    "name": "East Coast Karting",
-   "location": "",
+   "location": "Dieppe, NB",
    "country": "Canada",
    "length": 465,
    "center": {
@@ -8367,7 +8367,7 @@
   {
    "id": "eastbound-park-speedway",
    "name": "Eastbound Park & Speedway",
-   "location": "",
+   "location": "Avondale, NL",
    "country": "Canada",
    "length": 2526,
    "center": {
@@ -8426,7 +8426,7 @@
   {
    "id": "edmonton-international-raceway",
    "name": "Edmonton International Raceway",
-   "location": "Wetaskiwin, Alberta",
+   "location": "Wetaskiwin, AB",
    "country": "Canada",
    "length": 402,
    "center": {
@@ -8579,7 +8579,7 @@
   {
    "id": "erbsville-kartway",
    "name": "Erbsville Kartway",
-   "location": "",
+   "location": "Erbsville, ON",
    "country": "Canada",
    "length": 969,
    "center": {
@@ -8820,7 +8820,7 @@
   {
    "id": "exhibition-track",
    "name": "Exhibition Track",
-   "location": "",
+   "location": "Wetaskiwin, AB",
    "country": "Canada",
    "length": 392,
    "center": {
@@ -8907,7 +8907,7 @@
   {
    "id": "exit-88-go-kart-racing",
    "name": "Exit 88 Go-Kart Racing",
-   "location": "",
+   "location": "Limestone, NB",
    "country": "Canada",
    "length": 323,
    "center": {
@@ -9026,7 +9026,7 @@
   {
    "id": "family-funland-karting-track",
    "name": "Family Funland Karting Track",
-   "location": "",
+   "location": "Kincardine, ON",
    "country": "Canada",
    "length": 568,
    "center": {
@@ -9177,7 +9177,7 @@
   {
    "id": "fast-go-karts",
    "name": "Fast Go Karts",
-   "location": "",
+   "location": "Grand Lake Road, NS",
    "country": "Canada",
    "length": 492,
    "center": {
@@ -9308,7 +9308,7 @@
   {
    "id": "figure-8-auto-racing",
    "name": "Figure 8 Auto Racing",
-   "location": "",
+   "location": "Fort Macleod, AB",
    "country": "Canada",
    "length": 291,
    "center": {
@@ -9419,7 +9419,7 @@
   {
    "id": "flamboro-speedway",
    "name": "Flamboro Speedway",
-   "location": "",
+   "location": "Hamilton, ON",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -9430,7 +9430,7 @@
   {
    "id": "gdls-test-track",
    "name": "GDLS Test track",
-   "location": "",
+   "location": "London, ON",
    "country": "Canada",
    "length": 1204,
    "center": {
@@ -9808,7 +9808,7 @@
   {
    "id": "go-kart-race-way",
    "name": "Go Kart Race Way",
-   "location": "",
+   "location": "Abbotsford, BC",
    "country": "Canada",
    "length": 245,
    "center": {
@@ -9895,7 +9895,7 @@
   {
    "id": "go-karts",
    "name": "Go Karts",
-   "location": "",
+   "location": "Penticton, BC",
    "country": "Canada",
    "length": 226,
    "center": {
@@ -9990,7 +9990,7 @@
   {
    "id": "go-kart-mond",
    "name": "Go-Kart \u00c9mond",
-   "location": "",
+   "location": "Mont-Blanc, QC",
    "country": "Canada",
    "length": 484,
    "center": {
@@ -10093,7 +10093,7 @@
   {
    "id": "goodwood-kartways",
    "name": "Goodwood Kartways",
-   "location": "",
+   "location": "Goodwood, ON",
    "country": "Canada",
    "length": 911,
    "center": {
@@ -10330,7 +10330,7 @@
   {
    "id": "greg-moore-raceway",
    "name": "Greg Moore Raceway",
-   "location": "",
+   "location": "Chilliwack, BC",
    "country": "Canada",
    "length": 1216,
    "center": {
@@ -10585,7 +10585,7 @@
   {
    "id": "grid",
    "name": "Grid",
-   "location": "",
+   "location": "Strathmore, AB",
    "country": "Canada",
    "length": 108,
    "center": {
@@ -10642,7 +10642,7 @@
   {
    "id": "innisfil-indy-karting",
    "name": "Innisfil Indy Karting",
-   "location": "",
+   "location": "Innisfil, ON",
    "country": "Canada",
    "length": 1295,
    "center": {
@@ -10923,7 +10923,7 @@
   {
    "id": "k1-speed",
    "name": "K1 Speed",
-   "location": "Toronto, Ontario",
+   "location": "Toronto, ON",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -10934,7 +10934,7 @@
   {
    "id": "kma-speedway",
    "name": "KMA Speedway",
-   "location": "",
+   "location": "Whitehorse, YT",
    "country": "Canada",
    "length": 542,
    "center": {
@@ -11009,7 +11009,7 @@
   {
    "id": "kart-racing",
    "name": "Kart Racing",
-   "location": "",
+   "location": "Gimli, MB",
    "country": "Canada",
    "length": 832,
    "center": {
@@ -11172,7 +11172,7 @@
   {
    "id": "karters-korner-go-karts",
    "name": "Karters' Korner Go Karts",
-   "location": "",
+   "location": "Stanley Corners, ON",
    "country": "Canada",
    "length": 863,
    "center": {
@@ -11351,7 +11351,7 @@
   {
    "id": "karting-orford",
    "name": "Karting Orford",
-   "location": "",
+   "location": "Orford, QC",
    "country": "Canada",
    "length": 1654,
    "center": {
@@ -11792,7 +11792,7 @@
   {
    "id": "karting-st-zotique",
    "name": "Karting St-Zotique",
-   "location": "",
+   "location": "Saint-Zotique, QC",
    "country": "Canada",
    "length": 956,
    "center": {
@@ -12131,7 +12131,7 @@
   {
    "id": "kelly-s-go-karts",
    "name": "Kelly's Go Karts",
-   "location": "",
+   "location": "Sicamous, BC",
    "country": "Canada",
    "length": 264,
    "center": {
@@ -12395,7 +12395,7 @@
   {
    "id": "kings-park-speedway",
    "name": "Kings Park Speedway",
-   "location": "",
+   "location": "Regina, SK",
    "country": "Canada",
    "length": 546,
    "center": {
@@ -12482,7 +12482,7 @@
   {
    "id": "laird-international-raceway",
    "name": "Laird International Raceway",
-   "location": "",
+   "location": "Laird, ON",
    "country": "Canada",
    "length": 451,
    "center": {
@@ -12573,7 +12573,7 @@
   {
    "id": "lumby-raceway-abandoned",
    "name": "Lumby Raceway [Abandoned]",
-   "location": "",
+   "location": "Lumby, BC",
    "country": "Canada",
    "length": 397,
    "center": {
@@ -12632,7 +12632,7 @@
   {
    "id": "martensville-speedway",
    "name": "Martensville Speedway",
-   "location": "",
+   "location": "Martensville, SK",
    "country": "Canada",
    "length": 883,
    "center": {
@@ -12859,7 +12859,7 @@
   {
    "id": "mclaughlin-advanced-technology-track",
    "name": "McLaughlin Advanced Technology Track",
-   "location": "",
+   "location": "Oshawa, ON",
    "country": "Canada",
    "length": 1727,
    "center": {
@@ -13034,7 +13034,7 @@
   {
    "id": "medicine-hat-speedway",
    "name": "Medicine Hat Speedway",
-   "location": "",
+   "location": "Medicine Hat, AB",
    "country": "Canada",
    "length": 2705,
    "center": {
@@ -13157,7 +13157,7 @@
   {
    "id": "merritt-speedway",
    "name": "Merritt Speedway",
-   "location": "",
+   "location": "Merritt, BC",
    "country": "Canada",
    "length": 497,
    "center": {
@@ -13256,7 +13256,7 @@
   {
    "id": "mission-raceway",
    "name": "Mission Raceway",
-   "location": "",
+   "location": "Mission, BC",
    "country": "Canada",
    "length": 1265,
    "center": {
@@ -13279,7 +13279,7 @@
   {
    "id": "mississauga-mini-indy",
    "name": "Mississauga Mini-Indy",
-   "location": "",
+   "location": "Mississauga, ON",
    "country": "Canada",
    "length": 1148,
    "center": {
@@ -13668,7 +13668,7 @@
   {
    "id": "niagara-go-karts",
    "name": "Niagara Go-Karts",
-   "location": "",
+   "location": "Niagara Falls, ON",
    "country": "Canada",
    "length": 991,
    "center": {
@@ -13905,7 +13905,7 @@
   {
    "id": "northern-lights-raceway",
    "name": "Northern Lights Raceway",
-   "location": "Baldonnel",
+   "location": "Baldonnel, BC",
    "country": "Canada",
    "length": 1181,
    "center": {
@@ -13944,7 +13944,7 @@
   {
    "id": "ohsweken-speedway",
    "name": "Ohsweken Speedway",
-   "location": "",
+   "location": "Ohsweken, ON",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -13955,7 +13955,7 @@
   {
    "id": "onslow-speedway",
    "name": "Onslow Speedway",
-   "location": "",
+   "location": "Onslow, NS",
    "country": "Canada",
    "length": 377,
    "center": {
@@ -14050,7 +14050,7 @@
   {
    "id": "ovale-basse-vitesse-alpha-low-speed-oval",
    "name": "Ovale basse vitesse \u2013 ALPHA \u2013 Low-Speed Oval",
-   "location": "",
+   "location": "Blainville, QC",
    "country": "Canada",
    "length": 6868,
    "center": {
@@ -14265,7 +14265,7 @@
   {
    "id": "ovale-haute-vitesse-bravo-high-speed-ova",
    "name": "Ovale haute vitesse \u2013 BRAVO \u2013 High-Speed Oval",
-   "location": "",
+   "location": "Blainville, QC",
    "country": "Canada",
    "length": 3471,
    "center": {
@@ -14368,7 +14368,7 @@
   {
    "id": "ozzie-s-amusements",
    "name": "Ozzie's Amusements",
-   "location": "Windermere",
+   "location": "Windermere, BC",
    "country": "Canada",
    "length": 112,
    "center": {
@@ -14427,7 +14427,7 @@
   {
    "id": "pkc",
    "name": "PKC",
-   "location": "",
+   "location": "Saguenay, QC",
    "country": "Canada",
    "length": 623,
    "center": {
@@ -14618,7 +14618,7 @@
   {
    "id": "penticton-speedway",
    "name": "Penticton Speedway",
-   "location": "",
+   "location": "Penticton, BC",
    "country": "Canada",
    "length": 409,
    "center": {
@@ -14709,7 +14709,7 @@
   {
    "id": "peterborough-speedway",
    "name": "Peterborough Speedway",
-   "location": "",
+   "location": "Peterborough, ON",
    "country": "Canada",
    "length": 459,
    "center": {
@@ -14800,7 +14800,7 @@
   {
    "id": "petty-international-raceway",
    "name": "Petty International Raceway",
-   "location": "",
+   "location": "River Glade, NB",
    "country": "Canada",
    "length": 443,
    "center": {
@@ -14891,7 +14891,7 @@
   {
    "id": "piste-d-acc-l-ration-de-pont-rouge",
    "name": "Piste d'acc\u00e9l\u00e9ration de Pont-Rouge",
-   "location": "",
+   "location": "Pont-Rouge, QC",
    "country": "Canada",
    "length": 1001,
    "center": {
@@ -14914,7 +14914,7 @@
   {
    "id": "piste-de-saint-ferdinand",
    "name": "Piste de Saint-Ferdinand",
-   "location": "",
+   "location": "Saint-Ferdinand, QC",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -14925,7 +14925,7 @@
   {
    "id": "pit-road",
    "name": "Pit Road",
-   "location": "",
+   "location": "Black Creek, BC",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -14948,7 +14948,7 @@
   {
    "id": "pit-stop-karting",
    "name": "Pit Stop Karting",
-   "location": "",
+   "location": "Cavendish, PE",
    "country": "Canada",
    "length": 243,
    "center": {
@@ -15083,7 +15083,7 @@
   {
    "id": "point-pelee-karting",
    "name": "Point Pelee Karting",
-   "location": "Leamington, Ontario",
+   "location": "Leamington, ON",
    "country": "Canada",
    "length": 853,
    "center": {
@@ -15298,7 +15298,7 @@
   {
    "id": "popkum-motorsport-park",
    "name": "Popkum Motorsport Park",
-   "location": "",
+   "location": "Popkum, BC",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -15309,7 +15309,7 @@
   {
    "id": "rad-torque-raceway",
    "name": "RAD Torque Raceway",
-   "location": "Leduc County, AB",
+   "location": "Leduc, AB",
    "country": "Canada",
    "length": 3883,
    "center": {
@@ -15598,7 +15598,7 @@
   {
    "id": "river-glade-speedway-closed",
    "name": "River Glade Speedway (closed)",
-   "location": "",
+   "location": "River Glade, NB",
    "country": "Canada",
    "length": 429,
    "center": {
@@ -15681,7 +15681,7 @@
   {
    "id": "riverside-international-speedway",
    "name": "Riverside International Speedway",
-   "location": "",
+   "location": "Antigonish, NS",
    "country": "Canada",
    "length": 536,
    "center": {
@@ -15772,7 +15772,7 @@
   {
    "id": "rocky-mountain-drift-club",
    "name": "Rocky Mountain Drift Club",
-   "location": "",
+   "location": "Claresholm, AB",
    "country": "Canada",
    "length": 343,
    "center": {
@@ -15815,7 +15815,7 @@
   {
    "id": "rocky-mountain-motorsports",
    "name": "Rocky Mountain Motorsports",
-   "location": "Mountain View County, Alberta",
+   "location": "Carstairs, AB",
    "country": "Canada",
    "length": 4166,
    "center": {
@@ -16448,7 +16448,7 @@
   {
    "id": "rue-nicolas-rioux",
    "name": "Rue Nicolas-Rioux",
-   "location": "",
+   "location": "Saint-Eug\u00e8ne-de-Ladri\u00e8re, QC",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -16459,7 +16459,7 @@
   {
    "id": "sh-karting",
    "name": "SH Karting",
-   "location": "",
+   "location": "Saint-Charles-sur-Richelieu, QC",
    "country": "Canada",
    "length": 966,
    "center": {
@@ -16524,7 +16524,7 @@
   {
    "id": "saskatoon-international-raceway",
    "name": "Saskatoon International Raceway",
-   "location": "",
+   "location": "Saskatoon, SK",
    "country": "Canada",
    "length": 1493,
    "center": {
@@ -16547,7 +16547,7 @@
   {
    "id": "sauble-speedway",
    "name": "Sauble Speedway",
-   "location": "",
+   "location": "Sauble Beach, ON",
    "country": "Canada",
    "length": 440,
    "center": {
@@ -16634,7 +16634,7 @@
   {
    "id": "sc-performance-karting-inc",
    "name": "Sc Performance Karting inc.",
-   "location": "",
+   "location": "Saint-C\u00e9lestin, QC",
    "country": "Canada",
    "length": 1250,
    "center": {
@@ -16929,7 +16929,7 @@
   {
    "id": "scotia-speedworld",
    "name": "Scotia Speedworld",
-   "location": "",
+   "location": "Goffs, NS",
    "country": "Canada",
    "length": 471,
    "center": {
@@ -17024,7 +17024,7 @@
   {
    "id": "shannonville-motorsports-park",
    "name": "Shannonville Motorsports Park",
-   "location": "",
+   "location": "Shannonville, ON",
    "country": "Canada",
    "length": 4849,
    "center": {
@@ -17655,7 +17655,7 @@
   {
    "id": "speeders",
    "name": "Speeders",
-   "location": "",
+   "location": "Calgary, AB",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -17666,7 +17666,7 @@
   {
    "id": "speedway-660",
    "name": "Speedway 660",
-   "location": "Geary, New Brunswick",
+   "location": "Geary, NB",
    "country": "Canada",
    "length": 711,
    "center": {
@@ -17863,7 +17863,7 @@
   {
    "id": "sports-car-motorcycle-racing",
    "name": "Sports Car/Motorcycle Racing",
-   "location": "",
+   "location": "Gimli, MB",
    "country": "Canada",
    "length": 2148,
    "center": {
@@ -18038,7 +18038,7 @@
   {
    "id": "st-lie-motorsports",
    "name": "St-\u00c9lie MotorSports",
-   "location": "",
+   "location": "Sherbrooke, QC",
    "country": "Canada",
    "length": 0,
    "center": {
@@ -18049,7 +18049,7 @@
   {
    "id": "streets-of-markham",
    "name": "Streets of Markham",
-   "location": "",
+   "location": "Markham, ON",
    "country": "Canada",
    "length": 3439,
    "center": {
@@ -18408,7 +18408,7 @@
   {
    "id": "sun-valley-motor-speedway",
    "name": "Sun Valley Motor Speedway",
-   "location": "",
+   "location": "Armstrong, BC",
    "country": "Canada",
    "length": 661,
    "center": {
@@ -18523,7 +18523,7 @@
   {
    "id": "sunset-speedway",
    "name": "Sunset Speedway",
-   "location": "",
+   "location": "Innisfil, ON",
    "country": "Canada",
    "length": 452,
    "center": {
@@ -18598,7 +18598,7 @@
   {
    "id": "taylor-speedway",
    "name": "Taylor Speedway",
-   "location": "",
+   "location": "Taylor, BC",
    "country": "Canada",
    "length": 652,
    "center": {
@@ -18705,7 +18705,7 @@
   {
    "id": "terrace-speedway",
    "name": "Terrace Speedway",
-   "location": "",
+   "location": "Terrace, BC",
    "country": "Canada",
    "length": 557,
    "center": {
@@ -18909,7 +18909,7 @@
   {
    "id": "thunder-mountain-raceway",
    "name": "Thunder Mountain Raceway",
-   "location": "",
+   "location": "Kelowna, BC",
    "country": "Canada",
    "length": 1291,
    "center": {
@@ -18942,7 +18942,7 @@
   {
    "id": "thunder-valley-speedway",
    "name": "Thunder Valley Speedway",
-   "location": "",
+   "location": "Bishops Falls, NL",
    "country": "Canada",
    "length": 654,
    "center": {
@@ -19001,7 +19001,7 @@
   {
    "id": "toronto-motorsports-park",
    "name": "Toronto Motorsports Park",
-   "location": "",
+   "location": "Cayuga, ON",
    "country": "Canada",
    "length": 3745,
    "center": {
@@ -19258,7 +19258,7 @@
   {
    "id": "u-drive-safety-school-of-motoring",
    "name": "U Drive Safety School of Motoring",
-   "location": "",
+   "location": "Springbank, AB",
    "country": "Canada",
    "length": 175,
    "center": {
@@ -19353,7 +19353,7 @@
   {
    "id": "volt-main-track",
    "name": "Volt Main track",
-   "location": "",
+   "location": "Bowmanville, ON",
    "country": "Canada",
    "length": 386,
    "center": {
@@ -19504,7 +19504,7 @@
   {
    "id": "wasaga-500",
    "name": "Wasaga 500",
-   "location": "",
+   "location": "Wasaga Beach, ON",
    "country": "Canada",
    "length": 1499,
    "center": {
@@ -19799,7 +19799,7 @@
   {
    "id": "wasaga-speedway",
    "name": "Wasaga Speedway",
-   "location": "",
+   "location": "Wasaga Beach, ON",
    "country": "Canada",
    "length": 426,
    "center": {
@@ -19866,7 +19866,7 @@
   {
    "id": "welland-county-motorcycle-club",
    "name": "Welland County Motorcycle Club",
-   "location": "",
+   "location": "Welland, ON",
    "country": "Canada",
    "length": 465,
    "center": {
@@ -19965,7 +19965,7 @@
   {
    "id": "eight",
    "name": "eight",
-   "location": "",
+   "location": "Quyon, QC",
    "country": "Canada",
    "length": 17,
    "center": {
@@ -19992,7 +19992,7 @@
   {
    "id": "go-cart-track",
    "name": "go cart track",
-   "location": "",
+   "location": "Saskatoon, SK",
    "country": "Canada",
    "length": 153,
    "center": {
@@ -20063,7 +20063,7 @@
   {
    "id": "go-kart-track",
    "name": "go kart track",
-   "location": "",
+   "location": "Kingston, ON",
    "country": "Canada",
    "length": 1061,
    "center": {
