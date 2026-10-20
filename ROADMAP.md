@@ -263,9 +263,90 @@ All of these use the spare pins on the expansion header, with the GPS on the UAR
 
 **CAN / OBD-II status: done, untested on hardware** (2026-10-20, commit 7b26c4e). TWAI on IO3/IO14 with an SN65HVD230; engine speed, throttle and coolant temperature into the log, and a shift light on the LED bar. `CAN_ENABLED` is off by default (IO14 is a GPS pin on the header). Only the OBD-II parsing, polling and shift light are host-tested.
 
+### Phase 6: Engine data and video
+
+The goal: engine data (RPM, throttle, temperatures) from a plug-in Bluetooth OBD-II adapter, and videos from an Osmo Action 4 or an iPhone with the track map, speed, g-force and engine data drawn on top.
+
+**Track Rat becomes the hub.** It reads the adapter, tells the camera where it is, and passes everything to the phone:
+
+```
+Bluetooth OBD-II adapter --> Track Rat --> SD card: the log, now with engine channels
+                                |
+                                +--> Osmo Action 4: Track Rat's GPS, 10 a second, written into the video;
+                                |    recording starts and stops with each session
+                                +--> iPhone (RaceChrono Pro): GPS and engine data; the phone films and draws the overlay
+```
+
+Why a hub: a Bluetooth adapter talks to one device at a time. If the phone takes it, Track Rat has nothing to log or show; with Track Rat holding it, every video path gets the engine data.
+
+**What to buy**
+
+| Part | Notes |
+|---|---|
+| A **Bluetooth LE** OBD-II adapter, e.g. Veepeak OBDCheck BLE+ (about $30) | It must be a BLE model. The ESP32-S3 has no Classic Bluetooth, so the Veepeak Mini (Bluetooth), Wi-Fi adapters and the OBDLink MX+ can't connect. One review says the 2026 BLE+ uses an STN2120 chip, faster than the usual ELM327 clones. |
+| Or the OBDLink CX | BLE with an STN chip, the fastest BLE adapter RaceChrono lists. CAN cars only (most cars from 2008 on). |
+| An IMU, optional | Already supported (5.1): an LSM6DSO breakout on the I2C header gives real g. Without one, g comes from the GPS, which is fine for overlays. |
+| Nothing for the camera | Track Rat does the job of DJI's GPS remote (6.2). |
+| RaceChrono Pro on the iPhone | A paid app. It films with the phone and draws the overlay (6.3). |
+
+**6.1 Engine data from a Bluetooth adapter (M)**
+
+- **Pairing:** Settings → Engine data → Find adapter. A 10 s scan lists adapters by name and signal strength; tap one. Track Rat remembers it and reconnects by itself whenever it's in range. An OBD tag in the header shows it's connected, like the BT tag.
+- **Talking to it:** adapters speak ELM327, a text protocol, over a BLE service (FFF0 on Veepeak). Sources disagree on which of its two characteristics notifies and which is written, and it varies between models, so find them by their properties rather than fixed UUIDs.
+- **Set-up:** echo, spaces and headers off (`ATE0`, `ATS0`, `ATH0`), automatic protocol (`ATSP0`), aggressive adaptive timing (`ATAT2`) and a short timeout (`ATST`). Then ask which PIDs the car supports (`0100`, `0120`, `0140`).
+- **How fast:** every request is a round trip over Bluetooth, and the rate is shared between channels. Cheap adapters manage about 6–15 requests a second. With adaptive timing and the "one reply" suffix (`010C1`: the adapter answers as soon as the engine does instead of waiting out its timeout), an ELM327 reaches 20–40 a second on a CAN car; RaceChrono quotes up to 50 Hz for OBDLink. Several PIDs in one request (`010C11`) helps where the adapter supports it. Detect both features and fall back if they fail.
+- **Schedule:** reuse 5.2's: RPM most often, then throttle, with coolant and intake temperature about once a second. At 20 requests a second that's RPM at about 10 Hz and throttle at about 7 Hz: plenty for the log and overlays. The shift light trails by about 0.1 s; the CAN transceiver (5.2) is the fix if that matters.
+- **Timing:** each value is stamped with GPS time at the middle of its request, so it lines up with the video.
+- **Same engine data as 5.2:** the log's engine channels, the shift light on the LED bar, and a coolant warning. The adapter is just another way in. A diagnostics screen shows requests a second and each channel's rate.
+- **Code:** the ELM327 protocol (command queue, reply parsing for `NO DATA`, `SEARCHING...`, `?` and the `>` prompt) is pure C++, tested on the PC with recorded adapter conversations. The NimBLE central code is separate.
+- **Stretch:** the gear, from RPM divided by speed, once each gear has been seen.
+
+**6.2 Track Rat as the camera's GPS remote (M/L)**
+
+- The Action 4 records GPS only from DJI's GPS remote. DJI publishes an official, MIT-licensed demo of that remote running on an ESP32 (the DJI R SDK protocol), and an open-source Android app, Telemet, does the same from a phone. Port the demo's protocol layer to Track Rat.
+- **Pairing, once:** Track Rat sends a connection request, the camera shows a code, and you accept it if it matches Track Rat's screen. After that it reconnects by itself.
+- **GPS into the video:** 10 times a second, Track Rat sends what its GPS already gives: position, height, north/east/down speed, accuracies and satellites. DJI's GPS packet has exactly these fields. The camera writes them into the video file, and DJI Mimo and DJI Studio then draw speed, route and altitude dashboards with no other software.
+- **Recording follows the session:** the camera starts when you leave the pits and stops when you park (1.3's pit detection). A setting chooses this or manual. The header shows the camera's recording state and battery, and warns if it's overheating; the camera reports all three.
+- **Sync for richer overlays:** Track Rat notes, in GPS time, when the camera started recording, so 6.4 can line the log up with the video without sliding it by hand.
+- **Caveats:** the camera has one remote slot, so DJI Mimo can't be its remote at the same time; the protocol is subject to DJI's licence terms; DJI's time field is offset by +8 hours (check it on the camera). Untested until it's tried on your Action 4.
+
+**6.3 Engine data to the phone: a RaceChrono profile (M)**
+
+- RaceChrono's DIY Bluetooth LE API (iOS and Android) takes GPS and CAN-style data from homemade devices. Track Rat sends its 20 Hz GPS and each engine value as a CAN packet, and in RaceChrono you add a channel per value. The README gets ready-made channel definitions.
+- RaceChrono Pro then films with the iPhone and draws speed, the map, lap times, g, RPM and throttle live. It can also link Osmo Action videos afterwards and sync them.
+- A Bluetooth setting chooses the profile: **RaceBox Mini** (works with most apps) or **RaceChrono** (GPS and engine data), one at a time. A RaceChrono forum report found iOS stopped receiving DIY data when a second UART-style service was present, and the RaceBox profile is one.
+
+**6.4 Overlay videos on the PC (L)**
+
+- **Tools that already read our files:** RaceRender reads VBO (its free edition is limited to 3 minutes with a logo; $40–60 to unlock). Telemetry Overlay ($199, one-time) reads DJI Action GPS and CSV or GPX. Add a CSV download for them with plain column names: time, lat, lon, speed, lap, delta, g, rpm, throttle.
+- **Our own, free:** `tools/overlay.py` reads a session's VBO and draws the overlay in Track Rat's style:
+  - track map with your dot
+  - speed
+  - lap time and delta
+  - sector colours
+  - a g circle
+  - RPM and throttle bars
+  - coolant
+
+  ffmpeg then either burns it onto the video or makes a transparent overlay to drop into an editor (DaVinci Resolve, Final Cut, CapCut).
+- **Lining it up:**
+  1. Osmo Action with 6.2: automatic, from the recording-start time Track Rat noted.
+  2. iPhone video: the file's creation time gets within a second; nudge the rest against a frame preview.
+  3. Any camera: tap for a sync flash, and Track Rat's screen shows a big SYNC with the GPS time. Film it and mark that frame.
+- Python rendering is slow for long sessions. Render at 30 fps and redraw only what changes.
+
+**Order:** 6.1 first (one purchase, the biggest data win), then 6.2 (no purchase, the biggest video win), then 6.3, then 6.4. 6.1 to 6.3 can be built and host-tested now; they need your adapter, camera and phone to confirm.
+
+**Risks to test early**
+
+- **Three Bluetooth links on one radio** (phone, adapter, camera). NimBLE supports it, but scanning and connecting while the others run needs care. Prove it on the bench before building on it.
+- **Adapters differ.** Detect features rather than assume them.
+- **Cars differ.** Some report throttle only as pedal position (PIDs 0x45 or 0x49), and older non-CAN cars manage only a few readings a second.
+- **Engine data lags** reality by about one Bluetooth round trip (50–100 ms). The timestamps take that into account.
+
 ## Not planned, and why
 
-- **Video recording.** No camera input or video encoder. A GoPro does it better, and most GoPros record GPS time, so overlay tools can line the footage up with Track Rat's UTC-stamped logs. The RaceBox Bluetooth link already feeds phone apps that record video with overlays.
+- **Video recording on Track Rat.** No camera input or video encoder. Cameras and phones do it better, so Phase 6 helps them instead: Track Rat feeds its GPS into an Osmo Action's video, starts and stops it with each session, and feeds GPS and engine data to RaceChrono on a phone.
 - **Spoken coaching.** Garmin's reaches the driver through earbuds or the car's stereo. The ESP32-S3 has no Classic Bluetooth for audio, and the board's speaker won't be heard under a helmet. Use colour and the LED bar instead.
 - **Racing-line coaching.** About 1.5 m of GPS error is as big as the line differences that matter. Time and speed comparisons are reliable; line position isn't.
 - **A phone app.** The Wi-Fi page covers it without app stores, and RaceBox emulation already covers live phone use.
@@ -301,6 +382,8 @@ Two habits that will pay off:
 - Is the board's RGB LED visible through your case?
 - Battery size: measure the current draw first.
 - Does Circuit Tools open the VBO files? Write a sample early.
+- Which OBD-II adapter will you use (Veepeak OBDCheck BLE+ or OBDLink CX), and what car? A CAN car (2008 on) is far faster than an older one.
+- Do you already own DJI's GPS remote for the Action 4? Track Rat can replace it, but the camera has only one remote slot.
 
 ## Sources
 
@@ -318,3 +401,17 @@ Two habits that will pay off:
 - [RaceChrono changelog](https://racechrono.com/article/2025): predicted lap time, VBO export
 - [Racelogic: VBO file structure](https://developers.racelogic.co.uk/Portal/Tutorials/tutorialVBOfilestructure.html) and [Circuit Tools](https://vboxmotorsport.co.uk/us/circuit-tools)
 - [Autosport Labs forum: autocross start and finish](https://direct.forum.autosportlabs.com/viewtopic.php?p=19198): standing starts and gate placement
+
+Phase 6:
+
+- [RaceChrono: which OBD-II adapter should I buy?](https://racechrono.com/article/faq/which-obd-ii-adapter-should-i-buy): OBDLink up to 50 Hz, BLE adapters 10–15 Hz, the rate shared between channels
+- [Veepeak OBDCheck BLE instructions](https://veepeak.com/pages/obdcheck-ble-user-instructions), [Harry's LapTimer forum: Veepeak BLE UUIDs](http://forum.gps-laptimer.de/viewtopic.php?t=5332) and [esphome-obd2-ble](https://github.com/rubenmuehlhans/esphome-obd2-ble): service FFF0, characteristics FFF1/FFF2, ESP32 BLE-only
+- [Botmonster: Veepeak vs OBDLink over BLE](https://botmonster.com/smart-home/home-assistant-vehicle-tracking-obd2-ble/): BLE+ chipset, ESP32 reconnect advice
+- [ELM327 datasheet](https://cdn.sparkfun.com/assets/learn_tutorials/8/3/ELM327DS.pdf): adaptive timing and the expected-replies digit
+- [RaceChrono BLE DIY device API](https://github.com/aollin/racechrono-ble-diy-device) and [tutorial](https://racechrono.com/article/2572): GPS and CAN characteristics, filters
+- [RaceChrono forum: iOS and an extra UART service](https://racechrono.com/forum/discussion/2678/racechrono-ios-doesnt-work-with-additional-ble-uart-service-on-my-device)
+- [DJI Osmo GPS Controller demo](https://github.com/dji-sdk/Osmo-GPS-Controller-Demo) (ESP32, MIT): GPS push, recording control, camera status; supports Action 4, 5 Pro, 6 and Osmo 360
+- [Telemet](https://github.com/avsessisozx/Telemet): a phone as the Action 4's GPS remote; BLE service FFF0, notify FFF4, write FFF5
+- [Telemetry Overlay for DJI Action](https://goprotelemetryextractor.com/tools-for-dji-action): GPS only with the remote; $199 one-time
+- [RaceRender 3 features](https://racerender.com/RR3/Features.html): VBO and CSV; editions and limits
+- [RaceChrono Pro on the App Store](https://apps.apple.com/us/app/racechrono-pro/id1129429340): phone video with data overlays, external GPS, linking external camera video
