@@ -21,6 +21,10 @@ static const char* const UNITS[] = {"-", "-", "g", "g", "-"};
 static_assert(sizeof(CHANNELS) / sizeof(CHANNELS[0]) - STANDARD_CHANNELS == sizeof(UNITS) / sizeof(UNITS[0]),
               "one [channel units] line per non-standard channel");
 static const char* const COLUMN_NAMES ="sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag";
+// From the car, when the log has them (Header::engine)
+static const char* const ENGINE_CHANNELS[] = {"RPM", "Throttle position", "Coolant temperature"};
+static const char* const ENGINE_UNITS[] = {"rpm", "%", "C"};
+static const char* const ENGINE_COLUMN_NAMES = " RPM Throttle CoolantTemp";
 
 static const double G0 = 9.80665;
 
@@ -32,7 +36,7 @@ void formatTime(uint32_t utcMs, char* out) {
            (unsigned)(utcMs / 1000UL % 60), (unsigned)(utcMs % 1000UL));
 }
 
-size_t formatLine(const Sample& s, char* out, size_t cap) {
+size_t formatLine(const Sample& s, char* out, size_t cap, bool engine) {
   char t[11];
   formatTime(s.utcMs, t);
   float heading = fmodf(s.headingDeg, 360.0f);
@@ -43,6 +47,12 @@ size_t formatLine(const Sample& s, char* out, size_t cap) {
                    clampf(s.speedKmh, 0, 999.999f), heading, clampf(s.heightM, -99999.99f, 99999.99f),
                    clampf(s.hdop, 0, 99.99f), (unsigned)(s.lap > 999 ? 999 : s.lap),
                    clampf(s.latG, -GForce::MAX_G, GForce::MAX_G), clampf(s.longG, -GForce::MAX_G, GForce::MAX_G), (unsigned)s.tag);
+  if (engine && n > 2 && (size_t)n < cap) {  // before the line ending
+    n -= 2;
+    const int m = snprintf(out + n, cap - n, " %05.0f %05.1f %+06.1f\r\n", clampf(s.rpm, 0, 99999), clampf(s.throttlePct, 0, 100),
+                           clampf(s.coolantC, -99.9f, 999.9f));
+    n = m > 0 ? n + m : -1;
+  }
   return (n > 0 && (size_t)n < cap) ? (size_t)n : 0;
 }
 
@@ -67,11 +77,21 @@ std::string headerText(const Header& h) {
     s += c;
     s += "\r\n";
   }
+  if (h.engine)
+    for (const char* c : ENGINE_CHANNELS) {
+      s += c;
+      s += "\r\n";
+    }
   s += "\r\n[channel units]\r\n";
   for (const char* u : UNITS) {
     s += u;
     s += "\r\n";
   }
+  if (h.engine)
+    for (const char* u : ENGINE_UNITS) {
+      s += u;
+      s += "\r\n";
+    }
   s += "\r\n[comments]\r\n";
   for (const std::string& c : h.comments) {
     s += c;
@@ -92,6 +112,7 @@ std::string headerText(const Header& h) {
   }
   s += "\r\n[column names]\r\n";
   s += COLUMN_NAMES;
+  if (h.engine) s += ENGINE_COLUMN_NAMES;
   s += "\r\n\r\n[data]\r\n";
   return s;
 }

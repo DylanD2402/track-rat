@@ -669,8 +669,55 @@ static void testLogRingThreads() {
   CHECK(!small.push(DATA, l, LogRing::MAX_RECORD + 1), "oversized record refused");
 }
 
+// Engine channels (OBD-II over CAN): three more columns, only in logs that have them,
+// and a log with them still reads back and times the same
+static void testEngineChannels() {
+  vbo::Header h;
+  h.engine = true;
+  const std::string text = vbo::headerText(h);
+  CHECK(text.find("RPM\r\nThrottle position\r\nCoolant temperature\r\n") != std::string::npos, "engine channels in [header]");
+  CHECK(text.find("rpm\r\n%\r\nC\r\n") != std::string::npos, "and their units");
+  CHECK(text.find("LapTag RPM Throttle CoolantTemp\r\n") != std::string::npos, "and column names");
+  vbo::Header plain;
+  CHECK(vbo::headerText(plain).find("RPM") == std::string::npos, "not without");
+
+  vbo::Sample s;
+  s.utcMs = 36000000;
+  s.lat = 45.1;
+  s.lon = -76.2;
+  s.speedKmh = 120;
+  s.rpm = 6512.4f;
+  s.throttlePct = 87.25f;
+  s.coolantC = 92;
+  char a[160], b[160];
+  const size_t na = vbo::formatLine(s, a, sizeof(a)), nb = vbo::formatLine(s, b, sizeof(b), true);
+  CHECK(na && nb == na + 19, "19 more characters: %zu vs %zu", nb, na);
+  CHECK(std::string(b, nb).find(" 06512 087.2 +092.0\r\n") != std::string::npos, "engine values: %s", b);
+  CHECK(vbo::formatLine(s, b, nb, true) == 0 && vbo::formatLine(s, b, nb + 1, true) == nb, "no partial lines");
+  s.rpm = 0;
+  s.coolantC = -40;
+  CHECK(vbo::formatLine(s, b, sizeof(b), true) == nb, "same length when unknown or cold");
+
+  // Read back: the extra columns don't get in the way
+  vbo::Reader r;
+  vbo::Sample out;
+  std::string all = text;
+  s.rpm = 3000;
+  all.append(b, vbo::formatLine(s, b, sizeof(b), true));
+  size_t start = 0;
+  bool got = false;
+  while (start < all.size()) {
+    size_t end = all.find("\r\n", start);
+    if (end == std::string::npos) break;
+    got = r.feed(all.substr(start, end - start).c_str(), out) || got;
+    start = end + 2;
+  }
+  CHECK(got && fabs(out.lat - 45.1) < 1e-6 && fabs(out.speedKmh - 120) < 0.01, "read back with engine columns");
+}
+
 int main() {
   printf("VBO log tests\n");
+  testEngineChannels();
   testCoordinates();
   testTime();
   testGForce();
