@@ -63,7 +63,10 @@ public:
                    const RunningOverlay& overlay, uint32_t holdMs);
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                       const RunningOverlay& overlay, uint32_t holdMs);
-  void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath);
+  // The lap summary, with each lap's tags. inPits: shown while parked in
+  // the session (driving off carries on), so no buttons. session: "Session
+  // N" of the day, 0 if not known.
+  void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath, int session, bool inPits);
   // Mode menu: highlight is for BOOT-button navigation (0..5: the three tiles, then Performance, Settings, Wi-Fi)
   void drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk);
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);

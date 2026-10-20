@@ -20,6 +20,13 @@
  * along with any guessed splits. (Two wrong-way crossings in different
  * places are straights alongside the line, not the line itself.)
  *
+ * Every lap is tagged (pit, slow, suspect: see LapTags.h). A tagged lap is
+ * never the best lap or the live-delta reference, and isn't averaged. The
+ * slow and distance tags are worked out again after every lap, so an
+ * earlier lap can lose its best-lap place when later laps show it was too
+ * short. If the reference path's lap is tagged that way, the next clean lap
+ * stands in as the reference until there's a new best.
+ *
  * No Arduino dependencies: unit-tested on a PC in test/test_laptimer.cpp.
  */
 
@@ -31,6 +38,7 @@
 #include <vector>
 #include "Config.h"
 #include "GeoMath.h"
+#include "LapTags.h"
 
 constexpr int32_t NO_DELTA = INT32_MIN;
 
@@ -40,6 +48,9 @@ struct Lap {
   float maxSpeedKmh;
   float avgSpeedKmh;
   std::vector<int32_t> splitMs;  // elapsed time at each split, -1 if missed
+  float distanceM = 0;           // driven, fix to fix
+  uint8_t tags = 0;              // laptags:: bits
+  bool clean() const { return laptags::clean(tags); }
 };
 
 enum class LapEventType { None, LapStarted, LapCompleted, SplitCrossed };
@@ -87,8 +98,9 @@ public:
   const std::vector<TrackPoint>& splits() const { return splitPts; }
 
   // rxMillis is the device clock when the fix arrived; only used to run the
-  // live on-screen clock between fixes.
-  LapEvents onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis);
+  // live on-screen clock between fixes. hAccM: the fix's horizontal
+  // accuracy (+/- m), or < 0 if the GPS doesn't say.
+  LapEvents onFix(double lat, double lon, float speedKmh, uint32_t gpsTimeMs, uint32_t rxMillis, float hAccM = -1);
 
   // Start lap 1 now (the driver just marked the start/finish line here).
   void startLapNow(uint32_t gpsTimeMs, uint32_t rxMillis);
@@ -101,8 +113,10 @@ public:
   const Lap& lap(size_t i) const { return laps[i]; }
   const Lap* lastLap() const { return laps.empty() ? nullptr : &laps.back(); }
   const Lap* bestLap() const { return bestIndex < 0 ? nullptr : &laps[bestIndex]; }
-  int bestLapIndex() const { return bestIndex; }
-  uint32_t averageLapMs() const;
+  int bestLapIndex() const { return bestIndex; }  // the best clean lap
+  uint32_t averageLapMs() const;  // of the untagged laps; 0 if there are none
+  size_t untaggedLapCount() const;
+  uint8_t currentLapTags() const { return running ? lapTags : 0; }  // so far (pit and suspect only)
   float sessionMaxSpeedKmh() const { return sessionMaxSpeed; }
 
   // Live gap to the best lap at the same point on track (+ = slower).
@@ -122,6 +136,7 @@ public:
 private:
   std::vector<TracePt> curTrace;
   std::vector<TracePt> bestTrace;
+  int refIndex = -1;  // the lap bestTrace is from
   size_t matchIdx = 0;
   int32_t liveDelta = NO_DELTA;
 
@@ -154,6 +169,8 @@ private:
   double lapSpeedSum = 0;
   uint32_t lapSpeedCount = 0;
   std::vector<int32_t> lapSplits;
+  float lapDistance = 0;
+  uint8_t lapTags = 0;
 
   float sessionMaxSpeed = 0;
 
@@ -162,6 +179,7 @@ private:
   void crossSplits(double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out);
   void startLap(int64_t t, uint32_t startMillis);
   int32_t matchBestTrace(float x, float y, int32_t elapsed);
+  void retagLaps();
 };
 
 #endif  // LAP_TIMER_H

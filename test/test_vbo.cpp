@@ -82,7 +82,8 @@ static void testCoordinates() {
   s.lap = 3;
   s.latG = 0.123f;
   s.longG = -0.456f;
-  const std::string want = "007 140208.800 001832.29573 005773.42012 030.725 223.24 +00043.70 00.80 003 +0.123 -0.456\r\n";
+  s.tag = 5;
+  const std::string want = "007 140208.800 001832.29573 005773.42012 030.725 223.24 +00043.70 00.80 003 +0.123 -0.456 005\r\n";
   CHECK(line(s) == want, "line:\n  got  %s  want %s", line(s).c_str(), want.c_str());
   printf("  coordinates: N/S/E/W signs, minutes x 100000 resolution, sample line matches\n");
 }

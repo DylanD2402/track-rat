@@ -9,6 +9,7 @@
 void SessionReplay::setUpFromHeader() {
   setUp = true;
   stamp = rdr.comment("Started");
+  session = atoi(rdr.comment("Session").c_str());
   freeRoam = rdr.comment("Type") == "freeroam";
   if (freeRoam) {
     drive.start(0);
@@ -58,7 +59,8 @@ void SessionReplay::endLine() {
     samples++;
     // rxMillis only drives the on-screen clock; elapsed log time stands in for it
     if (freeRoam) drive.onFix(s.lat, s.lon, s.speedKmh);
-    else if (timed) timer.onFix(s.lat, s.lon, s.speedKmh, s.utcMs, durationMs);
+    // The log has no accuracy figures, only the mark on each fix that had a poor one
+    else if (timed) timer.onFix(s.lat, s.lon, s.speedKmh, s.utcMs, durationMs, (s.tag & laptags::POOR_ACCURACY) ? 99.0f : -1.0f);
   }
   len = 0;
   overlong = false;

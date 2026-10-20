@@ -47,6 +47,7 @@ public:
   LapTimer timer;
   FreeRoam drive;
   std::string trackId, trackName, stamp;
+  int session = 0;               // "Session N" of the day at the track, 0 if the log doesn't say
   const vbo::Reader& reader() const { return rdr; }
 
 private:
