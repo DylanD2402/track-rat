@@ -129,7 +129,12 @@ void DisplayManager::settingsList(const SettingsData& s, const SettingsScreenSta
         drawSwitch(gfx, right, cy, UI::toggleOn(s, rw.item));
       } else {
         drawChevron(gfx, right, cy, C_TEXT3);
-        settings::valueText(s, rw.item, buf, sizeof(buf));
+        if (rw.item == SettingItem::Engine) {  // the adapter, not a setting
+          const ObdBle::Status st = ObdBle::status();
+          snprintf(buf, sizeof(buf), "%s", st.connected ? "Connected" : st.configured ? st.name : "None");
+        } else {
+          settings::valueText(s, rw.item, buf, sizeof(buf));
+        }
         const int valueRight = right - 18;
         text(fit(buf, Font::Body, valueRight - (UI::CARD_X + 14 + nameW + 10)), valueRight, cy, Font::Body, C_TEXT2, MR_DATUM);
       }
@@ -217,6 +222,80 @@ void DisplayManager::drawSettings(const SettingsData& s, const SettingsScreenSta
   if (ui.page == UI::Page::List) settingsList(s, ui, touchOk);
   else if (ui.page == UI::Page::Choice) settingsChoicePage(s, ui, touchOk);
   else settingsLevelPage(s, ui, touchOk, localMs);
+  endFrame();
+}
+
+// ---------------------------------------------------------------------------
+// Settings > Engine data (6.1)
+
+using ES = EngineScreenState;
+
+static const char* phaseText(elm::Client::Phase p) {
+  switch (p) {
+    case elm::Client::Phase::Setup: return "Setting up the adapter";
+    case elm::Client::Phase::Pids: return "Finding the car";
+    case elm::Client::Phase::Probe: return "Trying the fast requests";
+    case elm::Client::Phase::Running: return "Reading the engine";
+    case elm::Client::Phase::NoCar: return "No answer from the car (ignition off?)";
+    default: return "Connecting";
+  }
+}
+
+void DisplayManager::drawEngineData(const EngineScreenState& ui, const ObdBle::Status& st, const ObdBle::Found* found, int n,
+                                    bool scanning, bool touchOk) {
+  beginFrame();
+  char buf[64];
+  if (ui.page == ES::Page::Status) {
+    const int x = 14;
+    int y = 44;
+    auto line = [&](const char* s, uint16_t c, Font f = Font::Body) {
+      text(fit(s, f, W - 2 * x), x, y, f, c, ML_DATUM);
+      y += f == Font::Body ? 22 : 18;
+    };
+    if (!st.configured) {
+      line("No adapter chosen", C_TEXT);
+      wrappedCaption("Plug a Bluetooth LE OBD-II adapter (Veepeak OBDCheck BLE+, OBDLink CX...) into the car, switch the "
+                     "ignition on, then Find adapter.",
+                     x, y, W - 2 * x, C_TEXT2, false);
+    } else {
+      snprintf(buf, sizeof(buf), "%s  %s", st.name, st.address);
+      line(buf, C_TEXT);
+      line(st.connected ? phaseText(st.phase) : "Not connected: trying every 5-10 s", st.connected ? C_GREEN : C_YELLOW);
+      if (st.protocol[0]) line(st.protocol, C_TEXT2, Font::Caption);
+      if (st.connected && st.phase == elm::Client::Phase::Running) {
+        snprintf(buf, sizeof(buf), "%.1f requests/s%s%s", st.stats.requestHz, st.suffix ? "  fast replies" : "", st.multi ? "  2 in 1" : "");
+        line(buf, C_TEXT2, Font::Caption);
+        snprintf(buf, sizeof(buf), "RPM %.1f Hz   Throttle %.1f Hz", st.stats.rpmHz, st.stats.throttleHz);
+        line(buf, C_TEXT2, Font::Caption);
+        snprintf(buf, sizeof(buf), "Coolant %.1f Hz   Intake %.1f Hz", st.stats.coolantHz, st.stats.intakeHz);
+        line(buf, C_TEXT2, Font::Caption);
+      }
+    }
+    button(ES::FIND_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Find adapter", !st.configured, ui.showHighlight && ui.highlight == 0);
+    button(ES::FORGET_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Forget", false, ui.showHighlight && ui.highlight == 1);
+    header("‹  Settings", nullptr);
+    text("Engine data", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+    if (!touchOk) settingsHint("BOOT: press for the other, hold to choose");
+  } else {
+    if (scanning) text("Looking for adapters...", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
+    else text(n ? "Tap yours" : "None found. Ignition on? Try again", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
+    if (n) gfx->fillRoundRect(ES::CARD_X, ES::LIST_Y, ES::CARD_W, n * ES::ROW_H, CORNER, C_SURFACE);
+    for (int i = 0; i < n; i++) {
+      const int ry = ES::listRowY(i), cy = ry + ES::ROW_H / 2;
+      if (ui.showHighlight && ui.highlight == i) {
+        gfx->fillRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_RAISED);
+        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_TEXT3);
+      } else if (i > 0) {
+        gfx->drawFastHLine(ES::CARD_X + 14, ry, ES::CARD_W - 14, C_LINE);
+      }
+      snprintf(buf, sizeof(buf), "%d dBm", found[i].rssi);
+      const int rw = text(buf, ES::CARD_X + ES::CARD_W - 14, cy, Font::Caption, C_TEXT2, MR_DATUM);
+      text(fit(found[i].name, Font::Body, ES::CARD_W - 40 - rw), ES::CARD_X + 14, cy, Font::Body, C_TEXT, ML_DATUM);
+    }
+    header("‹  Engine data", nullptr);
+    text("Find adapter", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+    if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
+  }
   endFrame();
 }
 

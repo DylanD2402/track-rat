@@ -19,7 +19,7 @@ struct EngineScreenState {
 
   // --- layout (screen pixels, 320x240) ---
   static constexpr int TOP = SettingsScreenState::TOP;
-  static constexpr int BTN_Y = 192, BTN_H = 40, BTN_W = 145, FIND_X = 10, FORGET_X = 165;
+  static constexpr int BTN_Y = 172, BTN_H = 40, BTN_W = 145, FIND_X = 10, FORGET_X = 165;
   static constexpr int LIST_Y = TOP + 26, ROW_H = 30, CARD_X = 10, CARD_W = 300;
 
   Page page = Page::Status;

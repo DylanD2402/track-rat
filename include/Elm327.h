@@ -271,7 +271,7 @@ public:
           snprintf(cmd, sizeof(cmd), "ATZ");
           timeout = RESET_TIMEOUT_MS;
         } else {
-          snprintf(cmd, sizeof(cmd), "%s", SETUP[step]);
+          snprintf(cmd, sizeof(cmd), "%s", setupCommand(step));
           timeout = AT_TIMEOUT_MS;
         }
         break;
@@ -325,7 +325,10 @@ public:
 
 private:
   static constexpr int SETUP_STEPS = 7;
-  static constexpr const char* SETUP[SETUP_STEPS] = {"ATE0", "ATL0", "ATS0", "ATH0", "ATSP0", "ATAT2", "ATST19"};  // ATST19: 25 x 4 ms
+  static const char* setupCommand(int i) {
+    static const char* const SETUP[SETUP_STEPS] = {"ATE0", "ATL0", "ATS0", "ATH0", "ATSP0", "ATAT2", "ATST19"};  // ATST19: 25 x 4 ms
+    return SETUP[i];
+  }
 
   Phase phase = Phase::Off;
   int step = 0;

@@ -20,6 +20,8 @@
 #include "PerfRun.h"
 #include "SettingsData.h"
 #include "SettingsFlow.h"
+#include "EngineScreen.h"
+#include "ObdBle.h"
 #include "TrackDatabase.h"
 #include "Debrief.h"
 
@@ -131,6 +133,8 @@ public:
   void setRotation(uint8_t r);
   // The scrolling list, or the page of one setting, as ui says. localMs: local time of day, or -1.
   void drawSettings(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs);
+  // Settings > Engine data: the adapter's status, or the Find adapter list (found: n of them)
+  void drawEngineData(const EngineScreenState& ui, const ObdBle::Status& st, const ObdBle::Found* found, int n, bool scanning, bool touchOk);
   // First boot: step 0 asks which way up (highlight 0 = the left arrow, 1 = the right), step 1 km/h or mph.
   void drawSetup(int step, int highlight, bool touchOk);
 

@@ -57,10 +57,10 @@
 #include "WifiPortal.h"
 
 enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
-                      Setup, SettingsScreen, NewTrack };
+                      Setup, SettingsScreen, NewTrack, EngineScreen };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
-                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK"};
+                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK",         "ENGINE_DATA"};
 static int newTrackHighlight = 0;  // the NEW TRACK screen: 0 = Circuit, 1 = Course (BOOT button)
 
 static DisplayManager display;
@@ -152,6 +152,9 @@ static perf::SpeedUnit perfUnits() { return Settings::get().units == SpeedUnits:
 // Settings screen and the first-boot questions (the rules are in SettingsFlow.h)
 static SettingsScreenState settingsUi;
 static SetupState setupUi;
+static EngineScreenState engineUi;  // Settings > Engine data (EngineScreen.h)
+static ObdBle::Found engineFound[ObdBle::MAX_FOUND];  // the Find adapter list as last shown
+static int engineFoundCount = 0;
 static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
 
 static uint32_t lastRender = 0;
@@ -1197,6 +1200,27 @@ static void handleInput(InputEvent ev) {
         applySettings();
       } else if (r == SettingsScreenState::Result::Exit) {
         enterState(AppState::Menu);
+      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Engine) {
+        engineUi.begin(input.touchAvailable());
+        enterState(AppState::EngineScreen);
+      }
+      lastRender = 0;
+      break;
+    }
+
+    case AppState::EngineScreen: {  // the list's taps are on what was drawn: engineFound
+      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
+      const EngineScreenState::Action a = tapped ? engineUi.tap(input.lastTapX(), input.lastTapY(), engineFoundCount)
+                                                 : engineUi.handle(toKey(ev), engineFoundCount);
+      if (a == EngineScreenState::Action::Back) {
+        enterState(AppState::SettingsScreen);  // (the list keeps its place)
+      } else if (a == EngineScreenState::Action::Scan) {
+        engineFoundCount = 0;
+        ObdBle::startScan();
+      } else if (a == EngineScreenState::Action::Choose && engineUi.chosen >= 0 && engineUi.chosen < engineFoundCount) {
+        ObdBle::choose(engineFound[engineUi.chosen]);
+      } else if (a == EngineScreenState::Action::Forget) {
+        ObdBle::forget();
       }
       lastRender = 0;
       break;
@@ -1308,6 +1332,10 @@ static void render() {
                            gps.hasFix() ? (int64_t)settings::localTimeOfDayMs(gps.lastFix().gpsTimeMs,
                                                                                Settings::get().utcOffsetMin)
                                         : -1);
+      break;
+    case AppState::EngineScreen:
+      if (engineUi.page == EngineScreenState::Page::Find) engineFoundCount = ObdBle::found(engineFound, ObdBle::MAX_FOUND);
+      display.drawEngineData(engineUi, ObdBle::status(), engineFound, engineFoundCount, ObdBle::scanning(), input.touchAvailable());
       break;
     case AppState::Setup:
       display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());
