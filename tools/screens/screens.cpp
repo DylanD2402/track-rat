@@ -339,14 +339,52 @@ int main(int argc, char** argv) {
   SettingsData sd = mockSettings;
   sd.utcOffsetMin = -240;
   sd.brightness = 70;
-  for (int i = 0; i <= SETTING_ITEM_COUNT; i++) {
-    char name[32];
-    snprintf(name, sizeof(name), "3%d_settings_%d", i < 10 ? 0 : 1, i);
-    d.drawSettings(sd, i, true, (int64_t)(14 * 3600 + 5 * 60) * 1000);
-    save(d, name);
-  }
-  d.drawSettings(sd, 1, false, -1);
-  save(d, "32_settings_boot_only");
+  sd.utcOffsetMin = 330;
+  sd.bluetooth = true;
+  const int64_t localNow = (int64_t)(14 * 3600 + 5 * 60) * 1000;
+  SettingsScreenState ui;
+  ui.begin(true);
+  d.drawSettings(sd, ui, true, localNow);
+  save(d, "30_settings_list");
+  ui.drag(-150);  // a finger dragged up part way
+  d.drawSettings(sd, ui, true, localNow);
+  save(d, "30b_settings_list_scrolled");
+  ui.drag(-1000);  // and to the end
+  ui.dragEnd();
+  d.drawSettings(sd, ui, true, localNow);
+  save(d, "30c_settings_list_bottom");
+  SettingsScreenState boot;
+  boot.begin(false);  // no touch: BOOT highlight, hint at the bottom
+  SettingsData scratch = sd;
+  for (int i = 0; i < 3; i++) boot.handle(Key::BootShort, scratch);
+  d.drawSettings(sd, boot, false, localNow);
+  save(d, "31_settings_list_boot");
+  SettingsScreenState page;  // the Speed units page, then the GPS mode page (it has a long note)
+  page.begin(true);
+  page.tap(100, page.rowScreenY(0) + 10, scratch);
+  d.drawSettings(sd, page, true, localNow);
+  save(d, "32_settings_choice");
+  SettingsScreenState gpsPage;
+  gpsPage.begin(false);
+  for (int i = 0; i < 5; i++) gpsPage.handle(Key::BootShort, scratch);
+  gpsPage.handle(Key::BootLong, scratch);
+  gpsPage.handle(Key::BootShort, scratch);
+  d.drawSettings(sd, gpsPage, false, localNow);
+  save(d, "32b_settings_choice_boot");
+  SettingsScreenState level;
+  level.begin(true);
+  level.tap(100, level.rowScreenY(2) + 10, scratch);
+  d.drawSettings(sd, level, true, localNow);
+  save(d, "33_settings_brightness");
+  SettingsScreenState zone;
+  zone.begin(true);
+  zone.tap(100, zone.rowScreenY(8) + 10, scratch);  // scrolled out of view: nothing opens
+  zone.setScroll(1000);
+  zone.tap(100, zone.rowScreenY(8) + 10, scratch);
+  d.drawSettings(sd, zone, true, localNow);
+  save(d, "34_settings_time_zone");
+  d.drawSettings(sd, zone, false, localNow);
+  save(d, "35_settings_time_zone_boot_only");
   d.drawSetup(0, 0, true);
   save(d, "40_setup_which_way_up");
   d.drawSetup(0, 1, false);

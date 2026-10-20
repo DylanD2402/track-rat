@@ -121,7 +121,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page | press: Ready screen again, hold 1 s: Wi-Fi page |
 | Free Roam summary | tap: menu; WI-FI button: Wi-Fi page | press: menu, hold 1 s: Wi-Fi page |
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
-| Settings | left / right third: − / +, centre: next item, top bar or hold 2 s: menu | press: next item, hold 1 s: change the value |
+| Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
 
 While timing, the screen shows:
@@ -141,16 +141,16 @@ The live diff compares your position with the path your best lap took. If you're
 
 The choices a driver makes live in **Settings**, not in the code. Change them on the device or on the Wi-Fi page. They are kept in the board's flash (NVS, apart from the program and the SD card), so they survive switching off and re-flashing.
 
-**On the device:** tap **SETTINGS** on the menu. The screen shows one item at a time, with its value in a box.
+**On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in four groups (Display, Timing, GPS & Bluetooth, Recording). It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
 
-- **Touch:** left third is −, right third is +, centre goes to the next item. The top bar, or holding the screen for 2 s, goes back to the menu. After the last item a **done** page shows; the centre button there goes back to the menu.
-- **BOOT (or the big button):** press goes to the next item, hold for 1 s changes the value. Choices go round and start again after the last one. On the done page, hold goes back to the menu and press starts again at the first item.
+- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
+- **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options, press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. A line at the bottom of the screen says so when the board has no touch screen.
 - **Saved as you go:** there is no save button. A change takes effect at once, except **GPS mode**, which is used from the next restart.
 
 | Item | Choices | What it does |
 |---|---|---|
 | Speed units | km/h (default), mph | Every speed on the screens, including Performance, and on the Wi-Fi page. Saved files stay in km/h |
-| Screen | Normal (default), upside down | For a unit mounted upside down. Draws the screen and reads touch turned round |
+| Screen upside down | Off (default), on | For a unit mounted upside down. Draws the screen and reads touch turned round |
 | Brightness | 10% to 100% in steps of 10 (default 100%) | Dims the backlight. Auto-sleep still turns it fully off |
 | Compare with | Best of the day, best ever, this session (default) | **Stored for later.** The live diff only compares with this session's best lap so far, whatever is picked |
 | Big number | Lap time (default), delta, predicted lap | The largest number on the timing screen. Delta and predicted lap show the lap time until there is a best lap |
@@ -598,7 +598,7 @@ g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 node test/test_web.js
 ```
 
-`test/test_settings.cpp` checks the settings rules (defaults, limits, stepping, units, big number, predicted lap, brightness, time zone), how touch and BOOT move through the Settings screen and the first-boot questions, the field names the Wi-Fi page uses, and a simulated first boot followed by a lap session:
+`test/test_settings.cpp` checks the settings rules (defaults, limits, stepping, units, big number, predicted lap, brightness, time zone), the Settings list (where its rows are, what a tap hits, scrolling, the pages, touch and BOOT) and the first-boot questions, the field names the Wi-Fi page uses, and a simulated first boot followed by a lap session:
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st

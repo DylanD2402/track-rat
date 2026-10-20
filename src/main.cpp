@@ -551,7 +551,7 @@ static void chooseMenuItem(int item) {
       enterState(AppState::Performance);
       break;
     case 4:
-      settingsUi = SettingsScreenState();
+      settingsUi.begin(input.touchAvailable());
       enterState(AppState::SettingsScreen);
       break;
     case 5:
@@ -722,7 +722,9 @@ static void handleInput(InputEvent ev) {
 
     case AppState::SettingsScreen: {
       SettingsData s = Settings::get();
-      SettingsScreenState::Result r = settingsUi.handle(toKey(ev), s);
+      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
+      SettingsScreenState::Result r = tapped ? settingsUi.tap(input.lastTapX(), input.lastTapY(), s)
+                                             : settingsUi.handle(toKey(ev), s);
       if (r == SettingsScreenState::Result::Changed) {
         Settings::set(s);
         applySettings();
@@ -804,7 +806,7 @@ static void render() {
       }
       break;
     case AppState::SettingsScreen:
-      display.drawSettings(Settings::get(), settingsUi.item, input.touchAvailable(),
+      display.drawSettings(Settings::get(), settingsUi, input.touchAvailable(),
                            gps.hasFix() ? (int64_t)settings::localTimeOfDayMs(gps.lastFix().gpsTimeMs,
                                                                                Settings::get().utcOffsetMin)
                                         : -1);
@@ -1049,6 +1051,18 @@ void loop() {
   if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
   handleInput(ev);
 
+  // A finger dragging the Settings list: the list follows it (and counts as using the board)
+  static bool listDragged = false;
+  if (state == AppState::SettingsScreen && input.dragging()) {
+    noteActivity(now);
+    settingsUi.drag(input.dragDy());
+    listDragged = true;
+  } else if (listDragged) {
+    settingsUi.dragEnd();
+    listDragged = false;
+    lastRender = 0;  // draw the list where it ended
+  }
+
   bool timing = state == AppState::Running && !settingLine && lapTimer.lapRunning();
   int32_t liveDelta = lapTimer.liveDeltaMs();
   LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
@@ -1100,7 +1114,9 @@ void loop() {
                  logInfo, SessionLog::recovering() ? " (recovering old sessions)" : "");
   }
 
-  if (!sleepTimer.screenOff() && (lastRender == 0 || now - lastRender >= 1000 / DISPLAY_FPS)) {
+  // Dragging the list: draw as fast as the panel allows (about 30 a second) so it follows the finger
+  const uint32_t frameMs = listDragged ? 33 : 1000 / DISPLAY_FPS;
+  if (!sleepTimer.screenOff() && (lastRender == 0 || now - lastRender >= frameMs)) {
     lastRender = now;
     render();
   }
