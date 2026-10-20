@@ -143,6 +143,29 @@ int main() {
   CHECK(strcmp(pic, "PPPPPPPPPP") != 0, "flash ends across wrap: %s", pic);
   printf("  best-lap flash, split blink, priority, clock wrap: ok\n");
 
+  // The blue / orange palette (the Delta colours setting): the same bar in other colours
+  {
+    DeltaLedPattern c;
+    c.begin(10);
+    c.setColours(LED_AHEAD_BLUE, LED_BEHIND_ORANGE, LED_ON_PACE_BLUE);
+    Rgb bar[LED_MAX_COUNT], b;
+    const Rgb off = {0, 0, 0};
+    c.setDelta(true, true, -1000);
+    c.render(50000, bar, b);
+    CHECK(bar[9] == LED_AHEAD_BLUE && bar[0] == off && b.b > 0 && b.g < b.b, "ahead: blue to the right");
+    c.setDelta(true, true, 1000);
+    c.render(50000, bar, b);
+    CHECK(bar[0] == LED_BEHIND_ORANGE && bar[9] == off, "behind: orange to the left");
+    for (int i = 0; i < 10; i++) CHECK(bar[i] != LED_AHEAD && bar[i] != LED_BEHIND, "no green or red at LED %d", i);
+    c.setDelta(true, true, 0);
+    c.render(50000, bar, b);
+    CHECK(bar[4] == LED_ON_PACE_BLUE && bar[5] == LED_ON_PACE_BLUE && b == LED_AHEAD_BLUE, "on the pace: dim blue centre");
+    CHECK(c.aheadColour() == LED_AHEAD_BLUE, "the best-lap flash uses it");
+    c.begin(12);  // a new size keeps the colours
+    CHECK(c.aheadColour() == LED_AHEAD_BLUE, "begin keeps the colours");
+    printf("  blue / orange palette: ok\n");
+  }
+
   // Add-on pins vs where the GPS was found
   CHECK(!addOnPinTaken(21, 44, 43), "UART connector leaves IO21 free");
   CHECK(!addOnPinTaken(2, 44, 43), "UART connector leaves IO2 free");

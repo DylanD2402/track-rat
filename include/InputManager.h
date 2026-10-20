@@ -28,6 +28,8 @@ public:
   // Screen x and y of the last tap, for screens with more than one row of buttons.
   int16_t lastTapX() const { return tapX; }
   int16_t lastTapY() const { return tapY; }
+  // How long the finger was down for the last tap (the timing screen ignores quick ones while moving).
+  uint32_t lastTapMs() const { return tapMs; }
   // A finger that moves more than DRAG_PX from where it touched down is dragging, not tapping:
   // no Tap or Hold comes of it. dragDy() is how far it has moved up or down since it touched down.
   bool dragging() const { return touching && dragged; }
@@ -47,6 +49,7 @@ private:
   int16_t startX = 0, startY = 0;
   int16_t curX = 0, curY = 0;
   int16_t tapX = 0, tapY = 0;
+  uint32_t tapMs = 0;
 
   struct Button {
     bool down = false;

@@ -5,7 +5,8 @@
  * the board's own RGB LED. Lights grow from the middle of the bar: to the
  * right in green when ahead of the best lap, to the left in red when behind,
  * scaled so the whole side is lit at +/- fullScaleMs. A new best lap flashes
- * the bar purple, and each split blinks it white.
+ * the bar purple, and each split blinks it white. setColours swaps green
+ * and red for blue and orange.
  *
  * No Arduino dependencies: tested in test/test_deltaleds.cpp. Brightness is
  * applied by the driver (LedBar.cpp), not here.
@@ -36,6 +37,10 @@ constexpr Rgb LED_SESSION_BEST = {0, 255, 0};  // a best lap that isn't a PB
 constexpr Rgb LED_SPLIT = {255, 255, 255};
 constexpr Rgb LED_IDLE = {70, 40, 0};         // timing, but no delta: dim amber centre
 constexpr Rgb LED_ON_PACE = {0, 40, 0};       // within the deadband: dim green centre
+// The Delta colours setting's blue / orange (for red-green colour blindness)
+constexpr Rgb LED_AHEAD_BLUE = {0, 80, 255};
+constexpr Rgb LED_BEHIND_ORANGE = {255, 80, 0};
+constexpr Rgb LED_ON_PACE_BLUE = {0, 12, 40};
 
 class DeltaLedPattern {
 public:
@@ -51,6 +56,12 @@ public:
     bestColour = colour;
   }
   void split(uint32_t nowMs) { splitStart = nowMs; splitActive = true; }
+  void setColours(Rgb ahead, Rgb behind, Rgb onPace) {
+    aheadC = ahead;
+    behindC = behind;
+    onPaceC = onPace;
+  }
+  Rgb aheadColour() const { return aheadC; }
 
   // How many LEDs light on one side for this delta (0 = on the pace).
   int litCount(int32_t deltaMs) const;
@@ -67,6 +78,7 @@ private:
   bool bestActive = false, splitActive = false;
   uint32_t bestStart = 0, splitStart = 0;
   Rgb bestColour = LED_BEST;
+  Rgb aheadC = LED_AHEAD, behindC = LED_BEHIND, onPaceC = LED_ON_PACE;
 };
 
 #endif  // DELTA_LEDS_H

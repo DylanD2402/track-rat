@@ -140,6 +140,7 @@ InputEvent InputManager::poll() {
     if (!holdFired && !dragged && now - touchStart <= TAP_MAX_MS) {
       tapX = startX;
       tapY = startY;
+      tapMs = now - touchStart;
       if (startY < 30) return InputEvent::TapHeader;  // the top bar
       if (startX < SCREEN_W / 3) return InputEvent::TapLeft;
       if (startX >= SCREEN_W * 2 / 3) return InputEvent::TapRight;

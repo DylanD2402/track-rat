@@ -24,10 +24,13 @@ bool save(const String& trackId, Kind kind, const bestlap::Record& r);
 
 // The rest kept per track for the debrief (stats.json): the best time ever
 // in each corner sector, with the gates they were set through, and the last
-// session's number, date and best lap.
+// session's number, date and best lap. The best in each sector on the day
+// too, for the timing screen's sector strip.
 struct Stats {
   std::vector<geo::XY> sectorGates;  // x = lat, y = lon
   std::vector<int32_t> sectorBestMs;
+  uint32_t dayDate = 0;               // YYYYMMDD of daySectorBestMs
+  std::vector<int32_t> daySectorBestMs;
   int lastSession = 0;
   uint32_t lastDate = 0;    // YYYYMMDD
   uint32_t lastBestMs = 0;  // 0: no lap

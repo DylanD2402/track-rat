@@ -148,7 +148,12 @@ void LedBar::update(bool timing, bool hasDelta, int32_t deltaMs) {
 }
 
 void LedBar::onBestLap(bool personalBest) {
-  if (started) pattern.bestLap(millis(), personalBest ? LED_BEST : LED_SESSION_BEST);
+  if (started) pattern.bestLap(millis(), personalBest ? LED_BEST : pattern.aheadColour());
+}
+
+void LedBar::setBlueOrange(bool on) {
+  if (on) pattern.setColours(LED_AHEAD_BLUE, LED_BEHIND_ORANGE, LED_ON_PACE_BLUE);
+  else pattern.setColours(LED_AHEAD, LED_BEHIND, LED_ON_PACE);
 }
 
 void LedBar::onSplit() {
@@ -160,6 +165,7 @@ void LedBar::onSplit() {
 void LedBar::begin(int, int) {}
 void LedBar::update(bool, bool, int32_t) {}
 void LedBar::onBestLap(bool) {}
+void LedBar::setBlueOrange(bool) {}
 void LedBar::onSplit() {}
 
 #endif
