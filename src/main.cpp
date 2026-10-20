@@ -882,28 +882,30 @@ static void onTrackFix(const GpsFix& fix) {
 #if TRACK_LEARNING_ENABLED
 // Free Roam drove the same loop twice: make it a track with a provisional
 // line where the loop began (move it later on the Wi-Fi page and re-time),
-// and start a session there that times both loops from the kept fixes.
+// and start a session there that times both loops from the kept fixes. A
+// loop round a known track with a line is timed at that track instead.
 static void learnTrack(const learn::Loop& lp) {
   double dist;
-  int idx = trackDB.findNearest(lp.lat, lp.lon, TRACK_DETECTION_RADIUS_M, &dist);
-  if (idx >= 0 && trackDB.get(idx)->hasStartFinish) {  // Free Roam at a known track: it's timed there already
-    DEBUG_PRINTF("Loop driven twice, but %s is %.0f m away - no new track\n", trackDB.get(idx)->displayName().c_str(),
-                 dist);
-    loopFinder.reset();
-    return;
+  int idx = trackDB.findNearest(lp.lat, lp.lon, LEARN_NEAR_TRACK_M, &dist);
+  const bool known = idx >= 0 && trackDB.get(idx)->hasStartFinish;
+  if (!known) {
+    if (idx < 0) idx = trackDB.createTrack(lp.lat, lp.lon);  // else a track here with no line yet gets this one
+    if (idx < 0) {
+      loopFinder.reset();
+      return;
+    }
+    trackDB.setStartFinish(idx, lp.lat, lp.lon, lp.headingDeg);
   }
-  if (idx < 0) idx = trackDB.createTrack(lp.lat, lp.lon);  // else a track here with no line yet gets this one
-  if (idx < 0) return;
-  trackDB.setStartFinish(idx, lp.lat, lp.lon, lp.headingDeg);
-  DEBUG_PRINTF("Loop driven twice (%.0f m, %.0f m): it's a track, %s, line at %.6f, %.6f heading %.0f\n", lp.lap1M,
-               lp.lap2M, trackDB.get(idx)->displayName().c_str(), lp.lat, lp.lon, lp.headingDeg);
+  DEBUG_PRINTF("Loop driven twice (%.0f m, %.0f m): %s %s%s, timing both loops\n", lp.lap1M, lp.lap2M,
+               known ? "it's" : "new track", trackDB.get(idx)->displayName().c_str(),
+               known ? "" : String(", line at " + String(lp.lat, 6) + ", " + String(lp.lon, 6)).c_str());
   replayPos = 0;
   while (replayPos < recentFixes.size() && (int32_t)(recentFixes[replayPos].rxMillis - (lp.t0 - 3000)) < 0) replayPos++;
   selectedIndex = idx;
   enterState(AppState::Running);  // saves the Free Roam drive
-  layoutChecked = true;           // the loop is the track: don't swap it for one nearby
+  if (!known) layoutChecked = true;  // the loop is the track: don't swap it for one nearby
   replaying = true;
-  overlay.notice = "NEW TRACK: " + selectedTrack().displayName();
+  overlay.notice = (known ? "" : "NEW TRACK: ") + selectedTrack().displayName();
   layoutNoticeUntil = millis() + 8000;
 }
 

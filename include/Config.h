@@ -154,6 +154,7 @@
 #define LEARN_MIN_LOOP_M 300.0f
 #define LEARN_SAME_LOOP 0.25f            // the two loops' lengths within this fraction of each other
 #define LEARN_WINDOW_MS (12UL * 60UL * 1000UL)  // both loops must fit in this (fixes kept in PSRAM to time them)
+#define LEARN_NEAR_TRACK_M 1500.0        // a loop this close to a known track is that track: with no line yet it gets this one
 // Lap tags (see LapTags.h). Tagged laps are never the best lap or the reference, and aren't averaged.
 #define PIT_STOP_KMH 5.0                 // a lap with a fix below this is a pit lap
 #define SLOW_LAP_PERCENT 107             // a lap over this % of the best clean lap is slow
