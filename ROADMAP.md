@@ -234,7 +234,7 @@ Sizes are relative: S small, M medium, L large.
 - Each run counts as a lap: best run, live delta to it, sector colours.
 - **NEW COURSE** makes a stage named with the date, since autocross courses change at every event.
 
-**Status: done** (2026-10-20, commit COMMIT). NEW COURSE is **Course** on the NEW TRACK screen (the menu has no room for a seventh button).
+**Status: done** (2026-10-20, commit b3f0b2f). NEW COURSE is **Course** on the NEW TRACK screen (the menu has no room for a seventh button).
 
 **4.3 Acceleration and braking runs (M)**
 
