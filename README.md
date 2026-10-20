@@ -129,7 +129,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 While timing, the screen is built to be read in one glance, top to bottom:
 
-- **The header:** lap number, track, battery, GPS accuracy and signal bars.
+- **The header:** lap number and the **session clock** (time since the session started, or the time left when a [Session length](#settings) is set; yellow for the last minute, then "Time up"), battery, GPS accuracy and signal bars.
 - **The band:** the big number on a full-width band, **green when you're ahead** of the reference lap and **red when you're behind**, with black digits that hold up in sun. The **Big number** setting picks what it shows: the current lap time (the default), the live diff, or the predicted lap time (the reference lap plus the diff). With the lap time or predicted lap on the band, the diff is in its top corner, sign and all. Until there's a reference lap the band is grey and shows the lap time.
 - **The trend bar** beside the band: whether you've been gaining or losing over the last 3 s. It grows **up when gaining** and down when losing, full height at 0.3 s.
 - **Two smaller numbers** under the band: whichever of the lap time, predicted lap and best lap aren't on it (last and best lap before there's a diff).
@@ -143,6 +143,14 @@ The **live diff** is how far ahead (`−`) or behind (`+`) the reference lap you
 At the line, **the whole screen flashes** the lap time and its gap to the reference for 4 s: purple for a new personal best (PB) at that track, green (blue) for a new best of the day, grey for any other lap. The LED bar flashes the same colour.
 
 While the car is moving, a quick tap is taken for a bump or rain and ignored; press for a quarter of a second to switch to the map view. BOOT always switches.
+
+**The screen follows the situation.** Nobody should have to switch screens on track:
+
+- **Fast:** the timing screen (or the map view, if you picked it).
+- **Slow:** under 40 km/h for 5 s (`SLOW_SCREEN_KMH`, `SLOW_SCREEN_MS`: below the slowest hairpins), behind a safety car or in the pit lane, the **slow screen** shows your speed in big digits, the last lap and the session clock. When the track's map marks its pit lane (see [Track maps](#track-maps)), being in it counts as slow at any speed, and the speed turns yellow. The timing screen comes back as soon as you're over 40 km/h and out of the pit lane. The lap flash at the line still shows.
+- **Parked:** the [debrief](#the-pit-debrief).
+
+The session clock keeps running through a red flag (driving off within 10 minutes is the same session), so a countdown matches the run group.
 
 **Best laps and PBs.** Your best clean lap ever at each track (each layout separately) is kept on the card, path and all, with its date, and so is your best lap of the day. The track list and the Ready screen show the PB and its date. The **Compare with** [setting](#settings) decides what the live diff compares with from your first lap:
 
@@ -180,7 +188,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 
 **On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in four groups (Display, Timing, GPS & Bluetooth, Recording). It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
 
-- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
+- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
 - **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options, press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. A line at the bottom of the screen says so when the board has no touch screen.
 - **Saved as you go:** there is no save button. A change takes effect at once, except **GPS mode**, which is used from the next restart.
 
@@ -191,6 +199,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | Brightness | 10% to 100% in steps of 10 (default 100%) | Dims the backlight. Auto-sleep still turns it fully off |
 | Compare with | Best of the day, best ever, this session (default) | What the live diff compares with from your first lap: see [Best laps and PBs](#using-it). Used from the next session |
 | Big number | Lap time (default), delta, predicted lap | The largest number on the timing screen. Delta and predicted lap show the lap time until there is a best lap |
+| Session length | Off (default), 20, 25 or 30 min | With a length, the timing screens' header counts down the time left in the session instead of counting up |
 | Delta colours | Green / red (default), blue / orange | Ahead and behind on the timing screen and the LED bar, and the best-of-the-day colour. Blue and orange read better with red-green colour blindness |
 | GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
@@ -428,7 +437,7 @@ python tools/fetch_track_map.py --id calabogie --name "Calabogie Motorsports Par
 
 - **`--sf`:** the start/finish line. In Google Maps satellite view, right-click the start/finish line and click the coordinates to copy them.
 - **What it does:** downloads every `highway=raceway` way within 2.5 km, simplifies it, prints a text preview of the shape, and adds or updates the entry in `data/tracks.json`. Copy that file to the SD card.
-- **Pit lane:** add `--no-pit` to leave it out.
+- **Pit lane:** ways tagged as pit lanes (`service=pit_lane`, or "pit" in the name) are kept and marked with `"pit"` (which lines of `"map"` they are), so Track Rat shows the slow screen in the pit lane. Add `--no-pit` to leave them out.
 - **Your own layout:** `--file layout.geojson` (or `.gpx` / `.kml`) uses a file you've drawn or exported instead.
 - **`--heading`:** the direction of travel across the start/finish (0 = north, 90 = east). The script prints which way the map runs at the line, which is usually, but not always, the racing direction. Without `--heading`, the timer works the direction out from the map.
 - **`--layout NAME`:** adds or updates one layout of a venue. Run the script once per layout with the same `--id`. If the venue already had a single layout, it's kept as a layout called `Main`.
@@ -558,6 +567,7 @@ What a driver chooses (units, brightness and so on) is a [setting](#settings), c
 | `DEFAULT_COMPARE_TO` | 2 | Starting Compare with: 0 = best of the day, 1 = best ever, 2 = this session |
 | `DEFAULT_BIG_NUMBER` | 2 | Starting Big number: 0 = delta, 1 = predicted lap, 2 = lap time |
 | `DEFAULT_DELTA_COLOURS` | 0 | Starting Delta colours: 0 = green / red, 1 = blue / orange |
+| `DEFAULT_SESSION_LENGTH` | 0 | Starting Session length: 0 = off, 1 = 20 min, 2 = 25, 3 = 30 |
 | `DEFAULT_UTC_OFFSET_MIN` | 0 | Starting Time zone, in minutes east of UTC |
 | `DEFAULT_RECORD_ROAD_DRIVES` | 1 | Starting Record road drives: 0 = off |
 | `DISPLAY_ROTATION` | 1 | The "normal" screen direction (1 or 3); the Screen setting's upside down uses the other |
@@ -639,6 +649,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_sectors.cpp src/LapTimer.cpp s
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_timing.cpp src/LapTimer.cpp -o /tmp/tm && /tmp/tm
+```
+
+`test/test_situation.cpp` checks when the slow screen shows (5 s under 40 km/h, not a quick hairpin, at once in the pit lane, back when quick, across midnight), when a position counts as in the pit lane (near a line marked `"pit"` and nearer it than the track beside it), and the session clock and countdown:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_situation.cpp -o /tmp/sit && /tmp/sit
 ```
 
 `test/test_bestlap.cpp` checks the best-lap files (round trip, and damaged or cut-short files refused), which stored lap the Compare with setting picks, when a lap is a PB or the best of the day (never a tagged one), and the live diff from a stored lap in the real lap timer, from lap 1 until a quicker lap takes over:
@@ -762,6 +778,7 @@ g++ -std=c++17 -Iinclude test/test_jsontext.cpp -o /tmp/jt && /tmp/jt
 include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            LogRing.h (log buffer), UiTheme.h (screen size, colours),
            TimingScreen.h (the timing screen's colours, trend bar, sector strip and ghost),
+           SituationScreen.h (the slow screen, the pit lane, the session clock),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
            the Settings and first-boot screens), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
