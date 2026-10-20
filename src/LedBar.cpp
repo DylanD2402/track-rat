@@ -84,6 +84,7 @@ Strip bar, board;
 Rgb frame[LED_MAX_COUNT];
 bool rpmKnown = false;  // setRpm
 float rpmNow = 0;
+bool overheat = false, overheatOn = false;  // setOverheat
 Rgb lastFrame[LED_MAX_COUNT];
 Rgb lastBoard = {0, 0, 0};
 uint32_t lastUpdate = 0, lastSent = 0;
@@ -132,6 +133,11 @@ void LedBar::update(bool timing, bool hasDelta, int32_t deltaMs) {
   int n = pattern.ledCount();
   // Revving towards the shift point: the bar is a shift light (the board LED keeps the delta)
   if (SHIFT_LIGHT_RPM > 0 && rpmKnown) obd::shiftLights(rpmNow, SHIFT_LIGHT_START_RPM, SHIFT_LIGHT_RPM, now, frame, n);
+  if (overheat) {  // the overheat warning: everything red, blinking
+    const Rgb c = overheatOn ? Rgb{255, 0, 0} : Rgb{0, 0, 0};
+    for (int i = 0; i < n; i++) frame[i] = c;
+    boardColour = c;
+  }
   bool changed = boardColour != lastBoard;
   for (int i = 0; i < n && !changed; i++) changed = frame[i] != lastFrame[i];
   if (!changed && now - lastSent < LED_REFRESH_MS) return;
@@ -157,6 +163,11 @@ void LedBar::setRpm(bool known, float rpm) {
   rpmNow = rpm;
 }
 
+void LedBar::setOverheat(bool showing, bool on) {
+  overheat = showing;
+  overheatOn = on;
+}
+
 void LedBar::onBestLap(bool personalBest) {
   if (started) pattern.bestLap(millis(), personalBest ? LED_BEST : pattern.aheadColour());
 }
@@ -177,5 +188,6 @@ void LedBar::update(bool, bool, int32_t) {}
 void LedBar::onBestLap(bool) {}
 void LedBar::setBlueOrange(bool) {}
 void LedBar::onSplit() {}
+void LedBar::setOverheat(bool, bool) {}
 
 #endif

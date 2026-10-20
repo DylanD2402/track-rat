@@ -8,6 +8,7 @@
 #include "DisplayManager.h"
 #include "Config.h"
 #include "SessionLog.h"
+#include "Settings.h"
 #include "UiTheme.h"
 
 using namespace ui;
@@ -37,7 +38,8 @@ void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, cons
     String used = "Laps used: " + String(r.lapsUsed);
     if (r.lapsLeftOut) used += ", " + String(r.lapsLeftOut) + " left out";
     if (d.allTimeTheoreticalMs) used += "   ·   ever: " + formatLapTime(d.allTimeTheoreticalMs);
-    text(fit(used, Font::Caption, W - 20), 10, y + 46, Font::Caption, C_TEXT3);
+    const int temps = tempMaxLine(timer, W - 10, y + 46 + 7);  // the engine's hottest (6.5), on the right
+    text(fit(used, Font::Caption, W - 20 - (temps ? temps + 12 : 0)), 10, y + 46, Font::Caption, C_TEXT3);
 
     // The best lap's path, with the sectors that cost the most marked 1, 2, 3
     const int my = HEADER_H + 66, mh = 116, mw = 130;
@@ -86,18 +88,27 @@ void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, cons
     return;
   }
 
-  // Page 1: every lap (newest first) on the left, every sector on the right
+  // Page 1: every lap (newest first) on the left, every sector on the right. With engine
+  // temperatures, each lap's hottest coolant in a narrow column before the tag.
   const int top = HEADER_H + 6, rowH = 13, rows = 12;
+  const bool temps = hasTemp(timer.sessionCoolantMaxC());
+  const bool f = settings::fahrenheit(Settings::get());
+  const int tagX = temps ? 112 : 100;
   label("LAPS", 10, top);
+  if (temps) label("MAX", 84, top);
   int y = top + 14;
   for (int i = (int)timer.lapCount() - 1, n = 0; i >= 0 && n < rows; i--, n++, y += rowH) {
     const Lap& l = timer.lap(i);
     const bool best = i == r.bestIndex;
     snprintf(buf, sizeof(buf), "%u", (unsigned)l.number);
     text(buf, 10, y, Font::Caption, C_TEXT2);
-    text(formatLapTime(l.timeMs), 34, y, Font::Caption, best ? C_GREEN : C_TEXT);
+    text(formatLapTime(l.timeMs), temps ? 30 : 34, y, Font::Caption, best ? C_GREEN : C_TEXT);
+    if (temps && hasTemp(l.coolantMaxC)) {
+      snprintf(buf, sizeof(buf), "%d\xC2\xB0", tempalert::inUnits(l.coolantMaxC, f));
+      text(buf, 108, y, Font::Caption, tempColor(l.coolantMaxC, false), TR_DATUM);
+    }
     const char* tag = best ? "BEST" : laptags::shortLabel(l.tags);
-    text(tag, 100, y, Font::Caption, best ? C_GREEN : laptags::suspect(l.tags) ? C_ORANGE : C_YELLOW);
+    text(temps ? fit(tag, Font::Caption, 154 - tagX) : String(tag), tagX, y, Font::Caption, best ? C_GREEN : laptags::suspect(l.tags) ? C_ORANGE : C_YELLOW);
   }
   gfx->drawFastVLine(156, top, rows * rowH + 12, C_LINE);
   label("BEST", 196, top);

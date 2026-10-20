@@ -27,6 +27,9 @@ void onSplit();
 // The engine speed from OBD-II (CanObd.h), known = read within the last second: from
 // SHIFT_LIGHT_START_RPM the bar is a shift light instead of the delta (Obd.h).
 void setRpm(bool known, float rpm);
+// The overheat warning (6.5): while it shows, the whole bar and the board LED are red when
+// `on`, off between (it blinks), over the delta and the shift light
+void setOverheat(bool showing, bool on);
 
 }  // namespace LedBar
 

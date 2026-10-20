@@ -117,7 +117,7 @@ static bool codeOk(AsyncWebServerRequest* req) {
 // someone who can see Track Rat should be able to turn its screen upside down.
 
 static void sendSettings(AsyncWebServerRequest* req, int code, bool restartNeeded) {
-  char json[400];
+  char json[512];
   size_t n = settings::toJson(Settings::get(), json, sizeof(json));
   if (!n) {
     req->send(500, "text/plain", "Settings didn't fit in the reply");

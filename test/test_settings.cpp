@@ -484,7 +484,7 @@ static void testJson() {
   d.kartEverywhere = true;
   d.cameraWithSessions = false;
 
-  char buf[400];
+  char buf[512];
   size_t len = toJson(d, buf, sizeof(buf));
   std::string want = std::string("{\"units\":\"mph\",\"upsideDown\":true,\"brightness\":70,\"compareTo\":\"ever\",") +
                      "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"sessionMin\":\"25\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
@@ -607,7 +607,7 @@ static void testSetField() {
     SettingsData target = randomSettings();
     SettingsData start = randomSettings();
     start.setupDone = target.setupDone;  // not sent to the page
-    char json[400];
+    char json[512];
     if (!toJson(target, json, sizeof(json))) restored = false;
     int rej = 0;
     sent = applyJson(start, json, &rej);
@@ -1497,7 +1497,7 @@ static void testEndToEnd() {
   rest.rotation = stored.rotation;
   rest.units = stored.units;
   EXPECT(rest == stored, "everything else is still the defaults");
-  char json[400];
+  char json[512];
   EXPECT(toJson(stored, json, sizeof(json)) > 0 && strstr(json, "\"units\":\"mph\"") && strstr(json, "\"upsideDown\":true"),
          "the Wi-Fi page sees the choices: %s", json);
 

@@ -105,6 +105,8 @@ public:
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath, int session, bool inPits);
   // The SYNC flash (6.4): white, SYNC and the GPS time ("14:03:12.3"), for a camera to film
   void drawSync(const char* gpsTime);
+  // The overheat warning (6.5): red, COOLANT or OIL and the temperature, for TEMP_ALERT_MS
+  void drawTempAlert(bool oil, float c);
   // The pit debrief (DisplayDebrief.cpp). Page 0: best lap, theoretical best and the three
   // sectors that cost most, on the map. Page 1: every lap with its tags, every sector, and
   // this session against the last.
@@ -207,6 +209,11 @@ private:
   void settingsList(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
   void settingsChoicePage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
   void settingsLevelPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs);
+  void settingsCoolantPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
+  // The engine's temperatures (6.5): a colour for each band, and the session's hottest
+  // ("Coolant max 104°   ·   oil 128°") right-aligned at `right`. Returns its width, 0 if none.
+  static uint16_t tempColor(float c, bool oil);
+  int tempMaxLine(const LapTimer& timer, int right, int y);
   void settingsHint(const char* line);
   void wrappedCaption(const char* note, int x, int y, int maxW, uint16_t color, bool center);
   void button(int x, int y, int w, int h, const char* label, bool primary, bool highlight = false);

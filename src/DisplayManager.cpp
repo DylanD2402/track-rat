@@ -165,6 +165,52 @@ String DisplayManager::fit(const String& s, Font f, int maxW) {
 
 void DisplayManager::label(const char* s, int x, int y, uint8_t datum) { text(s, x, y, Font::Caption, C_TEXT2, datum); }
 
+uint16_t DisplayManager::tempColor(float c, bool oil) {
+  const tempalert::Limits l = settings::tempLimits(Settings::get());
+  switch (oil ? tempalert::oilBand(c, l) : tempalert::coolantBand(c, l)) {
+    case tempalert::Band::Cold: return C_BLUE;
+    case tempalert::Band::Warm: return C_YELLOW;
+    case tempalert::Band::Hot: return C_RED;
+    default: return C_TEXT2;
+  }
+}
+
+int DisplayManager::tempMaxLine(const LapTimer& timer, int right, int y) {
+  const float cool = timer.sessionCoolantMaxC(), oil = timer.sessionOilMaxC();
+  if (!hasTemp(cool) && !hasTemp(oil)) return 0;
+  const bool f = settings::fahrenheit(Settings::get());
+  int x = right;
+  if (hasTemp(oil)) {
+    const String o = String(hasTemp(cool) ? "oil " : "Oil max ") + tempalert::inUnits(oil, f) + "\xC2\xB0";
+    x -= text(o, x, y, Font::Caption, tempColor(oil, true), MR_DATUM);
+    if (hasTemp(cool)) x -= text("   \xC2\xB7   ", x, y, Font::Caption, C_TEXT3, MR_DATUM);
+  }
+  if (hasTemp(cool))
+    x -= text("Coolant max " + String(tempalert::inUnits(cool, f)) + "\xC2\xB0", x, y, Font::Caption, tempColor(cool, false), MR_DATUM);
+  return right - x;
+}
+
+// The overheat warning (6.5): COOLANT 112° (or OIL) big, black on red
+void DisplayManager::drawTempAlert(bool oil, float c) {
+  beginFrame();
+  gfx->fillScreen(C_RED);
+  const SettingsData s = Settings::get();
+  const bool f = settings::fahrenheit(s);
+  centered(oil ? "OIL" : "COOLANT", 34, Font::Hero, C_BG);
+  // The number in the big digits, and a drawn degree sign (those digits have none)
+  const String num = String(tempalert::inUnits(c, f));
+  const int w = textWidth(num, Font::NumL), x = (W - w - 18) / 2, y = 104;
+  text(num, x, y, Font::NumL, C_BG, TL_DATUM);
+  for (int r = 5; r <= 7; r++) gfx->drawCircle(x + w + 10, y + 9, r, C_BG);
+  char buf[48];
+  const tempalert::Limits l = settings::tempLimits(s);
+  snprintf(buf, sizeof(buf), "%s at %d\xC2\xB0%s or more", oil ? "Oil hot" : "Hot", tempalert::inUnits(oil ? l.oilHotAtC : l.hotAtC, f),
+           f ? "F" : "C");
+  centered(buf, 176, Font::Body, C_BG);
+  centered("Tap to close", 206, Font::Caption, C_BG);
+  endFrame();
+}
+
 void DisplayManager::drawSync(const char* gpsTime) {
   beginFrame();
   gfx->fillScreen(TFT_WHITE);
@@ -228,7 +274,7 @@ static String accuracyText(float m) {
 void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t titleColor) {
   gfx->drawFastHLine(0, HEADER_H - 1, W, C_LINE);
 
-  // Status, right to left: signal bars, GPS accuracy, battery, BENCH, BT, OBD, CAM, HOT
+  // Status, right to left: signal bars, GPS accuracy, battery, BENCH, BT, the coolant (or OBD), CAM
   int right = W - 8;
   auto tag = [&](const char* s, uint16_t bg, uint16_t fg) {
     int w = textWidth(s, Font::Caption) + 12;
@@ -255,7 +301,28 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
     if (gps->isSimulated()) tag("BENCH", C_YELLOW, C_BG);  // simulated timing must be obvious
 #if BLE_ENABLED
     if (RaceBoxBle::connected()) tag("BT", C_BLUE, C_TEXT);  // a phone app is receiving GPS
-    if (ObdBle::connected()) tag("OBD", C_BLUE, C_TEXT);     // the Bluetooth OBD-II adapter is connected
+#endif
+    // The engine's coolant temperature (6.5), coloured by Settings > Coolant: blue while cold,
+    // yellow when warm, blinking red when hot. OBD while a Bluetooth adapter has none to give.
+    float coolC;
+    if (EngineData::coolant(millis(), coolC)) {
+      const SettingsData s = Settings::get();
+      char t[12];
+      snprintf(t, sizeof(t), "%d\xC2\xB0", tempalert::inUnits(coolC, settings::fahrenheit(s)));
+      switch (tempalert::coolantBand(coolC, settings::tempLimits(s))) {
+        case tempalert::Band::Cold: tag(t, C_BLUE, C_TEXT); break;
+        case tempalert::Band::Normal: tag(t, C_RAISED, C_TEXT); break;
+        case tempalert::Band::Warm: tag(t, C_YELLOW, C_BG); break;
+        case tempalert::Band::Hot: {  // blinks slowly like the camera's REC tag
+          const bool on = millis() / CAM_REC_BLINK_MS % 2 == 0;
+          tag(t, on ? C_RED : rgb(110, 24, 20), on ? C_BG : C_TEXT);
+          break;
+        }
+      }
+    } else if (ObdBle::connected()) {
+      tag("OBD", C_BLUE, C_TEXT);  // the Bluetooth OBD-II adapter is connected
+    }
+#if BLE_ENABLED
     if (CameraBle::connected()) {  // the DJI camera: REC while it records, its battery, and a warning when too hot.
       const CameraBle::Status cs = CameraBle::status();  // Tap it to start or stop recording
       const uint32_t now = millis();
@@ -278,7 +345,6 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
       camTagL = right + 6, camTagR = r0;
     }
 #endif
-    if (EngineData::coolantHot(millis())) tag("HOT", C_RED, C_BG);  // coolant at COOLANT_WARN_C or more
   }
 
   text(fit(title, Font::Body, right - 12), 10, HEADER_H / 2, Font::Body, titleColor, ML_DATUM);
@@ -1100,7 +1166,8 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
   if (timer.lapCount() == 0) text("No complete laps recorded", W / 2, ly + (rowH * maxRows + 8) / 2, Font::Body, C_TEXT3, MC_DATUM);
 
   String saved = savedPath.length() ? "Saved to " + String(Storage::sessionFSName()) + ": " + savedPath : String("Not saved");
-  text(fit(saved, Font::Caption, W - 24), 12, 186, Font::Caption, C_TEXT3, ML_DATUM);
+  const int temps = tempMaxLine(timer, W - 12, 186);  // the engine's hottest, when it sent temperatures
+  text(fit(saved, Font::Caption, W - 24 - (temps ? temps + 12 : 0)), 12, 186, Font::Caption, C_TEXT3, ML_DATUM);
   if (inPits) {  // still in the session: no buttons to bump
     centered("Drive off to carry on", WIFI_BUTTON_Y + 8, Font::Body, C_TEXT);
     centered("Tap: timing screen   ·   Hold: end the session", WIFI_BUTTON_Y + 30, Font::Caption, C_TEXT3);

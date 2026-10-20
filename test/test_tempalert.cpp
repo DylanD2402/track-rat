@@ -29,11 +29,11 @@ static void testBands() {
 }
 
 static void testDegrees() {
-  CHECK(degrees(92, false) == 92 && degrees(91.6f, false) == 92 && degrees(-40, false) == -40, "C rounded");
-  CHECK(degrees(100, true) == 212 && degrees(0, true) == 32 && degrees(-40, true) == -40 && degrees(110, true) == 230 &&
-            degrees(70, true) == 158 && degrees(130, true) == 266,
+  CHECK(inUnits(92, false) == 92 && inUnits(91.6f, false) == 92 && inUnits(-40, false) == -40, "C rounded");
+  CHECK(inUnits(100, true) == 212 && inUnits(0, true) == 32 && inUnits(-40, true) == -40 && inUnits(110, true) == 230 &&
+            inUnits(70, true) == 158 && inUnits(130, true) == 266,
         "F: 212, 32, -40, 230, 158, 266");
-  CHECK(degrees(101, true) == 214 && degrees(102, true) == 216, "1 C steps show as about 2 F");
+  CHECK(inUnits(101, true) == 214 && inUnits(102, true) == 216, "1 C steps show as about 2 F");
   printf("  degrees: C, and F for mph\n");
 }
 

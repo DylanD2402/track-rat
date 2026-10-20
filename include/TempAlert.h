@@ -39,7 +39,7 @@ inline Band coolantBand(float c, const Limits& l) {
 inline Band oilBand(float c, const Limits& l) { return c >= l.oilHotAtC ? Band::Hot : Band::Normal; }
 
 // A temperature in whole degrees, F when fahrenheit (Speed units in mph)
-inline int degrees(float c, bool fahrenheit) { return (int)lroundf(fahrenheit ? c * 9.0f / 5.0f + 32.0f : c); }
+inline int inUnits(float c, bool fahrenheit) { return (int)lroundf(fahrenheit ? c * 9.0f / 5.0f + 32.0f : c); }
 
 // When the card shows for one temperature against its limit
 class Watch {

@@ -113,6 +113,8 @@ static bool haveCameraFix = false;
 // for SYNC_FLASH_MS, for a camera to film; its GPS time goes into the summary
 static uint32_t syncUntil = 0;  // millis() it ends; 0: not showing
 static void startSyncFlash();
+// The overheat warning (6.5): full screen for TEMP_ALERT_MS on any screen when coolant (or oil) reaches its limit
+static tempalert::Alert tempAlert;
 static void setClockFromGps(const GpsFix& f);
 static String gpsTimeAt(const GpsFix& f, uint32_t at);
 static String sessionStamp;
@@ -937,6 +939,9 @@ static void onPerfResult() {
 static void onTrackFix(const GpsFix& fix) {
   recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
   if (!settingLine) {
+    float coolC = 0, oilC = 0;  // the laps' hottest (6.5)
+    const bool coolKnown = EngineData::coolant(millis(), coolC), oilKnown = EngineData::oil(millis(), oilC);
+    lapTimer.noteTemps(coolKnown, coolC, oilKnown, oilC);
     LapEvents evs = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis, fix.hAccM);
     for (const LapEvent& ev : evs) onLapEvent(ev);
     const int32_t d = lapTimer.liveDeltaMs();
@@ -1083,6 +1088,11 @@ static bool tappedWifi(InputEvent ev, int buttonTop) {
 
 static void handleInput(InputEvent ev) {
   if (ev == InputEvent::None) return;
+  if (tempAlert.showing(millis())) {  // any tap or press closes the overheat warning, and does nothing else
+    tempAlert.dismiss();
+    lastRender = 0;
+    return;
+  }
   // The camera's CAM/REC tag in the top bar: start or stop recording, on any screen that shows it
   if (ev == InputEvent::TapHeader && display.cameraTagHit(input.lastTapX())) {
     const CameraBle::Status cs = CameraBle::status();
@@ -1319,6 +1329,10 @@ static void showPersonalBest() {
 
 static void render() {
   uint32_t now = millis();
+  if (tempAlert.showing(now)) {  // the overheat warning covers everything, even the SYNC flash
+    display.drawTempAlert(tempAlert.current().oil, tempAlert.current().c);
+    return;
+  }
   if (syncUntil) {  // the SYNC flash covers everything, with the GPS time ticking
     if ((int32_t)(now - syncUntil) < 0 && haveCameraFix) {
       display.drawSync(gpsTimeAt(cameraFix, now).substring(11, 21).c_str());  // 14:03:12.3
@@ -1760,6 +1774,19 @@ void loop() {
 
   bool timing = state == AppState::Running && !settingLine && !pitWatch.parked() && lapTimer.lapRunning();
   int32_t liveDelta = lapTimer.liveDeltaMs();
+  {  // The engine's temperatures against Settings > Coolant: the overheat warning, and the LED bar flashing red with it
+    float coolC = 0, oilC = 0;
+    const bool coolKnown = EngineData::coolant(now, coolC), oilKnown = EngineData::oil(now, oilC);
+    const bool wasShowing = tempAlert.showing(now);
+    if (tempAlert.update(now, coolKnown, coolC, oilKnown, oilC, settings::tempLimits(Settings::get()))) {
+      DEBUG_PRINTF("Overheat warning: %s %.0f C\n", tempAlert.current().oil ? "oil" : "coolant", tempAlert.current().c);
+      noteActivity(now);  // the screen comes on for it
+      lastRender = 0;
+    } else if (wasShowing && !tempAlert.showing(now)) {
+      lastRender = 0;  // back to the screen it covered
+    }
+    LedBar::setOverheat(tempAlert.showing(now), tempAlert.ledRed(now));
+  }
   LedBar::setRpm(EngineData::values().rpmKnown(now), EngineData::values().rpm);
   LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
 

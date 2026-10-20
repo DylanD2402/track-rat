@@ -220,10 +220,48 @@ void DisplayManager::settingsLevelPage(const SettingsData& s, const SettingsScre
   if (!touchOk) settingsHint("BOOT: press for +, hold to go back");
 }
 
+// Coolant (6.5): Cold below, Warm at, Hot at and Oil hot at, each with its own - and +
+void DisplayManager::settingsCoolantPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk) {
+  char buf[48];
+  const int n = settings::COOLANT_ROWS;
+  gfx->fillRoundRect(UI::CARD_X, UI::CHOICE_TOP, UI::CARD_W, n * UI::ROW_H, CORNER, C_SURFACE);
+  // The colour each limit starts, as a dot by its name: blue, yellow, red, red
+  static const uint16_t DOTS[] = {C_BLUE, C_YELLOW, C_RED, C_RED};
+  for (int i = 0; i < n; i++) {
+    const SettingItem it = settings::COOLANT_ITEMS[i];
+    const int ry = ui.coolRowY(i), cy = ry + UI::ROW_H / 2;
+    const bool hl = ui.showHighlight && ui.choiceHl == i;
+    if (hl) rowHighlight(gfx, ry);
+    else if (i > 0 && !(ui.showHighlight && ui.choiceHl == i - 1))
+      gfx->drawFastHLine(UI::CARD_X + 14, ry, UI::CARD_W - 14, C_LINE);
+    gfx->fillCircle(UI::CARD_X + 18, cy, 4, DOTS[i]);
+    text(UI::rowLabel(it), UI::CARD_X + 30, cy, Font::Body, C_TEXT, ML_DATUM);
+    settings::valueText(s, it, buf, sizeof(buf));
+    text(buf, UI::COOL_MINUS_X - 10, cy, Font::Body, C_TEXT2, MR_DATUM);
+    if (touchOk) {
+      int lo, hi;
+      settings::limitRange(it, lo, hi);
+      const int v = settings::limitValue(s, it);
+      const int by = cy - UI::COOL_BTN_H / 2;
+      gfx->fillRoundRect(UI::COOL_MINUS_X, by, UI::COOL_BTN_W, UI::COOL_BTN_H, CORNER - 4, C_RAISED);
+      gfx->fillRoundRect(UI::COOL_PLUS_X, by, UI::COOL_BTN_W, UI::COOL_BTN_H, CORNER - 4, C_RAISED);
+      text("−", UI::COOL_MINUS_X + UI::COOL_BTN_W / 2, cy, Font::Title, v <= lo ? C_TEXT3 : C_TEXT, MC_DATUM);
+      text("+", UI::COOL_PLUS_X + UI::COOL_BTN_W / 2, cy, Font::Title, v >= hi ? C_TEXT3 : C_TEXT, MC_DATUM);
+    }
+  }
+  if (touchOk) wrappedCaption(settings::itemNote(SettingItem::Coolant), UI::CARD_X + 14, UI::CHOICE_TOP + n * UI::ROW_H + 8,
+                              UI::CARD_W - 28, C_TEXT2, false);
+
+  header("‹  Settings", nullptr);
+  text(UI::rowLabel(SettingItem::Coolant), W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+  if (!touchOk) settingsHint("BOOT: press for +, hold for the next (last: back)");
+}
+
 void DisplayManager::drawSettings(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs) {
   beginFrame();
   if (ui.page == UI::Page::List) settingsList(s, ui, touchOk);
   else if (ui.page == UI::Page::Choice) settingsChoicePage(s, ui, touchOk);
+  else if (ui.page == UI::Page::Coolant) settingsCoolantPage(s, ui, touchOk);
   else settingsLevelPage(s, ui, touchOk, localMs);
   endFrame();
 }
@@ -270,7 +308,10 @@ void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::S
         line(buf, C_TEXT2, Font::Caption);
         snprintf(buf, sizeof(buf), "RPM %.1f Hz   Throttle %.1f Hz", st.stats.rpmHz, st.stats.throttleHz);
         line(buf, C_TEXT2, Font::Caption);
-        snprintf(buf, sizeof(buf), "Coolant %.1f Hz   Intake %.1f Hz", st.stats.coolantHz, st.stats.intakeHz);
+        if (st.stats.oilHz > 0)  // only cars that report oil temperature (PID 0x5C)
+          snprintf(buf, sizeof(buf), "Coolant %.1f Hz   Intake %.1f Hz   Oil %.1f Hz", st.stats.coolantHz, st.stats.intakeHz, st.stats.oilHz);
+        else
+          snprintf(buf, sizeof(buf), "Coolant %.1f Hz   Intake %.1f Hz", st.stats.coolantHz, st.stats.intakeHz);
         line(buf, C_TEXT2, Font::Caption);
       }
     }

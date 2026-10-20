@@ -13,9 +13,18 @@ bool logged() { return CanObd::active() || ObdBle::configured(); }
 
 const obd::Values& values() { return CanObd::active() ? CanObd::values() : ObdBle::values(); }
 
-bool coolantHot(uint32_t nowMs) {
+bool coolant(uint32_t nowMs, float& c) {
   const obd::Values& v = values();
-  return COOLANT_WARN_C > 0 && v.coolantKnown(nowMs) && v.coolantC >= COOLANT_WARN_C;
+  if (!v.coolantKnown(nowMs)) return false;
+  c = v.coolantC;
+  return true;
+}
+
+bool oil(uint32_t nowMs, float& c) {
+  const obd::Values& v = values();
+  if (!v.oilKnown(nowMs)) return false;
+  c = v.oilC;
+  return true;
 }
 
 }  // namespace EngineData

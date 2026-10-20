@@ -335,10 +335,10 @@ inline void valueText(const SettingsData& d, SettingItem item, char* buf, size_t
       snprintf(buf, n, "%s", d.bleProfile == BleProfile::RaceChrono ? "RaceChrono (GPS + engine data)" : "RaceBox Mini (most apps)");
       break;
     case SettingItem::Coolant:  // the row: the limit that matters most
-      snprintf(buf, n, "Hot at %d\xC2\xB0%s", tempalert::degrees(d.coolantHotC, fahrenheit(d)), fahrenheit(d) ? "F" : "C");
+      snprintf(buf, n, "Hot at %d\xC2\xB0%s", tempalert::inUnits(d.coolantHotC, fahrenheit(d)), fahrenheit(d) ? "F" : "C");
       break;
     case SettingItem::CoolCold: case SettingItem::CoolWarm: case SettingItem::CoolHot: case SettingItem::OilHot:
-      snprintf(buf, n, "%d\xC2\xB0%s", tempalert::degrees((float)limitValue(d, item), fahrenheit(d)), fahrenheit(d) ? "F" : "C");
+      snprintf(buf, n, "%d\xC2\xB0%s", tempalert::inUnits((float)limitValue(d, item), fahrenheit(d)), fahrenheit(d) ? "F" : "C");
       break;
     default: if (n) buf[0] = 0;
   }
