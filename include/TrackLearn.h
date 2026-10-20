@@ -168,10 +168,12 @@ private:
   // Out along a road and back the same way (a hill climb and the drive down,
   // runs up and down a strip) passes each point twice, but it isn't a track:
   // most of the loop runs alongside itself the other way.
+  // A long loop is sampled (about 400 points), so this stays a few ms on the ESP32.
   bool retraced(size_t from, size_t to) const {
-    const size_t n = to - from;
-    size_t back = 0;
-    for (size_t i = from; i < to; i++) {
+    const size_t step = (to - from) / 400 + 1;
+    const size_t n = (to - from + step - 1) / step;  // points looked at
+    size_t back = 0, seen = 0;
+    for (size_t i = from; i < to; i += step, seen++) {
       const Pt& p = pts[i];
       for (size_t j = from; j < to; j++) {
         const Pt& q = pts[j];
@@ -182,8 +184,8 @@ private:
           break;
         }
       }
-      if (back * 3 > n * 2) return true;                 // most of it: retraced
-      if ((back + (to - i - 1)) * 3 <= n * 2) return false;  // can't be any more
+      if (back * 3 > n * 2) return true;                    // most of it: retraced
+      if ((back + (n - seen - 1)) * 3 <= n * 2) return false;  // can't be any more
     }
     return false;
   }
