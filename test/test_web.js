@@ -10,7 +10,9 @@
 const fs = require("fs");
 const path = require("path");
 
-const html = fs.readFileSync(path.join(__dirname, "..", "web", "index.html"), "utf8");
+// Line endings are normalised: a Windows checkout has CRLF, and the patterns below expect \n.
+const readText = (...parts) => fs.readFileSync(path.join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
+const html = readText("web", "index.html");
 const m = html.match(/\/\/ ---- session names \(begin[^\n]*\n([\s\S]*?)\/\/ ---- session names \(end\)/);
 if (!m) {
   console.log("FAIL: session names section not found in web/index.html");
@@ -31,7 +33,7 @@ if (!sm) {
   process.exit(1);
 }
 const {SETTINGS, tzText, speedText, settingBody} = new Function(sm[1] + "\nreturn {SETTINGS, tzText, speedText, settingBody};")();
-const header = fs.readFileSync(path.join(__dirname, "..", "include", "SettingsData.h"), "utf8");
+const header = readText("include", "SettingsData.h");
 
 let failures = 0;
 function check(cond, msg) {
