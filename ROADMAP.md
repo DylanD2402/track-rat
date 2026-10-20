@@ -246,7 +246,7 @@ Sizes are relative: S small, M medium, L large.
 
 - Mostly covered already: battery (1.6), directional lines (1.5). Add a smaller default gate (8 m) and the minimum lap time as a setting.
 
-**Status: done** (2026-10-20, commit COMMIT). `"kind": "kart"` in tracks.json (marked from OSM by `fetch_canada_tracks.py`; the bundled `data/tracks.json` gets the marks the next time the script runs), or the **Kart everywhere** setting; **Min lap time** setting (Auto, 10, 15, 30 s).
+**Status: done** (2026-10-20, commit 0d30dc5). `"kind": "kart"` in tracks.json (marked from OSM by `fetch_canada_tracks.py`; the bundled `data/tracks.json` gets the marks the next time the script runs), or the **Kart everywhere** setting; **Min lap time** setting (Auto, 10, 15, 30 s).
 
 ### Phase 5: Optional add-ons
 
