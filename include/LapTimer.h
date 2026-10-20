@@ -35,6 +35,17 @@
  * Corner sectors (Sectors.h) are timed the same way as splits, through their
  * own gates, and kept apart from them: Lap::sectorMs, SectorCrossed events.
  *
+ * Point to point (setStage: autocross, hill climbs, sprints): the line given
+ * to begin() is the start, and each run is a lap that ends at the finish
+ * line instead of starting the next. Stopped within STAGE_ARM_M of the start,
+ * the run is armed and the clock starts at the first movement (STAGE_GO_KMH),
+ * unless the car stopped more than STAGE_LIGHTS_M behind a start line with a
+ * direction (timing lights a little way on): then it starts at the line, as
+ * it does for a rolling start. A start with no direction only does standing
+ * starts. A run that stops for STAGE_END_STOP_MS before
+ * the finish (or with no finish set yet) ends untimed (RunEnded); with no
+ * finish, finishRunNow() ends it where the driver tapped.
+ *
  * No Arduino dependencies: unit-tested on a PC in test/test_laptimer.cpp.
  */
 
@@ -62,7 +73,7 @@ struct Lap {
   bool clean() const { return laptags::clean(tags); }
 };
 
-enum class LapEventType { None, LapStarted, LapCompleted, SplitCrossed, SectorCrossed };
+enum class LapEventType { None, LapStarted, LapCompleted, SplitCrossed, SectorCrossed, RunEnded };
 
 struct LapEvent {
   LapEventType type = LapEventType::None;
@@ -109,6 +120,17 @@ public:
   // lap: see Sectors.h). Laps from now on are timed through them.
   void setSectors(const std::vector<TrackPoint>& gates);
   const std::vector<TrackPoint>& sectorGates() const { return sectorPts; }
+
+  // Point to point (see above). After begin(); hasFinish false: none set yet.
+  void setStage(const TrackPoint& finish, bool hasFinish);
+  bool isStage() const { return stage; }
+  bool hasFinish() const { return finHave; }
+  const TrackPoint& finish() const { return fin; }
+  // Stopped at the start, ready to go: the clock starts at the first movement
+  // (or at the start line, when stopped behind it)
+  bool armed() const { return stage && !running && armedHere; }
+  // The driver tapped crossing the finish: the run under way ends now.
+  LapEvents finishRunNow(double lat, double lon, uint32_t gpsTimeMs);
 
   // rxMillis is the device clock when the fix arrived; only used to run the
   // live on-screen clock between fixes. hAccM: the fix's horizontal
@@ -226,6 +248,17 @@ private:
   void crossSplits(double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out);
   void crossGates(bool sectorGates, double lat, double lon, int64_t dt, double after, double upTo, LapEvents& out);
   void startLap(int64_t t, uint32_t startMillis);
+  bool completeLap(int64_t tc, geo::XY endAt, float speedKmh, LapEvent& ev);
+
+  // Point to point
+  bool stage = false;
+  bool finHave = false;
+  TrackPoint fin = {0, 0, 0};
+  bool armedHere = false;     // stopped near the start
+  bool armedGo = false;       // ...and the first movement starts the clock
+  bool stopping = false;      // stopped in a run since stopSinceT
+  int64_t stopSinceT = 0;
+  int64_t stillT = 0;         // the last fix standing still (for a standing start)
   int32_t matchBestTrace(float x, float y, int32_t elapsed);
   void retagLaps();
 };

@@ -8,11 +8,19 @@
 
 void LapTimer::begin(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits, uint32_t minLapMs,
                      const std::vector<TrackPoint>& sectorGates) {
+  stage = finHave = false;  // a circuit, unless setStage says otherwise
   sf = startFinish;
   minLap = minLapMs;
   splitPts = splits;
   sectorPts = sectorGates;
   reset();
+}
+
+void LapTimer::setStage(const TrackPoint& finish, bool hasFinish) {
+  stage = true;
+  fin = finish;
+  finHave = hasFinish;
+  if (minLap == MIN_LAP_TIME_MS) minLap = STAGE_MIN_RUN_MS;  // a run can be short; the finish is elsewhere anyway
 }
 
 void LapTimer::changeGates(const TrackPoint& startFinish, const std::vector<TrackPoint>& splits) {
@@ -51,6 +59,7 @@ void LapTimer::reset() {
   liveDelta = NO_DELTA;
   sfHeadingConfirmed = false;
   sfWrongWay = false;
+  armedHere = armedGo = stopping = false;
 }
 
 int64_t LapTimer::continuousTime(uint32_t gpsTimeMs) {
@@ -79,6 +88,58 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
   curTrace.push_back({0, 0, 0, 0});  // the start/finish is the origin
   matchIdx = 0;
   liveDelta = NO_DELTA;
+  stopping = false;
+}
+
+// The lap (or run) under way ends at tc, at endAt (metres from the start/finish).
+// False if it isn't kept (too long, or too many laps): ev is then a LapStarted.
+bool LapTimer::completeLap(int64_t tc, geo::XY endAt, float speedKmh, LapEvent& ev) {
+  const int64_t elapsed = tc - lapStartT;
+  if (elapsed > MAX_LAP_TIME_MS || laps.size() >= MAX_LAPS_STORED) {
+    ev.type = LapEventType::LapStarted;  // too long (pit stop etc.) - not recorded
+    return false;
+  }
+  Lap lap;
+  lap.number = lapNumber;
+  lap.timeMs = (uint32_t)elapsed;
+  lap.maxSpeedKmh = lapMaxSpeed;
+  lap.avgSpeedKmh = lapSpeedCount ? (float)(lapSpeedSum / lapSpeedCount) : 0;
+  lap.splitMs = lapSplits;
+  lap.sectorMs = lapSectors;
+  lap.distanceM = lapDistance;
+  lap.tags = lapTags;
+
+  const Lap* prevBest = bestLap();
+  if (prevBest) ev.deltaMs = (int32_t)lap.timeMs - (int32_t)prevBest->timeMs;
+  laps.push_back(lap);
+  retagLaps();
+  const int idx = (int)laps.size() - 1;
+  ev.isBest = bestIndex == idx;
+  keepSectorBests(laps[idx]);  // before its path is handed on
+  // A reference whose lap turned out tagged is dropped; this lap's path becomes the
+  // reference if it's the new best, or stands in while there's none.
+  if (refIndex >= 0 && !laps[refIndex].clean()) {
+    bestTrace.clear();
+    refIndex = -1;
+  }
+  if (ev.isBest || (refIndex < 0 && laps[idx].tags == 0)) {  // a stand-in has no tags at all, not even slow
+    curTrace.push_back({(float)endAt.x, (float)endAt.y, (int32_t)lap.timeMs, speedKmh});
+    bestTrace.swap(curTrace);
+    refIndex = idx;
+  }
+  ev.type = LapEventType::LapCompleted;
+  ev.timeMs = lap.timeMs;
+  return true;
+}
+
+LapEvents LapTimer::finishRunNow(double lat, double lon, uint32_t gpsTimeMs) {
+  LapEvents evs;
+  if (!stage || !running) return evs;
+  const int64_t t = continuousTime(gpsTimeMs);
+  LapEvent ev;
+  if (t - lapStartT > 0 && completeLap(t, geo::toLocal(lat, lon, sf.lat, sf.lon), prevSpeed, ev)) evs.add(ev);
+  running = false;
+  return evs;
 }
 
 // Records the splits crossed on the segment from the previous fix to (lat, lon), whose crossing
@@ -139,6 +200,29 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
   if (running) lapTags |= gapFlag;
   bool usable = havePrev && dt > 0 && dt <= MAX_FIX_GAP_MS;
 
+  // Point to point: stopped at the start arms the run; the first movement then starts the clock
+  if (stage && !running) {
+    if (speedKmh < STAGE_STILL_KMH) stillT = t;
+    const geo::XY p = geo::toLocal(lat, lon, sf.lat, sf.lon);
+    const double d = hypot(p.x, p.y);
+    if (d > STAGE_ARM_M) {
+      armedHere = armedGo = false;
+    } else if (speedKmh < STAGE_STOPPED_KMH) {
+      armedHere = true;
+      // Behind a start line with a direction (metres along it < 0): the line starts the clock
+      const double along = sf.hasHeading() ? p.x * sin(sf.heading * geo::DEG2RAD) + p.y * cos(sf.heading * geo::DEG2RAD) : 0;
+      armedGo = along >= -STAGE_LIGHTS_M;
+    } else if (armedGo && speedKmh >= STAGE_GO_KMH && usable) {
+      // From the last fix standing still (it takes a few fixes to reach STAGE_GO_KMH)
+      const int64_t t0 = t - stillT <= 3000 ? stillT : prevT;
+      startLap(t0, rxMillis - (uint32_t)(t - t0));
+      armedHere = armedGo = false;
+      LapEvent ev;
+      ev.type = LapEventType::LapStarted;
+      evs.add(ev);
+    }
+  }
+
   if (usable) {
     bool moving = (speedKmh >= MIN_CROSSING_SPEED_KMH || prevSpeed >= MIN_CROSSING_SPEED_KMH);
 
@@ -149,6 +233,21 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
     geo::XY b = geo::toLocal(lat, lon, sf.lat, sf.lon);
     double frac = 0;
     bool lineCrossed = moving && geo::crossesGate(a, b, sf.radius, frac);
+    // Point to point: the start only starts a run; the finish ends it
+    bool finCrossed = false;
+    double finFrac = 0;
+    if (stage) {
+      // A start line with no direction (NEW COURSE: put down where the car stood) only
+      // starts standing starts, or every drive back to the start would start a run
+      if (running || !sf.hasHeading()) lineCrossed = false;
+      if (running && finHave && moving) {
+        geo::XY fa = geo::toLocal(prevLat, prevLon, fin.lat, fin.lon);
+        geo::XY fb = geo::toLocal(lat, lon, fin.lat, fin.lon);
+        finCrossed = geo::crossesGate(fa, fb, fin.radius, finFrac) &&
+                     (!fin.hasHeading() || geo::travelsWith(fa, fb, fin.heading)) &&
+                     prevT + (int64_t)(finFrac * dt + 0.5) - lapStartT >= minLap;
+      }
+    }
 
     if (running) {
       if (speedKmh > lapMaxSpeed) lapMaxSpeed = speedKmh;
@@ -156,15 +255,22 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
       lapSpeedCount++;
       if (moving) lapDistance += (float)hypot(b.x - a.x, b.y - a.y);  // not GPS wander while parked; the segment that ends a lap counts to it
       // A split at the very same point as the line counts as before it: it was checked first before this too.
-      if (moving) crossSplits(lat, lon, dt, -1.0, lineCrossed ? frac : 2.0, evs);
+      if (moving) crossSplits(lat, lon, dt, -1.0, lineCrossed ? frac : finCrossed ? finFrac : 2.0, evs);
     }
 
-    if (lineCrossed && startFinishCounts(a, b, frac)) {
+    if (finCrossed) {  // the end of a run: no lap starts
+      const int64_t tc = prevT + (int64_t)(finFrac * dt + 0.5);
+      geo::XY at = geo::toLocal(prevLat + finFrac * (lat - prevLat), prevLon + finFrac * (lon - prevLon), sf.lat, sf.lon);
+      LapEvent ev;
+      if (completeLap(tc, at, speedKmh, ev)) evs.add(ev);
+      running = false;
+    } else if (lineCrossed && startFinishCounts(a, b, frac)) {
       int64_t tc = prevT + (int64_t)(frac * dt + 0.5);
       uint32_t tcMillis = rxMillis - (uint32_t)(t - tc);
 
       if (!running) {
         startLap(tc, tcMillis);
+        armedHere = armedGo = false;
         LapEvent ev;
         ev.type = LapEventType::LapStarted;
         evs.add(ev);
@@ -172,40 +278,7 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
         int64_t elapsed = tc - lapStartT;
         if (elapsed >= minLap) {
           LapEvent ev;
-          if (elapsed <= MAX_LAP_TIME_MS && laps.size() < MAX_LAPS_STORED) {
-            Lap lap;
-            lap.number = lapNumber;
-            lap.timeMs = (uint32_t)elapsed;
-            lap.maxSpeedKmh = lapMaxSpeed;
-            lap.avgSpeedKmh = lapSpeedCount ? (float)(lapSpeedSum / lapSpeedCount) : 0;
-            lap.splitMs = lapSplits;
-            lap.sectorMs = lapSectors;
-            lap.distanceM = lapDistance;
-            lap.tags = lapTags;
-
-            const Lap* prevBest = bestLap();
-            if (prevBest) ev.deltaMs = (int32_t)lap.timeMs - (int32_t)prevBest->timeMs;
-            laps.push_back(lap);
-            retagLaps();
-            const int idx = (int)laps.size() - 1;
-            ev.isBest = bestIndex == idx;
-            keepSectorBests(laps[idx]);  // before its path is handed on
-            // A reference whose lap turned out tagged is dropped; this lap's path becomes the
-            // reference if it's the new best, or stands in while there's none.
-            if (refIndex >= 0 && !laps[refIndex].clean()) {
-              bestTrace.clear();
-              refIndex = -1;
-            }
-            if (ev.isBest || (refIndex < 0 && laps[idx].tags == 0)) {  // a stand-in has no tags at all, not even slow
-              curTrace.push_back({0, 0, (int32_t)lap.timeMs, speedKmh});
-              bestTrace.swap(curTrace);
-              refIndex = idx;
-            }
-            ev.type = LapEventType::LapCompleted;
-            ev.timeMs = lap.timeMs;
-          } else {
-            ev.type = LapEventType::LapStarted;  // too long (pit stop etc.) - not recorded
-          }
+          completeLap(tc, {0, 0}, speedKmh, ev);
           evs.add(ev);
           startLap(tc, tcMillis);
         }
@@ -215,6 +288,23 @@ LapEvents LapTimer::onFix(double lat, double lon, float speedKmh, uint32_t gpsTi
 
     // The rest of the segment, in whichever lap is running now (the same one if the line didn't count).
     if (lineCrossed && running && moving) crossSplits(lat, lon, dt, frac, 2.0, evs);
+  }
+
+  // Point to point: a run that stops before the finish (or with none set) ends, untimed
+  if (stage && running) {
+    if (speedKmh >= STAGE_STOPPED_KMH) {
+      stopping = false;
+    } else if (!stopping) {
+      stopping = true;
+      stopSinceT = t;
+    }
+    if ((stopping && t - stopSinceT >= STAGE_END_STOP_MS) || t - lapStartT > MAX_LAP_TIME_MS) {
+      running = false;
+      stopping = false;
+      LapEvent ev;
+      ev.type = LapEventType::RunEnded;
+      evs.add(ev);
+    }
   }
 
   if (running) {

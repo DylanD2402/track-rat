@@ -70,6 +70,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_logbook.cpp -o /tmp/lb && /tmp/lb
       - name: test_tracklearn
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_tracklearn.cpp src/LapTimer.cpp -o /tmp/tl && /tmp/tl
+      - name: test_stage
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp -o /tmp/stg && /tmp/stg
 
   firmware:
     name: Firmware build
