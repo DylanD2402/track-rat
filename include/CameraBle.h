@@ -47,6 +47,7 @@ struct Status {
   char address[18] = "";
   dji::Status cam;        // its last status (cam.known once one came)
   uint32_t gpsSent = 0;   // GPS pushes since connecting
+  bool refused = false;   // the driver rejected it on the camera: nothing more until Pair
 };
 Status status();
 

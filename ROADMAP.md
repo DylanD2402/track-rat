@@ -312,6 +312,8 @@ Why a hub: a Bluetooth adapter talks to one device at a time. If the phone takes
 - **Sync for richer overlays:** Track Rat notes, in GPS time, when the camera started recording, so 6.4 can line the log up with the video without sliding it by hand.
 - **Caveats:** the camera has one remote slot, so DJI Mimo can't be its remote at the same time; the protocol is subject to DJI's licence terms; DJI's time field is offset by +8 hours (check it on the camera). Untested until it's tried on your Action 4.
 
+**Status: done, untested on hardware** (2026-10-20, queue/6.2). `include/DjiRemote.h` ports the protocol layer of DJI's demo (frame, both CRCs seeded 0x3AA3, connection request and handshake, GPS push, record control, status subscription and push), checked byte for byte against the demo's own frames in `test/test_dji.cpp`. `src/CameraBle.cpp` is the NimBLE central in its own task: Settings → Camera → Pair (DJI adverts: manufacturer data `AA 08 .. .. FA`, the fifth byte as the demo checks it), the code shown on screen, remembered and reconnecting every 5–10 s, GPS at 10 Hz, recording following the sessions (setting *Camera recording*), a CAM/REC tag with the battery and a CAM HOT warning, and `cameraStartUtc` in the summary. The +8 hour is kept as in the demo (`DJI_HOUR_OFFSET`). A shared radio lock keeps the camera and the OBD adapter from connecting or scanning at once. Not yet tried on the Action 4.
+
 **6.3 Engine data to the phone: a RaceChrono profile (M)**
 
 - RaceChrono's DIY Bluetooth LE API (iOS and Android) takes GPS and CAN-style data from homemade devices. Track Rat sends its 20 Hz GPS and each engine value as a CAN packet, and in RaceChrono you add a channel per value. The README gets ready-made channel definitions.

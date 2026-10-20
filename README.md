@@ -217,7 +217,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 
 **On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in four groups (Display, Timing, GPS & Bluetooth, Recording). It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
 
-- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. **Engine data** opens the Bluetooth OBD-II adapter's screen (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
+- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. **Engine data** and **Camera** open the Bluetooth OBD-II adapter's and the DJI camera's screens (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
 - **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options, press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. A line at the bottom of the screen says so when the board has no touch screen.
 - **Saved as you go:** there is no save button. A change takes effect at once, except **GPS mode**, which is used from the next restart.
 
@@ -235,6 +235,8 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
 | Engine data | A screen, not a setting | Find, choose or forget a Bluetooth OBD-II adapter, and see how fast it answers. The row shows the adapter's name, Connected, or None |
+| Camera | A screen, not a setting | Pair or forget a DJI Osmo Action camera: see [DJI Osmo Action](#dji-osmo-action-track-rat-as-its-gps-remote-untested-on-hardware) |
+| Camera recording | With sessions (default), manual | With sessions: a paired camera starts recording when you drive off in a session and stops when you park in the pits. Manual: only its own button |
 | Time zone | UTC−12:00 to UTC+14:00 in 30-minute steps | For session file names. Shows the local time now once the GPS has a fix. A phone opening the Wi-Fi page sets it |
 | Record road drives | On (default), off | Off: Free Roam drives are shown but not saved |
 
@@ -350,6 +352,19 @@ The same engine data as CAN, with nothing to wire: a **Bluetooth LE** OBD-II ada
 - **Same as CAN from there:** the `.vbo` gets the four engine channels from the moment an adapter has been chosen, and the shift light and the HOT tag work the same. With both fitted, CAN wins.
 - **Alongside the phone:** the RaceBox output keeps advertising and working while the adapter is connected. Up to four Bluetooth connections at once (the phone, the adapter, and room for the camera).
 - Like CAN, it only asks: it never writes to the car or clears codes. `OBD_BLE_ENABLED 0` in `Config.h` leaves it out.
+
+### DJI Osmo Action: Track Rat as its GPS remote (untested on hardware)
+
+**Not yet tried with a camera.** The protocol is ported from DJI's official [Osmo GPS Controller Demo](https://github.com/dji-sdk/Osmo-GPS-Controller-Demo) (MIT licence) and tested on a PC against the demo's own frames. The DJI R SDK protocol is subject to [DJI's licence terms](http://developer.dji.com/policies/eula/).
+
+The Osmo Action 4 (and 5 Pro, 6, Osmo 360) records GPS only from DJI's GPS remote. Track Rat does that job, with nothing to buy:
+
+- **Pairing, once:** switch the camera on. In **Settings → Camera**, tap **Pair camera**. A 10-second scan lists the DJI cameras it finds; tap yours. Track Rat shows a 4-digit code and the camera asks whether to accept the remote: accept if it shows the same code. After that Track Rat reconnects by itself whenever the camera is on and in reach (every 5 to 10 seconds), without asking again. **Forget** disconnects and forgets it. Rejected on the camera, Track Rat stops asking until you pair again.
+- **GPS into the video:** 10 times a second, position, height, north/east/down speed, accuracies and satellites. The camera writes them into the video, and DJI Mimo and DJI Studio then draw speed, route and altitude dashboards with no other software.
+- **Recording follows the session** (with **Camera recording** on *With sessions*): it starts when you drive off in a session and stops when you park in the pits (the debrief), and starts again when you go back out. If the camera doesn't follow, Track Rat asks twice more, then leaves it. Starting or stopping on the camera itself is left alone until the next time you go out or park. *Manual* never starts or stops it.
+- **In the header:** **REC 78%** (red) while it records, **CAM 78%** (blue) while it doesn't, with the camera's battery, and an orange **CAM HOT** when the camera says it's too hot to record.
+- **For overlays (6.4):** the GPS time the camera started recording is saved in the session's summary as `cameraStartUtc`, from the camera's status (it reports twice a second, so to about half a second).
+- **Caveats:** the camera has one remote slot, so DJI Mimo can't be its remote at the same time. DJI's demo sends the time 8 hours ahead (China time) with the date unchanged, and Track Rat does the same; if the video's GPS times come out 8 hours ahead, set `DJI_HOUR_OFFSET 0` in `Config.h`. `CAMERA_BLE_ENABLED 0` leaves it out. It shares the Bluetooth radio with the phone and the OBD adapter: only one of the two connects or scans at a time.
 
 ### IMU (optional, untested on hardware)
 
@@ -646,7 +661,7 @@ Without it, the board shows a plain page with the session list, `tracks.json` an
 Sessions are saved in `/sessions` on the SD card, as two files with the same name. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the summary also names the layout.
 
 - **`<date>_<time>_<track id>.vbo`:** every GPS fix, up to 20 a second (10 in the 10 Hz GPS mode): UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up), and a lap tag mark. About 6.8 MB per hour of driving. The **Lap tag** channel marks the fixes that tag a lap where they happened: 1 = stopped, 4 = after a gap of more than 1 s, 8 = accuracy worse than ±5 m (added together when there are several). The header names the session number (`Session: 2`).
-- **`<date>_<time>_<track id>.json`:** the summary: the session number (`"session"`), every lap and split time, each lap's corner sector times (`"sectorsMs"`: the time into the lap at the end of T1, T2... the last sector ends at the line), max and average speed and distance per lap, each lap's tags (`"tags": ["pit", "slow", "suspect"]`, and for a suspect lap why: `"suspect": ["gps gap", "accuracy", "distance"]`), the best clean lap, the average of the untagged laps, and the name of its `.vbo`.
+- **`<date>_<time>_<track id>.json`:** the summary: the session number (`"session"`), every lap and split time, each lap's corner sector times (`"sectorsMs"`: the time into the lap at the end of T1, T2... the last sector ends at the line), max and average speed and distance per lap, each lap's tags (`"tags": ["pit", "slow", "suspect"]`, and for a suspect lap why: `"suspect": ["gps gap", "accuracy", "distance"]`), the best clean lap, the average of the untagged laps, and the name of its `.vbo`. With a paired DJI camera, `"cameraStartUtc"` is the GPS time the camera started recording (`"cameraStartsUtc"` lists every start: one video per time out of the pits).
 
 File names use UTC until the **Time zone** setting is set, either on the Settings screen or by a phone opening the Wi-Fi page. Then they use your local time. Times inside the `.vbo` are always UTC. Speeds in the files are always km/h, whatever the Speed units setting.
 
@@ -841,6 +856,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src
 python test/test_fetch_tracks.py
 ```
 
+`test/test_dji.cpp` checks the DJI camera remote against DJI's own demo frames: both CRCs and the frame (the mode switch example), the connection request (three of the demo's frames), the GPS push (rebuilt byte for byte from the demo's), our GPS push from a fix (date, the +8 hour, position, height, north/east/down speed, accuracies), frames put back together from 20-byte notifications past rubbish and a damaged frame, the handshake (pairing accepted, rejected, no answer, reconnecting without the pop-up), the status push (recording, battery, too hot) and when recording started, which adverts are DJI cameras, and recording that follows sessions (drive off, park, the driver's own button, giving up after three tries):
+
+```bash
+g++ -std=c++17 -Iinclude test/test_dji.cpp -o /tmp/dji && /tmp/dji
+```
+
 `test/test_elm327.cpp` checks the Bluetooth adapter's ELM327 conversation against a simulated adapter: the set-up commands in order, the supported-PID questions, a clone that rejects the "1" suffix or multi-PID requests, `SEARCHING...` before a slow first reply, spaces left on, replies cut into 1, 7 and 20-byte notifications, a missing prompt (a timeout, then ATZ after three), the engine stopping answering and coming back, the pedal as throttle, values stamped at the middle of their request, reading `NO DATA`, `?`, `STOPPED`, bus errors, multi-ECU, multi-PID and multi-frame replies, which scanned devices are listed, and the schedule's rates at 10, 20 and 40 replies a second:
 
 ```bash
@@ -948,7 +969,8 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            Retime.h (which sessions are re-timed, when best laps are replaced),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
            the Settings and first-boot screens), Obd.h (OBD-II values and schedules),
-           Elm327.h (the Bluetooth adapter's conversation), EngineScreen.h (Settings > Engine data), headers
+           Elm327.h (the Bluetooth adapter's conversation), DjiRemote.h (the DJI camera remote, ported
+           from DJI's demo), DeviceScreen.h (Settings > Engine data and Camera), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
            DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
@@ -959,7 +981,8 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            DisplayPerf (performance screens), DisplayPower (battery and update screens),
            DisplaySettings (Settings and first-boot screens)
            Settings (kept in flash)
-           CanObd (OBD-II over CAN), ObdBle (the Bluetooth OBD-II adapter), EngineData (either)
+           CanObd (OBD-II over CAN), ObdBle (the Bluetooth OBD-II adapter), EngineData (either),
+           CameraBle (the DJI camera's GPS remote)
            WifiPortal (Wi-Fi page)
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)

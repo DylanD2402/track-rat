@@ -52,6 +52,8 @@ static dji::Assembler assembler;
 static dji::RecordFollow follow;
 static uint8_t frameBuf[dji::MAX_FRAME];
 static bool wasLinked = false;
+static bool writeWithResponse = false;
+static bool refused = false;  // rejected on the camera: don't ask again until Pair or Forget
 static uint32_t gpsSent = 0;
 
 static void notified(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
@@ -103,6 +105,7 @@ static bool findCharacteristics() {
   NimBLERemoteCharacteristic* w = svc->getCharacteristic(NimBLEUUID((uint16_t)0xFFF5));
   if (!n || !w || !n->subscribe(true, notified, true)) return false;
   writeChr = w;
+  writeWithResponse = !w->canWriteNoResponse();
   return true;
 }
 
@@ -185,6 +188,7 @@ static void publish(bool linked) {
   s.code = remote.code();
   s.cam = remote.status();
   s.gpsSent = gpsSent;
+  s.refused = refused;
   uint32_t at;
   const bool started = remote.takeStarted(at);
   portENTER_CRITICAL(&lock);
@@ -195,7 +199,7 @@ static void publish(bool linked) {
 
 static void writeOut() {
   for (int i = 0; i < remote.pending(); i++)
-    if (writeChr && !writeChr->writeValue(remote.out(i).data, remote.out(i).len, false)) DEBUG_PRINTLN("Camera: write failed");
+    if (writeChr && !writeChr->writeValue(remote.out(i).data, remote.out(i).len, writeWithResponse)) DEBUG_PRINTLN("Camera: write failed");
   remote.sent();
 }
 
@@ -210,6 +214,7 @@ static void taskMain(void*) {
       remote.end();
       writeChr = nullptr;
       wasLinked = false;
+      refused = false;
       retryAt = now;
       retryMs = RETRY_MIN_MS;
     }
@@ -251,7 +256,7 @@ static void taskMain(void*) {
     wasLinked = linked;
 
     if (!linked) {
-      if (addr[0] && !scanOn && (int32_t)(now - retryAt) >= 0) {
+      if (addr[0] && !scanOn && !refused && (int32_t)(now - retryAt) >= 0) {
         if (connectTo(addr, type, !pr)) {
           wasLinked = true;
           retryMs = RETRY_MIN_MS;
@@ -280,7 +285,10 @@ static void taskMain(void*) {
       remote.poll(millis());
       if (remote.state() == dji::Remote::Phase::Rejected || remote.state() == dji::Remote::Phase::Failed) {
         DEBUG_PRINTF("Camera: %s\n", remote.state() == dji::Remote::Phase::Rejected ? "rejected on the camera" : "no answer");
-        if (remote.state() == dji::Remote::Phase::Rejected && pr) savePaired(false);  // it forgot us: pair again next time
+        if (remote.state() == dji::Remote::Phase::Rejected) {  // the driver said no: wait for Pair again
+          refused = true;
+          if (pr) savePaired(false);
+        }
         client->disconnect();
         remote.end();
         writeChr = nullptr;

@@ -335,6 +335,8 @@ void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::St
         }
         snprintf(buf, sizeof(buf), "%lu GPS fixes sent", (unsigned long)st.gpsSent);
         line(buf, C_TEXT2, Font::Caption);
+      } else if (st.refused) {
+        line("Rejected on the camera: Pair to try again", C_ORANGE);
       } else {
         line(st.linked ? "Asking the camera" : "Not connected: trying every 5-10 s", C_YELLOW);
       }
