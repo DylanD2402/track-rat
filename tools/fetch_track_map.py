@@ -167,6 +167,11 @@ def parse_osm_xml(xml_bytes):
     return lines
 
 
+def is_pit(name, service):
+    """An OpenStreetMap raceway that's a pit lane: service=pit_lane, or "pit" in its name."""
+    return service == "pit_lane" or "pit" in (name or "").lower()
+
+
 def parse_overpass(doc):
     lines = []
     for el in doc.get("elements", []):
@@ -273,10 +278,13 @@ def main():
         raw = fetch_osm(sf_lat, sf_lon, args.radius)
 
     if args.no_pit:
-        raw = [r for r in raw if r[2] != "pit_lane" and "pit" not in r[1].lower()]
+        raw = [r for r in raw if not is_pit(r[1], r[2])]
     if not raw:
         raise SystemExit("No track layout found. Check --sf, try a larger --radius, or use --file.")
 
+    # Pit lanes: tagged "pit" (the indexes of their lines in "map"), so the timer can tell
+    # it's in the pit lane and show the slow screen
+    pit = [i for i, (_, name, service) in enumerate(raw) if is_pit(name, service)]
     lines, n_in = [], 0
     for pts, name, _ in raw:
         n_in += len(pts)
@@ -323,11 +331,16 @@ def main():
         "startFinish": sf,
         "map": lines,
     }
+    if pit:
+        entry["pit"] = pit
+        print(f"Pit lane: line{'s' if len(pit) > 1 else ''} {', '.join(str(i) for i in pit)} of the map.")
     tracks = db.setdefault("tracks", [])
     existing = next((t for t in tracks if t.get("id") == args.id), None)
 
     if args.layout:
         layout = {"name": args.layout, "startFinish": sf, "map": lines}
+        if pit:
+            layout["pit"] = pit
         if args.length:
             layout["length"] = args.length
         venue = existing
@@ -338,12 +351,12 @@ def main():
         if not layouts and ("startFinish" in venue or "map" in venue):
             # The venue had one layout, stored the old way: keep it as the first layout
             old = {"name": "Main"}
-            for k in ("startFinish", "splits", "map"):
+            for k in ("startFinish", "splits", "map", "pit"):
                 if k in venue:
                     old[k] = venue.pop(k)
             layouts.append(old)
             print(f"Moved the existing layout of '{args.id}' into a layout called 'Main'")
-        for k in ("startFinish", "splits", "map"):
+        for k in ("startFinish", "splits", "map", "pit"):
             venue.pop(k, None)  # ignored once a venue has layouts
         for i, lo in enumerate(layouts):
             if lo.get("name", "").lower() == args.layout.lower():
