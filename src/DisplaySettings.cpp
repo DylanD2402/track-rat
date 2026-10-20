@@ -228,7 +228,7 @@ void DisplayManager::drawSettings(const SettingsData& s, const SettingsScreenSta
 // ---------------------------------------------------------------------------
 // Settings > Engine data (6.1)
 
-using ES = EngineScreenState;
+using ES = DeviceScreenState;
 
 static const char* phaseText(elm::Client::Phase p) {
   switch (p) {
@@ -241,7 +241,7 @@ static const char* phaseText(elm::Client::Phase p) {
   }
 }
 
-void DisplayManager::drawEngineData(const EngineScreenState& ui, const ObdBle::Status& st, const ObdBle::Found* found, int n,
+void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::Status& st, const ObdBle::Found* found, int n,
                                     bool scanning, bool touchOk) {
   beginFrame();
   char buf[64];

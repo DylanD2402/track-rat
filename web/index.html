@@ -1211,6 +1211,9 @@ const SETTINGS = [
    note: "Off: Free Roam drives are shown on the screen but not saved."},
   {name: "minLap", label: "Min lap time", options: [["auto", "Auto"], ["10", "10 s"], ["15", "15 s"], ["30", "30 s"]],
    note: "Line crossings sooner than this after the last are ignored. Auto: 20 s, 10 s at kart tracks. Used from the next session."},
+  {name: "cameraRecording", label: "Camera recording", options: [["sessions", "With sessions"], ["manual", "Manual"]],
+   note: "A paired DJI Osmo Action starts recording when you drive off and stops when you park. Manual: only its own button.",
+   shown: (s) => s.bluetoothBuilt},
   {name: "kartEverywhere", label: "Kart everywhere", options: [[false, "Off"], [true, "On"]],
    note: "On: every track is timed as a kart track (8 m lines where tracks.json gives no width, and the kart minimum lap). Off: only tracks marked as kart tracks. Used from the next restart."},
 ];

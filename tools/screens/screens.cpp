@@ -511,7 +511,7 @@ int main(int argc, char** argv) {
   save(d, "35_settings_time_zone_boot_only");
 
   // Settings > Engine data (6.1): nothing chosen, connected and reading, and the Find adapter list
-  EngineScreenState eng;
+  DeviceScreenState eng;
   eng.begin(true);
   d.drawEngineData(eng, obdStatus, nullptr, 0, false, true);
   save(d, "36_engine_data_none");
@@ -528,7 +528,7 @@ int main(int argc, char** argv) {
   save(d, "36b_engine_data_reading");
   ObdBle::Found found[3] = {{"VEEPEAK", "c4:be:84:12:34:56", 0, -58}, {"OBDII", "00:1d:a5:68:98:8b", 0, -77}, {"IOS-Vlink", "d0:39:72:aa:bb:cc", 1, -85}};
   eng.handle(Key::BootShort, 3);
-  eng.tap(20, EngineScreenState::BTN_Y + 5, 0);
+  eng.tap(20, DeviceScreenState::BTN_Y + 5, 0);
   d.drawEngineData(eng, obdStatus, found, 3, false, false);
   save(d, "36c_engine_data_find");
   d.drawSetup(0, 0, true);

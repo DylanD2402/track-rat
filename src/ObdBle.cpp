@@ -113,10 +113,14 @@ static bool connectTo(const char* addr, uint8_t type) {
     if (!client) return false;
     client->setConnectTimeout(CONNECT_TIMEOUT_S);
   }
-  if (!client->connect(NimBLEAddress(std::string(addr), type), true)) return false;
-  if (!findCharacteristics()) {
-    DEBUG_PRINTLN("OBD: no ELM327 service on that device");
-    client->disconnect();
+  if (!RaceBoxBle::radioTryLock(100)) return false;  // the camera is connecting or scanning: next time
+  const bool ok = client->connect(NimBLEAddress(std::string(addr), type), true) && findCharacteristics();
+  RaceBoxBle::radioUnlock();
+  if (!ok) {
+    if (client->isConnected()) {
+      DEBUG_PRINTLN("OBD: no ELM327 service on that device");
+      client->disconnect();
+    }
     return false;
   }
   xStreamBufferReset(rx);
@@ -153,6 +157,7 @@ static void scanDone(NimBLEScanResults res) {
   foundCount = n;
   scanOn = false;
   portEXIT_CRITICAL(&lock);
+  RaceBoxBle::radioUnlock();
   DEBUG_PRINTF("OBD: scan found %d adapter(s)\n", n);
 }
 
@@ -193,11 +198,18 @@ static void taskMain(void*) {
     if (scanAsked && !scanOn) {  // (never while connecting: this task does one thing at a time)
       scanOn = true;  // (before clearing the ask, so scanning() never blinks false)
       scanAsked = false;
-      NimBLEScan* scan = NimBLEDevice::getScan();
-      scan->setActiveScan(true);  // names are often in the scan response
-      scan->setInterval(100);
-      scan->setWindow(60);        // leaves the radio time for the phone and the adapter
-      if (!scan->start(OBD_SCAN_S, scanDone, false)) scanOn = false;
+      if (!RaceBoxBle::radioTryLock(3000)) {  // the camera is connecting or scanning: found nothing
+        scanOn = false;
+      } else {
+        NimBLEScan* scan = NimBLEDevice::getScan();
+        scan->setActiveScan(true);  // names are often in the scan response
+        scan->setInterval(100);
+        scan->setWindow(60);        // leaves the radio time for the phone and the adapter
+        if (!scan->start(OBD_SCAN_S, scanDone, false)) {
+          scanOn = false;
+          RaceBoxBle::radioUnlock();
+        }
+      }
     }
 
     char addr[18];

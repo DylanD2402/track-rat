@@ -152,7 +152,7 @@ static perf::SpeedUnit perfUnits() { return Settings::get().units == SpeedUnits:
 // Settings screen and the first-boot questions (the rules are in SettingsFlow.h)
 static SettingsScreenState settingsUi;
 static SetupState setupUi;
-static EngineScreenState engineUi;  // Settings > Engine data (EngineScreen.h)
+static DeviceScreenState engineUi;  // Settings > Engine data (DeviceScreen.h)
 static ObdBle::Found engineFound[ObdBle::MAX_FOUND];  // the Find adapter list as last shown
 static int engineFoundCount = 0;
 static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
@@ -1210,16 +1210,16 @@ static void handleInput(InputEvent ev) {
 
     case AppState::EngineScreen: {  // the list's taps are on what was drawn: engineFound
       const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-      const EngineScreenState::Action a = tapped ? engineUi.tap(input.lastTapX(), input.lastTapY(), engineFoundCount)
+      const DeviceScreenState::Action a = tapped ? engineUi.tap(input.lastTapX(), input.lastTapY(), engineFoundCount)
                                                  : engineUi.handle(toKey(ev), engineFoundCount);
-      if (a == EngineScreenState::Action::Back) {
+      if (a == DeviceScreenState::Action::Back) {
         enterState(AppState::SettingsScreen);  // (the list keeps its place)
-      } else if (a == EngineScreenState::Action::Scan) {
+      } else if (a == DeviceScreenState::Action::Scan) {
         engineFoundCount = 0;
         ObdBle::startScan();
-      } else if (a == EngineScreenState::Action::Choose && engineUi.chosen >= 0 && engineUi.chosen < engineFoundCount) {
+      } else if (a == DeviceScreenState::Action::Choose && engineUi.chosen >= 0 && engineUi.chosen < engineFoundCount) {
         ObdBle::choose(engineFound[engineUi.chosen]);
-      } else if (a == EngineScreenState::Action::Forget) {
+      } else if (a == DeviceScreenState::Action::Forget) {
         ObdBle::forget();
       }
       lastRender = 0;
@@ -1334,7 +1334,7 @@ static void render() {
                                         : -1);
       break;
     case AppState::EngineScreen:
-      if (engineUi.page == EngineScreenState::Page::Find) engineFoundCount = ObdBle::found(engineFound, ObdBle::MAX_FOUND);
+      if (engineUi.page == DeviceScreenState::Page::Find) engineFoundCount = ObdBle::found(engineFound, ObdBle::MAX_FOUND);
       display.drawEngineData(engineUi, ObdBle::status(), engineFound, engineFoundCount, ObdBle::scanning(), input.touchAvailable());
       break;
     case AppState::Setup:

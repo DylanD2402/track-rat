@@ -13,7 +13,7 @@
 #include <cstring>
 #include <string>
 #include "LapTimer.h"
-#include "EngineScreen.h"
+#include "DeviceScreen.h"
 #include "SettingsFlow.h"
 #include "check.h"
 
@@ -58,6 +58,7 @@ static SettingsData randomSettings() {
   d.recordRoadDrives = testRand() & 1;
   d.kartEverywhere = testRand() & 1;
   d.minLap = (uint8_t)(testRand() % settings::MIN_LAP_CHOICES);
+  d.cameraWithSessions = testRand() & 1;
   return d;
 }
 
@@ -472,12 +473,13 @@ static void testJson() {
   d.recordRoadDrives = false;
   d.minLap = 2;
   d.kartEverywhere = true;
+  d.cameraWithSessions = false;
 
   char buf[400];
   size_t len = toJson(d, buf, sizeof(buf));
   std::string want = std::string("{\"units\":\"mph\",\"upsideDown\":true,\"brightness\":70,\"compareTo\":\"ever\",") +
                      "\"bigNumber\":\"predicted\",\"deltaColours\":\"blueorange\",\"sessionMin\":\"25\",\"gpsMode\":\"10hz\",\"bluetooth\":false,\"tzMin\":-330," +
-                     "\"recordRoadDrives\":false,\"minLap\":\"15\",\"kartEverywhere\":true,\"bluetoothBuilt\":" +
+                     "\"recordRoadDrives\":false,\"minLap\":\"15\",\"kartEverywhere\":true,\"cameraRecording\":\"manual\",\"bluetoothBuilt\":" +
                      (BLE_ENABLED ? "true" : "false") + "}";
   EXPECT(len == strlen(buf) && len > 0, "length %zu vs strlen %zu", len, strlen(buf));
   EXPECT(want == buf, "json:\n  got  %s\n  want %s", buf, want.c_str());
@@ -490,9 +492,9 @@ static void testJson() {
     size_t n = toJson(r, buf, sizeof(buf));
     std::string j(buf);
     bool ok = n == j.size() && j.front() == '{' && j.back() == '}' && std::count(j.begin(), j.end(), '"') % 2 == 0 &&
-              std::count(j.begin(), j.end(), ',') == 13;
+              std::count(j.begin(), j.end(), ',') == 14;
     for (const char* key : {"units", "upsideDown", "brightness", "compareTo", "bigNumber", "deltaColours", "sessionMin", "gpsMode", "bluetooth", "tzMin",
-                            "recordRoadDrives", "minLap", "kartEverywhere", "bluetoothBuilt"})
+                            "recordRoadDrives", "minLap", "kartEverywhere", "cameraRecording", "bluetoothBuilt"})
       ok = ok && j.find(std::string("\"") + key + "\":") != std::string::npos;
     formed = formed && ok;
   }
@@ -604,7 +606,7 @@ static void testSetField() {
     if (start != target) printf("    round trip failed for %s\n", json);
   }
   EXPECT(restored, "toJson then setField must restore the settings");
-  EXPECT(sent == 13 && refused == 1, "13 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
+  EXPECT(sent == 14 && refused == 1, "14 settings accepted and bluetoothBuilt refused, got %d and %d", sent, refused);
 
   // Karting: Min lap time and Kart everywhere
   {
@@ -618,6 +620,9 @@ static void testSetField() {
     EXPECT(!setField(k, "minLap", "20") && !setField(k, "minLap", "0") && minLapMs(k, false) == 10000, "only the choices");
     EXPECT(setField(k, "minLap", "auto") && k.minLap == 0, "back to auto");
     EXPECT(setField(k, "kartEverywhere", "true") && kart(k, false), "kart everywhere");
+    EXPECT(setField(k, "cameraRecording", "manual") && !k.cameraWithSessions && setField(k, "cameraRecording", "sessions") &&
+               k.cameraWithSessions && !setField(k, "cameraRecording", "auto"),
+           "camera recording");
     k.minLap = 99;
     sanitize(k);
     EXPECT(k.minLap == 0, "a corrupt min lap is auto");
@@ -1218,7 +1223,7 @@ static void testSettingsBoot() {
     }
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
-    EXPECT(pages == 9, "visited 9 pages (7 choices, brightness, time zone), got %d", pages);
+    EXPECT(pages == 10, "visited 10 pages (8 choices, brightness, time zone), got %d", pages);
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
     EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");
@@ -1409,10 +1414,10 @@ static void testEndToEnd() {
   printf("  end to end: BOOT-only first boot, reboot, two laps (worst predicted error %.0f ms over %d fixes)\n", worst, checkedFixes);
 }
 
-// Settings > Engine data (EngineScreen.h)
+// Settings > Engine data (DeviceScreen.h)
 constexpr int ObdMaxFound = 6;  // ObdBle::MAX_FOUND (ObdBle.h needs the board)
 static void testEngineScreen() {
-  using ES = EngineScreenState;
+  using ES = DeviceScreenState;
   using A = ES::Action;
   {  // the row on the settings list asks for the screen
     ST st;

@@ -38,6 +38,7 @@ struct SettingsData {
   bool recordRoadDrives;   // Free Roam drives are saved to the card
   bool kartEverywhere;     // every track is timed as a kart track (else only "kind": "kart" in tracks.json)
   uint8_t minLap;          // the shortest lap: 0 = auto (MIN_LAP_TIME_MS, KART_MIN_LAP_MS for karts), else MIN_LAP_S[minLap] s
+  bool cameraWithSessions; // a paired DJI camera records with the sessions (6.2); else only from its own button
 };
 
 inline bool operator==(const SettingsData& a, const SettingsData& b) {
@@ -45,14 +46,14 @@ inline bool operator==(const SettingsData& a, const SettingsData& b) {
          a.compareTo == b.compareTo && a.bigNumber == b.bigNumber && a.deltaColours == b.deltaColours && a.sessionLength == b.sessionLength &&
          a.gpsMode == b.gpsMode &&
          a.bluetooth == b.bluetooth && a.utcOffsetMin == b.utcOffsetMin && a.recordRoadDrives == b.recordRoadDrives &&
-         a.kartEverywhere == b.kartEverywhere && a.minLap == b.minLap;
+         a.kartEverywhere == b.kartEverywhere && a.minLap == b.minLap && a.cameraWithSessions == b.cameraWithSessions;
 }
 inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(a == b); }
 
 // The items on the settings screen, in the order they appear.
 enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives,
-                                   MinLap, Kart, Count,
-                                   Engine };  // after Count: rows that open a screen of their own, not values
+                                   MinLap, Kart, CameraRec, Count,
+                                   Engine, Camera };  // after Count: rows that open a screen of their own, not values
 constexpr int SETTING_ITEM_COUNT = (int)SettingItem::Count;
 
 namespace settings {
@@ -80,6 +81,7 @@ inline SettingsData defaults() {
   d.recordRoadDrives = DEFAULT_RECORD_ROAD_DRIVES != 0;
   d.kartEverywhere = false;
   d.minLap = 0;
+  d.cameraWithSessions = true;
   return d;
 }
 
@@ -133,6 +135,7 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
     case SettingItem::RoadDrives: d.recordRoadDrives = !d.recordRoadDrives; break;
     case SettingItem::MinLap: d.minLap = choice(d.minLap, MIN_LAP_CHOICES); break;
     case SettingItem::Kart: d.kartEverywhere = !d.kartEverywhere; break;
+    case SettingItem::CameraRec: d.cameraWithSessions = !d.cameraWithSessions; break;
     default: break;
   }
 }
@@ -159,7 +162,9 @@ inline const char* itemName(SettingItem item) {
     case SettingItem::RoadDrives: return "RECORD ROAD DRIVES";
     case SettingItem::MinLap: return "MIN LAP TIME";
     case SettingItem::Kart: return "KART EVERYWHERE";
+    case SettingItem::CameraRec: return "CAMERA RECORDING";
     case SettingItem::Engine: return "ENGINE DATA";
+    case SettingItem::Camera: return "CAMERA";
     default: return "";
   }
 }
@@ -179,7 +184,9 @@ inline const char* itemNote(SettingItem item) {
     case SettingItem::RoadDrives: return "Off: Free Roam drives are shown but not saved";
     case SettingItem::MinLap: return "Line crossings sooner are ignored. Auto: 20 s, karts 10 s";
     case SettingItem::Kart: return "8 m lines, karts' min lap everywhere. Restart to apply";
+    case SettingItem::CameraRec: return "A paired DJI camera starts and stops with each session";
     case SettingItem::Engine: return "A Bluetooth OBD-II adapter";
+    case SettingItem::Camera: return "A DJI Osmo Action camera: Track Rat as its GPS remote";
     default: return "";
   }
 }
@@ -216,6 +223,7 @@ inline void valueText(const SettingsData& d, SettingItem item, char* buf, size_t
       else snprintf(buf, n, "%d s", MIN_LAP_S[d.minLap]);
       break;
     case SettingItem::Kart: snprintf(buf, n, "%s", d.kartEverywhere ? "On" : "Off"); break;
+    case SettingItem::CameraRec: snprintf(buf, n, "%s", d.cameraWithSessions ? "With sessions" : "Manual"); break;
     default: if (n) buf[0] = 0;
   }
 }
@@ -231,13 +239,13 @@ inline size_t toJson(const SettingsData& d, char* buf, size_t n) {
   int len = snprintf(buf, n,
                      "{\"units\":\"%s\",\"upsideDown\":%s,\"brightness\":%d,\"compareTo\":\"%s\",\"bigNumber\":\"%s\","
                      "\"deltaColours\":\"%s\",\"sessionMin\":\"%s\",\"gpsMode\":\"%s\",\"bluetooth\":%s,\"tzMin\":%d,\"recordRoadDrives\":%s,"
-                     "\"minLap\":\"%s\",\"kartEverywhere\":%s,\"bluetoothBuilt\":%s}",
+                     "\"minLap\":\"%s\",\"kartEverywhere\":%s,\"cameraRecording\":\"%s\",\"bluetoothBuilt\":%s}",
                      d.units == SpeedUnits::Mph ? "mph" : "kmh", upsideDown(d) ? "true" : "false", d.brightness,
                      COMPARE[(int)d.compareTo % 3], BIG[(int)d.bigNumber % 3],
                      d.deltaColours == DeltaColours::BlueOrange ? "blueorange" : "greenred", SESSION_TEXT[sessionMinutes(d) ? d.sessionLength : 0], d.gpsMode == GpsMode::Fast20 ? "20hz" : "10hz",
                      d.bluetooth ? "true" : "false", d.utcOffsetMin, d.recordRoadDrives ? "true" : "false",
                      MIN_LAP_TEXT[d.minLap < MIN_LAP_CHOICES ? d.minLap : 0], d.kartEverywhere ? "true" : "false",
-                     BLE_ENABLED ? "true" : "false");
+                     d.cameraWithSessions ? "sessions" : "manual", BLE_ENABLED ? "true" : "false");
   return len > 0 && (size_t)len < n ? (size_t)len : 0;
 }
 
@@ -318,6 +326,10 @@ inline bool setField(SettingsData& d, const char* key, const char* v) {
   } else if (!strcmp(key, "kartEverywhere")) {
     if (!parseBool(v, &b)) return false;
     d.kartEverywhere = b;
+  } else if (!strcmp(key, "cameraRecording")) {  // "sessions" or "manual"
+    if (!strcmp(v, "sessions")) d.cameraWithSessions = true;
+    else if (!strcmp(v, "manual")) d.cameraWithSessions = false;
+    else return false;
   } else {
     return false;
   }

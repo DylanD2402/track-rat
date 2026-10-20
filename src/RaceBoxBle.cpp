@@ -166,6 +166,23 @@ void sendFix(const GpsFix& fix, const GPSHandler& gps) {
 
 bool connected() { return isConnected; }
 
+static SemaphoreHandle_t radioBusy = nullptr;  // binary, not a mutex: given back from any task
+
+bool radioTryLock(uint32_t waitMs) {
+  static portMUX_TYPE m = portMUX_INITIALIZER_UNLOCKED;
+  portENTER_CRITICAL(&m);
+  if (!radioBusy) {
+    radioBusy = xSemaphoreCreateBinary();
+    if (radioBusy) xSemaphoreGive(radioBusy);
+  }
+  portEXIT_CRITICAL(&m);
+  return radioBusy && xSemaphoreTake(radioBusy, pdMS_TO_TICKS(waitMs)) == pdTRUE;
+}
+
+void radioUnlock() {
+  if (radioBusy) xSemaphoreGive(radioBusy);
+}
+
 // After the OBD adapter connects: advertising carries on if the phone isn't connected
 void resumeAdvertising() {
   if (!started || !enabled || isConnected) return;

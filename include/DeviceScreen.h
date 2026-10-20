@@ -1,19 +1,21 @@
 /**
- * Track Rat - Settings > Engine data: how the inputs move through it (6.1)
+ * Track Rat - Settings > Engine data and Settings > Camera: how the inputs
+ * move through them (6.1, 6.2)
  *
- * Two pages. Status: the adapter, its protocol, requests a second and each
- * channel's rate, with Find adapter and Forget buttons. Find: the scan's list,
- * strongest first; tapping one chooses it. Pure C++ (no Arduino), tested on
+ * A Bluetooth device's screen, in two pages. Status: the device (an OBD-II
+ * adapter: its protocol and rates; the camera: recording, battery and the
+ * pairing code), with Find (or Pair) and Forget buttons. Find: the scan's
+ * list, strongest first; tapping one chooses it. Pure C++ (no Arduino), tested on
  * the PC in test/test_settings.cpp; main.cpp turns inputs into calls and
  * DisplaySettings.cpp draws it.
  */
 
-#ifndef ENGINE_SCREEN_H
-#define ENGINE_SCREEN_H
+#ifndef DEVICE_SCREEN_H
+#define DEVICE_SCREEN_H
 
 #include "SettingsFlow.h"
 
-struct EngineScreenState {
+struct DeviceScreenState {
   enum class Page : uint8_t { Status, Find };
   enum class Action { Nothing, Back, Scan, Choose, Forget };  // Back: to the settings list. Choose: found[chosen]
 
@@ -28,7 +30,7 @@ struct EngineScreenState {
   bool showHighlight = false;
 
   void begin(bool touch) {
-    *this = EngineScreenState();
+    *this = DeviceScreenState();
     showHighlight = !touch;
   }
 
@@ -87,4 +89,4 @@ private:
   }
 };
 
-#endif  // ENGINE_SCREEN_H
+#endif  // DEVICE_SCREEN_H
