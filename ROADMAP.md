@@ -171,7 +171,7 @@ Sizes are relative: S small, M medium, L large.
 - **While moving,** ignore quick taps (vibration, rain). A firm press switches the view.
 - Test outdoors at full brightness. Colour blocks in sunlight are the real test of this screen.
 
-**Status: done** (2026-10-20, commit PENDING)
+**Status: done** (2026-10-20, commit 3f3c821)
 
 **2.5 Screens that follow the situation (S)**
 
