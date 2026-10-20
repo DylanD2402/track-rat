@@ -301,6 +301,8 @@ Why a hub: a Bluetooth adapter talks to one device at a time. If the phone takes
 - **Code:** the ELM327 protocol (command queue, reply parsing for `NO DATA`, `SEARCHING...`, `?` and the `>` prompt) is pure C++, tested on the PC with recorded adapter conversations. The NimBLE central code is separate.
 - **Stretch:** the gear, from RPM divided by speed, once each gear has been seen.
 
+**Status: done, untested on hardware** (2026-10-20, commit c6dc233 and after on queue/6.1). `include/Elm327.h` is the ELM327 conversation (set-up, supported PIDs, the `1` suffix and multi-PID probes with fall-backs, reply parsing across notifications, timeouts and ATZ recovery, values stamped mid-request), host-tested in `test/test_elm327.cpp` against a simulated adapter. `src/ObdBle.cpp` is the NimBLE central in its own task: Settings → Engine data → Find adapter, remembered in NVS, reconnects every 5–10 s, characteristics found by their properties. Engine data from CAN or the adapter feeds the same log channels (now with intake temperature), shift light and a new HOT coolant tag; an OBD tag shows in the header. `OBD_BLE_ENABLED` is on, but nothing happens until an adapter is chosen. No adapter has been tried yet. The gear (stretch) isn't done.
+
 **6.2 Track Rat as the camera's GPS remote (M/L)**
 
 - The Action 4 records GPS only from DJI's GPS remote. DJI publishes an official, MIT-licensed demo of that remote running on an ESP32 (the DJI R SDK protocol), and an open-source Android app, Telemet, does the same from a phone. Port the demo's protocol layer to Track Rat.

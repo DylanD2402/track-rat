@@ -217,7 +217,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 
 **On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in four groups (Display, Timing, GPS & Bluetooth, Recording). It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
 
-- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
+- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. **Engine data** opens the Bluetooth OBD-II adapter's screen (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
 - **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options, press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. A line at the bottom of the screen says so when the board has no touch screen.
 - **Saved as you go:** there is no save button. A change takes effect at once, except **GPS mode**, which is used from the next restart.
 
@@ -234,6 +234,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | Delta colours | Green / red (default), blue / orange | Ahead and behind on the timing screen and the LED bar, and the best-of-the-day colour. Blue and orange read better with red-green colour blindness |
 | GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
+| Engine data | A screen, not a setting | Find, choose or forget a Bluetooth OBD-II adapter, and see how fast it answers. The row shows the adapter's name, Connected, or None |
 | Time zone | UTC−12:00 to UTC+14:00 in 30-minute steps | For session file names. Shows the local time now once the GPS has a fix. A phone opening the Wi-Fi page sets it |
 | Record road drives | On (default), off | Off: Free Roam drives are shown but not saved |
 
@@ -330,9 +331,25 @@ These are set in `include/Config.h`.
 An SN65HVD230 CAN transceiver board (3.3 V) on IO3 (its TX/D pin) and IO14 (its RX/R pin), 3.3 V and GND, wired to the car's OBD-II socket: CAN high to pin 6, CAN low to pin 14, ground to pin 5. Set `CAN_ENABLED 1` in `Config.h` and rebuild. It's **off by default** because IO14 is also one of the GPS pins on the expansion header: with the GPS found there, CAN stays off. The serial log says when the engine answers.
 
 - **What it reads:** engine speed, throttle position and coolant temperature, the standard OBD-II values every petrol car since about 2008 gives. Engine speed is asked for about 12 times a second, the other two about 6.
-- **In the log:** every `.vbo` gets three more channels, **RPM**, **Throttle position** and **Coolant temperature** (0 when the engine hasn't said in the last second). Circuit Tools shows them like any other channel.
+- **In the log:** every `.vbo` gets four more channels, **RPM**, **Throttle position**, **Coolant temperature** and **Intake temperature** (0 when the engine hasn't said in the last second; CAN doesn't ask for the intake, so it stays 0). Circuit Tools shows them like any other channel.
+- **Coolant warning:** a red **HOT** tag in the header from `COOLANT_WARN_C` (110 °C).
 - **Shift light:** from `SHIFT_LIGHT_START_RPM` the LED bar fills left to right, green, then yellow, then red; at `SHIFT_LIGHT_RPM` the whole bar flashes blue. Below the start it shows the delta as usual. The board's own LED keeps the delta. Set both for your engine.
 - It only asks: it never writes to the car or clears codes. With the ignition off nothing answers, and Track Rat carries on without it.
+
+### Bluetooth OBD-II adapter (untested on hardware)
+
+**Not yet tried with an adapter or a car: none has been bought yet.** The ELM327 conversation is tested on a PC against recorded adapter replies; the Bluetooth side is written to NimBLE's documentation.
+
+The same engine data as CAN, with nothing to wire: a **Bluetooth LE** OBD-II adapter plugged into the car's OBD-II socket. It must be a Bluetooth LE model, as the ESP32-S3 has no Classic Bluetooth: the Veepeak OBDCheck BLE+ (about $30) or the OBDLink CX (faster, CAN cars only). The Veepeak Mini, Wi-Fi adapters and the OBDLink MX+ can't connect.
+
+- **Choosing it:** plug the adapter in and switch the ignition on. In **Settings → Engine data**, tap **Find adapter**. A 10-second scan lists what it finds by name and signal strength (names with OBD, OBDII, VEEPEAK, OBDLink, vLink or IOS-Vlink, and anything offering the FFF0 or FFE0 service). Tap yours. Track Rat remembers it and connects by itself whenever it's in reach, trying every 5 to 10 seconds. **Forget** disconnects and forgets it. With no adapter chosen, nothing happens at all.
+- **In the header:** a blue **OBD** tag while it's connected, beside **BT**.
+- **What it reads:** engine speed, throttle, coolant and intake air temperature, whichever the car supports (it asks the car first). Cars that only report the pedal give that as the throttle. Engine speed is asked for most, then throttle; the temperatures once a second. Cheap adapters manage 6–15 requests a second; with the two speed-ups below an ELM327 reaches 20–40 on a CAN car, so engine speed about 10 Hz and throttle about 7 at 20 a second. Each value is stamped at the middle of its request.
+- **Speed-ups, tried once per connection:** the "one reply" digit (`010C1`: the adapter answers as soon as the engine has, instead of waiting out its timeout) and engine speed and throttle in one request (`010C11`). Clones that answer `?` simply go without.
+- **The Engine data screen** shows the adapter, what it's doing (setting up, finding the car, reading the engine, or no answer from the car with the ignition off), the car's protocol, requests a second, and each channel's rate.
+- **Same as CAN from there:** the `.vbo` gets the four engine channels from the moment an adapter has been chosen, and the shift light and the HOT tag work the same. With both fitted, CAN wins.
+- **Alongside the phone:** the RaceBox output keeps advertising and working while the adapter is connected. Up to four Bluetooth connections at once (the phone, the adapter, and room for the camera).
+- Like CAN, it only asks: it never writes to the car or clears codes. `OBD_BLE_ENABLED 0` in `Config.h` leaves it out.
 
 ### IMU (optional, untested on hardware)
 
@@ -821,6 +838,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src
 python test/test_fetch_tracks.py
 ```
 
+`test/test_elm327.cpp` checks the Bluetooth adapter's ELM327 conversation against a simulated adapter: the set-up commands in order, the supported-PID questions, a clone that rejects the "1" suffix or multi-PID requests, `SEARCHING...` before a slow first reply, spaces left on, replies cut into 1, 7 and 20-byte notifications, a missing prompt (a timeout, then ATZ after three), the engine stopping answering and coming back, the pedal as throttle, values stamped at the middle of their request, reading `NO DATA`, `?`, `STOPPED`, bus errors, multi-ECU, multi-PID and multi-frame replies, which scanned devices are listed, and the schedule's rates at 10, 20 and 40 replies a second:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_elm327.cpp -o /tmp/elm && /tmp/elm
+```
+
 `test/test_obd.cpp` checks OBD-II over CAN: the requests, reading engine speed, throttle and coolant temperature from the engine's replies while ignoring everything else on the bus (other messages, other modes, "not supported", short and multi-frame replies), values going stale, the polling schedule (engine speed every other request, one at a time, a gap between, a timeout), and the shift light. `test/test_vbo.cpp` checks the log's engine channels:
 
 ```bash
@@ -921,7 +944,8 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            SituationScreen.h (the slow screen, the pit lane, the session clock),
            Retime.h (which sessions are re-timed, when best laps are replaced),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
-           the Settings and first-boot screens), headers
+           the Settings and first-boot screens), Obd.h (OBD-II values and schedules),
+           Elm327.h (the Bluetooth adapter's conversation), EngineScreen.h (Settings > Engine data), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
            DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
@@ -932,6 +956,7 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            DisplayPerf (performance screens), DisplayPower (battery and update screens),
            DisplaySettings (Settings and first-boot screens)
            Settings (kept in flash)
+           CanObd (OBD-II over CAN), ObdBle (the Bluetooth OBD-II adapter), EngineData (either)
            WifiPortal (Wi-Fi page)
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)
