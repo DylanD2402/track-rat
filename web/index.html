@@ -670,8 +670,10 @@ function addLayout(db, id, name) {
 // ---- csv (begin: tested by test/test_web.js) ----
 // A session's .vbo as CSV for Telemetry Overlay, RaceRender and DashWare: one row per fix with
 // plain column names. delta_s is against the session's best lap (summary.bestLap, else the
-// fastest finished one) at the same point on track; empty on the out lap.
-const CSV_COLUMNS = ["utc", "lat", "lon", "speed_kmh", "lap", "lap_time_s", "delta_s", "g_lat", "g_long", "rpm", "throttle_pct", "coolant_c"];
+// fastest finished one) at the same point on track; empty on the out lap. The log has 0 for an
+// engine temperature not known (oil, on most cars): empty here.
+const CSV_COLUMNS = ["utc", "lat", "lon", "speed_kmh", "lap", "lap_time_s", "delta_s", "g_lat", "g_long", "rpm", "throttle_pct", "coolant_c",
+                     "oil_c"];
 function vboToCsv(text, summary) {
   let section = "", cols = null, day0 = Date.UTC(2000, 0, 1), lastSod = null, days = 0;
   const m = /File created on (\d\d)\/(\d\d)\/(\d{4})/.exec(text);
@@ -693,7 +695,8 @@ function vboToCsv(text, summary) {
       if (lastSod !== null && sod < lastSod - 3600) days++;  // past midnight
       lastSod = sod;
       rows.push({ms: day0 + (days * 86400 + sod) * 1000, lat, lon, kmh: v("velocity"), lap: v("Lap") || 0,
-                 glat: v("LateralG"), glong: v("LongitudinalG"), rpm: v("RPM"), thr: v("Throttle"), cool: v("CoolantTemp")});
+                 glat: v("LateralG"), glong: v("LongitudinalG"), rpm: v("RPM"), thr: v("Throttle"), cool: v("CoolantTemp") || null,
+                 oil: v("OilTemp") || null});
     }
   }
   // Distance into each lap, when each began, how long the finished ones took
@@ -732,7 +735,7 @@ function vboToCsv(text, summary) {
       delta = lapTime - refAt(dd);
     }
     out.push([new Date(r.ms).toISOString(), num(r.lat, 7), num(r.lon, 7), num(r.kmh, 2), r.lap, num(lapTime, 3), num(delta, 3),
-              num(r.glat, 3), num(r.glong, 3), num(r.rpm, 0), num(r.thr, 1), num(r.cool, 1)].join(","));
+              num(r.glat, 3), num(r.glong, 3), num(r.rpm, 0), num(r.thr, 1), num(r.cool, 1), num(r.oil, 1)].join(","));
   }
   return out.join("\n") + "\n";
 }
@@ -1317,7 +1320,20 @@ const SETTINGS = [
    shown: (s) => s.bluetoothBuilt},
   {name: "kartEverywhere", label: "Kart everywhere", options: [[false, "Off"], [true, "On"]],
    note: "On: every track is timed as a kart track (8 m lines where tracks.json gives no width, and the kart minimum lap). Off: only tracks marked as kart tracks. Used from the next restart."},
+  // Settings > Coolant: degrees C on the device, shown in F with mph. Cold < Warm < Hot: the device moves the others along.
+  {name: "coolantColdC", label: "Coolant: cold below", range: [30, 150, 1], temp: true,
+   note: "With engine data, the top bar shows the coolant temperature: blue below this, plain above."},
+  {name: "coolantWarmC", label: "Coolant: warm at", range: [30, 150, 1], temp: true, note: "Yellow from here."},
+  {name: "coolantHotC", label: "Coolant: hot at", range: [30, 150, 1], temp: true,
+   note: "Blinking red from here, and a full-screen warning (again if it cools 3° and comes back, or a minute later)."},
+  {name: "oilHotC", label: "Oil hot at", range: [80, 180, 1], temp: true,
+   note: "The same warning for oil, for cars that report oil temperature (many don't)."},
 ];
+
+// A temperature in C as the driver wants it: F with mph
+function tempText(c, units) {
+  return units === "mph" ? `${Math.round(c * 9 / 5 + 32)} °F` : `${c} °C`;
+}
 
 function tzText(min) {
   const a = Math.abs(min);
@@ -1341,8 +1357,8 @@ function renderSettings() {
     html += `<div class="set"><div class="name">${esc(f.label)}</div>`;
     if (f.range) {
       const [lo, hi, step] = f.range;
-      html += `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${s[f.name]}" data-set="${f.name}">` +
-              `<div class="note">${s[f.name]}%</div>`;
+      html += `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${s[f.name]}" data-set="${f.name}"${f.temp ? " data-temp" : ""}>` +
+              `<div class="note">${f.temp ? tempText(s[f.name], s.units) : s[f.name] + "%"}</div>`;
     } else {
       html += `<div class="seg">` + f.options.map(([v, text]) =>
         `<button data-set="${f.name}" data-value="${esc(String(v))}" class="${s[f.name] === v ? "on" : ""}">${esc(text)}</button>`
@@ -1393,7 +1409,8 @@ $("settingsForm").addEventListener("change", (e) => {
   if (e.target.dataset.set) changeSetting(e.target.dataset.set, e.target.value);
 });
 $("settingsForm").addEventListener("input", (e) => {
-  if (e.target.type === "range") e.target.nextElementSibling.textContent = e.target.value + "%";
+  if (e.target.type === "range")
+    e.target.nextElementSibling.textContent = e.target.dataset.temp !== undefined ? tempText(+e.target.value, settingsNow.units) : e.target.value + "%";
 });
 
 async function restart() {

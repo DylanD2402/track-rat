@@ -734,9 +734,13 @@ static void testCoolantLimits() {
   EXPECT(setField(d, "coolantWarmC", "90") && d.coolantColdC == 89 && d.coolantWarmC == 90 && d.coolantHotC == 127, "coolantWarmC pulls");
   EXPECT(setField(d, "oilHotC", "140") && d.oilHotC == 140, "oilHotC");
   SettingsData before = d;
-  EXPECT(!setField(d, "coolantHotC", "151") && !setField(d, "coolantHotC", "31") && !setField(d, "oilHotC", "79") &&
+  EXPECT(!setField(d, "coolantHotC", "151") && !setField(d, "coolantHotC", "29") && !setField(d, "oilHotC", "79") &&
              !setField(d, "oilHotC", "181") && !setField(d, "coolantColdC", "x") && !setField(d, "coolantWarmC", "") && d == before,
          "out of range refused, nothing changed");
+  EXPECT(setField(d, "coolantColdC", "150") && d.coolantColdC == 148 && d.coolantWarmC == 149 && d.coolantHotC == 150,
+         "Cold below at the very top stops 2 short");
+  EXPECT(setField(d, "coolantHotC", "30") && d.coolantHotC == 32 && d.coolantWarmC == 31 && d.coolantColdC == 30,
+         "Hot at at the very bottom stops 2 above");
   printf("  coolant limits: in order, in range, C or F, the Wi-Fi page\n");
 }
 

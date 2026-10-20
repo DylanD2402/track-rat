@@ -35,7 +35,7 @@ def vbo(engine=True):
     """The log Track Rat would write: 20 fixes a second round the circle."""
     lines = ["File created on 20/10/2026 @ 14:03:00", "", "[header]", "satellites", "time", "", "[column names]",
              "sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag" +
-             (" RPM Throttle CoolantTemp IntakeTemp" if engine else ""), "", "[data]"]
+             (" RPM Throttle CoolantTemp IntakeTemp OilTemp" if engine else ""), "", "[data]"]
     # out lap: a quarter of the circle at 72 km/h; lap 1 at 72 km/h; lap 2 at 60; half of lap 3 at 72
     legs = [(0, CIRC / 4, 20.0), (1, CIRC, 20.0), (2, CIRC, 50 / 3), (3, CIRC / 2, 20.0)]
     t, d = 0.0, 0.0
@@ -50,7 +50,7 @@ def vbo(engine=True):
             row = (f"012 {hh:02d}{mm:02d}{ss:06.3f} {lat * 60:012.5f} {-lon * 60:012.5f} {v * 3.6:07.3f} 090.00 "
                    f"+00100.00 00.80 {lap:03d} {v * v / R / 9.81:+06.3f} +0.000 000")
             if engine:
-                row += f" {3000 + 1000 * lap:05.0f} 075.0 +092.0 +025.0"
+                row += f" {3000 + 1000 * lap:05.0f} 075.0 +092.0 +025.0 +121.0"
             lines.append(row)
             t += 0.05
             d += v * 0.05
@@ -72,7 +72,8 @@ SUMMARY = {
 
 # --- reading the log -------------------------------------------------------------------------
 s = ov.read_session(vbo(), SUMMARY)
-check(len(s.t) > 1800 and s.engine and set(s.engine) == {"RPM", "Throttle", "CoolantTemp", "IntakeTemp"}, "read the log with its engine columns")
+check(len(s.t) > 1800 and s.engine and set(s.engine) == {"RPM", "Throttle", "CoolantTemp", "IntakeTemp", "OilTemp"},
+      "read the log with its engine columns")
 check(abs(s.t[0] - utc(T0)) < 1e-6, "UTC from the file's date and the fix's time")
 check(abs(s.lat[1] - LAT0) < 1e-5 and abs(s.lon[0] - LON0) < 1e-6, "minutes back to degrees, west negative")
 check(sorted(s.lap_start) == [0, 1, 2, 3] and s.best_lap == 1, "laps and the best one")
@@ -139,7 +140,9 @@ check(drawn["speed"] == "60" and drawn["unit"] == "km/h" and drawn["lap"] == "LA
 check(drawn["lap_time"] == ov.fmt_lap(st["lap_time"]) and drawn["delta"] == ov.fmt_delta(st["delta"]) and drawn["delta"].startswith("+3.1") and drawn["delta_colour"] == ov.RED,
       f"lap time and delta {drawn.get('lap_time')} {drawn.get('delta')}")
 check(drawn["sectors"] == [ov.YELLOW], "the sector strip")
-check(drawn["rpm"] == "5000" and drawn["throttle"] == "75%" and drawn["coolant"] == "92°C", "engine")
+check(drawn["rpm"] == "5000" and drawn["throttle"] == "75%" and drawn["coolant"] == "92°C" and drawn["oil"] == "121°C", "engine")
+_, drawn_mph = ov.Overlay(s, (960, 540), "mph").frame(st)
+check(drawn_mph["coolant"] == "198°F" and drawn_mph["oil"] == "250°F", f"temperatures in F with mph: {drawn_mph.get('coolant')}")
 px = img.getpixel(drawn["car"])
 check(px[:3] == ov.BLUE[:3], f"the car's dot on the map: {px}")
 x0, y0, x1, y1 = o.map_box

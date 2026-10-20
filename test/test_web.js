@@ -245,7 +245,9 @@ const setFieldBranch = (key) => {
 // The header writes a key inside a C string as \"name\":
 const jsonKey = (k) => '\\"' + k + '\\":';
 // Page range fields and the header constants that give their limits and step
-const RANGE_CONSTS = {brightness: ["BRIGHTNESS_MIN", "BRIGHTNESS_MAX", "BRIGHTNESS_STEP"]};
+const COOLANT_CONSTS = ["COOLANT_SET_MIN_C", "COOLANT_SET_MAX_C", "TEMP_STEP_C"];
+const RANGE_CONSTS = {brightness: ["BRIGHTNESS_MIN", "BRIGHTNESS_MAX", "BRIGHTNESS_STEP"], coolantColdC: COOLANT_CONSTS,
+                      coolantWarmC: COOLANT_CONSTS, coolantHotC: COOLANT_CONSTS, oilHotC: ["OIL_SET_MIN_C", "OIL_SET_MAX_C", "TEMP_STEP_C"]};
 
 check(parseBoolSrc.includes('"true"') && parseBoolSrc.includes('"false"'), "parseBool takes \"true\" and \"false\"");
 const fieldNames = SETTINGS.map((f) => f.name);
@@ -557,6 +559,13 @@ console.log("Wi-Fi page lap comparison tests");
   const noEngine = vboToCsv(vbo.replace(" RPM Throttle CoolantTemp IntakeTemp", "").split(" 06500 087.5 +093.0 +025.0").join(""), null);
   check(col(noEngine.split("\n")[1], "rpm") === "" && col(noEngine.split("\n")[1], "coolant_c") === "", "no engine columns: empty");
   check(col(lines[1], "lap_time_s") !== "" && vboToCsv("", null).trim() === CSV_COLUMNS.join(","), "an empty log: just the header");
+  // Oil temperature (6.5): a fifth engine column; 0 (not known) is left empty, like a log without it
+  check(col(lines[1], "oil_c") === "", "a log from before oil temperature: oil empty");
+  const withOil = vbo.replace("CoolantTemp IntakeTemp", "CoolantTemp IntakeTemp OilTemp").split("\r\n");
+  const oilLog = withOil.map((l, i) => (/^012 /.test(l) ? l + (i % 2 ? " +121.5" : " +000.0") : l)).join("\r\n");
+  const oilRows = vboToCsv(oilLog, null).trim().split("\n").slice(1);
+  check(oilRows.length === rows.length && oilRows.some((l) => col(l, "oil_c") === "121.5") && oilRows.some((l) => col(l, "oil_c") === "") &&
+        oilRows.every((l) => col(l, "coolant_c") === "93.0"), "oil read, 0 left empty");
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");

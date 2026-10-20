@@ -79,6 +79,7 @@ constexpr int MIN_LAP_CHOICES = sizeof(MIN_LAP_S);
 // Settings > Coolant: what each limit can be set to (C). Cold below < Warm at < Hot at, always.
 constexpr int COOLANT_SET_MIN_C = 30, COOLANT_SET_MAX_C = 150;
 constexpr int OIL_SET_MIN_C = 80, OIL_SET_MAX_C = 180;
+constexpr int TEMP_STEP_C = 1;
 // The Coolant page's values, top to bottom
 constexpr SettingItem COOLANT_ITEMS[] = {SettingItem::CoolCold, SettingItem::CoolWarm, SettingItem::CoolHot, SettingItem::OilHot};
 constexpr int COOLANT_ROWS = 4;
@@ -231,7 +232,7 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
     case SettingItem::CoolCold: case SettingItem::CoolWarm: case SettingItem::CoolHot: case SettingItem::OilHot: {
       int lo, hi;  // 1 C steps; the others move along to keep them in order
       limitRange(item, lo, hi);
-      setLimit(d, item, number(limitValue(d, item), lo, hi, 1));
+      setLimit(d, item, number(limitValue(d, item), lo, hi, TEMP_STEP_C));
       break;
     }
     default: break;
@@ -449,12 +450,12 @@ inline bool setField(SettingsData& d, const char* key, const char* v) {
     else if (!strcmp(v, "racechrono")) d.bleProfile = BleProfile::RaceChrono;
     else return false;
   } else if (!strcmp(key, "coolantColdC") || !strcmp(key, "coolantWarmC") || !strcmp(key, "coolantHotC") || !strcmp(key, "oilHotC")) {
-    // Degrees C; the other coolant limits move along to keep them in order
-    const SettingItem it = key[0] == 'o' ? SettingItem::OilHot : key[7] == 'C' ? SettingItem::CoolCold
+    // Degrees C, from COOLANT_SET_MIN_C to COOLANT_SET_MAX_C (oil: OIL_SET_...). Kept in order:
+    // the other coolant limits move along (Cold below stops 2 short of the top, so the others fit)
+    const bool oil = key[0] == 'o';
+    const SettingItem it = oil ? SettingItem::OilHot : key[7] == 'C' ? SettingItem::CoolCold
                          : key[7] == 'W' ? SettingItem::CoolWarm : SettingItem::CoolHot;
-    int lo, hi;
-    limitRange(it, lo, hi);
-    if (!parseInt(v, lo, hi, &x)) return false;
+    if (!parseInt(v, oil ? OIL_SET_MIN_C : COOLANT_SET_MIN_C, oil ? OIL_SET_MAX_C : COOLANT_SET_MAX_C, &x)) return false;
     setLimit(d, it, x);
   } else if (!strcmp(key, "cameraRecording")) {  // "sessions" or "manual"
     if (!strcmp(v, "sessions")) d.cameraWithSessions = true;

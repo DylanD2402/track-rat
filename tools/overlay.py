@@ -106,7 +106,7 @@ def read_session(vbo_text, summary=None):
             continue
         if section == "[column names]":
             s.cols = line.split()
-            for c in ("RPM", "Throttle", "CoolantTemp", "IntakeTemp"):
+            for c in ("RPM", "Throttle", "CoolantTemp", "IntakeTemp", "OilTemp"):
                 if c in s.cols:
                     s.engine[c] = []
         elif section == "[data]" and s.cols:
@@ -471,10 +471,17 @@ class Overlay:
                 dr.rounded_rectangle((ex0, y + int(135 * k), ex0 + bar_w, y + int(160 * k)), radius=int(6 * k), outline=LINE)
                 dr.rounded_rectangle((ex0, y + int(135 * k), ex0 + bar_w * max(0.0, min(1.0, thr / 100.0)), y + int(160 * k)),
                                      radius=int(6 * k), fill=GREEN)
+            # Temperatures: 0 in the log is "not known". In F with --units mph, as on the device
+            temp = (lambda c: f"{round(c * 9 / 5 + 32)}°F") if self.units == "mph" else (lambda c: f"{round(c)}°C")
             cool = st["engine"].get("CoolantTemp")
             if cool is not None and cool > 0:
-                drawn["coolant"] = f"{round(cool)}°C"
+                drawn["coolant"] = temp(cool)
                 dr.text((ex0 + int(330 * k), y), drawn["coolant"], font=self.f_small, fill=RED if cool >= 110 else TEXT2)
+            oil = st["engine"].get("OilTemp")
+            if oil is not None and oil > 0:
+                drawn["oil"] = temp(oil)
+                dr.text((ex0 + int(330 * k), y + int(90 * k)), f"Oil {drawn['oil']}", font=self.f_small,
+                        fill=RED if oil >= 130 else TEXT2)
         return img, drawn
 
     def frame_bytes(self, st):
