@@ -53,10 +53,11 @@
 #include "WifiPortal.h"
 
 enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
-                      Setup, SettingsScreen };
+                      Setup, SettingsScreen, NewTrack };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
-                                    "WIFI",     "SETUP",      "SETTINGS"};
+                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK"};
+static int newTrackHighlight = 0;  // the NEW TRACK screen: 0 = Circuit, 1 = Course (BOOT button)
 
 static DisplayManager display;
 static GPSHandler gps;
@@ -192,7 +193,7 @@ static void moveInTrackList(int step) {
   selectedIndex = listOrder[listPos];
 }
 
-static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : MIN_LAP_TIME_MS; }
+static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : t.stage ? STAGE_MIN_RUN_MS : MIN_LAP_TIME_MS; }
 
 // Best laps (BestLap.h): the PB and today's best at the track being timed,
 // without their paths (the reference lap's path is in the lap timer)
@@ -295,6 +296,7 @@ static bool saveBestLaps(const Lap& lap, bool& isDayBest) {
 
 static void beginLapTiming(const Track& t) {
   lapTimer.begin(t.startFinish, t.splits, minLapMs(t), t.sectors);
+  if (t.stage) lapTimer.setStage(t.finish, t.hasFinish);  // point to point: runs end at the finish
   sectorsTried = !t.sectors.empty();
   overlay = RunningOverlay();
   lapOverlayUntil = splitOverlayUntil = 0;
@@ -470,7 +472,7 @@ static void enterState(AppState next) {
     slowWatch.reset();
     inPitLane = false;
     sessionStartMs = millis();
-    layoutChecked = t.bench;
+    layoutChecked = t.bench || t.stage;  // a stage is its own course
     drivenPath.clear();
     drivenM = 0;
     nextLayoutCheckM = 2000;
@@ -564,6 +566,38 @@ static void enterState(AppState next) {
 }
 
 // The driver tapped while crossing the start/finish line: save it and start lap 1.
+// NEW TRACK, then Circuit: created here, start/finish marked on the first pass.
+// Course (autocross, hill climb, sprint): a stage named with the date, starting
+// here (where the car waits to start), finish tapped on the first run.
+static void createNewTrack(bool course) {
+  if (!gps.hasFix()) return enterState(AppState::Menu);
+  const GpsFix& f = gps.lastFix();
+  int idx = course ? trackDB.createCourse(f.lat, f.lon, gps.timestampString()) : trackDB.createTrack(f.lat, f.lon);
+  if (idx < 0) return enterState(AppState::Menu);
+  selectedIndex = idx;
+  enterState(AppState::Running);
+  layoutChecked = true;  // the driver asked for a new track: don't swap it for one nearby
+  if (course) {
+    overlay.notice = "Start here: the clock starts as you go";
+    layoutNoticeUntil = millis() + 10000;
+  }
+}
+
+static void onLapEvent(const LapEvent& ev);
+
+// A stage with no finish yet: the driver tapped crossing it. Saves it and ends the run there.
+static void markFinish() {
+  if (!gps.hasFix()) return;
+  const GpsFix& f = gps.lastFix();
+  const bool courseOk = f.courseValid && f.speedKmh >= LINE_HEADING_MIN_KMH;
+  LapEvents evs = lapTimer.finishRunNow(f.lat, f.lon, f.gpsTimeMs);
+  trackDB.setFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
+  lapTimer.setStage(selectedTrack().finish, true);
+  overlay.notice = "";
+  for (const LapEvent& ev : evs) onLapEvent(ev);
+  DEBUG_PRINTLN("Finish set - the run ends here");
+}
+
 static void markStartFinish() {
   if (!gps.hasFix()) {
     DEBUG_PRINTLN("Start/finish: no GPS fix - not set");
@@ -727,7 +761,7 @@ static void saveMapFromLap() {
   const Track& t = selectedTrack();
   if (t.hasMap || t.bench || lapTimer.bestPath().size() < 10) return;
   std::vector<geo::XYf> line = lapPath(lapTimer.bestPath(), 3.0f);
-  line.push_back({0, 0});  // close the loop at the start/finish
+  if (!t.stage) line.push_back({0, 0});  // close the loop at the start/finish (a stage's run ends elsewhere)
   trackDB.setMap(selectedIndex, line);  // written to tracks.json when the session ends
 }
 
@@ -735,7 +769,17 @@ static void onLapEvent(const LapEvent& ev) {
   uint32_t now = millis();
   switch (ev.type) {
     case LapEventType::LapStarted:
-      DEBUG_PRINTF("Lap %d started\n", lapTimer.currentLapNumber());
+      DEBUG_PRINTF("%s %d started\n", lapTimer.isStage() ? "Run" : "Lap", lapTimer.currentLapNumber());
+      if (lapTimer.isStage()) {  // no finish yet: the driver taps crossing it
+        overlay.notice = lapTimer.hasFinish() ? "" : "Tap as you cross the finish";
+        layoutNoticeUntil = now + MAX_LAP_TIME_MS;
+      }
+      break;
+
+    case LapEventType::RunEnded:
+      DEBUG_PRINTF("Run %d ended without a finish - not timed\n", lapTimer.currentLapNumber());
+      overlay.notice = lapTimer.hasFinish() ? "Stopped before the finish: no time" : "No finish yet: tap at it next run";
+      layoutNoticeUntil = now + 8000;
       break;
 
     case LapEventType::LapCompleted: {
@@ -875,6 +919,18 @@ static void onTrackFix(const GpsFix& fix) {
     }
     slowWatch.onFix(fix.speedKmh, fix.gpsTimeMs, inPitLane);
     onPitEvent(pitWatch.onFix(fix.speedKmh, fix.gpsTimeMs));
+    // Point to point: stopped at the start, the run is armed
+    static bool stageArmed = false;
+    if (state == AppState::Running && lapTimer.isStage() && lapTimer.armed() != stageArmed) {
+      stageArmed = lapTimer.armed();
+      if (stageArmed) {
+        DEBUG_PRINTLN("Run armed: the clock starts as the car moves off");
+        overlay.notice = "Armed: the clock starts as you go";
+        layoutNoticeUntil = millis() + MAX_LAP_TIME_MS;
+      } else if (!lapTimer.lapRunning()) {
+        overlay.notice = "";  // left the start without going
+      }
+    }
   }
   if (state == AppState::Running) trackDrivenPath(fix);  // (the session may have just ended)
 }
@@ -930,14 +986,10 @@ static void chooseMenuItem(int item) {
     case 0:  // Free Roam
       if (gps.hasFix()) enterState(AppState::FreeRoam);
       break;
-    case 1:  // New Track: created here, start/finish marked on the first pass
+    case 1:  // New Track: a circuit or a course (the NEW TRACK screen)
       if (gps.hasFix()) {
-        int idx = trackDB.createTrack(gps.lastFix().lat, gps.lastFix().lon);
-        if (idx >= 0) {
-          selectedIndex = idx;
-          enterState(AppState::Running);
-          layoutChecked = true;  // the driver asked for a new track: don't swap it for one nearby
-        }
+        newTrackHighlight = 0;
+        enterState(AppState::NewTrack);
       }
       break;
     case 2:
@@ -1048,6 +1100,9 @@ static void handleInput(InputEvent ev) {
     case AppState::Running:
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) enterState(AppState::Summary);
       else if (settingLine) markStartFinish();  // any tap marks the line
+      else if (lapTimer.isStage() && lapTimer.lapRunning() && !lapTimer.hasFinish() && !pitView &&
+               ev != InputEvent::BootShort)
+        markFinish();  // any tap marks the finish
       else if (pitView) {  // parked: a tap or press pages through the debrief, then back to the timing screen
         if (debriefView.r.valid && pitPage == 0) pitPage = 1;
         else pitView = false;
@@ -1138,6 +1193,15 @@ static void handleInput(InputEvent ev) {
       lastRender = 0;
       break;
     }
+
+    case AppState::NewTrack:  // Circuit on the left, Course on the right, Back in the middle
+      if (ev == InputEvent::TapLeft) createNewTrack(false);
+      else if (ev == InputEvent::TapRight) createNewTrack(true);
+      else if (ev == InputEvent::TapCenter || ev == InputEvent::TapHeader || ev == InputEvent::Hold) enterState(AppState::Menu);
+      else if (ev == InputEvent::BootShort) newTrackHighlight ^= 1;
+      else if (ev == InputEvent::BootLong) createNewTrack(newTrackHighlight == 1);
+      lastRender = 0;
+      break;
 
     case AppState::Setup: {
       SettingsData s = Settings::get();
@@ -1239,6 +1303,9 @@ static void render() {
       break;
     case AppState::Setup:
       display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());
+      break;
+    case AppState::NewTrack:
+      display.drawNewTrack(input.touchAvailable() ? -1 : newTrackHighlight, input.touchAvailable());
       break;
     case AppState::Wifi:
       display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),

@@ -868,6 +868,33 @@ static void menuIcon(TFT_eSPI* g, int which, int cx, int cy, uint16_t c) {
   }
 }
 
+void DisplayManager::drawNewTrack(int highlight, bool touchOk) {
+  beginFrame();
+  header("New track", nullptr);
+  // In the left and right thirds of the screen, where the taps are
+  const int bw = W / 3 - 8, by = HEADER_H + 10, bh = 150;
+  const int bx[2] = {4, W - 4 - bw};
+  struct Item { const char* title; const char* d1; const char* d2; const char* d3; };
+  const Item items[2] = {
+    {"Circuit", "Laps. Tap the", "screen at the", "start/finish"},
+    {"Course", "Autocross, hill", "climb: starts here,", "tap at the finish"},
+  };
+  for (int i = 0; i < 2; i++) {
+    const bool hl = i == highlight;
+    gfx->fillRoundRect(bx[i], by, bw, bh, CORNER + 2, hl ? C_RAISED : C_SURFACE);
+    if (hl) gfx->drawRoundRect(bx[i], by, bw, bh, CORNER + 2, C_TEXT);
+    const int mid = bx[i] + bw / 2;
+    text(items[i].title, mid, by + 22, Font::Title, C_TEXT, TC_DATUM);
+    text(items[i].d1, mid, by + 70, Font::Caption, C_TEXT2, TC_DATUM);
+    text(items[i].d2, mid, by + 86, Font::Caption, C_TEXT2, TC_DATUM);
+    text(items[i].d3, mid, by + 102, Font::Caption, C_TEXT2, TC_DATUM);
+  }
+  text("Back", W / 2, by + bh / 2, Font::Body, C_TEXT3, MC_DATUM);
+  centered(touchOk ? "A course is named with today's date" : "BOOT: press for the other, hold to choose", 216,
+           Font::Caption, C_TEXT3);
+  endFrame();
+}
+
 void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk) {
   beginFrame();
   header(noTrackNearby ? "No track within 5 km" : "Menu", &gps);
@@ -875,7 +902,7 @@ void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrack
   struct Item { const char* title; const char* d1; const char* d2; };
   const Item items[3] = {
     {"Free Roam", "Map your drive,", "time and speed"},
-    {"New Track", "Tap the screen at", "the start/finish"},
+    {"New Track", "A circuit, or an", "autocross course"},
     {"Track List", "Pick a track or", "Bench Test"},
   };
   const int bw = W / 3, top = HEADER_H + 6, bh = MENU_WIFI_Y - top - 6;  // the second row starts at MENU_WIFI_Y

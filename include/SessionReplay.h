@@ -27,6 +27,10 @@ public:
   // the session): fills in the track's current line. Optional.
   using LineLookup = std::function<bool(const std::string& trackId, TrackPoint& sf, std::vector<TrackPoint>& splits)>;
   explicit SessionReplay(LineLookup lookup = nullptr) : lookup(lookup) {}
+  // For a point-to-point log whose header has no finish (it was set during
+  // the session): the track's finish now. Optional.
+  using FinishLookup = std::function<bool(const std::string& trackId, TrackPoint& finish)>;
+  FinishLookup finishLookup;
 
   // The track the session's summary names, if any. Set before feeding. If
   // it's another track than the header's, the session was switched to that
@@ -43,6 +47,12 @@ public:
     lineSf = sf;
     lineSplits = splits;
     lineSectors = sectors;
+  }
+  // With useLines, for a point-to-point track: its finish now (hasFinish false: none yet).
+  void useStage(const TrackPoint& finish, bool hasFinish) {
+    overrideStage = true;
+    lineFinish = finish;
+    lineHasFinish = hasFinish;
   }
 
   void feed(const char* data, size_t len);
@@ -65,6 +75,8 @@ private:
   static const size_t MAX_LINE = 255;
   LineLookup lookup;
   bool overrideLines = false;
+  bool overrideStage = false, lineHasFinish = false;
+  TrackPoint lineFinish = {0, 0, 0, 0, HeadingFrom::None};
   TrackPoint lineSf = {0, 0, 0, 0, HeadingFrom::None};
   std::vector<TrackPoint> lineSplits, lineSectors;
   vbo::Reader rdr;

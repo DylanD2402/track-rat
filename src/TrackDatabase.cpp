@@ -68,6 +68,11 @@ static void readPoint(JsonObject j, TrackPoint& p) {
 static void readLayout(JsonObject src, Track& track) {
   readPoint(src["startFinish"], track.startFinish);
   track.hasStartFinish = track.startFinish.lat != 0.0 || track.startFinish.lon != 0.0;
+  if (strcmp(src["type"] | "", "stage") == 0) track.stage = true;  // (or the venue's "type")
+  if (track.stage) {
+    readPoint(src["finish"], track.finish);
+    track.hasFinish = track.finish.lat != 0.0 || track.finish.lon != 0.0;
+  }
   track.hasMap = src["map"].as<JsonArray>().size() > 0;
   // "pit" counts lines of "map"; readMapLines leaves out lines under two points, so count as it does
   uint16_t kept = 0, idx = 0;
@@ -413,6 +418,8 @@ static void writeTrack(JsonObject o, const Track& t) {
   o["center"]["lat"] = serialized(String(t.centerLat, 7));
   o["center"]["lon"] = serialized(String(t.centerLon, 7));
   if (t.hasStartFinish && t.layoutIndex < 0) writePoint(o.createNestedObject("startFinish"), t.startFinish);
+  if (t.stage) o["type"] = "stage";
+  if (t.stage && t.hasFinish && t.layoutIndex < 0) writePoint(o.createNestedObject("finish"), t.finish);
 }
 
 // Like findLayout, but adds the entry or layout if it isn't in the file.
@@ -498,6 +505,59 @@ int TrackDatabase::createTrack(double lat, double lon) {
   tracks.insert(tracks.begin() + idx, t);
   DEBUG_PRINTF("Tracks: created '%s' at %.6f, %.6f\n", t.name.c_str(), lat, lon);
   return idx;
+}
+
+int TrackDatabase::createCourse(double lat, double lon, const String& stamp) {
+  // "Course 2026-10-20", and "Course 2026-10-20 (2)" for a second that day
+  const String date = stamp.length() >= 8 ? stamp.substring(0, 4) + "-" + stamp.substring(4, 6) + "-" + stamp.substring(6, 8)
+                                          : String("new");
+  String id = "course-" + date, name = "Course " + date;
+  for (int n = 2;; n++) {
+    bool taken = false;
+    for (const Track& t : tracks) taken = taken || t.venueId == id;
+    if (!taken) break;
+    id = "course-" + date + "-" + n;
+    name = "Course " + date + " (" + n + ")";
+  }
+  Track t;
+  t.id = id;
+  t.venueId = id;
+  t.name = name;
+  t.location = "Created on the timer";
+  t.stage = true;
+  t.startFinish = {lat, lon, (float)DEFAULT_GATE_HALF_WIDTH_M};  // no direction: standing starts only
+  t.hasStartFinish = true;
+  t.centerLat = lat;
+  t.centerLon = lon;
+  bool ok = editFile(1024, [&](JsonArray arr) {
+    writeTrack(arr.createNestedObject(), t);
+    return true;
+  });
+  if (!ok) DEBUG_PRINTLN("Tracks: new course not saved (kept for this session only)");
+  int idx = insertIndex();
+  tracks.insert(tracks.begin() + idx, t);
+  DEBUG_PRINTF("Tracks: created course '%s', start at %.6f, %.6f\n", t.name.c_str(), lat, lon);
+  return idx;
+}
+
+bool TrackDatabase::setFinish(int index, double lat, double lon, float headingDeg) {
+  if (index < 0 || index >= (int)tracks.size()) return false;
+  Track& t = tracks[index];
+  if (!t.stage) return false;
+  t.finish = {lat, lon, t.finish.radius > 0 ? t.finish.radius : (float)DEFAULT_GATE_HALF_WIDTH_M};
+  if (headingDeg >= 0) {
+    t.finish.heading = headingDeg;
+    t.finish.headingFrom = HeadingFrom::Set;
+  }
+  t.hasFinish = true;
+  DEBUG_PRINTF("Tracks: finish for '%s' set to %.7f, %.7f, direction %s\n", t.displayName().c_str(), lat, lon,
+               headingDeg >= 0 ? String(headingDeg, 0).c_str() : "none");
+  return editFile(1024, [&](JsonArray arr) {
+    JsonObject o = findOrAddLayout(arr, t);
+    o["type"] = "stage";
+    writePoint(o.createNestedObject("finish"), t.finish);
+    return true;
+  });
 }
 
 bool TrackDatabase::setStartFinish(int index, double lat, double lon, float headingDeg) {

@@ -79,7 +79,7 @@ std::string headerText(const Header& h) {
   }
   if (h.hasStart) {
     s += "\r\n[laptiming]\r\n";
-    appendGate(s, "Start  ", h.start, "StartFinish");
+    appendGate(s, "Start  ", h.start, h.hasFinish ? "Start" : "StartFinish");
     for (size_t i = 0; i < h.splits.size(); i++) {
       snprintf(buf, sizeof(buf), "S%u", (unsigned)(i + 1));
       appendGate(s, "Split  ", h.splits[i], buf);
@@ -88,6 +88,7 @@ std::string headerText(const Header& h) {
       snprintf(buf, sizeof(buf), "T%u", (unsigned)(i + 1));
       appendGate(s, "Split  ", h.sectors[i], buf);
     }
+    if (h.hasFinish) appendGate(s, "Finish ", h.finish, "Finish");
   }
   s += "\r\n[column names]\r\n";
   s += COLUMN_NAMES;

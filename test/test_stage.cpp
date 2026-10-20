@@ -5,14 +5,20 @@
  * finish, splits, the live delta to the best run, a run with no finish set
  * (ends when the car stops, or at a tap), and a run that stops short.
  *
- *   g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp -o /tmp/stg && /tmp/stg
+ * Then the same runs from a .vbo log: a stage log (Type: stage, Finish) timed
+ * again gives the same runs, and re-timing with a finish set later times them.
+ *
+ *   g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/stg && /tmp/stg
  */
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
 #include "LapTimer.h"
+#include "SessionReplay.h"
+#include "VboFormat.h"
 #include "check.h"
 
 static const double REF_LAT = 45.0, REF_LON = -75.0;
@@ -31,6 +37,7 @@ struct Car {
   std::vector<LapEvent> events;
   int32_t lastDelta = NO_DELTA;
   uint32_t stoppedUntilMs = 0;  // time of the last fix at a standstill
+  std::vector<vbo::Sample> log;  // every fix, as a .vbo would hold it
 
   explicit Car(LapTimer& t) : timer(t) {}
 
@@ -40,6 +47,14 @@ struct Car {
     for (const LapEvent& e : timer.onFix(lat, lon, kmh, ms, ms, -1)) events.push_back(e);
     if (timer.liveDeltaMs() != NO_DELTA) lastDelta = timer.liveDeltaMs();
     if (kmh < 1) stoppedUntilMs = ms;
+    vbo::Sample smp;
+    smp.utcMs = ms;
+    smp.lat = lat;
+    smp.lon = lon;
+    smp.speedKmh = kmh;
+    smp.sats = 12;
+    smp.hdop = 0.8f;
+    log.push_back(smp);
     ms += 50;
   }
   void wait(double seconds) {
@@ -229,6 +244,72 @@ int main() {
     LapTimer timer;
     timer.begin(at(0, 0), {}, MIN_LAP_TIME_MS);
     CHECK(!timer.isStage() && !timer.armed(), "a circuit isn't a stage");
+  }
+
+  // Timed again from the log: the header says it's a stage and where the finish is
+  {
+    LapTimer live;
+    live.begin(at(0, 0), {}, STAGE_MIN_RUN_MS);
+    live.setStage(at(300, 200, 0), true);
+    Car c(live);
+    c.wait(3);
+    run(c, 80);
+    back(c);
+    c.wait(4);
+    run(c, 85);
+    vbo::Header h;
+    h.year = 2026;
+    h.month = 10;
+    h.day = 20;
+    h.utcMs = c.log.front().utcMs;
+    h.comments = {"Type: stage", "Track: course-2026-10-20", "Start/finish: " + vbo::pointText(at(0, 0)),
+                  "Finish: " + vbo::pointText(at(300, 200, 0)), "Min lap ms: 5000"};
+    std::string text = vbo::headerText(h);
+    char buf[256];
+    for (vbo::Sample smp : c.log) {
+      smp.lap = 0;
+      size_t n = vbo::formatLine(smp, buf, sizeof(buf));
+      text.append(buf, n);
+    }
+    SessionReplay replay;
+    replay.feed(text.data(), text.size());
+    replay.finish();
+    CHECK(replay.timed && replay.timer.isStage() && replay.timer.hasFinish(), "replayed as a stage");
+    CHECK(replay.timer.lapCount() == live.lapCount() && live.lapCount() == 2, "same runs: %d and %d",
+          (int)replay.timer.lapCount(), (int)live.lapCount());
+    for (size_t i = 0; i < live.lapCount() && i < replay.timer.lapCount(); i++)
+      CHECK(abs((int)replay.timer.lap(i).timeMs - (int)live.lap(i).timeMs) <= 1, "run %d: %lu vs %lu", (int)i + 1,
+            (unsigned long)replay.timer.lap(i).timeMs, (unsigned long)live.lap(i).timeMs);
+
+    // A log with no finish (the runs ended when the car stopped), re-timed once the finish is set
+    vbo::Header h2 = h;
+    h2.comments = {"Type: stage", "Track: course-2026-10-20", "Start/finish: " + vbo::pointText(at(0, 0)),
+                   "Min lap ms: 5000"};
+    std::string text2 = vbo::headerText(h2) + text.substr(vbo::headerText(h).size());
+    SessionReplay none;
+    none.feed(text2.data(), text2.size());
+    none.finish();
+    CHECK(none.timer.isStage() && !none.timer.hasFinish() && none.timer.lapCount() == 0, "no finish: no times");
+    SessionReplay retimed;
+    retimed.useLines(at(0, 0), {}, {});
+    retimed.useStage(at(300, 200, 0), true);
+    retimed.feed(text2.data(), text2.size());
+    retimed.finish();
+    CHECK(retimed.timer.lapCount() == 2, "re-timed with the finish: %d runs", (int)retimed.timer.lapCount());
+  }
+
+  // The [laptiming] section names a stage's lines Start and Finish
+  {
+    vbo::Header h;
+    h.hasStart = true;
+    h.start = {45.0, -75.0, 45.0001, -75.0};
+    h.hasFinish = true;
+    h.finish = {45.001, -75.0, 45.0011, -75.0};
+    const std::string t = vbo::headerText(h);
+    CHECK(t.find("\xC2\xAC Start\r\n") != std::string::npos, "start named Start");
+    CHECK(t.find("Finish ") != std::string::npos && t.find("\xC2\xAC Finish\r\n") != std::string::npos, "finish line");
+    h.hasFinish = false;
+    CHECK(vbo::headerText(h).find("StartFinish") != std::string::npos, "a circuit's line is StartFinish");
   }
 
   if (failures) {
