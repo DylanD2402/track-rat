@@ -212,6 +212,8 @@ Sizes are relative: S small, M medium, L large.
 - A note for each session (pressures, weather, setup, your instructor's advice), typed on the phone and saved with the session and its exports.
 - Later: hold the button on the debrief screen to record a 30 s voice note with the board's microphone, played back on the Wi-Fi page. The thought is freshest in the car.
 
+**Status: done** (2026-10-20, commit COMMIT) for text notes. Voice notes wait behind `VOICE_NOTES_ENABLED` (0) in `Config.h` until the ES8311 codec is brought up on a board.
+
 ### Phase 4: More ways to drive
 
 **4.1 Unknown tracks learn themselves (M)**
