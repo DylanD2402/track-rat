@@ -35,6 +35,11 @@ int main() {
     CHECK(parse(0x7E8, cool, 8, v, 1020) == PID_COOLANT && fabsf(v.coolantC - 83) < 0.01f, "coolant %.1f", v.coolantC);
     const uint8_t cold[8] = {0x03, 0x41, 0x05, 0x00, 0, 0, 0, 0};
     CHECK(parse(0x7E8, cold, 8, v, 1030) == PID_COOLANT && fabsf(v.coolantC + 40) < 0.01f, "-40 C");
+    const uint8_t intake[8] = {0x03, 0x41, 0x0F, 0x41, 0, 0, 0, 0};  // 65 - 40 = 25 C
+    CHECK(parse(0x7E8, intake, 8, v, 1040) == PID_INTAKE && fabsf(v.intakeC - 25) < 0.01f && v.intakeKnown(1040), "intake %.1f", v.intakeC);
+    const uint8_t pedal[8] = {0x03, 0x41, 0x49, 0x80, 0, 0, 0, 0};
+    CHECK(parse(0x7E8, pedal, 8, v, 1050) == PID_PEDAL_D && fabsf(v.throttlePct - 50.2f) < 0.1f, "pedal as throttle %.1f", v.throttlePct);
+    CHECK(parse(0x7E8, thr, 8, v, 1010) == PID_THROTTLE, "(throttle back to 100%%)");
 
     // Everything else on the bus is ignored, and leaves the values alone
     const float before = v.rpm;
