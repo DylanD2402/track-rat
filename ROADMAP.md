@@ -138,6 +138,8 @@ Sizes are relative: S small, M medium, L large.
 - Your PB and its date show on arrival and in the track list. Beating it flashes the screen purple.
 - **Why:** AiM and VBOX both let you load a reference lap, and people return to the same tracks again and again.
 
+**Status: done** (2026-10-20, commit 7b31515)
+
 **2.2 Automatic corner sectors (M)**
 
 - After the first clean lap at a track, split the lap at the fastest point before each braking zone, and merge any tiny pieces. A road course usually ends up with 8–14 sectors, about one per corner or complex, numbered T1, T2 and so on from the line.
