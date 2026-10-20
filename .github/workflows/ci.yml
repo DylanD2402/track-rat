@@ -76,6 +76,8 @@ jobs:
         run: python3 test/test_fetch_tracks.py
       - name: test_imu
         run: g++ -std=c++17 -Iinclude test/test_imu.cpp -o /tmp/imu && /tmp/imu
+      - name: test_obd
+        run: g++ -std=c++17 -Iinclude test/test_obd.cpp -o /tmp/obd && /tmp/obd
 
   firmware:
     name: Firmware build
