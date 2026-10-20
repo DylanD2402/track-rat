@@ -73,7 +73,9 @@ Leave it running with the board plugged in. Every 30 s it checks the current bra
 2. builds and flashes the board
 3. restarts the board and saves 30 s of its log to `logs/`
 
-A failed build is reported and nothing is flashed. If you have uncommitted edits to the code, it won't pull until you commit or stash them.
+A failed build is reported and nothing is flashed; it tries again when a newer commit arrives. If you have uncommitted edits to the code, it won't pull until you commit or stash them.
+
+**Board unplugged?** It remembers the last commit that actually reached the board (`logs/.last_flashed`). Until the board's port appears it just waits, then flashes the latest commit, with `uploadfs` too if anything for the file system changed since. So nothing is missed while the board is away.
 
 When a commit changes the Wi-Fi page (`web/`) or `data/` (such as `tracks.json`), it also runs `uploadfs`. **That wipes sessions and tracks saved in internal flash** (boards without an SD card); the SD card is never touched. `--uploadfs` does it on every commit.
 

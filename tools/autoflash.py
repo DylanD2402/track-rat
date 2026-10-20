@@ -11,6 +11,11 @@ changes the Wi-Fi page (web/) or data/, it also uploads the file system
 (pio run -t uploadfs). That wipes sessions saved in flash (not the SD card),
 so it only happens when those files change; --uploadfs forces it.
 
+It remembers the last commit that actually reached the board (logs/.last_flashed).
+If the board isn't plugged in, it waits for the port to appear and then
+flashes everything it missed, file system included if that changed. A
+commit that fails to build isn't retried until a newer one arrives.
+
 --push-logs also commits each log to a "device-logs" branch so it can be
 read without copying it by hand. Logs contain GPS positions (where the
 board is), so only use this if the repository is private.
@@ -81,9 +86,10 @@ FS_PATHS = ("web", "data", "tools/build_web.py")
 
 
 def fs_changed(old, new):
-    """True if anything that goes into the file system image changed between two commits."""
+    """True if anything that goes into the file system image changed between two commits.
+    With no known previous commit, what's on the board is unknown: upload it."""
     if not old:
-        return False
+        return True
     r = run(["git", "diff", "--name-only", old, new, "--", *FS_PATHS], check=False)
     return r.returncode != 0 or bool(r.stdout.strip())
 
@@ -153,12 +159,40 @@ def push_log(path, sha):
     say(f"log pushed to branch {LOG_BRANCH}")
 
 
+LAST_FLASHED = os.path.join(LOG_DIR, ".last_flashed")
+
+
+def read_last_flashed():
+    try:
+        with open(LAST_FLASHED, encoding="utf-8") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def write_last_flashed(sha):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    with open(LAST_FLASHED, "w", encoding="utf-8") as f:
+        f.write(sha + "\n")
+
+
+def port_present(port):
+    try:
+        import serial.tools.list_ports
+        return any(p.device.upper() == port.upper() for p in serial.tools.list_ports.comports())
+    except Exception:
+        return True  # can't tell: try anyway
+
+
 def handle(sha, args, old=None):
+    """Flash one commit. Returns "ok", "build" (it doesn't build) or "upload" (the board didn't take it)."""
     ok, build_out = flash(args.env, args.port)
+    built_bad = "error:" in build_out and "Compiling" in build_out and "Failed to connect" not in build_out  # as flash() decides
+    status = "ok" if ok else ("build" if built_bad else "upload")
     if ok and (args.uploadfs or fs_changed(old, sha)):
         fs_ok, fs_out = upload_fs(args.env, args.port)
         if not fs_ok:
-            ok, build_out = False, fs_out
+            ok, build_out, status = False, fs_out, "upload"
     os.makedirs(LOG_DIR, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     path = os.path.join(LOG_DIR, f"{stamp}_{sha[:7]}.log")
@@ -180,6 +214,7 @@ def handle(sha, args, old=None):
             push_log(path, sha)
         except Exception as e:
             say(f"could not push the log: {e}")
+    return status
 
 
 def main():
@@ -201,8 +236,11 @@ def main():
     if args.push_logs:
         say("logs will be pushed to the 'device-logs' branch (they include GPS positions)")
 
-    if args.now:
-        handle(git("rev-parse", "HEAD"), args)
+    last = None if args.now else read_last_flashed()  # --now: flash what's checked out, whatever the board has
+    if last:
+        say(f"the board last got {last[:7]}")
+    broken = None      # a commit that failed to build: not retried until a newer one arrives
+    waiting = False    # already said we're waiting for the board
 
     while True:
         try:
@@ -215,7 +253,20 @@ def main():
                     msg = git("log", "-1", "--format=%s", f"origin/{branch}")
                     say(f"new commit {remote[:7]}: {msg}")
                     git("pull", "--ff-only", "--quiet", "origin", branch)
-                    handle(remote, args, old=local)
+            head = git("rev-parse", "HEAD")
+            if head != last and head != broken:
+                if not port_present(args.port):
+                    if not waiting:
+                        say(f"{head[:7]} isn't on the board yet: waiting for {args.port} (plug the board in)")
+                        waiting = True
+                else:
+                    waiting = False
+                    status = handle(head, args, old=last)
+                    if status == "ok":
+                        last = head
+                        write_last_flashed(head)
+                    elif status == "build":
+                        broken = head
         except KeyboardInterrupt:
             raise
         except Exception as e:
