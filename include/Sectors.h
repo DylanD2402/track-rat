@@ -85,7 +85,7 @@ inline std::vector<Cut> findCuts(const std::vector<PathPt>& lap, int32_t minPiec
   size_t ext = 0;  // the highest point while rising, the lowest while falling
   for (size_t i = 1; i < v.size(); i++) {
     if (rising) {
-      if (v[i] > v[ext]) ext = i;
+      if (v[i] >= v[ext]) ext = i;  // the last of a flat top (top speed): the cut goes just before braking
       else if (v[i] <= v[ext] - minDropKmh) {
         peaks.push_back(ext);
         rising = false;
