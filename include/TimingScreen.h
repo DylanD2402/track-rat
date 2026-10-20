@@ -123,16 +123,6 @@ inline Mark sectorMark(int32_t ms, int32_t bestEverMs, int32_t bestDayMs) {
   return Mark::Slower;
 }
 
-// The lowest of two lists of best times, sector by sector (-1 or 0: none).
-inline std::vector<int32_t> bestOf(const std::vector<int32_t>& a, const std::vector<int32_t>& b) {
-  std::vector<int32_t> out(a.size() > b.size() ? a.size() : b.size(), -1);
-  for (size_t i = 0; i < out.size(); i++) {
-    const int32_t x = i < a.size() ? a[i] : -1, y = i < b.size() ? b[i] : -1;
-    out[i] = x <= 0 ? (y > 0 ? y : -1) : (y <= 0 || x < y) ? x : y;
-  }
-  return out;
-}
-
 // The strip for the lap under way: gateMs is its elapsed time at each sector
 // gate so far (-1: not yet, or missed), so `sectors` = gateMs.size() + 1. A
 // sector is finished when its end gate is crossed; one before a crossed gate

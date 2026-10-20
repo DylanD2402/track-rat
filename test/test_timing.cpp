@@ -86,11 +86,6 @@ static void testSectorStrip() {
   CHECK(sectorMark(10100, -1, 10500) == Mark::Ever, "nothing ever: it's the best");
   CHECK(sectorMark(10100, 9000, -1) == Mark::Day, "nothing today: it's today's best");
 
-  std::vector<int32_t> a = {9000, -1, 12000, 0}, b = {9500, 8000, -1};
-  std::vector<int32_t> m = bestOf(a, b);
-  CHECK(m.size() == 4 && m[0] == 9000 && m[1] == 8000 && m[2] == 12000 && m[3] == -1, "bestOf %d %d %d %d", m[0], m[1],
-        m[2], m[3]);
-
   const std::vector<int32_t> ever = {10000, 15000, 20000, 9000}, day = {10500, 15500, 21000, 9500};
   // No sectors at all
   CHECK(sectorStrip({}, ever, day).size() == 1, "no gates: one sector, the whole lap");

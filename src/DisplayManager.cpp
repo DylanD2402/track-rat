@@ -567,10 +567,9 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
 
   // --- the sector strip: purple best ever, green best of the day, yellow slower ---
   const size_t gates = timer.sectorGates().size();
-  if (gates > 0) {
+  if (gates > 0 && timer.lapRunning()) {
     const std::vector<timing::Mark> marks =
-        timing::sectorStrip(timer.lapRunning() ? timer.currentSectorMs() : std::vector<int32_t>(gates, -1),
-                            ov.sectorBestEver, ov.sectorBestDay);
+        timing::sectorStrip(timer.currentSectorMs(), ov.sectorBestEver, ov.sectorBestDay);
     const int n = (int)marks.size(), gap = n > 12 ? 2 : 4;
     const int bw = (W - 8 - gap * (n - 1)) / n;
     const int x0 = 4 + (W - 8 - (bw * n + gap * (n - 1))) / 2;
@@ -762,7 +761,7 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
     uint16_t bg = timing::flashColour(fl, pal), fg = timing::flashTextColour(fl);
     gfx->fillRoundRect(PANEL_X - 4, y, PANEL_W + 4, 46, CORNER, bg);
     char buf[16];
-    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb ? "LAP %d PB" : fl == timing::LineFlash::DayBest ? "LAP %d BEST" : "LAP %d",
+    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb ? "LAP %d PB" : ov.lapIsBest ? "LAP %d BEST" : "LAP %d",
              ov.lapNumber);
     text(buf, PANEL_X + 2, y + 6, Font::Caption, fg);
     text(formatLapTime(ov.lapMs, 1), PANEL_X + 2, y + 20, Font::Title, fg);

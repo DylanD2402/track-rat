@@ -171,6 +171,8 @@ Sizes are relative: S small, M medium, L large.
 - **While moving,** ignore quick taps (vibration, rain). A firm press switches the view.
 - Test outdoors at full brightness. Colour blocks in sunlight are the real test of this screen.
 
+**Status: done** (2026-10-20, commit PENDING)
+
 **2.5 Screens that follow the situation (S)**
 
 - **Slow** (under 40 km/h for 5 s, or in the pit lane when `tracks.json` marks it; the OpenStreetMap scripts already know which ways are pit lanes): big speed, last lap, session clock. The timing screen comes back when you speed up. The threshold needs to sit below the slowest hairpins.
