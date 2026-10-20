@@ -53,9 +53,11 @@ public:
   void drawGpsWait(const GPSHandler& gps, int trackCount, const char* trackSource, bool touchOk, bool statusOnly);
   void drawTrackSelect(const Track& track, int index, int count, double distanceM, const GPSHandler& gps,
                        bool touchOk);
-  // layoutNumber is 0-based; layoutCount > 1 offers "tap the top bar for the next layout"
+  // layoutNumber is 0-based; layoutCount > 1 offers "tap the top bar for the next layout".
+  // fromList: reached from the track list, so the left button is "Back" (otherwise "Menu").
+  // autoStart: waiting for the car to drive off, which starts the session by itself.
   void drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk, int layoutNumber = 0,
-                        int layoutCount = 1);
+                        int layoutCount = 1, bool fromList = false, bool autoStart = false);
   void drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                    const RunningOverlay& overlay, uint32_t holdMs);
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,

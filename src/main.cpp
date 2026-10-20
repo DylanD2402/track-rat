@@ -4,13 +4,16 @@
  * Board: LCDWiki ES3C28P (ESP32-S3 N16R8, 2.8" ILI9341V touch display, SD slot)
  * GPS:   Beitian BE-252Q (UART connector or expansion header, found at boot)
  *
- * Flow: logo -> GPS fix -> a track within 5 km? start a session on it (timing
- *       begins at the start/finish line) : menu (Free Roam / New Track /
- *       Track list). Tracks without a start/finish line get one by tapping
- *       the screen while crossing it.
+ * Flow: logo -> GPS fix -> a track within 5 km? already moving: start a session
+ *       on it (timing begins at the start/finish line); parked: its Ready
+ *       screen, which starts the session when the car drives off (Menu is
+ *       one button away) : menu (Free Roam / New Track / Track list). Tracks
+ *       without a start/finish line get one by tapping the screen while
+ *       crossing it.
  */
 
 #include <Arduino.h>
+#include "AutoStart.h"
 #include "Config.h"
 #include "DisplayManager.h"
 #include "FirmwareUpdate.h"
@@ -60,6 +63,14 @@ static bool listSorted = false;  // ordered by distance (false: no GPS fix when 
 static int menuHighlight = 0;
 static bool autoPickDone = false;
 static bool noTrackNearby = false;
+
+// The Ready screen: where it was entered from decides whether its left button
+// is "Back" (to the track list) or "Menu". Auto-start: a track was picked at
+// boot with the car parked, so the screen starts the session by itself once
+// the car drives off (see AutoStart.h). It ends when the screen is left.
+static bool readyFromList = false;
+static bool autoStart = false;
+static DriveOffDetector driveOff;
 
 // Lap-timing session
 static bool settingLine = false;  // waiting for the driver to tap at the start/finish line
@@ -280,6 +291,9 @@ static void enterState(AppState next) {
   }
 
   if (next == AppState::GpsStatus) statusReturn = state;
+
+  if (next == AppState::TrackConfirm && state != AppState::TrackConfirm) readyFromList = state == AppState::TrackSelect;
+  if (state == AppState::TrackConfirm && next != AppState::TrackConfirm) autoStart = false;
 
   // Opening the track list from the menu: nearest first. Coming back to it
   // (from a track's Ready screen or GPS status): stay on the same track.
@@ -627,8 +641,8 @@ static void handleInput(InputEvent ev) {
         settingLine = true;    // mark a new start/finish (replaces the old one)...
         layoutChecked = true;  // ...on the layout the driver picked, not one the check finds
       } else if (ev == InputEvent::TapLeft || ev == InputEvent::BootShort) {
-        enterState(AppState::TrackSelect);
-      } else if (ev == InputEvent::TapHeader) {  // next layout of this venue
+        enterState(readyFromList ? AppState::TrackSelect : AppState::Menu);
+      } else if (ev == InputEvent::TapHeader) {  // next layout of this venue (still waiting for the car to drive off)
         selectedIndex = trackDB.nextLayout(selectedIndex);
         lastRender = 0;
       }
@@ -687,8 +701,9 @@ static void handleInput(InputEvent ev) {
       break;
     }
 
-    case AppState::Summary:  // back to this track's Ready screen, to go out again
+    case AppState::Summary:  // MENU button, or on to this track's Ready screen to go out again
       if (tappedWifi(ev, DisplayManager::WIFI_BUTTON_Y) || ev == InputEvent::BootLong) enterState(AppState::Wifi);
+      else if (ev == InputEvent::TapLeft && input.lastTapY() >= DisplayManager::WIFI_BUTTON_Y - 4) enterState(AppState::Menu);
       else if (ev != InputEvent::Hold) enterState(AppState::TrackConfirm);
       break;
 
@@ -757,7 +772,7 @@ static void render() {
     case AppState::TrackConfirm:
       display.drawTrackConfirm(selectedTrack(), distanceToTrack(selectedIndex), gps.hasFix(),
                                input.touchAvailable(), trackDB.layoutNumber(selectedIndex),
-                               trackDB.layoutCount(selectedIndex));
+                               trackDB.layoutCount(selectedIndex), readyFromList, autoStart);
       break;
     case AppState::Running:
       if (settingLine) {
@@ -805,8 +820,10 @@ static void render() {
   }
 }
 
-// Once the GPS has a fix: a track within range starts a session on it
-// straight away; otherwise show the menu.
+// Once the GPS has a fix: a track within range is picked. If the car is
+// already moving the session starts on it straight away; if it's parked, the
+// track's Ready screen waits for the car to drive off (so the menu is one
+// button away). With no track in range, show the menu.
 static void autoPickTrack() {
   if (autoPickDone || !gps.hasFix()) return;
   if (state != AppState::GpsWait && state != AppState::Menu) return;
@@ -815,8 +832,15 @@ static void autoPickTrack() {
   int nearest = trackDB.findNearest(gps.lastFix().lat, gps.lastFix().lon, TRACK_DETECTION_RADIUS_M, &dist);
   if (nearest >= 0) {
     selectedIndex = nearest;
-    DEBUG_PRINTF("Nearest track: %s (%.0f m) - starting a session\n", selectedTrack().name.c_str(), dist);
-    enterState(AppState::Running);
+    if (gps.lastFix().speedKmh >= AUTO_START_KMH) {
+      DEBUG_PRINTF("Nearest track: %s (%.0f m) - already moving, starting a session\n", selectedTrack().name.c_str(), dist);
+      enterState(AppState::Running);
+    } else {
+      DEBUG_PRINTF("Nearest track: %s (%.0f m) - ready, starts when you drive off\n", selectedTrack().name.c_str(), dist);
+      enterState(AppState::TrackConfirm);
+      autoStart = true;
+      driveOff.reset();
+    }
   } else {
     noTrackNearby = true;
     DEBUG_PRINTF("No track within %.0f km\n", TRACK_DETECTION_RADIUS_M / 1000.0);
@@ -1012,6 +1036,11 @@ void loop() {
       freeRoam.onFix(fix.lat, fix.lon, fix.speedKmh);
     } else if (state == AppState::Performance) {
       if (perfRun.onFix(fix.gpsTimeMs, fix.speedKmh, fix.altM) > 0) onPerfResult();
+    } else if (state == AppState::TrackConfirm && autoStart && gps.hasFix()) {
+      if (driveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
+        DEBUG_PRINTLN("Driving off - starting a session");
+        enterState(AppState::Running);
+      }
     }
   }
 

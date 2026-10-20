@@ -399,7 +399,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
 }
 
 void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk,
-                                      int layoutNumber, int layoutCount) {
+                                      int layoutNumber, int layoutCount, bool fromList, bool autoStart) {
   beginFrame();
   char buf[64];
   if (layoutCount > 1 && touchOk) {
@@ -429,7 +429,14 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   text(status, (W - pw) / 2 + 26, y + 13, Font::Body, C_TEXT, ML_DATUM);
 
   y = max(y + 40, 118);
-  if (track.hasStartFinish) {
+  if (autoStart) {
+    centered("Starts by itself when you drive off", y, Font::Body, C_GREEN);
+    if (track.hasStartFinish) {
+      centered("Timing begins at the start/finish line", y + 19, Font::Body, C_TEXT);
+    } else {
+      centered("Then tap the screen as you cross the line", y + 19, Font::Body, C_YELLOW);
+    }
+  } else if (track.hasStartFinish) {
     centered("Timing starts when you cross", y, Font::Body, C_TEXT);
     centered("the start/finish line", y + 19, Font::Body, C_TEXT);
   } else {
@@ -438,8 +445,8 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   }
   centered(String("Laps are saved to ") + Storage::sessionFSName(), y + 46, Font::Caption, C_TEXT3);
 
-  if (touchOk) footerButtons("Back", "Start", track.bench ? "" : "Set line");
-  else centered("BOOT: hold to start, press to go back", 212, Font::Body, C_TEXT3);
+  if (touchOk) footerButtons(fromList ? "Back" : "Menu", "Start", track.bench ? "" : "Set line");
+  else centered(fromList ? "BOOT: hold to start, press to go back" : "BOOT: hold to start, press for menu", 212, Font::Body, C_TEXT3);
   endFrame();
 }
 
@@ -886,8 +893,10 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
 
   String saved = savedPath.length() ? "Saved to " + String(Storage::sessionFSName()) + ": " + savedPath : String("Not saved");
   text(fit(saved, Font::Caption, W - 24), 12, 186, Font::Caption, C_TEXT3, ML_DATUM);
-  text("Tap or press BOOT", W / 3, WIFI_BUTTON_Y + 12, Font::Body, C_TEXT, MC_DATUM);
-  text("to continue", W / 3, WIFI_BUTTON_Y + 30, Font::Body, C_TEXT2, MC_DATUM);
+  // Menu and Again in the left and centre thirds, Wi-Fi in the right (the taps are in main.cpp)
+  const int bw = W / 3, bh = H - WIFI_BUTTON_Y - 4;
+  button(4, WIFI_BUTTON_Y, bw - 8, bh, "Menu", false);
+  button(bw + 4, WIFI_BUTTON_Y, bw - 8, bh, "Again", true);
   wifiButton(WIFI_BUTTON_Y, H - WIFI_BUTTON_Y - 4, false, true);
   endFrame();
 }
