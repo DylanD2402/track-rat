@@ -464,11 +464,11 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
 // ahead and red behind (or blue and orange) with black digits, and the trend
 // bar beside it; two smaller numbers; the sector strip. At the line the whole
 // screen flashes the lap time and its gap.
-static const int BAND_Y = HEADER_H + 4, BAND_H = 88;
+static const int BAND_Y = HEADER_H + 4, BAND_H = 104;
 static const int TREND_W = 14, TREND_X = W - 4 - TREND_W;
 static const int BAND_W = TREND_X - 6 - 4;
-static const int ROW_Y = BAND_Y + BAND_H + 6;  // the two smaller numbers
-static const int STRIP_Y = 186, STRIP_H = H - STRIP_Y - 4;
+static const int ROW_Y = BAND_Y + BAND_H + 4;  // the two smaller numbers
+static const int STRIP_Y = 190, STRIP_H = H - STRIP_Y - 4;
 
 void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                                  const RunningOverlay& ov, uint32_t holdMs) {
@@ -513,8 +513,8 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
   const int bandMid = 4 + BAND_W / 2;
   if (!timer.lapRunning()) {
     gfx->fillRoundRect(4, BAND_Y, BAND_W, BAND_H, CORNER, C_SURFACE);
-    text("Out lap", bandMid, BAND_Y + 22, Font::Title, C_YELLOW, TC_DATUM);
-    text("Cross the start/finish line to begin timing", bandMid, BAND_Y + 56, Font::Caption, C_TEXT2, TC_DATUM);
+    text("Out lap", bandMid, BAND_Y + 28, Font::Title, C_YELLOW, TC_DATUM);
+    text("Cross the start/finish line to begin timing", bandMid, BAND_Y + 64, Font::Caption, C_TEXT2, TC_DATUM);
   } else {
     const uint16_t bg = haveDelta ? timing::deltaColour(liveDelta, pal) : C_SURFACE;
     const uint16_t fg = haveDelta ? C_BG : C_TEXT;
@@ -524,7 +524,7 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
                                              : formatLapTime(lapMs, 1);
     const bool labelled = big != BigNumber::Delta && haveDelta;  // room above for a label and the sign
     Font f = textWidth(t, Font::NumXL) <= BAND_W - 12 ? Font::NumXL : Font::NumL;
-    const int ty = f == Font::NumXL ? BAND_Y + (labelled ? 14 : 8) : BAND_Y + (labelled ? 28 : 20);
+    const int ty = f == Font::NumXL ? BAND_Y + (labelled ? 32 : 16) : BAND_Y + (labelled ? 40 : 30);
     text(t, bandMid, ty, f, fg, TC_DATUM);
     if (labelled) {  // the delta's sign stays big even when it isn't the big number: not colour alone
       text(big == BigNumber::Predicted ? "PREDICTED" : "LAP TIME", 14, BAND_Y + 7, Font::Caption, fg);
@@ -552,7 +552,7 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
     text(value, x, ROW_Y + 15, Font::Title, colour);
   };
   const int cell2 = 4 + BAND_W / 2 + 8;
-  gfx->drawFastVLine(cell2 - 8, ROW_Y + 2, 40, C_LINE);
+  gfx->drawFastVLine(cell2 - 8, ROW_Y + 2, 38, C_LINE);
   const Lap* last = timer.lastLap();
   const Lap* best = timer.bestLap();
   if (haveDelta) {
@@ -704,9 +704,9 @@ bool DisplayManager::drawMapArea(int bx, int by, int bw, int bh, const std::vect
   if (ghost) {  // a hollow ring, so the car (solid) reads as the one that's real
     int gx = constrain(sx(ghost->x), bx + 8, bx + bw - 9);
     int gy = constrain(sy(ghost->y), by + 8, by + bh - 9);
-    gfx->fillCircle(gx, gy, 7, C_BG);
-    gfx->drawCircle(gx, gy, 6, C_TEXT2);
-    gfx->drawCircle(gx, gy, 5, C_TEXT2);
+    gfx->fillCircle(gx, gy, 8, C_BG);
+    gfx->fillCircle(gx, gy, 6, C_TEXT2);
+    gfx->fillCircle(gx, gy, 4, C_BG);
   }
 
   if (showCar) {  // kept inside the box if it's off the drawn area
