@@ -62,6 +62,8 @@ jobs:
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_timing.cpp src/LapTimer.cpp -o /tmp/tm && /tmp/tm
       - name: test_situation
         run: g++ -std=c++17 -Iinclude test/test_situation.cpp -o /tmp/sit && /tmp/sit
+      - name: test_retime
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_retime.cpp src/VboFormat.cpp src/SessionReplay.cpp src/LapTimer.cpp -o /tmp/rt && /tmp/rt
       - name: test_sessions
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_sessions.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/ses && /tmp/ses
 
