@@ -44,6 +44,9 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
 // its GPS time ("2026-10-20T14:03:12.350Z"). Saved with the summary as
 // cameraStartUtc (the first) and cameraStartsUtc (all), for 6.4's overlays.
 void addCameraStart(const String& path, const String& utc);
+// A SYNC flash was shown (6.4): its GPS time goes into the summary at path now,
+// as syncFlashesUtc, so a video of the screen can be lined up with the log.
+bool addSyncFlash(const String& path, const String& utc);
 
 // Free Roam summary: time, distance and speeds. Includes the route (a point
 // every ~10 m) only when there's no full log.

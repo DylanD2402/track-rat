@@ -5,6 +5,7 @@
 #include "SessionLog.h"
 #include <ArduinoJson.h>
 #include <SD_MMC.h>
+#include <algorithm>
 #include <atomic>
 #include <vector>
 #include <memory>
@@ -81,40 +82,73 @@ String newSessionBase(const String& stamp, const String& name) {
   return base;
 }
 
-// When a paired DJI camera started recording during the live session (6.2): GPS
-// times, for 6.4's overlays. Rewrites (recovery, re-timing) carry them over from
-// the file they replace.
-static std::mutex cameraLock;
-static String cameraPath;
-static std::vector<String> cameraStarts;
+// Moments of the live session in GPS time, for 6.4's overlays: when a paired DJI
+// camera started recording (6.2), and the SYNC flashes shown for lining up any
+// other video. Each is kept in the summary; rewrites (recovery, re-timing) keep
+// what the file they replace had.
+static std::mutex markLock;
+static String markPath;
+static std::vector<String> markCamera, markSync;
+static const char* const CAMERA_KEY = "cameraStartsUtc";
+static const char* const SYNC_KEY = "syncFlashesUtc";
 
-void addCameraStart(const String& path, const String& utc) {
-  std::lock_guard<std::mutex> g(cameraLock);
-  if (path != cameraPath) cameraStarts.clear(), cameraPath = path;
-  cameraStarts.push_back(utc);
+static void addMark(std::vector<String>& list, const String& path, const String& utc) {
+  std::lock_guard<std::mutex> g(markLock);
+  if (path != markPath) markCamera.clear(), markSync.clear(), markPath = path;
+  list.push_back(utc);
 }
 
-static void putCameraStarts(fs::FS& fs, const String& path, JsonDocument& doc) {
-  std::vector<String> starts;
-  {
-    std::lock_guard<std::mutex> g(cameraLock);
-    if (path == cameraPath) starts = cameraStarts;
-  }
-  if (starts.empty() && fs.exists(path)) {  // a rewrite: keep what the old file had
+// The old file's list under key, then this session's (without repeats)
+static std::vector<String> marks(fs::FS& fs, const String& path, const char* key) {
+  std::vector<String> out;
+  if (fs.exists(path)) {
     File f = fs.open(path, "r");
     if (f) {
       StaticJsonDocument<64> filter;
-      filter["cameraStartsUtc"] = true;
+      filter[key] = true;
       DynamicJsonDocument old(1024);
       if (!deserializeJson(old, f, DeserializationOption::Filter(filter)))
-        for (JsonVariant v : old["cameraStartsUtc"].as<JsonArray>()) starts.push_back(v.as<const char*>());
+        for (JsonVariant v : old[key].as<JsonArray>()) out.push_back(v.as<const char*>());
       f.close();
     }
   }
-  if (starts.empty()) return;
-  doc["cameraStartUtc"] = starts.front();  // the first video of the session
-  JsonArray a = doc.createNestedArray("cameraStartsUtc");  // one per video (each time out of the pits)
-  for (const String& s : starts) a.add(s);
+  std::lock_guard<std::mutex> g(markLock);
+  if (path == markPath)
+    for (const String& m : key == CAMERA_KEY ? markCamera : markSync)
+      if (std::find(out.begin(), out.end(), m) == out.end()) out.push_back(m);
+  return out;
+}
+
+static void putMarks(fs::FS& fs, const String& path, JsonDocument& doc) {
+  const std::vector<String> cam = marks(fs, path, CAMERA_KEY), sync = marks(fs, path, SYNC_KEY);
+  doc.remove("cameraStartUtc");
+  doc.remove(CAMERA_KEY);
+  doc.remove(SYNC_KEY);
+  if (!cam.empty()) {
+    doc["cameraStartUtc"] = cam.front();  // the first video of the session
+    JsonArray a = doc.createNestedArray(CAMERA_KEY);  // one per video (each time out of the pits)
+    for (const String& m : cam) a.add(m);
+  }
+  if (!sync.empty()) {
+    JsonArray a = doc.createNestedArray(SYNC_KEY);
+    for (const String& m : sync) a.add(m);
+  }
+}
+
+void addCameraStart(const String& path, const String& utc) { addMark(markCamera, path, utc); }  // saved with the next summary
+
+bool addSyncFlash(const String& path, const String& utc) {
+  addMark(markSync, path, utc);
+  fs::FS* fs = Storage::sessionFS();  // and into the summary now: the session may be over
+  if (!fs || !fs->exists(path)) return false;
+  File f = fs->open(path, "r");
+  if (!f) return false;
+  DynamicJsonDocument doc(f.size() * 2 + 2048);
+  const bool ok = !deserializeJson(doc, f);
+  f.close();
+  if (!ok) return false;
+  putMarks(*fs, path, doc);
+  return writeJsonFile(*fs, path, doc, true) > 0;
 }
 
 bool save(const String& path, const Track& track, const String& stamp, int session, const LapTimer& timer,
@@ -170,7 +204,7 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
       for (int32_t v : l.sectorMs) s.add(v);
     }
   }
-  putCameraStarts(*fs, path, doc);
+  putMarks(*fs, path, doc);
   return writeJsonFile(*fs, path, doc, true) > 0;
 }
 

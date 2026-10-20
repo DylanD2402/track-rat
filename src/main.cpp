@@ -107,6 +107,11 @@ static dji::FollowSessions cameraFollow;
 static std::vector<String> cameraStartsPending;  // until the session has a summary file
 static GpsFix cameraFix;                         // the latest fix, to turn millis() into GPS time
 static bool haveCameraFix = false;
+// The SYNC flash (6.4): a tap on the summary's or debrief's top bar shows SYNC and the GPS time
+// for SYNC_FLASH_MS, for a camera to film; its GPS time goes into the summary
+static uint32_t syncUntil = 0;  // millis() it ends; 0: not showing
+static void startSyncFlash();
+static String gpsTimeAt(const GpsFix& f, uint32_t at);
 static String sessionStamp;
 // Lap-timing and Free Roam sessions: every fix goes to a .vbo log (SD card)
 static String sessionBase;        // "/sessions/<stamp>_<track>", shared by the .json and .vbo
@@ -1126,6 +1131,7 @@ static void handleInput(InputEvent ev) {
       else if (lapTimer.isStage() && lapTimer.lapRunning() && !lapTimer.hasFinish() && !pitView &&
                ev != InputEvent::BootShort)
         markFinish();  // any tap marks the finish
+      else if (pitView && ev == InputEvent::TapHeader) startSyncFlash();  // for lining up a video (6.4)
       else if (pitView) {  // parked: a tap or press pages through the debrief, then back to the timing screen
         if (debriefView.r.valid && pitPage == 0) pitPage = 1;
         else pitView = false;
@@ -1183,7 +1189,8 @@ static void handleInput(InputEvent ev) {
     }
 
     case AppState::Summary:  // MENU button, or on to this track's Ready screen to go out again
-      if (tappedWifi(ev, DisplayManager::WIFI_BUTTON_Y) || ev == InputEvent::BootLong) enterState(AppState::Wifi);
+      if (ev == InputEvent::TapHeader) startSyncFlash();  // the top bar: SYNC, for lining up a video (6.4)
+      else if (tappedWifi(ev, DisplayManager::WIFI_BUTTON_Y) || ev == InputEvent::BootLong) enterState(AppState::Wifi);
       else if (ev == InputEvent::TapLeft && input.lastTapY() >= DisplayManager::WIFI_BUTTON_Y - 4) enterState(AppState::Menu);
       else if (ev != InputEvent::Hold) enterState(AppState::TrackConfirm);
       break;
@@ -1293,6 +1300,13 @@ static void showPersonalBest() {
 
 static void render() {
   uint32_t now = millis();
+  if (syncUntil) {  // the SYNC flash covers everything, with the GPS time ticking
+    if ((int32_t)(now - syncUntil) < 0 && haveCameraFix) {
+      display.drawSync(gpsTimeAt(cameraFix, now).substring(11, 21).c_str());  // 14:03:12.3
+      return;
+    }
+    syncUntil = 0;
+  }
   switch (state) {
     case AppState::GpsWait:
       display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable(), false);
@@ -1604,6 +1618,17 @@ static String gpsTimeAt(const GpsFix& f, uint32_t at) {
   snprintf(b, sizeof(b), "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ", f.year, f.month, f.day, (unsigned)(ms / 3600000), (unsigned)(ms / 60000 % 60),
            (unsigned)(ms / 1000 % 60), (unsigned)(ms % 1000));
   return String(b);
+}
+
+// SYNC: noted with the session (its summary) at the moment it appears
+static void startSyncFlash() {
+  if (!haveCameraFix) return;  // no GPS time to show
+  syncUntil = millis() + SYNC_FLASH_MS;
+  if (!syncUntil) syncUntil = 1;
+  const String utc = gpsTimeAt(cameraFix, millis());
+  const bool saved = sessionPath.length() && SessionLog::addSyncFlash(sessionPath, utc);
+  DEBUG_PRINTF("SYNC flash at %s%s\n", utc.c_str(), saved ? "" : " (no summary to note it in)");
+  lastRender = 0;
 }
 
 // The camera started recording: note the GPS time with the session

@@ -103,6 +103,8 @@ public:
   // the session (driving off carries on), so no buttons. session: "Session
   // N" of the day, 0 if not known.
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath, int session, bool inPits);
+  // The SYNC flash (6.4): white, SYNC and the GPS time ("14:03:12.3"), for a camera to film
+  void drawSync(const char* gpsTime);
   // The pit debrief (DisplayDebrief.cpp). Page 0: best lap, theoretical best and the three
   // sectors that cost most, on the map. Page 1: every lap with its tags, every sector, and
   // this session against the last.

@@ -158,6 +158,15 @@ String DisplayManager::fit(const String& s, Font f, int maxW) {
 
 void DisplayManager::label(const char* s, int x, int y, uint8_t datum) { text(s, x, y, Font::Caption, C_TEXT2, datum); }
 
+void DisplayManager::drawSync(const char* gpsTime) {
+  beginFrame();
+  gfx->fillScreen(TFT_WHITE);
+  centered("SYNC", 30, Font::Hero, TFT_BLACK);
+  centered(gpsTime, 105, Font::NumL, TFT_BLACK);
+  centered("GPS time (UTC)", 190, Font::Body, TFT_BLACK);
+  endFrame();
+}
+
 void DisplayManager::centered(const String& s, int y, Font f, uint16_t color) {
   if (f == Font::Title && textWidth(s, f) > W - 16) f = Font::Body;  // long names: smaller font
   text(fit(s, f, W - 16), W / 2, y, f, color, TC_DATUM);

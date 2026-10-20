@@ -134,6 +134,7 @@
 // until then. Untested with a camera.
 #define CAMERA_BLE_ENABLED 1
 #define CAMERA_SCAN_S 10
+#define SYNC_FLASH_MS 3000           // the SYNC flash for lining up a video (tap the summary's top bar)
 #define DJI_HOUR_OFFSET 8            // DJI's demo sends the hour + 8 (China time). 0 if the video's GPS times come out 8 h ahead
 
 // ---------------------------------------------------------------------------
