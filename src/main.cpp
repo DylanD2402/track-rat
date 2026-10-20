@@ -14,6 +14,10 @@
  * Sessions run themselves (AutoStart.h): parked for a minute shows the
  * summary; driving off within 10 minutes carries on, later it's the next
  * session of the day. Holding the screen still ends one.
+ *
+ * Away from known tracks, driving off from the menu starts Free Roam, which
+ * watches for a loop driven twice (TrackLearn.h): then it's a new track,
+ * timed from where the loop began.
  */
 
 #include <Arduino.h>
@@ -41,6 +45,7 @@
 #include "SleepTimer.h"
 #include "Storage.h"
 #include "TrackDatabase.h"
+#include "TrackLearn.h"
 #include "TrackOrder.h"
 #include "TimingScreen.h"
 #include "SituationScreen.h"
@@ -117,6 +122,16 @@ static uint32_t layoutNoticeUntil = 0;
 static String freeRoamPath;
 static uint32_t freeRoamDurationMs = 0;
 static bool freeRoamSaved = true;  // the Record road drives setting when the drive started
+
+// Tracks that learn themselves (TrackLearn.h): Free Roam watches for a loop
+// driven twice. The fixes of the last LEARN_WINDOW_MS are kept (PSRAM) so a
+// learned track's session can time both loops: they're fed through the lap
+// timer a few at a time (replaying), with new fixes queued behind them.
+static learn::LoopFinder loopFinder;
+static learn::FixRing<GpsFix> recentFixes;
+static size_t replayPos = 0;      // the next kept fix to time
+static bool replaying = false;
+static DriveOffDetector roamDriveOff;  // the menu with no track nearby: driving off starts Free Roam
 
 // Performance runs (acceleration and braking)
 enum class PerfView { Live, Card, Best };
@@ -470,6 +485,8 @@ static void enterState(AppState next) {
   }
 
   if (state == AppState::Running && next != AppState::Running) {
+    replaying = false;
+    recentFixes.release();
     finishSessionFiles();
     trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
     trackDB.saveMaps();  // the map from this session's best lap: saved now that nothing is being timed
@@ -501,6 +518,14 @@ static void enterState(AppState next) {
     freeRoamSaved = Settings::get().recordRoadDrives;  // Record road drives off: shown, but nothing saved
     if (!freeRoamSaved) logPending = false;
     DEBUG_PRINTF("Free roam started%s\n", freeRoamSaved ? "" : " (not saved: Record road drives is off)");
+#if TRACK_LEARNING_ENABLED
+    loopFinder.reset();
+    {  // 20 Hz, with a minute to spare: about 1.2 MB. Without the room a learned track times laps from then on.
+      const size_t n = LEARN_WINDOW_MS / 1000 * 21 + 60 * 21;
+      if (ESP.getMaxAllocPsram() > n * sizeof(GpsFix) + 512 * 1024) recentFixes.begin(n);
+      else DEBUG_PRINTLN("Free roam: no room to keep fixes - a learned track is timed from when it's found");
+    }
+#endif
   }
   if (state == AppState::FreeRoam && next != AppState::FreeRoam) {
     freeRoamDurationMs = freeRoam.elapsedMs(millis());
@@ -510,7 +535,9 @@ static void enterState(AppState next) {
                        : String();
     SessionLog::endLog();
     logPending = false;
+    if (next != AppState::Running) recentFixes.release();  // (Running: a learned track, timed from them)
   }
+  if (next == AppState::Menu) roamDriveOff.reset();
 
   if (next == AppState::GpsStatus) statusReturn = state;
 
@@ -830,6 +857,73 @@ static void onPerfResult() {
   perfCard = (int)perfRun.results().size() - 1;
   perfView = PerfView::Card;
 }
+
+// One fix of a lap-timing session
+static void onTrackFix(const GpsFix& fix) {
+  recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
+  if (!settingLine) {
+    LapEvents evs = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis, fix.hAccM);
+    for (const LapEvent& ev : evs) onLapEvent(ev);
+    const int32_t d = lapTimer.liveDeltaMs();
+    deltaTrend.add(fix.gpsTimeMs, d, lapTimer.lapRunning() && d != NO_DELTA);
+    overlay.trendMs = deltaTrend.change();
+    const Track& t = selectedTrack();
+    inPitLane = false;
+    if (!t.pitLines.empty()) {
+      const geo::XY at = geo::toLocal(fix.lat, fix.lon, t.refLat(), t.refLon());
+      inPitLane = situation::inPitLane(t.map, t.pitLines, (float)at.x, (float)at.y);
+    }
+    slowWatch.onFix(fix.speedKmh, fix.gpsTimeMs, inPitLane);
+    onPitEvent(pitWatch.onFix(fix.speedKmh, fix.gpsTimeMs));
+  }
+  if (state == AppState::Running) trackDrivenPath(fix);  // (the session may have just ended)
+}
+
+#if TRACK_LEARNING_ENABLED
+// Free Roam drove the same loop twice: make it a track with a provisional
+// line where the loop began (move it later on the Wi-Fi page and re-time),
+// and start a session there that times both loops from the kept fixes. A
+// loop round a known track with a line is timed at that track instead.
+static void learnTrack(const learn::Loop& lp) {
+  double dist;
+  int idx = trackDB.findNearest(lp.lat, lp.lon, LEARN_NEAR_TRACK_M, &dist);
+  const bool known = idx >= 0 && trackDB.get(idx)->hasStartFinish;
+  if (!known) {
+    if (idx < 0) idx = trackDB.createTrack(lp.lat, lp.lon);  // else a track here with no line yet gets this one
+    if (idx < 0) {
+      loopFinder.reset();
+      return;
+    }
+    trackDB.setStartFinish(idx, lp.lat, lp.lon, lp.headingDeg);
+  }
+  DEBUG_PRINTF("Loop driven twice (%.0f m, %.0f m): %s %s%s, timing both loops\n", lp.lap1M, lp.lap2M,
+               known ? "it's" : "new track", trackDB.get(idx)->displayName().c_str(),
+               known ? "" : String(", line at " + String(lp.lat, 6) + ", " + String(lp.lon, 6)).c_str());
+  replayPos = 0;
+  while (replayPos < recentFixes.size() && (int32_t)(recentFixes[replayPos].rxMillis - (lp.t0 - 3000)) < 0) replayPos++;
+  selectedIndex = idx;
+  enterState(AppState::Running);  // saves the Free Roam drive
+  if (!known) layoutChecked = true;  // the loop is the track: don't swap it for one nearby
+  replaying = replayPos < recentFixes.size();  // (none kept: timed from now)
+  overlay.notice = (known ? "" : "NEW TRACK: ") + selectedTrack().displayName();
+  layoutNoticeUntil = millis() + 8000;
+}
+
+// The kept fixes, through the lap timer and into the log, a few each loop()
+// so the card keeps up. Done when it has caught up with the live ones.
+static void replayFixes() {
+  for (int n = 0; n < 40 && replayPos < recentFixes.size(); n++) {
+    if (LogWriter::bufferedBytes() > LOG_BUFFER_BYTES / 2) return;  // let the card catch up
+    const GpsFix f = recentFixes[replayPos++];
+    onTrackFix(f);
+    if (state != AppState::Running) return;  // (leaving Running stops it)
+  }
+  if (replayPos < recentFixes.size()) return;
+  replaying = false;
+  recentFixes.release();
+  DEBUG_PRINTF("New track: %d laps timed from the loops driven\n", (int)lapTimer.lapCount());
+}
+#endif
 
 static void chooseMenuItem(int item) {
   switch (item) {
@@ -1366,26 +1460,17 @@ void loop() {
 #endif
     if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) noteActivity(now);  // moving: never sleep
     if (state == AppState::Running) {
-      recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
-      if (!settingLine) {
-        LapEvents evs = lapTimer.onFix(fix.lat, fix.lon, fix.speedKmh, fix.gpsTimeMs, fix.rxMillis, fix.hAccM);
-        for (const LapEvent& ev : evs) onLapEvent(ev);
-        const int32_t d = lapTimer.liveDeltaMs();
-        deltaTrend.add(fix.gpsTimeMs, d, lapTimer.lapRunning() && d != NO_DELTA);
-        overlay.trendMs = deltaTrend.change();
-        const Track& t = selectedTrack();
-        inPitLane = false;
-        if (!t.pitLines.empty()) {
-          const geo::XY at = geo::toLocal(fix.lat, fix.lon, t.refLat(), t.refLon());
-          inPitLane = situation::inPitLane(t.map, t.pitLines, (float)at.x, (float)at.y);
-        }
-        slowWatch.onFix(fix.speedKmh, fix.gpsTimeMs, inPitLane);
-        onPitEvent(pitWatch.onFix(fix.speedKmh, fix.gpsTimeMs));
-      }
-      if (state == AppState::Running) trackDrivenPath(fix);  // (the session may have just ended)
+      if (!replaying) onTrackFix(fix);
+      else if (recentFixes.push(fix) && replayPos > 0) replayPos--;  // timed after the kept ones
     } else if (state == AppState::FreeRoam) {
       recordFix(fix, 0);
       freeRoam.onFix(fix.lat, fix.lon, fix.speedKmh);
+#if TRACK_LEARNING_ENABLED
+      recentFixes.push(fix);
+      learn::Loop lp;
+      if (loopFinder.onFix(fix.lat, fix.lon, fix.speedKmh, fix.courseDeg, fix.courseValid, fix.rxMillis, &lp))
+        learnTrack(lp);
+#endif
     } else if (state == AppState::Performance) {
       if (perfRun.onFix(fix.gpsTimeMs, fix.speedKmh, fix.altM) > 0) onPerfResult();
     } else if ((state == AppState::TrackConfirm && autoStart) || (state == AppState::Summary && nextSessionArmed)) {
@@ -1398,8 +1483,17 @@ void loop() {
         DEBUG_PRINTLN("Driving off - starting a session");
         enterState(AppState::Running);
       }
+    } else if (TRACK_LEARNING_ENABLED && state == AppState::Menu && noTrackNearby) {
+      // Away from known tracks, driving off records the drive and watches for a loop
+      if (roamDriveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
+        DEBUG_PRINTLN("Driving off with no track nearby - Free Roam, watching for a loop");
+        enterState(AppState::FreeRoam);
+      }
     }
   }
+#if TRACK_LEARNING_ENABLED
+  if (replaying && state == AppState::Running) replayFixes();
+#endif
 
   LogWriter::poll();
   InputEvent ev = input.poll();
