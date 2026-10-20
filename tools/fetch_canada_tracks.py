@@ -10,7 +10,10 @@ and its layout map. OpenStreetMap doesn't record where the start/finish
 line is, so the timer asks you to tap the screen as you cross it the first
 time you drive each track, and remembers it.
 
-- Tracks you already have (same id, or within 1 km of one) are left alone.
+- Tracks you already have (same id, or within 1 km of one) are left alone,
+  except that a karting track gets "kind": "kart" if it has no "kind".
+- Karting tracks (OSM sport=karting) are marked "kind": "kart": the timer
+  uses narrower lines (8 m) and a shorter minimum lap there.
 - Dirt tracks, motocross and drag strips are skipped unless you ask for
   them (--include-dirt, --include-drag). Karting tracks are included unless
   --no-karting.
@@ -82,6 +85,10 @@ def is_dirt(tags):
 def is_drag(tags):
     return (tags.get("raceway", "") in ("drag_strip", "dragstrip", "drag")
             or "drag" in tags.get("name", "").lower() or "drag" in tags.get("sport", "").lower())
+
+
+def is_kart(tags):
+    return "karting" in tags.get("sport", "")
 
 
 def build_tracks(doc, include_dirt=False, include_drag=False, karting=True, tolerance=1.5):
@@ -156,6 +163,9 @@ def build_tracks(doc, include_dirt=False, include_drag=False, karting=True, tole
         }
         if lines:
             entry["map"] = lines
+        # A karting venue, or one whose every raceway is a kart track (not a circuit with a kart track beside it)
+        if is_kart(t) or (v["ways"] and all(is_kart(w["tags"]) for w in v["ways"]) and "motor" not in t.get("sport", "")):
+            entry["kind"] = "kart"  # narrower lines and a shorter minimum lap on the timer
         tracks.append(entry)
     return tracks
 
@@ -191,19 +201,22 @@ def main():
         return [lat, lon] if lat and lon else None
 
     ids = {t.get("id") for t in existing}
-    refs = [(t.get("name", ""), ref(t)) for t in existing if ref(t)]
-    added, skipped = [], []
+    refs = [(t.get("name", ""), ref(t), t) for t in existing if ref(t)]
+    added, skipped, karts = [], [], []
     for t in sorted(found, key=lambda t: t["name"]):
-        near = next((n for n, r in refs if dist_m(r, [t["center"]["lat"], t["center"]["lon"]]) < EXISTING_RADIUS_M), None)
+        near = next((e for e in refs if dist_m(e[1], [t["center"]["lat"], t["center"]["lon"]]) < EXISTING_RADIUS_M), None)
         if near:
-            skipped.append(f"{t['name']} (you already have '{near}')")
+            skipped.append(f"{t['name']} (you already have '{near[0]}')")
+            if t.get("kind") == "kart" and near[2] is not None and "kind" not in near[2]:
+                near[2]["kind"] = "kart"
+                karts.append(near[0])
             continue
         base, n = t["id"], 2
         while t["id"] in ids:
             t["id"] = f"{base}-{n}"
             n += 1
         ids.add(t["id"])
-        refs.append((t["name"], [t["center"]["lat"], t["center"]["lon"]]))
+        refs.append((t["name"], [t["center"]["lat"], t["center"]["lon"]], None))
         existing.append(t)
         added.append(t)
 
@@ -220,6 +233,8 @@ def main():
         print(f"\nSkipped {len(skipped)} already in tracks.json:")
         for s in skipped:
             print(f"  {s}")
+    if karts:
+        print(f"\nMarked {len(karts)} you already had as kart tracks: {', '.join(karts)}")
     print(f"\n{args.db} is now {os.path.getsize(args.db) / 1024:.0f} KB. Copy it to the root of the SD card.")
     print("None of these have a start/finish line yet: the first time you drive one, the timer asks you")
     print("to tap the screen as you cross it.")

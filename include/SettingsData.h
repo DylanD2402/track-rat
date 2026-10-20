@@ -36,18 +36,22 @@ struct SettingsData {
   bool bluetooth;          // RaceBox Bluetooth output
   int16_t utcOffsetMin;    // minutes east of UTC, -720..840 (the Wi-Fi page sets it from the phone)
   bool recordRoadDrives;   // Free Roam drives are saved to the card
+  bool kartEverywhere;     // every track is timed as a kart track (else only "kind": "kart" in tracks.json)
+  uint8_t minLap;          // the shortest lap: 0 = auto (MIN_LAP_TIME_MS, KART_MIN_LAP_MS for karts), else MIN_LAP_S[minLap] s
 };
 
 inline bool operator==(const SettingsData& a, const SettingsData& b) {
   return a.setupDone == b.setupDone && a.units == b.units && a.rotation == b.rotation && a.brightness == b.brightness &&
          a.compareTo == b.compareTo && a.bigNumber == b.bigNumber && a.deltaColours == b.deltaColours && a.sessionLength == b.sessionLength &&
          a.gpsMode == b.gpsMode &&
-         a.bluetooth == b.bluetooth && a.utcOffsetMin == b.utcOffsetMin && a.recordRoadDrives == b.recordRoadDrives;
+         a.bluetooth == b.bluetooth && a.utcOffsetMin == b.utcOffsetMin && a.recordRoadDrives == b.recordRoadDrives &&
+         a.kartEverywhere == b.kartEverywhere && a.minLap == b.minLap;
 }
 inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(a == b); }
 
 // The items on the settings screen, in the order they appear.
-enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives, Count };
+enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives,
+                                   MinLap, Kart, Count };
 constexpr int SETTING_ITEM_COUNT = (int)SettingItem::Count;
 
 namespace settings {
@@ -55,6 +59,9 @@ namespace settings {
 constexpr int BRIGHTNESS_MIN = 10, BRIGHTNESS_MAX = 100, BRIGHTNESS_STEP = 10;
 constexpr int UTC_MIN = -12 * 60, UTC_MAX = 14 * 60, UTC_STEP = 30;
 constexpr float KMH_PER_MPH = 1.609344f;
+// The Min lap time choices, in seconds (0 = auto). Four: a choice page holds four.
+constexpr uint8_t MIN_LAP_S[] = {0, 10, 15, 30};
+constexpr int MIN_LAP_CHOICES = sizeof(MIN_LAP_S);
 
 inline SettingsData defaults() {
   SettingsData d;
@@ -70,6 +77,8 @@ inline SettingsData defaults() {
   d.bluetooth = BLE_ENABLED != 0;
   d.utcOffsetMin = DEFAULT_UTC_OFFSET_MIN;
   d.recordRoadDrives = DEFAULT_RECORD_ROAD_DRIVES != 0;
+  d.kartEverywhere = false;
+  d.minLap = 0;
   return d;
 }
 
@@ -86,6 +95,7 @@ inline void sanitize(SettingsData& d) {
   if ((uint8_t)d.deltaColours > (uint8_t)DeltaColours::BlueOrange) d.deltaColours = def.deltaColours;
   if (d.sessionLength > 3) d.sessionLength = def.sessionLength;
   if ((uint8_t)d.gpsMode > (uint8_t)GpsMode::AllSystems10) d.gpsMode = def.gpsMode;
+  if (d.minLap >= MIN_LAP_CHOICES) d.minLap = def.minLap;
   if (d.utcOffsetMin < UTC_MIN) d.utcOffsetMin = UTC_MIN;
   if (d.utcOffsetMin > UTC_MAX) d.utcOffsetMin = UTC_MAX;
   d.utcOffsetMin = (int16_t)(((d.utcOffsetMin + (d.utcOffsetMin >= 0 ? 7 : -7)) / 15) * 15);  // whole quarter hours
@@ -120,6 +130,8 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
     case SettingItem::Bluetooth: d.bluetooth = !d.bluetooth; break;
     case SettingItem::TimeZone: d.utcOffsetMin = (int16_t)number(d.utcOffsetMin, UTC_MIN, UTC_MAX, UTC_STEP); break;
     case SettingItem::RoadDrives: d.recordRoadDrives = !d.recordRoadDrives; break;
+    case SettingItem::MinLap: d.minLap = choice(d.minLap, MIN_LAP_CHOICES); break;
+    case SettingItem::Kart: d.kartEverywhere = !d.kartEverywhere; break;
     default: break;
   }
 }
@@ -127,7 +139,9 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
 inline bool upsideDown(const SettingsData& d) { return d.rotation != DISPLAY_ROTATION; }
 
 // A change that only takes effect after a restart (the GPS is set up at boot).
-inline bool needsRestart(const SettingsData& before, const SettingsData& after) { return before.gpsMode != after.gpsMode; }
+inline bool needsRestart(const SettingsData& before, const SettingsData& after) {
+  return before.gpsMode != after.gpsMode || before.kartEverywhere != after.kartEverywhere;  // the track list reads it at boot
+}
 
 inline const char* itemName(SettingItem item) {
   switch (item) {
@@ -142,6 +156,8 @@ inline const char* itemName(SettingItem item) {
     case SettingItem::Bluetooth: return "BLUETOOTH";
     case SettingItem::TimeZone: return "TIME ZONE";
     case SettingItem::RoadDrives: return "RECORD ROAD DRIVES";
+    case SettingItem::MinLap: return "MIN LAP TIME";
+    case SettingItem::Kart: return "KART EVERYWHERE";
     default: return "";
   }
 }
@@ -159,6 +175,8 @@ inline const char* itemNote(SettingItem item) {
     case SettingItem::Bluetooth: return "RaceBox output for phone apps";
     case SettingItem::TimeZone: return "For file names. The Wi-Fi page sets it from your phone";
     case SettingItem::RoadDrives: return "Off: Free Roam drives are shown but not saved";
+    case SettingItem::MinLap: return "Line crossings sooner are ignored. Auto: 20 s, karts 10 s";
+    case SettingItem::Kart: return "8 m lines, karts' min lap everywhere. Restart to apply";
     default: return "";
   }
 }
@@ -190,6 +208,11 @@ inline void valueText(const SettingsData& d, SettingItem item, char* buf, size_t
       break;
     }
     case SettingItem::RoadDrives: snprintf(buf, n, "%s", d.recordRoadDrives ? "On" : "Off"); break;
+    case SettingItem::MinLap:
+      if (d.minLap == 0 || d.minLap >= MIN_LAP_CHOICES) snprintf(buf, n, "Auto");
+      else snprintf(buf, n, "%d s", MIN_LAP_S[d.minLap]);
+      break;
+    case SettingItem::Kart: snprintf(buf, n, "%s", d.kartEverywhere ? "On" : "Off"); break;
     default: if (n) buf[0] = 0;
   }
 }
@@ -201,13 +224,16 @@ inline size_t toJson(const SettingsData& d, char* buf, size_t n) {
   static const char* const COMPARE[] = {"day", "ever", "session"};
   static const char* const BIG[] = {"delta", "predicted", "lap"};
   static const char* const SESSION_TEXT[] = {"off", "20", "25", "30"};
+  static const char* const MIN_LAP_TEXT[] = {"auto", "10", "15", "30"};  // MIN_LAP_S
   int len = snprintf(buf, n,
                      "{\"units\":\"%s\",\"upsideDown\":%s,\"brightness\":%d,\"compareTo\":\"%s\",\"bigNumber\":\"%s\","
-                     "\"deltaColours\":\"%s\",\"sessionMin\":\"%s\",\"gpsMode\":\"%s\",\"bluetooth\":%s,\"tzMin\":%d,\"recordRoadDrives\":%s,\"bluetoothBuilt\":%s}",
+                     "\"deltaColours\":\"%s\",\"sessionMin\":\"%s\",\"gpsMode\":\"%s\",\"bluetooth\":%s,\"tzMin\":%d,\"recordRoadDrives\":%s,"
+                     "\"minLap\":\"%s\",\"kartEverywhere\":%s,\"bluetoothBuilt\":%s}",
                      d.units == SpeedUnits::Mph ? "mph" : "kmh", upsideDown(d) ? "true" : "false", d.brightness,
                      COMPARE[(int)d.compareTo % 3], BIG[(int)d.bigNumber % 3],
                      d.deltaColours == DeltaColours::BlueOrange ? "blueorange" : "greenred", SESSION_TEXT[sessionMinutes(d) ? d.sessionLength : 0], d.gpsMode == GpsMode::Fast20 ? "20hz" : "10hz",
                      d.bluetooth ? "true" : "false", d.utcOffsetMin, d.recordRoadDrives ? "true" : "false",
+                     MIN_LAP_TEXT[d.minLap < MIN_LAP_CHOICES ? d.minLap : 0], d.kartEverywhere ? "true" : "false",
                      BLE_ENABLED ? "true" : "false");
   return len > 0 && (size_t)len < n ? (size_t)len : 0;
 }
@@ -280,6 +306,15 @@ inline bool setField(SettingsData& d, const char* key, const char* v) {
   } else if (!strcmp(key, "recordRoadDrives")) {
     if (!parseBool(v, &b)) return false;
     d.recordRoadDrives = b;
+  } else if (!strcmp(key, "minLap")) {  // "auto", or one of MIN_LAP_S in seconds
+    if (!strcmp(v, "auto")) d.minLap = 0;
+    else if (!strcmp(v, "10")) d.minLap = 1;
+    else if (!strcmp(v, "15")) d.minLap = 2;
+    else if (!strcmp(v, "30")) d.minLap = 3;
+    else return false;
+  } else if (!strcmp(key, "kartEverywhere")) {
+    if (!parseBool(v, &b)) return false;
+    d.kartEverywhere = b;
   } else {
     return false;
   }
@@ -287,6 +322,15 @@ inline bool setField(SettingsData& d, const char* key, const char* v) {
 }
 
 // --- things other code asks of a setting ---
+
+// Karting (a track with "kind": "kart", or every track with Kart everywhere on):
+// smaller lines by default, and a shorter minimum lap.
+inline bool kart(const SettingsData& d, bool trackIsKart) { return trackIsKart || d.kartEverywhere; }
+inline float defaultGateM(bool kart) { return kart ? (float)KART_GATE_HALF_WIDTH_M : (float)DEFAULT_GATE_HALF_WIDTH_M; }
+inline uint32_t minLapMs(const SettingsData& d, bool kart) {
+  if (d.minLap > 0 && d.minLap < MIN_LAP_CHOICES) return MIN_LAP_S[d.minLap] * 1000UL;
+  return kart ? KART_MIN_LAP_MS : MIN_LAP_TIME_MS;
+}
 
 inline float speedValue(float kmh, SpeedUnits u) { return u == SpeedUnits::Mph ? kmh / KMH_PER_MPH : kmh; }
 inline const char* speedUnitLabel(SpeedUnits u) { return u == SpeedUnits::Mph ? "mph" : "km/h"; }

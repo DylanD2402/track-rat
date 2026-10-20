@@ -51,7 +51,7 @@ if (!cm) {
 // The comparison uses the editor's parseVbo and toLocal, as on the page
 const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistance, compareLaps, fasterRuns, season, lapTimeText, gapText};")();
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
-                        " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish};")();
+                        " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart};")();
 
 let failures = 0;
 function check(cond, msg) {
@@ -420,6 +420,23 @@ console.log("Wi-Fi page track editor tests");
   check(d.tracks[0].finish.lat === 45.2 && d.tracks[0].finish.heading === null && d.tracks[0].type === "stage",
         "moved, no direction");
   check(JSON.stringify(d.tracks[0].startFinish) === JSON.stringify({lat: 45.1, lon: -76.1, radius: 15}), "start untouched");
+}
+
+// Karting: a kart track's lines with no width stay without one (Track Rat makes them 8 m)
+{
+  const d = {tracks: [{id: "kartplex", name: "Kartplex", kind: "kart", center: {lat: 45, lon: -75}},
+                      {id: "venue", name: "Venue", kind: "kart", layouts: [{name: "Short"}]},
+                      {id: "calabogie", name: "Calabogie", startFinish: {lat: 45.3, lon: -76.7, radius: 15}}]};
+  const k = ED.findTrack(d, "kartplex");
+  check(ED.isKart(k) && ED.isKart(ED.findTrack(d, "venue.short")) && !ED.isKart(ED.findTrack(d, "calabogie")),
+        "kart tracks, a kart venue's layouts too");
+  ED.setLine(k.obj, 45.001, -75.001, 90);
+  check(!("radius" in k.obj.startFinish) && k.obj.startFinish.heading === 90, "no width given: " + JSON.stringify(k.obj.startFinish));
+  ED.addSplit(k.obj, 45.002, -75.0, 0, [], 45, -75);
+  check(k.obj.splits.length === 1 && !("radius" in k.obj.splits[0]), "a split with no width");
+  const c = ED.findTrack(d, "calabogie");
+  ED.setLine(c.obj, 45.31, -76.71, 10);
+  check(c.obj.startFinish.radius === 15, "a line's own width is kept");
 }
 
 

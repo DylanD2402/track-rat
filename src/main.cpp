@@ -193,7 +193,11 @@ static void moveInTrackList(int step) {
   selectedIndex = listOrder[listPos];
 }
 
-static uint32_t minLapMs(const Track& t) { return t.bench ? SIM_MIN_LAP_MS : t.stage ? STAGE_MIN_RUN_MS : MIN_LAP_TIME_MS; }
+static uint32_t minLapMs(const Track& t) {
+  if (t.bench) return SIM_MIN_LAP_MS;
+  if (t.stage) return STAGE_MIN_RUN_MS;
+  return settings::minLapMs(Settings::get(), t.kart);  // the Min lap time setting, or by the kind of track
+}
 
 // Best laps (BestLap.h): the PB and today's best at the track being timed,
 // without their paths (the reference lap's path is in the lap timer)
@@ -747,7 +751,7 @@ static void makeSectors(const Lap& lap) {
   const TrackPoint& sf = lapTimer.startFinish();
   std::vector<TrackPoint> gates;
   for (const sectors::Cut& c : cuts) {
-    TrackPoint g = {0, 0, (float)DEFAULT_GATE_HALF_WIDTH_M, c.headingDeg, HeadingFrom::Set};
+    TrackPoint g = {0, 0, settings::defaultGateM(selectedTrack().kart), c.headingDeg, HeadingFrom::Set};
     geo::fromLocal(c.x, c.y, sf.lat, sf.lon, g.lat, g.lon);
     gates.push_back(g);
     DEBUG_PRINTF("Sectors: T%d ends %.1f s into the lap at %.0f km/h\n", (int)gates.size(), c.t / 1000.0,
