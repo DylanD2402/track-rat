@@ -148,6 +148,8 @@ Whichever is picked, a quicker lap in this session takes over as the reference. 
 
 The live diff compares your position with the path your best lap took. If you're more than 40 m off that path (`LIVE_DELTA_MAX_OFFSET_M`), for example in the pit lane, it shows `--`.
 
+**Corner sectors.** After your first clean lap at a track, Track Rat cuts that lap into sectors, one per corner or complex: each starts at the fastest point before a braking zone, so it holds the braking, the corner and the straight after it, and a good exit counts for the corner that earned it. Braking zones closer than 3 s are joined (a chicane is one sector), and a fast sweeper you take flat out isn't one. They're numbered T1, T2 and so on from the line, saved with the track in `tracks.json` (`"sectors"`) when the session ends, and every lap after is timed through them. Your own splits stay separate, as S1, S2... Moving the start/finish line (SET LINE) makes them again from the next clean lap; to make them again otherwise, delete the track's `"sectors"` from `tracks.json`.
+
 **Lap tags.** Each lap is checked, and a lap that can't be trusted is tagged:
 
 - **PIT:** the car stopped (under 5 km/h) during the lap: a pit stop, a red flag, a spin.
@@ -311,8 +313,9 @@ The easiest way to add your own track is to edit the file on the SD card.
 - **`radius`:** about half the track width plus a few metres. 10–20 m is typical.
 - **Placement:** put splits where no other part of the track passes within `radius`, or give them a `heading`.
 - **`splits`:** optional.
+- **`sectors`:** corner sectors, the same form as `splits`, made by the timer from your first clean lap (see [Using it](#using-it)). Each is the gate at the end of one sector: the first ends T1. You can move or delete them by hand; delete them all to have them made again.
 - **No start/finish yet:** a track can have a `"center": {"lat": .., "lon": ..}` instead of `startFinish`. It's still found automatically, and the timer asks you to tap at the line the first time.
-- **Saved by the timer:** new tracks, start/finish lines marked on track (with their direction), and maps from your first lap are written back into `tracks.json` on the SD card (maps when the session ends). It's saved compactly, one track per line.
+- **Saved by the timer:** new tracks, start/finish lines marked on track (with their direction), and maps and corner sectors from your first lap are written back into `tracks.json` on the SD card (maps when the session ends). It's saved compactly, one track per line.
 
 ### Layouts
 
@@ -499,7 +502,7 @@ Without it, the board shows a plain page with the session list, `tracks.json` an
 Sessions are saved in `/sessions` on the SD card, as two files with the same name. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the summary also names the layout.
 
 - **`<date>_<time>_<track id>.vbo`:** every GPS fix, up to 20 a second (10 in the 10 Hz GPS mode): UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up), and a lap tag mark. About 6.8 MB per hour of driving. The **Lap tag** channel marks the fixes that tag a lap where they happened: 1 = stopped, 4 = after a gap of more than 1 s, 8 = accuracy worse than ±5 m (added together when there are several). The header names the session number (`Session: 2`).
-- **`<date>_<time>_<track id>.json`:** the summary: the session number (`"session"`), every lap and split time, max and average speed and distance per lap, each lap's tags (`"tags": ["pit", "slow", "suspect"]`, and for a suspect lap why: `"suspect": ["gps gap", "accuracy", "distance"]`), the best clean lap, the average of the untagged laps, and the name of its `.vbo`.
+- **`<date>_<time>_<track id>.json`:** the summary: the session number (`"session"`), every lap and split time, each lap's corner sector times (`"sectorsMs"`: the time into the lap at the end of T1, T2... the last sector ends at the line), max and average speed and distance per lap, each lap's tags (`"tags": ["pit", "slow", "suspect"]`, and for a suspect lap why: `"suspect": ["gps gap", "accuracy", "distance"]`), the best clean lap, the average of the untagged laps, and the name of its `.vbo`.
 
 File names use UTC until the **Time zone** setting is set, either on the Settings screen or by a phone opening the Wi-Fi page. Then they use your local time. Times inside the `.vbo` are always UTC. Speeds in the files are always km/h, whatever the Speed units setting.
 
@@ -515,7 +518,7 @@ Free Roam drives are saved the same way, as `<date>_<time>_freeroam.vbo` and `.j
 
 1. Copy the `.vbo` from the card's `sessions` folder to your computer.
 2. Open it in Circuit Tools.
-3. **If the track has a map** in `tracks.json`, the file includes the start/finish line and any splits, so the laps appear straight away. **Otherwise** (new tracks, a line you marked during the session), set the start/finish line in Circuit Tools. Everything you drove is in the file either way.
+3. **If the track has a map** in `tracks.json`, the file includes the start/finish line and any splits, so the laps appear straight away. Corner sectors come after the splits, named T1, T2... **Otherwise** (new tracks, a line you marked during the session), set the start/finish line in Circuit Tools. Everything you drove is in the file either way.
 
 ### If the power goes off
 
@@ -553,6 +556,7 @@ What a driver chooses (units, brightness and so on) is a [setting](#settings), c
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
 | `PIT_PARK_KMH`, `PIT_PARK_MS` | 5, 60 s | Parked this slow for this long while timing: in the pits, the summary shows |
 | `SESSION_RESUME_MS` | 10 minutes | Driving off within this of stopping carries on the same session; parked longer, the session ends |
+| `SECTOR_BRAKE_DROP_KMH`, `SECTOR_MIN_MS` | 10, 3000 | Corner sectors: a braking zone loses at least this much speed; pieces shorter than this are joined |
 | `SLOW_LAP_PERCENT` | 107 | A lap over this % of the best lap is tagged slow |
 | `PIT_STOP_KMH` | 5 | A lap with a fix below this speed is a pit lap |
 | `SUSPECT_GAP_MS`, `SUSPECT_ACCURACY_M` | 1000, 5 | A gap between fixes over this, or a fix less accurate than this, makes a lap suspect |
@@ -599,6 +603,12 @@ It checks that the timer:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_racebox.cpp src/RaceBoxPacket.cpp -o /tmp/rb && /tmp/rb
+```
+
+`test/test_sectors.cpp` builds a synthetic track with known corners (a hairpin, 90° and 45° corners, a flat-out sweeper), drives it with a realistic speed profile, and checks that each braking corner gets a cut just before its braking zone and the sweeper doesn't; that a chicane is joined, a lift doesn't cut, and nothing lands within 3 s of the line; and that laps through the real lap timer get sector times at the cuts, apart from the splits, with the gates in the VBO as T1, T2...:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_sectors.cpp src/LapTimer.cpp src/VboFormat.cpp -o /tmp/sec && /tmp/sec
 ```
 
 `test/test_bestlap.cpp` checks the best-lap files (round trip, and damaged or cut-short files refused), which stored lap the Compare with setting picks, when a lap is a PB or the best of the day (never a tagged one), and the live diff from a stored lap in the real lap timer, from lap 1 until a quicker lap takes over:

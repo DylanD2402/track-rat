@@ -500,6 +500,10 @@ bool TrackDatabase::setStartFinish(int index, double lat, double lon, float head
   }
   for (TrackPoint& sp : t.splits)  // guessed to match the old line: guess again below (setLoadedMap)
     if (sp.headingFrom == HeadingFrom::Map) sp.headingFrom = HeadingFrom::None;
+  if (!t.sectors.empty()) {  // numbered from the old line: made again from the next clean lap
+    t.sectors.clear();
+    t.sectorsUnsaved = !t.bench;
+  }
   t.hasStartFinish = true;
   if (t.centerLat == 0.0 && t.centerLon == 0.0) {
     t.centerLat = lat;
