@@ -251,8 +251,9 @@ static bool saveBestLaps(const Lap& lap) {
   r.path.clear();
   if (pb) pbRecord = r;
   if (dayBest) dayRecord = r;
-  // Comparing with today's best: until now that was the PB (no lap today yet); now it's this session's best
-  if (dayBest && Settings::get().compareTo == CompareTo::Day) lapTimer.clearReference();
+  // This session's best is now the reference: a new PB beats the stored lap, and comparing with
+  // today's best, until now that was the PB (no lap today yet)
+  if (pb || (dayBest && Settings::get().compareTo == CompareTo::Day)) lapTimer.clearReference();
   if (selectedIndex < (int)pbCache.size()) pbCache[selectedIndex].read = false;
   DEBUG_PRINTF("Best lap: %s%s%s\n", pb ? "new PB" : "", pb && dayBest ? ", " : "", dayBest ? "best of the day" : "");
   return pb;
@@ -430,6 +431,7 @@ static void markStartFinish() {
   trackDB.setStartFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
   settingLine = false;
   beginLapTiming(selectedTrack());
+  if (selectedIndex < (int)pbCache.size()) pbCache[selectedIndex].read = false;  // the PB may not count at the new line
   loadBestLaps();  // a line put back where it was keeps its best laps
   lapTimer.startLapNow(f.gpsTimeMs, f.rxMillis);
   layoutChecked = true;  // the driver just put the line here
