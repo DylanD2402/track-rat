@@ -205,7 +205,7 @@ Sizes are relative: S small, M medium, L large.
 - The phone draws the graphs from the log; the ESP32 only serves the file.
 - Season view: best lap at each visit, and your PB over time.
 
-**Status: done** (2026-10-20, commit PENDING)
+**Status: done** (2026-10-20, commit ae3a8b0)
 
 **3.4 Logbook (S)**
 
