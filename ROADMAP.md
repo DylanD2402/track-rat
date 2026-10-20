@@ -179,7 +179,7 @@ Sizes are relative: S small, M medium, L large.
 - **Parked:** the debrief (2.3), with the local time, since track days run to a schedule.
 - **Session clock** in the header: time since you left the pits. Run groups are usually 20–30 minutes, and drivers want to know how long is left. Optionally a countdown, if a session length is set.
 
-**Status: done** (2026-10-20, commit PENDING)
+**Status: done** (2026-10-20, commit 5ba16e2)
 
 ### Phase 3: Your data on your phone
 
