@@ -859,8 +859,8 @@ void DisplayManager::drawSetLine(const Track& track, const GPSHandler& gps, uint
 void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, const String& savedPath, int session,
                                  bool inPits) {
   beginFrame();
-  String title = inPits ? String("In the pits") : String("Session summary");
-  if (session > 0) title += "   ·   Session " + String(session);
+  String title = session > 0 ? "Session " + String(session) : String(inPits ? "" : "Session summary");
+  if (inPits) title = title.length() ? "Pits   ·   " + title : String("In the pits");
   header(title + "   ·   " + track.displayName(), nullptr);
 
   char buf[48];
@@ -888,7 +888,7 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
     text(formatLapTime(l.timeMs), 92, y, Font::Body, isBest ? C_GREEN : C_TEXT, ML_DATUM);
     if (isBest) text("BEST", 168, y, Font::Caption, C_GREEN, ML_DATUM);
     else if (l.tags) text(laptags::shortLabel(l.tags), 168, y, Font::Caption, laptags::suspect(l.tags) ? C_ORANGE : C_YELLOW, ML_DATUM);
-    snprintf(buf, sizeof(buf), "top %.0f %s", Settings::speed(l.maxSpeedKmh), Settings::speedUnit());
+    snprintf(buf, sizeof(buf), "%.0f %s", Settings::speed(l.maxSpeedKmh), Settings::speedUnit());  // top speed
     text(buf, W - 20, y, Font::Body, C_TEXT3, MR_DATUM);
     if (rows < maxRows - 1 && i > 0) gfx->drawFastHLine(20, y + rowH / 2, W - 40, C_LINE);
     y += rowH;
