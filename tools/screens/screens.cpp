@@ -583,6 +583,11 @@ int main(int argc, char** argv) {
       save(d, b.name);
       mockMillis = keep;
     }
+    obdValues.coolantC = 81;  // a warm engine: Free Roam and Performance show it in the top bar too
+    d.drawFreeRoam(fr, gps, 0);
+    save(d, "45f_coolant_free_roam");
+    d.drawPerfLive(pr, gps, perf::SpeedUnit::Kmh, "1 ft", 0, true);
+    save(d, "45g_coolant_perf");
     coolantKnown = false;
     d.drawRunning(track, timer, gps, o, 0);
     save(d, "45e_obd_tag_no_coolant_yet");
