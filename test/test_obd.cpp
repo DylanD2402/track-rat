@@ -58,6 +58,11 @@ int main() {
 
     // Stale after a second without news
     CHECK(v.rpmKnown(1500) && v.rpmKnown(2000) && !v.rpmKnown(2001), "stale after STALE_MS");
+    // Temperatures are asked once a second: a reply a little late mustn't make them unknown
+    Values temps;
+    temps.coolantC = 85, temps.coolantAt = 1000, temps.intakeC = 20, temps.intakeAt = 1000;
+    CHECK(temps.coolantKnown(2100) && temps.intakeKnown(2100), "temperatures still known 1.1 s on");
+    CHECK(temps.coolantKnown(4000) && !temps.coolantKnown(4001) && !temps.intakeKnown(4001), "stale after SLOW_STALE_MS");
     Values none;
     CHECK(!none.rpmKnown(0) && !none.throttleKnown(500) && !none.coolantKnown(100000), "never read: unknown");
     CHECK(parse(0x7E8, rpm, 8, none, 0) == PID_RPM && none.rpmKnown(5), "read at time 0 still counts");

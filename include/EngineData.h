@@ -15,7 +15,7 @@ namespace EngineData {
 
 bool logged();                // the CAN controller runs, or an adapter has been chosen: logs get the engine channels
 const obd::Values& values();  // the latest figures (check ...Known() for each)
-// The temperatures, if the engine has sent them in the last second (obd::STALE_MS)
+// The temperatures, if the engine has sent them in the last 3 s (obd::SLOW_STALE_MS)
 bool coolant(uint32_t nowMs, float& c);
 bool oil(uint32_t nowMs, float& c);
 

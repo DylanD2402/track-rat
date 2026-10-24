@@ -42,6 +42,10 @@ constexpr uint32_t REPLY_TIMEOUT_MS = 100;  // no answer by then: ask the next o
 constexpr uint32_t MIN_GAP_MS = 40;         // between requests: about 25 a second at most
 constexpr uint32_t STALE_MS = 1000;         // a value older than this is unknown
 constexpr uint32_t SLOW_PERIOD_MS = 1000;   // the temperatures that are asked once a second (oil on CAN, all of them by Bluetooth)
+// The temperatures are only asked for once a second (SLOW_PERIOD_MS), so a reply
+// that comes back a little late would make them unknown for a fix or two (logged
+// as 0) with the same limit. They change slowly: allow three requests' worth.
+constexpr uint32_t SLOW_STALE_MS = 3000;
 
 // The 8 data bytes asking for one PID (mode 01), padded with 0x55 as the standard suggests
 inline void request(uint8_t pid, uint8_t out[8]) {
@@ -57,12 +61,14 @@ inline void request(uint8_t pid, uint8_t out[8]) {
 struct Values {
   float rpm = 0, throttlePct = 0, coolantC = 0, intakeC = 0, oilC = 0;
   uint32_t rpmAt = 0, throttleAt = 0, coolantAt = 0, intakeAt = 0, oilAt = 0;
-  static bool fresh(uint32_t at, uint32_t now) { return at && (int32_t)(now - at) <= (int32_t)STALE_MS; }
+  static bool fresh(uint32_t at, uint32_t now, uint32_t limit = STALE_MS) {
+    return at && (int32_t)(now - at) <= (int32_t)limit;
+  }
   bool rpmKnown(uint32_t now) const { return fresh(rpmAt, now); }
   bool throttleKnown(uint32_t now) const { return fresh(throttleAt, now); }
-  bool coolantKnown(uint32_t now) const { return fresh(coolantAt, now); }
-  bool intakeKnown(uint32_t now) const { return fresh(intakeAt, now); }
-  bool oilKnown(uint32_t now) const { return fresh(oilAt, now); }
+  bool coolantKnown(uint32_t now) const { return fresh(coolantAt, now, SLOW_STALE_MS); }
+  bool intakeKnown(uint32_t now) const { return fresh(intakeAt, now, SLOW_STALE_MS); }
+  bool oilKnown(uint32_t now) const { return fresh(oilAt, now, SLOW_STALE_MS); }
 };
 
 // The data bytes that follow each PID in a mode 01 reply, or -1 for one we don't read.

@@ -7,8 +7,8 @@
  * "Oil hot at", for cars that report it) a full-screen card shows for
  * TEMP_ALERT_MS. It shows again only once the temperature has dropped
  * TEMP_REARM_DROP_C below the limit and come back, or after TEMP_REPEAT_MS
- * still over it. A temperature the engine hasn't sent in the last second
- * (obd::STALE_MS) counts as not known: no tag colour, no card.
+ * still over it. A temperature the engine hasn't sent in the last 3 s
+ * (obd::SLOW_STALE_MS) counts as not known: no tag colour, no card.
  *
  * Temperatures are kept in degrees C; with Speed units in mph they are shown
  * in degrees F. Pure C++, tested on a PC in test/test_tempalert.cpp.
