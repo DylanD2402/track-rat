@@ -257,11 +257,27 @@ void DisplayManager::settingsCoolantPage(const SettingsData& s, const SettingsSc
   if (!touchOk) settingsHint("BOOT: press for +, hold for the next (last: back)");
 }
 
+// Power off: what happens, then Cancel and Power off where a level page has - and +
+void DisplayManager::settingsPowerOffPage(bool touchOk) {
+  centered("Switch off now?", 58, Font::Title, C_TEXT);
+  centered("Anything running is saved first.", 94, Font::Body, C_TEXT2);
+  centered("Press BOOT to turn it back on.", 118, Font::Body, C_TEXT2);
+  if (touchOk) {
+    button(UI::MINUS_X, UI::BTN_Y, UI::BTN_W, UI::BTN_H, "Cancel", false);
+    button(UI::PLUS_X, UI::BTN_Y, UI::BTN_W, UI::BTN_H, "Power off", true);
+  }
+
+  header("‹  Settings", nullptr);
+  text(UI::rowLabel(SettingItem::PowerOff), W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+  if (!touchOk) settingsHint("BOOT: hold to power off, press to go back");
+}
+
 void DisplayManager::drawSettings(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs) {
   beginFrame();
   if (ui.page == UI::Page::List) settingsList(s, ui, touchOk);
   else if (ui.page == UI::Page::Choice) settingsChoicePage(s, ui, touchOk);
   else if (ui.page == UI::Page::Coolant) settingsCoolantPage(s, ui, touchOk);
+  else if (ui.page == UI::Page::PowerOff) settingsPowerOffPage(touchOk);
   else settingsLevelPage(s, ui, touchOk, localMs);
   endFrame();
 }

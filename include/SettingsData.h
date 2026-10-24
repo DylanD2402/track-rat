@@ -65,7 +65,8 @@ enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colo
                                    MinLap, Kart, CameraRec, Profile, Count,
                                    Engine, Camera,     // after Count: rows that open a screen of their own, not values
                                    Coolant,            // the row that opens the Coolant page, and its four values:
-                                   CoolCold, CoolWarm, CoolHot, OilHot };
+                                   CoolCold, CoolWarm, CoolHot, OilHot,
+                                   PowerOff };         // the row that asks before switching off
 constexpr int SETTING_ITEM_COUNT = (int)SettingItem::Count;
 
 namespace settings {

@@ -7,10 +7,30 @@
 #include "SimTrack.h"
 #include "LocalTime.h"
 #include "Settings.h"
+#include "driver/gpio.h"
 
 static HardwareSerial& gpsSerial = Serial1;
 
+// A GPS that standby() left asleep wakes on an edge on its RX line. Every pin it could be listening on gets a
+// short low pulse, which a GPS that is awake takes for a stray byte and ignores: the board may also have been
+// reset with RST while the GPS slept, and then nothing says which pins it's on.
+void GPSHandler::wake() {
+  const int pairs[][2] = GPS_PIN_PAIRS;
+  for (const auto& pr : pairs) {
+    const int tx = pr[1];
+    gpio_hold_dis((gpio_num_t)tx);  // standby() held the line high through the sleep
+    pinMode(tx, OUTPUT);
+    digitalWrite(tx, LOW);
+    delayMicroseconds(500);
+    digitalWrite(tx, HIGH);
+    pinMode(tx, INPUT_PULLUP);
+  }
+  wokeAt = millis();
+}
+
 void GPSHandler::begin() {
+  // A GPS just woken from standby takes a moment to start talking (setup() has usually taken longer already)
+  while (wokeAt && millis() - wokeAt < GPS_WAKE_MS) delay(5);
   gpsSerial.setRxBufferSize(GPS_RX_BUFFER_BYTES);  // rides out SD writes etc. without losing data
   // NAV-PVT silent for 3 fix intervals (at least 1 s) while NMEA arrives = the GPS restarted
   systems = settings::gpsSystems(Settings::get().gpsMode);  // the GPS mode setting, for this whole run
@@ -121,7 +141,7 @@ void GPSHandler::sendUbx(uint8_t cls, uint8_t id, const uint8_t* payload, size_t
   ubxChecksum(payload, len, ckA, ckB);
   uint8_t tail[2] = {ckA, ckB};
   gpsSerial.write(head, 6);
-  gpsSerial.write(payload, len);
+  if (len) gpsSerial.write(payload, len);  // none: a poll
   gpsSerial.write(tail, 2);
   gpsSerial.flush();
 }
@@ -147,6 +167,8 @@ void GPSHandler::handleUbxFrame(uint32_t now) {
   UbxPvt v;
   if (ubx.is(UBX_CLASS_NAV, UBX_ID_NAV_PVT) && decodeNavPvt(p, len, v)) {
     onPvt(v, now);
+  } else if (ubx.is(UBX_CLASS_NAV, UBX_ID_NAV_AOPSTATUS) && decodeAopStatus(p, len, aopBusy)) {  // waitAopIdle() asked
+    aopReplies++;
   } else if (ubx.is(0x05, 0x00) && len >= 2) {  // ACK-NAK: the GPS turned a command down
     DEBUG_PRINTF("GPS: u-blox rejected a command (class 0x%02X id 0x%02X)\n", p[0], p[1]);
   } else if (ubx.is(0x06, 0x8B) && len >= 4) {  // CFG-VALGET response
@@ -208,6 +230,15 @@ void GPSHandler::setNmeaOutput(bool on) {
 void GPSHandler::configureUblox() {
   sendBaseConfig(detected);
 
+#if GPS_ASSISTNOW_AUTONOMOUS
+  // AssistNow Autonomous (off on a new M10): from the orbits it downloads, the GPS works out where the
+  // satellites will be for the next 3 to 6 days, so after a standby longer than the 4 hours broadcast orbits
+  // last it still finds its position in seconds. RAM and battery-backed, as standby clears RAM; a VALSET of
+  // its own, because a GPS that turns a key down rejects the whole message.
+  const uint8_t ana[] = {0x01, 0x00, 0x23, 0x10, 0x01};  // CFG-ANA-USE_ANA = 1
+  sendUbxValset(0x03, ana, sizeof(ana));
+#endif
+
 #if GPS_SET_CONSTELLATIONS
   // Changing satellite systems restarts tracking (the fix drops for a few
   // seconds), so read the current setting first and only change it if needed.
@@ -252,6 +283,44 @@ void GPSHandler::configureUblox() {
   DEBUG_PRINTF("GPS: switching satellite systems to %s - tracking restarts, fix back in a few seconds\n",
                on.c_str());
 #endif
+}
+
+// Software standby (UBX-RXM-PMREQ) until wake() at the next start-up. The GPS keeps its clock, satellite
+// orbits and last position on a few tens of microamps instead of ~20 mA, so it finds its position again in
+// about a second after up to 4 hours (as long as broadcast orbits last), and in seconds for days more with
+// AssistNow Autonomous. It forgets the settings kept only in RAM: begin() sends them again.
+void GPSHandler::standby() {
+#if GPS_STANDBY_IN_SLEEP
+  // AssistNow Autonomous works out orbits for a while after new ones arrive: u-blox say to wait until it's idle
+  if (GPS_ASSISTNOW_AUTONOMOUS && source.pvtActive() && !waitAopIdle(GPS_STANDBY_AOP_WAIT_MS))
+    DEBUG_PRINTLN("GPS: AssistNow Autonomous still busy - standby anyway");
+  sendUbx(UBX_CLASS_RXM, UBX_ID_RXM_PMREQ, UBX_PMREQ_STANDBY, sizeof(UBX_PMREQ_STANDBY));
+  gpio_hold_en((gpio_num_t)txPin);  // its RX line stays high through deep sleep: an edge would wake it
+  DEBUG_PRINTLN("GPS: standby (it keeps its satellites; woken at the next start-up)");
+#endif
+}
+
+// Asks for UBX-NAV-AOPSTATUS every 250 ms until two answers running say idle. False if it was still busy after
+// maxMs, or nothing answered within a second (AssistNow Autonomous unknown to this GPS).
+bool GPSHandler::waitAopIdle(uint32_t maxMs) {
+  const uint32_t start = millis(), before = aopReplies;
+  uint32_t seen = aopReplies, asked = start - 250;
+  int idle = 0;
+  while (millis() - start < maxMs) {
+    if (millis() - asked >= 250) {
+      sendUbx(UBX_CLASS_NAV, UBX_ID_NAV_AOPSTATUS, nullptr, 0);
+      asked = millis();
+    }
+    readSerial(millis());
+    if (aopReplies != seen) {
+      seen = aopReplies;
+      idle = aopBusy ? 0 : idle + 1;
+      if (idle >= 2) return true;
+    }
+    if (seen == before && millis() - start >= 1000) return false;
+    delay(5);
+  }
+  return false;
 }
 
 void GPSHandler::update() {

@@ -133,6 +133,8 @@ public:
   void setBacklight(bool on);
   void powerDown();  // blank the panel and put it to sleep (before deep sleep)
   void drawMessage(const char* title, const char* line1, const char* line2, uint16_t color);
+  // BOOT held to switch off: a bar fills from POWER_OFF_BAR_MS (when this first shows) to POWER_OFF_HOLD_MS
+  void drawPowerHold(uint32_t heldMs);
   void drawFirmwarePrompt(const char* modified, uint32_t sizeBytes, bool touchOk);
   void drawFirmwareProgress(int percent);
   // Wi-Fi screen: network name, address and upload code. progress: firmware install, -1 = none
@@ -211,6 +213,8 @@ private:
   void settingsChoicePage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
   void settingsLevelPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs);
   void settingsCoolantPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
+  void settingsPowerOffPage(bool touchOk);
+  void titlePill(const char* title, uint16_t color);  // drawMessage's coloured title, near the top
   // The engine's temperatures (6.5): a colour for each band, and the session's hottest
   // ("Coolant max 104°   ·   oil 128°") right-aligned at `right`. Returns its width, 0 if none.
   static uint16_t tempColor(float c, bool oil);

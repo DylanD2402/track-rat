@@ -4,14 +4,19 @@
  * Touch (FT6336G capacitive panel) and the on-board BOOT button.
  *   Touch: tap the top bar, or the left / centre / right third below it, or hold. A finger that moves
  *          is a drag (dragging(), dragDy()) and gives no tap.
- *   BOOT:  short press, or long press (fires while still held).
- *   Big button (optional, EXT_BUTTON_PIN): same as BOOT, reported as BootShort / BootLong.
+ *   BOOT:  short press, or long press (fires while still held). Held for POWER_OFF_HOLD_MS, it
+ *          switches the unit off: main.cpp watches bootHeldMs().
+ *   Big button (optional, EXT_BUTTON_PIN): same as BOOT, reported as BootShort / BootLong (it doesn't
+ *          switch off).
+ * A button still held from before begin() (the press that woke the board) counts once it's let go.
  */
 
 #ifndef INPUT_MANAGER_H
 #define INPUT_MANAGER_H
 
 #include <Arduino.h>
+#include "ButtonPress.h"
+#include "Config.h"
 
 enum class InputEvent { None, TapLeft, TapCenter, TapRight, TapHeader, Hold, BootShort, BootLong };
 
@@ -25,6 +30,11 @@ public:
   bool touchAvailable() const { return touchOk; }
   // How long the screen has been held so far (0 if not touched). For UI feedback.
   uint32_t touchHeldMs() const;
+  // How long BOOT has been held so far (0 if it isn't, or if it was already down at start-up)
+  uint32_t bootHeldMs() const { return boot.heldMs(millis()); }
+  // Before switching off: the touch controller into hibernation, where a touch can't wake anything.
+  // begin() resets it at the next start-up.
+  void sleepTouch();
   // Screen x and y of the last tap, for screens with more than one row of buttons.
   int16_t lastTapX() const { return tapX; }
   int16_t lastTapY() const { return tapY; }
@@ -49,14 +59,9 @@ private:
   int16_t curX = 0, curY = 0;
   int16_t tapX = 0, tapY = 0;
 
-  struct Button {
-    bool down = false;
-    bool longFired = false;
-    uint32_t start = 0;
-  };
-  Button boot, ext;
+  ButtonPress boot{LONG_PRESS_MS}, ext{LONG_PRESS_MS};
   int extPin = -1;
-  InputEvent pollButton(Button& b, bool pressed, uint32_t now);
+  static InputEvent bootEvent(ButtonPress::Event e);
 
   bool readTouch(int16_t& x, int16_t& y);
 };

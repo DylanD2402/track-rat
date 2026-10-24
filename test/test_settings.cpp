@@ -856,7 +856,7 @@ static Res tapRow(ST& st, int r, SettingsData& s) {
 static int rowOf(SettingItem it) { return ST::rowOfItem(it); }
 
 static void testSettingsLayout() {
-  // Every setting is one row, in four sections, and then the Back row
+  // Every setting is one row, in four sections, then Power off, and then the Back row
   bool seen[SETTING_ITEM_COUNT] = {};
   int n = 0, lastKind = -1;
   for (int r = 0; r < ST::ROWS; r++) {
@@ -865,8 +865,8 @@ static void testSettingsLayout() {
       lastKind = r;
       continue;
     }
-    // a screen of its own (Engine data), or the Coolant page of four values: after Count, not one setting
-    if (rw.kind == ST::RowKind::Open || rw.item == SettingItem::Coolant) {
+    // a screen of its own (Engine data), the Coolant page of four values, or Power off: after Count, not one setting
+    if (rw.kind == ST::RowKind::Open || rw.item == SettingItem::Coolant || rw.kind == ST::RowKind::PowerOff) {
       EXPECT((int)rw.item > SETTING_ITEM_COUNT && ST::rowOfItem(rw.item) == r && strlen(ST::rowLabel(rw.item)) > 0, "row %d: a screen row", r);
       continue;
     }
@@ -917,10 +917,12 @@ static void testSettingsLayout() {
   touch.setScroll(touch.maxScroll() / 2);
   EXPECT(touch.scrollBar(y, h) && y > ST::TOP && y + h < touch.viewBottom, "scroll bar in the middle: y %d h %d", y, h);
 
-  // The footnote is on the GPS section only
+  // Footnotes: under the GPS section, and under Power off (holding BOOT does it too)
   int notes = 0;
   for (int i = 0; i < ST::SECTIONS; i++) notes += ST::section(i).foot != nullptr;
-  EXPECT(notes == 1 && ST::section(ST::sectionOf(rowOf(SettingItem::Gps))).foot, "one footnote, under the GPS group");
+  EXPECT(notes == 2 && ST::section(ST::sectionOf(rowOf(SettingItem::Gps))).foot &&
+             ST::section(ST::sectionOf(rowOf(SettingItem::PowerOff))).foot,
+         "two footnotes, under the GPS group and Power off");
   printf("  settings layout: %d rows in %d sections, %d px tall, scrolls %d\n", ST::ROWS, ST::SECTIONS, ST::contentHeight(), touch.maxScroll() );
 }
 
@@ -1325,7 +1327,7 @@ static void testSettingsBoot() {
     st.begin(false);
     SettingsData s = defaults();
     bool opened[SETTING_ITEM_COUNT] = {};
-    bool coolantOpened = false;
+    bool coolantOpened = false, powerOffAsked = false;
     for (int r = 0; r < ST::ROWS - 1; r++) {
       const ST::Row& rw = ST::row(st.highlight);
       EXPECT(st.highlight == r, "visiting row %d", r);
@@ -1334,6 +1336,9 @@ static void testSettingsBoot() {
         st.handle(Key::BootLong, s);  // flip and flip back
       } else if (rw.kind == ST::RowKind::Open) {
         EXPECT(st.handle(Key::BootLong, s) == Res::Open && st.page == ST::Page::List, "row %d asks for its screen", r);  // main.cpp switches
+      } else if (rw.kind == ST::RowKind::PowerOff) {
+        powerOffAsked = st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::PowerOff;
+        EXPECT(st.handle(Key::BootShort, s) == Res::Nothing && st.page == ST::Page::List, "a press backs out of Power off");
       } else if (rw.item == SettingItem::Coolant) {
         st.handle(Key::BootLong, s);
         coolantOpened = st.page == ST::Page::Coolant;
@@ -1350,6 +1355,7 @@ static void testSettingsBoot() {
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
     EXPECT(pages == 11 && coolantOpened, "visited 12 pages (9 choices, brightness, time zone, coolant), got %d", pages + coolantOpened);
+    EXPECT(powerOffAsked, "Power off asked first");
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
     EXPECT(st.handle(Key::BootLong, s) == Res::Exit, "hold on Back leaves");
@@ -1639,6 +1645,45 @@ static void testEngineScreen() {
   printf("  engine data screen: find, choose, forget, by touch and BOOT\n");
 }
 
+static void testPowerOffPage() {
+  const int r = rowOf(SettingItem::PowerOff);
+  EXPECT(ST::row(r).kind == ST::RowKind::PowerOff && r == ST::ROWS - 2 && ST::sectionOf(r) == ST::SECTIONS - 2 &&
+             ST::section(ST::sectionOf(r)).count == 1 && !strcmp(ST::rowLabel(SettingItem::PowerOff), "Power off"),
+         "Power off: a group of its own, just above Back to menu");
+  EXPECT(strstr(ST::section(ST::sectionOf(r)).foot, "BOOT") != nullptr, "its note says BOOT does it too");
+  {  // touch: the row asks first; Cancel goes back to the list where it was, Power off says so
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    EXPECT(tapRow(st, r, s) == Res::Nothing && st.page == ST::Page::PowerOff && st.item == SettingItem::PowerOff, "tapping the row asks");
+    const int scroll = st.scroll;
+    for (int y : {40, 70, 100, 130, ST::BTN_Y - 1, ST::BTN_Y + ST::BTN_H, 230})
+      EXPECT(st.tap(midX(), y, s) == Res::Nothing && st.page == ST::Page::PowerOff, "a tap at y %d off the buttons does nothing", y);
+    EXPECT(st.tap(ST::MINUS_X + ST::BTN_W / 2 + 1, ST::BTN_Y + ST::BTN_H / 2, s) == Res::Nothing && st.page == ST::Page::List,
+           "Cancel goes back");  // (midX() falls between the buttons)
+    EXPECT(st.scroll == scroll && st.highlight == r, "to the list where it was");
+    tapRow(st, r, s);
+    EXPECT(st.tap(ST::PLUS_X + 10, ST::BTN_Y + 10, s) == Res::PowerOff, "Power off: switch off");
+    tapRow(st, r, s);
+    EXPECT(st.tap(100, 5, s) == Res::Nothing && st.page == ST::Page::List, "the top bar goes back");
+    tapRow(st, r, s);
+    EXPECT(st.handle(Key::Hold, s) == Res::Nothing && st.page == ST::Page::List, "so does a hold");
+    EXPECT(s == defaults(), "no setting changes");
+  }
+  {  // BOOT: hold on the row asks; press goes back, hold says switch off
+    ST st;
+    st.begin(false);
+    SettingsData s = defaults();
+    while (st.highlight != r) st.handle(Key::BootShort, s);
+    EXPECT(st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::PowerOff, "hold on the row asks");
+    EXPECT(st.handle(Key::BootShort, s) == Res::Nothing && st.page == ST::Page::List && st.highlight == r, "press goes back");
+    st.handle(Key::BootLong, s);
+    EXPECT(st.handle(Key::BootLong, s) == Res::PowerOff, "hold switches off");
+    EXPECT(s == defaults(), "no setting changes");
+  }
+  printf("  power off: asks first; Cancel, the top bar or a BOOT press go back\n");
+}
+
 int main() {
   printf("Settings tests\n");
   testDefaults();
@@ -1659,9 +1704,10 @@ int main() {
   testSettingsBoot();
   testCoolantPage();
   testEngineScreen();
+  testPowerOffPage();
   testSetup();
   testEndToEnd();
-  printf("\n%d checks in 19 groups\n", checks);
+  printf("\n%d checks in 21 groups\n", checks);
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

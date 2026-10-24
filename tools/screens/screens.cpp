@@ -462,6 +462,10 @@ int main(int argc, char** argv) {
   save(d, "26_wifi_installing");
   d.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
   save(d, "27_battery_low");
+  d.drawPowerHold(POWER_OFF_BAR_MS + (POWER_OFF_HOLD_MS - POWER_OFF_BAR_MS) * 2 / 3);  // BOOT held 2.5 s
+  save(d, "27b_power_off_hold");
+  d.drawMessage("POWER OFF", "Switching off…", "Press BOOT to turn it back on", ui::C_ORANGE);
+  save(d, "27c_powering_off");
   d.drawFirmwarePrompt("2026-10-18 21:40", 912384, true);
   save(d, "28_firmware_prompt");
   d.drawFirmwareProgress(42);
@@ -618,6 +622,18 @@ int main(int argc, char** argv) {
     f.units = SpeedUnits::Mph;
     d.drawSettings(f, coolBoot, false, localNow);
     save(d, "47c_settings_coolant_boot_mph");
+  }
+  {  // Settings > Power off: it asks first
+    SettingsScreenState off;
+    off.begin(true);
+    const int offRow = SettingsScreenState::rowOfItem(SettingItem::PowerOff);
+    off.tap(100, off.rowScreenY(offRow) + 10, scratch);  // scrolled out of view: nothing opens
+    off.setScroll(1000);
+    off.tap(100, off.rowScreenY(offRow) + 10, scratch);
+    d.drawSettings(sd, off, true, localNow);
+    save(d, "48_settings_power_off");
+    d.drawSettings(sd, off, false, localNow);
+    save(d, "48b_settings_power_off_boot_only");
   }
   d.drawSetup(0, 0, true);
   save(d, "40_setup_which_way_up");

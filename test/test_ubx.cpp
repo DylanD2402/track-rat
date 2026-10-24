@@ -39,6 +39,16 @@ static const uint8_t PVT_NO_FIX[100] = {
 // UBX-ACK-ACK for a CFG-VALSET, as an M10 sends it.
 static const uint8_t ACK_VALSET[10] = {0xB5, 0x62, 0x05, 0x01, 0x02, 0x00, 0x06, 0x8A, 0x98, 0xC1};
 
+// UBX-RXM-PMREQ: software standby until woken on UART RX (duration 0, flags 0x06, wake-up sources 0x08).
+static const uint8_t PMREQ_STANDBY[24] = {0xB5, 0x62, 0x02, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                          0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x61, 0x6B};
+
+// UBX-NAV-AOPSTATUS replies: AssistNow Autonomous on, idle (status 0) and working out orbits (status 1).
+static const uint8_t AOP_IDLE[24] = {0xB5, 0x62, 0x01, 0x60, 0x10, 0x00, 0x10, 0x27, 0x00, 0x00, 0x01, 0x00,
+                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xA9, 0xA9};
+static const uint8_t AOP_RUNNING[24] = {0xB5, 0x62, 0x01, 0x60, 0x10, 0x00, 0x10, 0x27, 0x00, 0x00, 0x01, 0x01,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAA, 0xB4};
+
 static const char NMEA_GGA[] =
     "$GNGGA,123456.70,4518.10667,N,07640.29334,W,1,11,0.90,152.5,M,-33.6,M,,*75\r\n";
 
@@ -208,6 +218,36 @@ int main() {
     for (int i = 0; i < 514; i++) p.feed((uint8_t)(i * 7));  // its payload: arbitrary bytes
     CHECK(feedAll(p, PVT_MOVING, sizeof(PVT_MOVING)) == 1, "frame after a big one");
     printf("  oversized frames: ok\n");
+  }
+
+  // --- Standby before deep sleep: the PMREQ the GPS is sent, and AssistNow Autonomous busy or idle ---
+  {
+    // The frame GPSHandler::sendUbx() builds from UBX_PMREQ_STANDBY, against one written out by hand
+    uint8_t frame[24] = {0xB5, 0x62, UBX_CLASS_RXM, UBX_ID_RXM_PMREQ, sizeof(UBX_PMREQ_STANDBY), 0x00};
+    memcpy(frame + 6, UBX_PMREQ_STANDBY, sizeof(UBX_PMREQ_STANDBY));
+    uint8_t a = 0, b = 0;
+    ubxChecksum(frame + 2, 4 + sizeof(UBX_PMREQ_STANDBY), a, b);
+    frame[22] = a;
+    frame[23] = b;
+    CHECK(memcmp(frame, PMREQ_STANDBY, sizeof(frame)) == 0, "PMREQ frame differs");
+    UbxParser p;
+    CHECK(feedAll(p, PMREQ_STANDBY, sizeof(PMREQ_STANDBY)) == 1 && p.is(UBX_CLASS_RXM, UBX_ID_RXM_PMREQ) && p.length() == 16,
+          "PMREQ reads back");
+    const uint8_t* pl = p.payload();
+    const uint32_t duration = pl[4] | pl[5] << 8 | pl[6] << 16 | (uint32_t)pl[7] << 24;
+    CHECK(pl[0] == 0 && duration == 0, "version 0, until woken (duration %u)", (unsigned)duration);
+    CHECK(pl[8] == 0x06 && pl[9] == 0 && pl[10] == 0 && pl[11] == 0, "flags: backup and force only (%02X)", pl[8]);
+    CHECK(pl[12] == 0x08 && pl[13] == 0 && pl[14] == 0 && pl[15] == 0, "wakes on UART RX only (%02X)", pl[12]);
+
+    bool busy = true;
+    CHECK(feedAll(p, AOP_IDLE, sizeof(AOP_IDLE)) == 1 && p.is(UBX_CLASS_NAV, UBX_ID_NAV_AOPSTATUS) &&
+              decodeAopStatus(p.payload(), p.length(), busy) && !busy,
+          "AOPSTATUS idle");
+    CHECK(feedAll(p, AOP_RUNNING, sizeof(AOP_RUNNING)) == 1 && decodeAopStatus(p.payload(), p.length(), busy) && busy,
+          "AOPSTATUS working out orbits");
+    busy = false;
+    CHECK(!decodeAopStatus(p.payload(), 15, busy) && !busy, "a short AOPSTATUS is refused");
+    printf("  standby request and AssistNow Autonomous status: ok\n");
   }
 
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);

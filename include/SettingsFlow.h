@@ -25,11 +25,14 @@ enum class Key { None, Left, Center, Right, Header, Hold, BootShort, BootLong };
 // opens or flips the highlighted row; on a choice page hold chooses; on a
 // level page press is "+" and hold goes back. On the Coolant page (four
 // values, each with its own - and +) press is "+" on the highlighted value and
-// hold moves to the next value, then back to the list after the last.
+// hold moves to the next value, then back to the list after the last. The
+// Power off page asks first: Cancel and Power off, or BOOT hold to switch off
+// and press to go back.
 struct SettingsScreenState {
-  enum class Result { Nothing, Changed, Exit, Open };  // Exit: back to the menu. Open: the screen of `item` (Engine data)
-  enum class Page : uint8_t { List, Choice, Brightness, TimeZone, Coolant };
-  enum class RowKind : uint8_t { Choice, Toggle, Level, Open, Back };  // Open: a screen of its own
+  // Exit: back to the menu. Open: the screen of `item` (Engine data). PowerOff: switch off now (the page said yes)
+  enum class Result { Nothing, Changed, Exit, Open, PowerOff };
+  enum class Page : uint8_t { List, Choice, Brightness, TimeZone, Coolant, PowerOff };
+  enum class RowKind : uint8_t { Choice, Toggle, Level, Open, Back, PowerOff };  // Open: a screen of its own. PowerOff: asks first
 
   // --- layout ---------------------------------------------------------------
   static constexpr int SCREEN_W = 320, SCREEN_H = 240;
@@ -41,7 +44,7 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 19, SECTIONS = 5;
+  static constexpr int ROWS = 20, SECTIONS = 6;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
@@ -89,7 +92,7 @@ struct SettingsScreenState {
         {SettingItem::Engine, RowKind::Open},       {SettingItem::Coolant, RowKind::Level},
         {SettingItem::Camera, RowKind::Open},       {SettingItem::CameraRec, RowKind::Choice},
         {SettingItem::RoadDrives, RowKind::Toggle}, {SettingItem::TimeZone, RowKind::Level},
-        {SettingItem::Count, RowKind::Back},
+        {SettingItem::PowerOff, RowKind::PowerOff}, {SettingItem::Count, RowKind::Back},
     };
     return rows[r];
   }
@@ -99,7 +102,8 @@ struct SettingsScreenState {
         {"TIMING", 3, 6, nullptr},
         {"GPS & BLUETOOTH", 9, 7, "GPS mode and Bluetooth profile are used from the next restart"},
         {"RECORDING", 16, 2, nullptr},
-        {nullptr, 18, 1, nullptr},
+        {"POWER", 18, 1, "Or hold BOOT for 3 s on any screen"},
+        {nullptr, 19, 1, nullptr},
     };
     return sections[i];
   }
@@ -138,6 +142,7 @@ struct SettingsScreenState {
       case SettingItem::CoolWarm: return "Warm at";
       case SettingItem::CoolHot: return "Hot at";
       case SettingItem::OilHot: return "Oil hot at";
+      case SettingItem::PowerOff: return "Power off";
       default: return "Back to menu";
     }
   }
@@ -305,6 +310,10 @@ struct SettingsScreenState {
       settings::adjust(s, settings::COOLANT_ITEMS[i], dir, false);
       return s == before ? Result::Nothing : Result::Changed;
     }
+    if (page == Page::PowerOff) {  // the two big buttons: Cancel where - is, Power off where + is
+      if (onMinus(x, y)) closePage();
+      return onPlus(x, y) ? Result::PowerOff : Result::Nothing;
+    }
     if (onMinus(x, y)) return step(-1, false, s);
     if (onPlus(x, y)) return step(+1, false, s);
     if (page == Page::Brightness && onBar(x, y)) {
@@ -354,6 +363,7 @@ private:
       page = Page::Coolant;
       choiceHl = 0;
     }
+    else if (it == SettingItem::PowerOff) page = Page::PowerOff;
     else {
       page = Page::Choice;
       choiceHl = choiceIndex(s, it);
@@ -412,6 +422,9 @@ private:
         settings::adjust(s, settings::COOLANT_ITEMS[choiceHl], +1, true);
         return s == before ? Result::Nothing : Result::Changed;
       }
+      case Page::PowerOff:
+        closePage();
+        return Result::Nothing;
       default:
         return step(+1, true, s);
     }
@@ -426,6 +439,7 @@ private:
         if (choiceHl + 1 < settings::COOLANT_ROWS) choiceHl++;
         else closePage();
         return Result::Nothing;
+      case Page::PowerOff: return Result::PowerOff;
       default:
         closePage();
         return Result::Nothing;

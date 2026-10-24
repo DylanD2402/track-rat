@@ -7,7 +7,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Lap and split times come from GPS timestamps. The crossing is interpolated between fixes, so timing resolution is a few milliseconds even at 1 Hz.
 - Every GPS fix is logged to the SD card in Racelogic's VBO format, which the free Circuit Tools opens. Lap times are saved after every lap, with or without a card.
 - Each session is saved to the SD card (or internal flash) after every lap.
-- Optional battery with a percentage gauge; sleeps by itself when parked. Firmware can be updated from the SD card.
+- Optional battery with a percentage gauge; sleeps by itself when parked, and Power off (hold BOOT 3 s) keeps the GPS in standby so it locks again in about a second. Firmware can be updated from the SD card.
 - Acceleration and braking runs (0-100 km/h, 1/4 mile, 100-0 braking) with a result card for each run.
 - A Wi-Fi page on your phone downloads sessions, swaps the track list and installs firmware. No app needed.
 - Speed units, screen direction, brightness and more are set on the device or on the Wi-Fi page and kept in flash: see [Settings](#settings).
@@ -35,7 +35,10 @@ The BE-252Q's compass wires (SDA/SCL) aren't used.
 The BE-252Q is built on a u-blox M10. At boot Track Rat asks it for 20 fixes a second (10 if the [GPS mode setting](#settings) is on all systems) as binary **UBX-NAV-PVT** messages, and once those arrive it turns the NMEA text sentences off. Each message carries the time to the millisecond, position, speed, vertical speed, and the GPS's own estimate of how accurate the position and speed are.
 
 - **Other GPS modules:** if no UBX-NAV-PVT arrives within 3 seconds, Track Rat reads NMEA text instead (GGA and RMC) as before. There are no accuracy figures then, only HDOP.
-- **Settings stay in the GPS's RAM:** nothing is saved to the module. If the GPS loses power and comes back sending NMEA, Track Rat asks for UBX-NAV-PVT again.
+- **Settings stay in the GPS's memory, never its flash:** the rate and messages in RAM, the satellite systems and AssistNow Autonomous also in its battery-backed RAM. If the GPS loses power and comes back sending NMEA, Track Rat asks for UBX-NAV-PVT again.
+- **Standby while the board sleeps:** whenever the board sleeps or is [switched off](#battery-power-off-and-sleep), the GPS goes into u-blox software standby (UBX-RXM-PMREQ). It draws a few tens of microamps instead of about 20 mA, and keeps its clock, satellite orbits and last position, so it has a fix about a second after waking if it slept under 4 hours (how long broadcast orbits last). At start-up the board wakes it with a short pulse on its RX line.
+- **AssistNow Autonomous:** turned on at boot (it's off on a new M10). From the orbits it downloads, the GPS works out the satellites' orbits 3 to 6 days ahead, so after a day or two off it still finds its position in seconds rather than half a minute. The first fixes are a little less accurate until fresh orbits arrive, about half a minute later.
+- **Unplugging the battery** loses all of that once the module's small backup capacitor runs down, and the next start is a cold start: about 30 s with open sky, longer in a car. Switch off with [Power off](#battery-power-off-and-sleep) instead.
 - **GPS Status screen:** the Data line says `UBX` or `NMEA`. With a u-blox GPS the Fix line shows position and speed accuracy, for example `LOCKED   ±1.2 m   ±0.5 km/h   3D`.
 
 Everything else (display, touch, SD) is built into the board. The pins are set in `include/Config.h` and `platformio.ini`.
@@ -129,6 +132,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
 | Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value (past the top it goes round to just above the limit below it), hold goes to the next, and back after the last) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
+| Any screen | Settings → **Power off** | hold 3 s: [power off](#battery-power-off-and-sleep) (BOOT only, not the big button; the 1 s hold does its own job on the way). Press BOOT to turn it back on |
 
 While timing, the screen is built to be read in one glance, top to bottom:
 
@@ -215,10 +219,10 @@ The best sector times ever and of the day (for the sector strip), and the last s
 
 The choices a driver makes live in **Settings**, not in the code. Change them on the device or on the Wi-Fi page. They are kept in the board's flash (NVS, apart from the program and the SD card), so they survive switching off and re-flashing.
 
-**On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in four groups (Display, Timing, GPS & Bluetooth, Recording). It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
+**On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in four groups (Display, Timing, GPS & Bluetooth, Recording), then **Power off**. It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
 
-- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time; **Coolant** has its four temperatures, each with its own − and +. **Engine data** and **Camera** open the Bluetooth OBD-II adapter's and the DJI camera's screens (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
-- **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options, press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. A line at the bottom of the screen says so when the board has no touch screen.
+- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time; **Coolant** has its four temperatures, each with its own − and +. **Engine data** and **Camera** open the Bluetooth OBD-II adapter's and the DJI camera's screens (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)). **Power off** asks first: **Cancel** or **Power off** (see [Battery, power off and sleep](#battery-power-off-and-sleep)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
+- **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options, press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. On Power off, hold switches off and press goes back. A line at the bottom of the screen says so when the board has no touch screen.
 - **Saved as you go:** there is no save button. A change takes effect at once, except **GPS mode**, which is used from the next restart.
 
 | Item | Choices | What it does |
@@ -591,7 +595,7 @@ With **Bluetooth profile** set to **RaceChrono** (then restart Track Rat), it st
 
 The RaceBox profile stays the default: it works with more apps.
 
-## Battery and sleep
+## Battery, power off and sleep
 
 Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit keeps running when the car's USB power goes off. The board charges it from USB.
 
@@ -601,11 +605,18 @@ Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit
 - **No battery fitted:** a reading under 2.5 V, or over 4.23 V (the charger holds an empty socket at about 4.2 V), for 5 s in a row counts as "no battery". If a missing battery still shows a percentage, or a full one disappears, adjust `BATTERY_PRESENT_MAX_MV`. The serial log prints the readings every 10 s.
 - **Low battery:** at 3.30 V or below for 10 s, Track Rat saves the session, shows **BATTERY LOW** for 5 s, then goes to sleep. Charge it, then touch the screen or press BOOT.
 
+**Power off:** hold BOOT for 3 s on any screen, or use **Settings → Power off** (it asks first). From 1.5 s a **POWER OFF** bar fills; let go before it's full and nothing happens. The 1 s hold does its usual job on the way (ending a session, say), and then **POWER OFF** shows while it saves whatever is running, the same as ending it. A DJI camera recording with the session stops too. Then the screen goes dark: let go of BOOT. Press BOOT to turn it back on.
+
+- **It's a deep sleep, not a cut:** nothing on the board can disconnect the battery, so off is the same deep sleep as auto-sleep, with the touch controller asleep too: only BOOT wakes it, not a touch or a bump. Plugging in USB doesn't turn it on either.
+- **The GPS stays in standby** (see [GPS data](#gps-data)), so it has a fix a second or so after turning on, or a few seconds after a day or two off. Unplugging the battery loses that.
+- **Not while firmware installs:** holding BOOT during an update over Wi-Fi does nothing.
+- **Still held when the screen goes dark:** it waits up to 10 s for BOOT to be let go. Held longer, it looks again every 10 s and stays off.
+
 **Auto-sleep:** parked with no touch and no BOOT press for 20 minutes, the backlight goes off. This is a full off, whatever the Brightness setting; the chosen level comes back when the screen wakes. A minute later the board goes into deep sleep. Moving at 5 km/h or more counts as activity, so it never sleeps during a session.
 
-- **Waking:** touch the screen or press BOOT. From backlight-off, the press only turns the screen on. From deep sleep, the board restarts as if just powered on, so it finds the GPS again.
+- **Waking:** touch the screen or press BOOT. From backlight-off, the press only turns the screen on. From deep sleep, the board restarts as if just powered on, so it finds the GPS again (out of standby).
 - **Saving:** a session in progress is saved before sleeping, the same as ending it.
-- **Not measured yet:** how much current the board draws asleep, and whether the GPS module stays powered.
+- **Current asleep:** the GPS stays powered while the board sleeps (on battery its 5 V pin is live), so it goes into standby. Before, it kept tracking at about 20 mA, enough to empty a 3000 mAh battery in a week or two. What's left is the board's own draw (the regulator, the battery divider, the screen, the SD card, the RGB LED): not measured yet. A multimeter in series with the battery, USB unplugged, would say.
 - **Turning it off:** set `AUTO_SLEEP_ENABLED` to `0` in `include/Config.h`.
 
 ## Updating the firmware from the SD card
@@ -811,6 +822,9 @@ What a driver chooses (units, brightness and so on) is a [setting](#settings), c
 | `AUTO_SLEEP_IDLE_MS` | 20 minutes | Parked and untouched this long: backlight off |
 | `AUTO_SLEEP_DEEP_AFTER_MS` | 60 s | Backlight off this long: deep sleep |
 | `AUTO_SLEEP_MOVING_KMH` | 5 | At or above this speed the car counts as moving |
+| `POWER_OFF_HOLD_MS`, `POWER_OFF_BAR_MS` | 3000, 1500 | Holding BOOT this long switches off; its bar shows from this long |
+| `GPS_STANDBY_IN_SLEEP` | 1 | The GPS goes into standby while the board sleeps or is off. 0 = it keeps tracking (about 20 mA) |
+| `GPS_ASSISTNOW_AUTONOMOUS` | 1 | The GPS predicts satellite orbits 3 to 6 days ahead, for quick fixes after days off. 0 = leave it off |
 | `FIRMWARE_FILE` | `/trackrat.bin` | File on the SD card offered as a firmware update |
 
 ## Tests
@@ -918,7 +932,7 @@ g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 node test/test_web.js
 ```
 
-`test/test_settings.cpp` checks the settings rules (defaults, limits, stepping, units, big number, predicted lap, brightness, time zone, min lap time and kart everywhere), the Settings list (where its rows are, what a tap hits, scrolling, the pages, touch and BOOT) and the first-boot questions, the field names the Wi-Fi page uses, and a simulated first boot followed by a lap session:
+`test/test_settings.cpp` checks the settings rules (defaults, limits, stepping, units, big number, predicted lap, brightness, time zone, min lap time and kart everywhere), the Settings list (where its rows are, what a tap hits, scrolling, the pages, touch and BOOT, Power off asking first) and the first-boot questions, the field names the Wi-Fi page uses, and a simulated first boot followed by a lap session:
 
 ```bash
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp -o /tmp/st && /tmp/st
@@ -992,7 +1006,7 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_tracklearn.cpp src/LapTimer.cp
 g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
 ```
 
-`test/test_ubx.cpp` checks the UBX reader: checksums, every NAV-PVT field from sample messages, millisecond time (including either side of midnight), messages split across reads with NMEA in between, and messages too long to keep:
+`test/test_ubx.cpp` checks the UBX reader: checksums, every NAV-PVT field from sample messages, millisecond time (including either side of midnight), messages split across reads with NMEA in between, messages too long to keep, and the standby request and AssistNow Autonomous status used when the board sleeps:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_ubx.cpp src/UbxParser.cpp -o /tmp/ubx && /tmp/ubx
@@ -1020,7 +1034,7 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 
 **On Windows** without g++, the `ziglang` Python package has a C++ compiler that needs no install: `pip install ziglang`, then use `python -m ziglang c++` in place of `g++`, add `-D_USE_MATH_DEFINES`, and write the output to a `.exe`.
 
-`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), and that firmware files, from the SD card or sent over Wi-Fi in chunks of any size, are accepted only if they're an ESP32-S3 app image:
+`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), a BOOT press (a tap, the 1 s hold, the 3 s hold that switches off, and the press that woke the board doing nothing), and that firmware files, from the SD card or sent over Wi-Fi in chunks of any size, are accepted only if they're an ESP32-S3 app image:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
@@ -1068,14 +1082,15 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            SituationScreen.h (the slow screen, the pit lane, the session clock),
            Retime.h (which sessions are re-timed, when best laps are replaced),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
-           the Settings and first-boot screens), Obd.h (OBD-II values and schedules),
+           the Settings and first-boot screens), ButtonPress.h (a button's presses and holds),
+           Obd.h (OBD-II values and schedules),
            Elm327.h (the Bluetooth adapter's conversation), RaceChrono.h (RaceChrono's DIY encodings), DjiRemote.h (the DJI camera remote, ported
            from DJI's demo), DeviceScreen.h (Settings > Engine data and Camera), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
            DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
            SessionReplay (times a session again from its log),
-           Power (battery, sleep), FirmwareUpdate (SD card update)
+           Power (battery, sleep, power off), FirmwareUpdate (SD card update)
            LedBar, DeltaLeds,
            PerfRun (acceleration/braking), PerfLog (performance summaries),
            DisplayPerf (performance screens), DisplayPower (battery and update screens),

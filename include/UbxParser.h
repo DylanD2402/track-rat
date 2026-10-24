@@ -20,6 +20,23 @@
 constexpr uint8_t UBX_CLASS_NAV = 0x01;
 constexpr uint8_t UBX_ID_NAV_PVT = 0x07;
 constexpr uint16_t UBX_NAV_PVT_LEN = 92;
+constexpr uint8_t UBX_ID_NAV_AOPSTATUS = 0x60;
+constexpr uint8_t UBX_CLASS_RXM = 0x02;
+constexpr uint8_t UBX_ID_RXM_PMREQ = 0x41;
+
+// UBX-RXM-PMREQ, the 16-byte form: software standby until an edge on the GPS's UART RX wakes it. Duration 0
+// (until woken), flags backup + force (bit 1, and bit 2, which software standby needs), wake-up source uartrx
+// (bit 3). The GPS keeps its clock, satellite orbits and position, but forgets settings kept only in RAM.
+constexpr uint8_t UBX_PMREQ_STANDBY[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                           0x06, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00};
+
+// UBX-NAV-AOPSTATUS: whether AssistNow Autonomous is busy working out orbits (byte 5, 0 = idle).
+// False if it's the wrong length.
+inline bool decodeAopStatus(const uint8_t* payload, uint16_t len, bool& busy) {
+  if (len != 16) return false;
+  busy = payload[5] != 0;
+  return true;
+}
 
 // Adds `len` bytes to a UBX frame's 8-bit Fletcher checksum (class, id,
 // length and payload are covered). Start with a = b = 0.

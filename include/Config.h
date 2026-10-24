@@ -36,6 +36,13 @@
 #define GPS_RX_BUFFER_BYTES 16384     // ~5 s of NMEA at 20 Hz
 #define GPS_MIN_SATELLITES 4
 #define GPS_FIX_TIMEOUT_MS 3000      // no fresh fix for this long = fix lost
+// While the board sleeps or is switched off, the GPS goes into standby (UBX-RXM-PMREQ): a few tens of
+// microamps, and it keeps its clock and satellites, so it has a fix again about a second after waking.
+// 0 = it keeps tracking instead (about 20 mA: a 3000 mAh battery is flat in a week or two).
+#define GPS_STANDBY_IN_SLEEP 1
+#define GPS_ASSISTNOW_AUTONOMOUS 1   // the GPS predicts orbits 3-6 days ahead, so a start a day or two later is seconds too
+#define GPS_STANDBY_AOP_WAIT_MS 3000 // before standby, wait at most this long for it to finish working them out
+#define GPS_WAKE_MS 1000             // a GPS woken from standby gets this long to start talking before it's looked for
 
 // ---------------------------------------------------------------------------
 // Bluetooth: stream GPS to phone apps as a RaceBox Mini (RaceChrono etc.)
@@ -94,6 +101,8 @@
 #define LONG_PRESS_MS 1000
 #define HOLD_BAR_DELAY_MS 400           // the "keep holding to end" bar appears after this long, not on a tap
 #define END_SESSION_HOLD_MS 2000     // hold (touch or BOOT) to end a running session
+#define POWER_OFF_HOLD_MS 3000       // BOOT held this long switches off, on any screen (the 1 s hold's own action comes first)...
+#define POWER_OFF_BAR_MS 1500        // ...with a bar filling from here, so an ordinary 1 s hold never shows it
 
 // ---------------------------------------------------------------------------
 // Optional add-ons on the expansion header (see README, "Big button and LED bar").
@@ -263,11 +272,13 @@
 
 // ---------------------------------------------------------------------------
 // Auto-sleep: parked with no touch or BOOT press. Waking is by BOOT (IO0) or a touch (INT, IO17).
+// Power off (Settings > Power off, or BOOT held POWER_OFF_HOLD_MS) is the same deep sleep, woken by BOOT only.
 // ---------------------------------------------------------------------------
 #define AUTO_SLEEP_ENABLED 1
 #define AUTO_SLEEP_IDLE_MS (20UL * 60UL * 1000UL)  // parked and untouched this long: backlight off
 #define AUTO_SLEEP_DEEP_AFTER_MS (60UL * 1000UL)   // backlight off this long: deep sleep
 #define AUTO_SLEEP_MOVING_KMH 5.0                  // at or above this speed the car counts as moving
+#define POWER_OFF_MESSAGE_MS 1500                  // POWER OFF shows this long before the screen goes dark
 
 // ---------------------------------------------------------------------------
 // Firmware update from the SD card

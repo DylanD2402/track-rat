@@ -21,14 +21,32 @@ void DisplayManager::powerDown() {
   setBacklight(false);
 }
 
-// Full-screen notice: a coloured title pill, then up to two lines.
-void DisplayManager::drawMessage(const char* title, const char* line1, const char* line2, uint16_t color) {
-  beginFrame();
+void DisplayManager::titlePill(const char* title, uint16_t color) {
   int w = textWidth(title, Font::Button) + 36;
   gfx->fillRoundRect((W - w) / 2, 44, w, 32, 16, color);
   text(title, W / 2, 61, Font::Button, C_BG, MC_DATUM);
+}
+
+// Full-screen notice: a coloured title pill, then up to two lines.
+void DisplayManager::drawMessage(const char* title, const char* line1, const char* line2, uint16_t color) {
+  beginFrame();
+  titlePill(title, color);
   if (line1 && line1[0]) centered(line1, 104, Font::Title, C_TEXT);
   if (line2 && line2[0]) centered(line2, 140, Font::Body, C_TEXT2);
+  endFrame();
+}
+
+void DisplayManager::drawPowerHold(uint32_t heldMs) {
+  beginFrame();
+  titlePill("POWER OFF", C_ORANGE);
+  centered("Keep holding BOOT", 104, Font::Title, C_TEXT);
+  const int bx = 32, by = 146, bw = W - 64, bh = 12;
+  const uint32_t span = POWER_OFF_HOLD_MS - POWER_OFF_BAR_MS;
+  const uint32_t done = heldMs > POWER_OFF_BAR_MS ? min(heldMs - POWER_OFF_BAR_MS, span) : 0;
+  gfx->fillRoundRect(bx, by, bw, bh, bh / 2, C_SURFACE);
+  const int fill = (int)(bw * done / span);
+  if (fill > 0) gfx->fillRoundRect(bx, by, max(bh, fill), bh, bh / 2, C_ORANGE);
+  centered("Let go to cancel", 176, Font::Body, C_TEXT2);
   endFrame();
 }
 

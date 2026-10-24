@@ -53,6 +53,14 @@ struct Strip {
     grb[i * 3 + 2] = b;
   }
 
+  // Every LED off, waiting until that has gone out
+  void blank() {
+    if (!ready) return;
+    memset(grb, 0, count * 3);
+    rmt_wait_tx_done(channel, pdMS_TO_TICKS(20));  // a frame still going out
+    rmt_write_sample(channel, grb, count * 3, true);
+  }
+
   // Bytes -> RMT pulses: WS2812B timing of 0.35/0.9 us (a 0) and 0.9/0.35 us (a 1).
   static void IRAM_ATTR translate(const void* src, rmt_item32_t* dest, size_t srcSize, size_t wantedItems,
                                   size_t* translatedSize, size_t* itemsOut) {
@@ -181,6 +189,12 @@ void LedBar::onSplit() {
   if (started) pattern.split(millis());
 }
 
+void LedBar::off() {
+  if (!started) return;
+  bar.blank();
+  board.blank();
+}
+
 #else  // both outputs compiled out
 
 void LedBar::begin(int, int) {}
@@ -188,6 +202,8 @@ void LedBar::update(bool, bool, int32_t) {}
 void LedBar::onBestLap(bool) {}
 void LedBar::setBlueOrange(bool) {}
 void LedBar::onSplit() {}
+void LedBar::setRpm(bool, float) {}
 void LedBar::setOverheat(bool, bool) {}
+void LedBar::off() {}
 
 #endif

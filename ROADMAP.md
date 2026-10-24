@@ -118,6 +118,9 @@ Sizes are relative: S small, M medium, L large.
 - Parked for 20 minutes with no input: screen off, then sleep. BOOT or a tap wakes it. This stops a battery-fitted unit from flattening itself in a parked car.
 - Low battery: save, say so, and sleep cleanly.
 - Measure the real current draw before choosing a battery size.
+- Power off with no new hardware (asked for 2026-10-24): Settings → Power off, or BOOT held 3 s. The board can't disconnect its battery, so off is a deep sleep that only BOOT wakes. Unplugging the battery to switch off meant a cold start for the GPS (~30 s), so in every sleep the GPS now goes into standby instead (UBX-RXM-PMREQ, tens of µA), keeping its clock and satellites, with AssistNow Autonomous on for quick fixes after days off.
+
+**Status: power off and GPS standby done, untested on hardware** (2026-10-24). The sleep current is still to be measured.
 
 **1.7 Binary GPS messages (M)**
 
@@ -396,7 +399,7 @@ Two habits that will pay off:
 ## Open questions
 
 - How readable is the screen at noon in an open car or kart? That decides how much the LED bar matters.
-- Does the BE-252Q keep its satellite data between power-ups? With backup power it gets a fix in about 1 s; without, it can take about 30 s.
+- ~~Does the BE-252Q keep its satellite data between power-ups?~~ Answered (2026-10-24): only for as long as its small backup capacitor lasts, and orbits go stale after 4 hours anyway. Track Rat now keeps the GPS powered in standby whenever the board sleeps or is switched off (1.6), with AssistNow Autonomous on. Unplugging the battery still means a cold start.
 - Default delta reference: best of the day (fair to the day's conditions) or best ever (motivating)? This plan uses best ever until you set a lap that day.
 - Is 10 minutes the right gap before a new session starts?
 - Is the board's RGB LED visible through your case?
@@ -410,6 +413,9 @@ Two habits that will pay off:
 - [LCDWiki: ES3C28P board](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display): battery charger and IO9 voltage, speaker amp, microphone, RGB LED, free pins, measured brightness
 - [Beitian BE-252Q listing](https://rcdrone.top/products/beitian-be-122-be-182-be-252q-gps-module): M10050 chip, accuracy, start-up times
 - [u-blox change notice on M10 update rates](https://shop.richardsonrfpd.com/docs/rfpd/u-blox_PCN_UBX-23006557.pdf): 25/20/16/10 Hz by number of satellite systems
+- [u-blox M10 SPG 5.10 interface description](https://cdn.sparkfun.com/assets/f/1/2/9/e/u-blox-M10-SPG-5.10_InterfaceDescription_UBX-21035062.pdf): UBX-RXM-PMREQ, UBX-NAV-AOPSTATUS, CFG-ANA-USE_ANA (off by default)
+- [u-blox SAM-M10Q integration manual](https://cdn.sparkfun.com/assets/4/1/1/0/3/SAM-M10Q_IntegrationManual_UBX-22020019.pdf): software standby keeps the clock and orbits but clears RAM settings, hot start within 4 hours, AssistNow Autonomous 3 to 6 days
+- [BE-252Q manual](https://manualsfile.com/product/k6aaab5d5ea3.html): the backup capacitor that keeps its clock with the power off
 - [AiM Solo 2 DL](https://discoveryparts.com/products/aim-sports-solo-2-dl-data-logging-lap-timer) and [AiM shop](https://aimshop.com/products/aim-solo-2-dl-gps-ecu-dash-logger): predictive lap, LEDs, theoretical lap, auto-learning, ECU data
 - [VBOX LapTimer predictive timing menu](https://en.racelogic.support/motorsport/lap-timing/vblap/ug/menu-options/predictive-lap-timing-menu/): delta bar, speed mode for pit lanes, LEDs
 - [Apex Pro Gen II](https://www.hmsmotorsport.com/item/apex-pro-gen-ii): LED coaching and predictive LEDs

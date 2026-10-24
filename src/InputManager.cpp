@@ -14,6 +14,7 @@ static const int DRAG_PX = 12;  // a finger that moves further than this is drag
 
 void InputManager::begin() {
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  boot.begin(digitalRead(BOOT_BUTTON_PIN) == LOW, millis());  // still held from waking the board: ignored until let go
 
   pinMode(TOUCH_RST, OUTPUT);
   digitalWrite(TOUCH_RST, LOW);
@@ -38,6 +39,7 @@ void InputManager::beginExtButton(int gpsRxPin, int gpsTxPin) {
   }
   pinMode(EXT_BUTTON_PIN, INPUT_PULLUP);  // also undoes any GPS probe of this pin at boot
   extPin = EXT_BUTTON_PIN;
+  ext.begin(digitalRead(extPin) == LOW, millis());
   DEBUG_PRINTF("Input: big button on IO%d (to GND)\n", EXT_BUTTON_PIN);
 #else
   (void)gpsRxPin;
@@ -87,20 +89,18 @@ bool InputManager::readTouch(int16_t& x, int16_t& y) {
   return true;
 }
 
-// One button's press state machine: BootLong fires while still held, BootShort on release.
-InputEvent InputManager::pollButton(Button& b, bool pressed, uint32_t now) {
-  if (pressed && !b.down) {
-    b.down = true;
-    b.longFired = false;
-    b.start = now;
-  } else if (pressed && b.down && !b.longFired && now - b.start >= LONG_PRESS_MS) {
-    b.longFired = true;
-    return InputEvent::BootLong;
-  } else if (!pressed && b.down) {
-    b.down = false;
-    if (!b.longFired && now - b.start >= 30) return InputEvent::BootShort;
-  }
-  return InputEvent::None;
+// A button's press (ButtonPress.h): BootLong fires while still held, BootShort on release.
+InputEvent InputManager::bootEvent(ButtonPress::Event e) {
+  return e == ButtonPress::Event::Long ? InputEvent::BootLong : e == ButtonPress::Event::Short ? InputEvent::BootShort : InputEvent::None;
+}
+
+// FT6336G power mode register (ID_G_PMODE): 3 = hibernate, until its reset pin is pulsed
+void InputManager::sleepTouch() {
+  if (!touchOk) return;
+  Wire.beginTransmission(TOUCH_I2C_ADDR);
+  Wire.write(0xA5);
+  Wire.write(0x03);
+  Wire.endTransmission();
 }
 
 InputEvent InputManager::poll() {
@@ -109,10 +109,10 @@ InputEvent InputManager::poll() {
   lastPoll = now;
 
   // BOOT button, then the big button: both give the same events
-  InputEvent be = pollButton(boot, digitalRead(BOOT_BUTTON_PIN) == LOW, now);
+  InputEvent be = bootEvent(boot.update(digitalRead(BOOT_BUTTON_PIN) == LOW, now));
   if (be != InputEvent::None) return be;
   if (extPin >= 0) {
-    be = pollButton(ext, digitalRead(extPin) == LOW, now);
+    be = bootEvent(ext.update(digitalRead(extPin) == LOW, now));
     if (be != InputEvent::None) return be;
   }
 

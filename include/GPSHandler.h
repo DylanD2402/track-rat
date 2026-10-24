@@ -8,6 +8,9 @@
  *   off. A GPS that never sends them (not u-blox) is read as NMEA through
  *   TinyGPS++.
  * - Delivers each new position fix exactly once via takeFix().
+ * - Puts the GPS into standby while the board sleeps or is switched off,
+ *   so it keeps its satellites and finds its position again in seconds
+ *   (standby(), wake()).
  *
  * In bench-test mode (setSimulated) it instead generates a car lapping a
  * small circuit, so the UI and lap logic can be tested at a desk.
@@ -28,8 +31,12 @@ enum class SimMode { Circuit, Launch };
 
 class GPSHandler {
 public:
+  // First thing in setup(): wakes a GPS that standby() left asleep. begin() gives it GPS_WAKE_MS to start.
+  void wake();
   void begin();
   void update();
+  // Just before deep sleep: the GPS into standby, keeping its clock and satellites (GPS_STANDBY_IN_SLEEP).
+  void standby();
 
   // Returns each new position fix once, oldest first (call until false).
   bool takeFix(GpsFix& out);
@@ -78,6 +85,11 @@ private:
 
   bool detect();
   int rxPin = -1, txPin = -1;
+  uint32_t wokeAt = 0;            // millis() of wake(), 0 if it wasn't called
+  // UBX-NAV-AOPSTATUS answers, while standby() waits for AssistNow Autonomous to be idle
+  bool aopBusy = false;
+  uint32_t aopReplies = 0;
+  bool waitAopIdle(uint32_t maxMs);
   void configureUblox();
   void sendUbx(uint8_t cls, uint8_t id, const uint8_t* payload, size_t len);
   void sendUbxValset(uint8_t layers, const uint8_t* cfg, size_t len);

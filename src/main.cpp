@@ -113,6 +113,7 @@ static bool haveCameraFix = false;
 // for SYNC_FLASH_MS, for a camera to film; its GPS time goes into the summary
 static uint32_t syncUntil = 0;  // millis() it ends; 0: not showing
 static void startSyncFlash();
+[[noreturn]] static void powerOff();
 // The overheat warning (6.5): full screen for TEMP_ALERT_MS on any screen when coolant (or oil) reaches its limit
 static tempalert::Alert tempAlert;
 static void setClockFromGps(const GpsFix& f);
@@ -1247,6 +1248,8 @@ static void handleInput(InputEvent ev) {
         applySettings();
       } else if (r == SettingsScreenState::Result::Exit) {
         enterState(AppState::Menu);
+      } else if (r == SettingsScreenState::Result::PowerOff) {
+        powerOff();
       } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Engine) {
         engineUi.begin(input.touchAvailable());
         enterState(AppState::EngineScreen);
@@ -1329,6 +1332,11 @@ static void showPersonalBest() {
 
 static void render() {
   uint32_t now = millis();
+  const uint32_t bootHeld = input.bootHeldMs();
+  if (bootHeld >= POWER_OFF_BAR_MS && !WifiPortal::busy()) {  // BOOT held: switching off unless it's let go
+    display.drawPowerHold(bootHeld);
+    return;
+  }
   if (tempAlert.showing(now)) {  // the overheat warning covers everything, even the SYNC flash
     display.drawTempAlert(tempAlert.current().oil, tempAlert.current().c, tempAlert.redPhase(now));
     return;
@@ -1491,7 +1499,7 @@ static void addBenchTrack() {
 }
 
 // ---------------------------------------------------------------------------
-// Sleep and battery
+// Sleep, power off and battery
 // ---------------------------------------------------------------------------
 
 static const uint32_t SLEEP_LOG_WAIT_MS = 3000;  // an SD write can take a few hundred ms
@@ -1515,14 +1523,51 @@ static bool noteActivity(uint32_t now) {
   return true;
 }
 
+// The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the LEDs, the
+// touch controller (when only BOOT is to wake it) and the screen off, then deep sleep until BOOT is pressed,
+// or the screen touched if touchWakes.
+[[noreturn]] static void sleepNow(bool touchWakes) {
+  gps.standby();
+  LedBar::off();
+  if (!touchWakes) input.sleepTouch();
+  display.powerDown();
+  Power::deepSleep(touchWakes);
+}
+
 static void lowBatterySleep() {
   DEBUG_PRINTF("Battery low (%d mV): saving and sleeping\n", Power::batteryMillivolts());
   saveForSleep();
   display.setBacklight(true);
   display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
   delay(BATTERY_LOW_SCREEN_MS);
-  display.powerDown();
-  Power::deepSleep();
+  sleepNow(true);
+}
+
+// Switching off: a recording that follows the sessions stops with the session that just ended (the next
+// fix would have done it). Up to 2 s for the camera to say it has.
+static void stopCameraRecording() {
+  if (!Settings::get().cameraWithSessions || !CameraBle::connected()) return;
+  CameraBle::setRecording(false);
+  const uint32_t start = millis();
+  while (millis() - start < 2000) {
+    CameraBle::poll();
+    const CameraBle::Status cs = CameraBle::status();
+    if (!cs.cam.known || !cs.cam.recording()) return;
+    delay(20);
+  }
+}
+
+// Settings > Power off, or BOOT held for POWER_OFF_HOLD_MS: everything saved, then off until BOOT is pressed.
+// It's the deep sleep of auto-sleep without the touch to wake it: nothing on the board can cut the battery.
+static void powerOff() {
+  DEBUG_PRINTLN("Power off: saving, then off until BOOT is pressed");
+  display.setBacklight(true);
+  display.drawMessage("POWER OFF", "Switching off…", "Press BOOT to turn it back on", ui::C_ORANGE);
+  const uint32_t shown = millis();
+  saveForSleep();
+  stopCameraRecording();
+  while (millis() - shown < POWER_OFF_MESSAGE_MS) delay(10);  // long enough to read
+  sleepNow(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1596,6 +1641,7 @@ void setup() {
   DEBUG_PRINTF("PSRAM: %u bytes free\n", ESP.getFreePsram());
 
   Power::begin();
+  gps.wake();  // a GPS the last sleep left in standby: it has the rest of setup() to start up
   Settings::begin();  // before the display: it starts the right way up, at the saved brightness
   Power::setBrightness(Settings::get().brightness);
   display.begin();
@@ -1759,6 +1805,9 @@ void loop() {
   InputEvent ev = input.poll();
   if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
   handleInput(ev);
+  // BOOT held for POWER_OFF_HOLD_MS switches off, on any screen (render() shows the bar on the way), but not
+  // while firmware is being installed over Wi-Fi
+  if (input.bootHeldMs() >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) powerOff();
 
   // A finger dragging the Settings list: the list follows it (and counts as using the board)
   static bool listDragged = false;
@@ -1820,8 +1869,7 @@ void loop() {
       break;
     case SleepAction::DeepSleep:
       saveForSleep();
-      display.powerDown();
-      Power::deepSleep();
+      sleepNow(true);
       break;
     default:
       break;

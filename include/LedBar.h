@@ -30,6 +30,8 @@ void setRpm(bool known, float rpm);
 // The overheat warning (6.5): while it shows, the whole bar and the board LED are red when
 // `on`, off between (it blinks), over the delta and the shift light
 void setOverheat(bool showing, bool on);
+// Before deep sleep: every LED off, sent before it returns (WS2812s keep their last colour, and draw power, while the board sleeps)
+void off();
 
 }  // namespace LedBar
 
