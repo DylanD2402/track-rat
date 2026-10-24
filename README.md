@@ -127,7 +127,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page. After a session that ended by itself, driving off starts the next | press: Ready screen again, hold 1 s: Wi-Fi page |
 | Free Roam summary | tap: menu; WI-FI button: Wi-Fi page | press: menu, hold 1 s: Wi-Fi page |
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
-| Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back) |
+| Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value, hold goes to the next, and back after the last) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
 
 While timing, the screen is built to be read in one glance, top to bottom:
@@ -217,7 +217,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 
 **On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in four groups (Display, Timing, GPS & Bluetooth, Recording). It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
 
-- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time. **Engine data** and **Camera** open the Bluetooth OBD-II adapter's and the DJI camera's screens (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
+- **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time; **Coolant** has its four temperatures, each with its own − and +. **Engine data** and **Camera** open the Bluetooth OBD-II adapter's and the DJI camera's screens (see [Bluetooth OBD-II adapter](#bluetooth-obd-ii-adapter-untested-on-hardware)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list.
 - **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options, press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. A line at the bottom of the screen says so when the board has no touch screen.
 - **Saved as you go:** there is no save button. A change takes effect at once, except **GPS mode**, which is used from the next restart.
 
@@ -236,6 +236,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
 | Bluetooth profile | RaceBox Mini (default), RaceChrono | What the phone sees, one at a time: a RaceBox Mini (most apps), or a RaceChrono DIY device with GPS and engine data. See [RaceChrono with engine data](#racechrono-with-engine-data). **Applied at the next restart** |
 | Engine data | A screen, not a setting | Find, choose or forget a Bluetooth OBD-II adapter, and see how fast it answers. The row shows the adapter's name, Connected, or None |
+| Coolant | Cold below 70 °C, Warm at 100 °C, Hot at 110 °C, Oil hot at 130 °C (defaults), in 1 °C steps | The colours of the coolant temperature in the top bar, and when the full-screen overheat warning shows: see [Engine temperatures](#engine-temperatures-coolant-and-oil). Shown in °F with Speed units in mph. Cold below, Warm at and Hot at always stay in that order: moving one past another moves the other along |
 | Camera | A screen, not a setting | Pair or forget a DJI Osmo Action camera: see [DJI Osmo Action](#dji-osmo-action-track-rat-as-its-gps-remote-untested-on-hardware) |
 | Camera recording | With sessions (default), manual | With sessions: a paired camera starts recording when you drive off in a session and stops when you park in the pits. Manual: only its own button, or a tap on its tag in the top bar |
 | Time zone | UTC−12:00 to UTC+14:00 in 30-minute steps | For session file names. Shows the local time now once the GPS has a fix. A phone opening the Wi-Fi page sets it |
@@ -334,8 +335,9 @@ These are set in `include/Config.h`.
 An SN65HVD230 CAN transceiver board (3.3 V) on IO3 (its TX/D pin) and IO14 (its RX/R pin), 3.3 V and GND, wired to the car's OBD-II socket: CAN high to pin 6, CAN low to pin 14, ground to pin 5. Set `CAN_ENABLED 1` in `Config.h` and rebuild. It's **off by default** because IO14 is also one of the GPS pins on the expansion header: with the GPS found there, CAN stays off. The serial log says when the engine answers.
 
 - **What it reads:** engine speed, throttle position and coolant temperature, the standard OBD-II values every petrol car since about 2008 gives. Engine speed is asked for about 12 times a second, the other two about 6.
-- **In the log:** every `.vbo` gets four more channels, **RPM**, **Throttle position**, **Coolant temperature** and **Intake temperature** (0 when the engine hasn't said in the last second; CAN doesn't ask for the intake, so it stays 0). Circuit Tools shows them like any other channel.
-- **Coolant warning:** a red **HOT** tag in the header from `COOLANT_WARN_C` (110 °C).
+- **In the log:** every `.vbo` gets five more channels, **RPM**, **Throttle position**, **Coolant temperature**, **Intake temperature** and **Oil temperature** (0 when the engine hasn't said in the last second; CAN doesn't ask for the intake, so it stays 0, and so does oil on cars without it). Circuit Tools shows them like any other channel. Logs from before oil temperature have the first four.
+- **Oil temperature:** asked for once a second as well, for cars that report it (PID 0x5C). A car that doesn't answer it three times running isn't asked again.
+- **Coolant in the top bar:** the coolant temperature, coloured by Settings → Coolant, and a full-screen warning when it's too hot: see [Engine temperatures](#engine-temperatures-coolant-and-oil).
 - **Shift light:** from `SHIFT_LIGHT_START_RPM` the LED bar fills left to right, green, then yellow, then red; at `SHIFT_LIGHT_RPM` the whole bar flashes blue. Below the start it shows the delta as usual. The board's own LED keeps the delta. Set both for your engine.
 - It only asks: it never writes to the car or clears codes. With the ignition off nothing answers, and Track Rat carries on without it.
 
@@ -346,13 +348,25 @@ An SN65HVD230 CAN transceiver board (3.3 V) on IO3 (its TX/D pin) and IO14 (its 
 The same engine data as CAN, with nothing to wire: a **Bluetooth LE** OBD-II adapter plugged into the car's OBD-II socket. It must be a Bluetooth LE model, as the ESP32-S3 has no Classic Bluetooth: the Veepeak OBDCheck BLE+ (about $30) or the OBDLink CX (faster, CAN cars only). The Veepeak Mini, Wi-Fi adapters and the OBDLink MX+ can't connect.
 
 - **Choosing it:** plug the adapter in and switch the ignition on. In **Settings → Engine data**, tap **Find adapter**. A 10-second scan lists what it finds by name and signal strength (names with OBD, OBDII, VEEPEAK, OBDLink, vLink or IOS-Vlink, and anything offering the FFF0 or FFE0 service). Tap yours. Track Rat remembers it and connects by itself whenever it's in reach, trying every 5 to 10 seconds. **Forget** disconnects and forgets it. With no adapter chosen, nothing happens at all.
-- **In the header:** a blue **OBD** tag while it's connected, beside **BT**.
-- **What it reads:** engine speed, throttle, coolant and intake air temperature, whichever the car supports (it asks the car first). Cars that only report the pedal give that as the throttle. Engine speed is asked for most, then throttle; the temperatures once a second. Cheap adapters manage 6–15 requests a second; with the two speed-ups below an ELM327 reaches 20–40 on a CAN car, so engine speed about 10 Hz and throttle about 7 at 20 a second. Each value is stamped at the middle of its request.
+- **In the header:** a blue **OBD** tag while it's connected, beside **BT**, until the engine sends its coolant temperature; then the temperature takes its place ([Engine temperatures](#engine-temperatures-coolant-and-oil)).
+- **What it reads:** engine speed, throttle, coolant, intake air and oil temperature, whichever the car supports (it asks the car first). Oil temperature (PID 0x5C) is only on some cars. Cars that only report the pedal give that as the throttle. Engine speed is asked for most, then throttle; the temperatures once a second. Cheap adapters manage 6–15 requests a second; with the two speed-ups below an ELM327 reaches 20–40 on a CAN car, so engine speed about 10 Hz and throttle about 7 at 20 a second. Each value is stamped at the middle of its request.
 - **Speed-ups, tried once per connection:** the "one reply" digit (`010C1`: the adapter answers as soon as the engine has, instead of waiting out its timeout) and engine speed and throttle in one request (`010C11`). Clones that answer `?` simply go without.
 - **The Engine data screen** shows the adapter, what it's doing (setting up, finding the car, reading the engine, or no answer from the car with the ignition off), the car's protocol, requests a second, and each channel's rate.
-- **Same as CAN from there:** the `.vbo` gets the four engine channels from the moment an adapter has been chosen, and the shift light and the HOT tag work the same. With both fitted, CAN wins.
+- **Same as CAN from there:** the `.vbo` gets the five engine channels from the moment an adapter has been chosen, and the shift light and the coolant temperature work the same. With both fitted, CAN wins.
 - **Alongside the phone:** the RaceBox output keeps advertising and working while the adapter is connected. Up to four Bluetooth connections at once (the phone, the adapter, and room for the camera).
 - Like CAN, it only asks: it never writes to the car or clears codes. `OBD_BLE_ENABLED 0` in `Config.h` leaves it out.
+
+### Engine temperatures (coolant and oil)
+
+**Untested on hardware,** like the engine data itself. Oil temperature also depends on the car reporting it (standard PID 0x5C): many don't.
+
+With engine data (CAN or a Bluetooth adapter), Track Rat keeps an eye on the engine's temperatures for you:
+
+- **In the top bar:** the coolant temperature, such as **92°**, in place of the blue **OBD** tag, as soon as the engine has sent one. It's **blue** while the engine is cold (below *Cold below*, 70 °C), plain grey when warm, **yellow** from *Warm at* (100 °C) and **red, blinking slowly** from *Hot at* (110 °C). If the engine stops sending it for a second, the tag goes back to **OBD**. In °F with Speed units in mph.
+- **The overheat warning:** when the coolant reaches *Hot at*, or the oil reaches *Oil hot at* (130 °C), the whole screen turns red for 3 seconds with **COOLANT 112°** (or **OIL 131°**) in big figures, on any screen, and the LED bar flashes red with it. A tap or a press closes it early. Then the screen comes back with the blinking red tag. It shows again only once the temperature has dropped 3 °C below the limit and come back up, or a minute later if it's still too hot. The limits are in **Settings → Coolant** and on the Wi-Fi page.
+- **After the session:** the summary and the pit debrief show the hottest the coolant got, **Coolant max 104°** (and the oil's), in the same colours. The debrief's laps page has each lap's hottest coolant beside its time. The summary file has them as `coolantMaxC` (and `oilMaxC`), for the session and in each lap, in °C; only when the engine sent them. A session recovered from its log, or re-timed, gets them again from the log's temperature channels.
+
+`COOLANT_COLD_C`, `COOLANT_WARM_C`, `COOLANT_WARN_C` and `OIL_HOT_C` in `Config.h` are only a new board's defaults; `TEMP_ALERT_MS`, `TEMP_REARM_DROP_C` and `TEMP_REPEAT_MS` set the warning's 3 s, 3 °C and one minute.
 
 ### DJI Osmo Action: Track Rat as its GPS remote (untested on hardware)
 
@@ -686,7 +700,7 @@ Without it, the board shows a plain page with the session list, `tracks.json` an
 
 ## Overlay videos
 
-Track Rat's log drawn over your video: the track map with your dot, speed, lap, lap time and the delta to your best lap, the sectors (purple your best, green better than last lap, yellow slower), a g circle (the IMU's g if one is fitted, else from the GPS), and RPM, throttle and coolant when the log has engine data. `tools/overlay.py` makes it on your PC, free. Or use a tool you already have: the Wi-Fi page's **CSV** button (below), or RaceRender, which reads the `.vbo` itself.
+Track Rat's log drawn over your video: the track map with your dot, speed, lap, lap time and the delta to your best lap, the sectors (purple your best, green better than last lap, yellow slower), a g circle (the IMU's g if one is fitted, else from the GPS), and RPM, throttle, coolant and oil temperature when the log has engine data (temperatures in °F with `--units mph`). `tools/overlay.py` makes it on your PC, free. Or use a tool you already have: the Wi-Fi page's **CSV** button (below), or RaceRender, which reads the `.vbo` itself.
 
 **Set-up, once:** Python 3 and
 
@@ -720,14 +734,14 @@ python tools/overlay.py 20261020_140300_calabogie.vbo --burn GOPR0042.MP4 --sync
 
 **Output:** `--burn VIDEO` writes the video with the overlay drawn on (`..._overlay.mp4`, the sound kept). Without it you get a transparent overlay to put on a track above the footage in an editor (DaVinci Resolve, Final Cut, CapCut): ProRes 4444 `.mov` (the default; large) or, with `-o name.webm`, VP9 with transparency (small, slower to make). Then `--video VIDEO` sets its length, size and frame rate from the footage, or `--duration SECONDS` and `--size 1920x1080`. 30 frames a second by default (`--fps`); burning uses the video's own rate. It prints how fast it's going and how long is left. Frames that show the same as the last aren't drawn again, so a parked car renders quickly.
 
-**CSV for other tools:** on the Wi-Fi page's **Sessions** tab, **CSV** next to a session with a log makes a `.csv` on the phone from its `.vbo`, for Telemetry Overlay, RaceRender and DashWare: `utc`, `lat`, `lon`, `speed_kmh`, `lap`, `lap_time_s`, `delta_s` (to the session's best lap at the same point on track), `g_lat`, `g_long`, `rpm`, `throttle_pct`, `coolant_c` (empty when not logged).
+**CSV for other tools:** on the Wi-Fi page's **Sessions** tab, **CSV** next to a session with a log makes a `.csv` on the phone from its `.vbo`, for Telemetry Overlay, RaceRender and DashWare: `utc`, `lat`, `lon`, `speed_kmh`, `lap`, `lap_time_s`, `delta_s` (to the session's best lap at the same point on track), `g_lat`, `g_long`, `rpm`, `throttle_pct`, `coolant_c`, `oil_c` (empty when not logged, or not known at that moment).
 
 ## Session logs
 
 Sessions are saved in `/sessions` on the SD card, as two files with the same name. For a venue with layouts, the track id includes the layout (`calabogie.full`) and the summary also names the layout.
 
 - **`<date>_<time>_<track id>.vbo`:** every GPS fix, up to 20 a second (10 in the 10 Hz GPS mode): UTC time, position, speed, heading, height, satellites, HDOP (GPS precision), lap number, lateral and longitudinal g worked out from the GPS (+ = turning right, + = speeding up), and a lap tag mark. About 6.8 MB per hour of driving. The **Lap tag** channel marks the fixes that tag a lap where they happened: 1 = stopped, 4 = after a gap of more than 1 s, 8 = accuracy worse than ±5 m (added together when there are several). The header names the session number (`Session: 2`).
-- **`<date>_<time>_<track id>.json`:** the summary: the session number (`"session"`), every lap and split time, each lap's corner sector times (`"sectorsMs"`: the time into the lap at the end of T1, T2... the last sector ends at the line), max and average speed and distance per lap, each lap's tags (`"tags": ["pit", "slow", "suspect"]`, and for a suspect lap why: `"suspect": ["gps gap", "accuracy", "distance"]`), the best clean lap, the average of the untagged laps, and the name of its `.vbo`. With a paired DJI camera, `"cameraStartUtc"` is the GPS time the camera started recording (`"cameraStartsUtc"` lists every start: one video per time out of the pits).
+- **`<date>_<time>_<track id>.json`:** the summary: the session number (`"session"`), every lap and split time, each lap's corner sector times (`"sectorsMs"`: the time into the lap at the end of T1, T2... the last sector ends at the line), max and average speed and distance per lap, the hottest coolant and oil temperature per lap and for the session (`"coolantMaxC"`, `"oilMaxC"`, °C, only with engine data), each lap's tags (`"tags": ["pit", "slow", "suspect"]`, and for a suspect lap why: `"suspect": ["gps gap", "accuracy", "distance"]`), the best clean lap, the average of the untagged laps, and the name of its `.vbo`. With a paired DJI camera, `"cameraStartUtc"` is the GPS time the camera started recording (`"cameraStartsUtc"` lists every start: one video per time out of the pits).
 
 File names use UTC until the **Time zone** setting is set, either on the Settings screen or by a phone opening the Wi-Fi page. Then they use your local time. Times inside the `.vbo` are always UTC. The files' dates on the card (Date modified on a PC) are set from the GPS too, in the same local time, once the GPS has a fix with a date. Files saved before that, or by older firmware, show 1980 (or 1979 on a PC west of UTC). Speeds in the files are always km/h, whatever the Speed units setting.
 
@@ -934,7 +948,13 @@ g++ -std=c++17 -Iinclude test/test_dji.cpp -o /tmp/dji && /tmp/dji
 python test/test_overlay.py
 ```
 
-`test/test_web.js` also checks the CSV download: a row per fix, UTC across midnight, the values, lap times and deltas against the fastest or the summary's best lap.
+`test/test_web.js` also checks the CSV download: a row per fix, UTC across midnight, the values, lap times and deltas against the fastest or the summary's best lap, and oil temperature (empty when not known).
+
+`test/test_tempalert.cpp` checks the engine temperatures on screen (`include/TempAlert.h`): the coolant tag's colour bands rising from cold through warm to hot, °F, and when the overheat warning shows: once at the limit, again only after dropping 3 °C below it or a minute later, nothing on stale data, oil with its own limit, coolant first when both are over, a tap closing it, and the LED bar's flashing. `test/test_settings.cpp` checks the Coolant settings (defaults, staying in order, the Wi-Fi page's names, BOOT and touch on the page) and `test/test_vbo.cpp` the laps' hottest temperatures, live and recovered from a log:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_tempalert.cpp -o /tmp/ta && /tmp/ta
+```
 
 `test/test_racechrono.cpp` checks the RaceChrono profile's encodings: latitude and longitude, both altitude and speed forms and where they switch (2776.7 m, 327.67 km/h), bearing (never 360.00), HDOP, the time since the hour and the date-hour, the sync bits going up with the hour and wrapping in 3 bits, the invalid values without a fix, CAN packets (the little-endian ID, 1 to 16 bytes), the value packets' equations, and the filter commands (deny all, allow all at an interval, allow one ID at its own, bad lengths ignored):
 
@@ -942,13 +962,13 @@ python test/test_overlay.py
 g++ -std=c++17 -Iinclude test/test_racechrono.cpp -o /tmp/rc && /tmp/rc
 ```
 
-`test/test_elm327.cpp` checks the Bluetooth adapter's ELM327 conversation against a simulated adapter: the set-up commands in order, the supported-PID questions, a clone that rejects the "1" suffix or multi-PID requests, `SEARCHING...` before a slow first reply, spaces left on, replies cut into 1, 7 and 20-byte notifications, a missing prompt (a timeout, then ATZ after three), the engine stopping answering and coming back, the pedal as throttle, values stamped at the middle of their request, reading `NO DATA`, `?`, `STOPPED`, bus errors, multi-ECU, multi-PID and multi-frame replies, which scanned devices are listed, and the schedule's rates at 10, 20 and 40 replies a second:
+`test/test_elm327.cpp` checks the Bluetooth adapter's ELM327 conversation against a simulated adapter: the set-up commands in order, the supported-PID questions, a clone that rejects the "1" suffix or multi-PID requests, `SEARCHING...` before a slow first reply, spaces left on, replies cut into 1, 7 and 20-byte notifications, a missing prompt (a timeout, then ATZ after three), the engine stopping answering and coming back, the pedal as throttle, values stamped at the middle of their request, reading `NO DATA`, `?`, `STOPPED`, bus errors, multi-ECU, multi-PID and multi-frame replies, which scanned devices are listed, the schedule's rates at 10, 20 and 40 replies a second, and oil temperature asked about once a second only when the car lists it:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_elm327.cpp -o /tmp/elm && /tmp/elm
 ```
 
-`test/test_obd.cpp` checks OBD-II over CAN: the requests, reading engine speed, throttle and coolant temperature from the engine's replies while ignoring everything else on the bus (other messages, other modes, "not supported", short and multi-frame replies), values going stale, the polling schedule (engine speed every other request, one at a time, a gap between, a timeout), and the shift light. `test/test_vbo.cpp` checks the log's engine channels:
+`test/test_obd.cpp` checks OBD-II over CAN: the requests, reading engine speed, throttle and coolant temperature from the engine's replies while ignoring everything else on the bus (other messages, other modes, "not supported", short and multi-frame replies), values going stale, the polling schedule (engine speed every other request, one at a time, a gap between, a timeout; oil temperature once a second, dropped after three unanswered), and the shift light. `test/test_vbo.cpp` checks the log's engine channels:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_obd.cpp -o /tmp/obd && /tmp/obd
