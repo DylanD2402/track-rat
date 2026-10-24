@@ -133,8 +133,8 @@ void LedBar::update(bool timing, bool hasDelta, int32_t deltaMs) {
   int n = pattern.ledCount();
   // Revving towards the shift point: the bar is a shift light (the board LED keeps the delta)
   if (SHIFT_LIGHT_RPM > 0 && rpmKnown) obd::shiftLights(rpmNow, SHIFT_LIGHT_START_RPM, SHIFT_LIGHT_RPM, now, frame, n);
-  if (overheat) {  // the overheat warning: everything red, blinking
-    const Rgb c = overheatOn ? Rgb{255, 0, 0} : Rgb{0, 0, 0};
+  if (overheat) {  // the overheat warning: everything flashing red and yellow, with the screen
+    const Rgb c = overheatOn ? Rgb{255, 0, 0} : Rgb{255, 170, 0};
     for (int i = 0; i < n; i++) frame[i] = c;
     boardColour = c;
   }

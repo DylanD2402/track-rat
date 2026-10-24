@@ -190,25 +190,28 @@ int DisplayManager::tempMaxLine(const LapTimer& timer, int right, int y) {
   return right - x;
 }
 
-// The overheat warning (6.5): COOLANT 112° (or OIL) big, black on red
-void DisplayManager::drawTempAlert(bool oil, float c) {
+// The overheat warning (6.5): COOLANT TOO HOT, the temperature and what to do, black on red or
+// yellow. Drawn every frame with TempAlert's phase, so it flashes
+void DisplayManager::drawTempAlert(bool oil, float c, bool red) {
   beginFrame();
-  gfx->fillScreen(C_RED);
+  const uint16_t bg = red ? C_RED : C_YELLOW;
+  gfx->fillScreen(bg);
   const SettingsData s = Settings::get();
   const bool f = settings::fahrenheit(s);
-  centered(oil ? "OIL" : "COOLANT", 34, Font::Hero, C_BG);
+  centered(oil ? "OIL" : "COOLANT", 8, Font::Hero, C_BG);
+  centered("TOO HOT", 52, Font::Hero, C_BG);
   // The number in the big digits, and a drawn degree sign (those digits have none)
   const String num = String(tempalert::inUnits(c, f));
-  const int w = textWidth(num, Font::NumL), x = (W - w - 18) / 2, y = 104;
+  const int w = textWidth(num, Font::NumL), x = (W - w - 18) / 2, y = 102;
   text(num, x, y, Font::NumL, C_BG, TL_DATUM);
   gfx->fillCircle(x + w + 10, y + 9, 7, C_BG);
-  gfx->fillCircle(x + w + 10, y + 9, 4, C_RED);
+  gfx->fillCircle(x + w + 10, y + 9, 4, bg);
+  centered("Ease off and let it cool", 166, Font::Title, C_BG);
   char buf[48];
   const tempalert::Limits l = settings::tempLimits(s);
-  snprintf(buf, sizeof(buf), "%s at %d\xC2\xB0%s or more", oil ? "Oil hot" : "Hot", tempalert::inUnits(oil ? l.oilHotAtC : l.hotAtC, f),
-           f ? "F" : "C");
-  centered(buf, 176, Font::Body, C_BG);
-  centered("Tap to close", 206, Font::Caption, C_BG);
+  snprintf(buf, sizeof(buf), "%s at %d\xC2\xB0%s   \xC2\xB7   tap to close", oil ? "Oil hot" : "Hot",
+           tempalert::inUnits(oil ? l.oilHotAtC : l.hotAtC, f), f ? "F" : "C");
+  centered(buf, 206, Font::Body, C_BG);
   endFrame();
 }
 

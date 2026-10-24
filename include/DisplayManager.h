@@ -105,8 +105,9 @@ public:
   void drawSummary(const Track& track, const LapTimer& timer, const String& savedPath, int session, bool inPits);
   // The SYNC flash (6.4): white, SYNC and the GPS time ("14:03:12.3"), for a camera to film
   void drawSync(const char* gpsTime);
-  // The overheat warning (6.5): red, COOLANT or OIL and the temperature, for TEMP_ALERT_MS
-  void drawTempAlert(bool oil, float c);
+  // The overheat warning (6.5): COOLANT (or OIL) TOO HOT and the temperature, for TEMP_ALERT_MS,
+  // on red or yellow (red: TempAlert's redPhase) so it flashes
+  void drawTempAlert(bool oil, float c, bool red);
   // The pit debrief (DisplayDebrief.cpp). Page 0: best lap, theoretical best and the three
   // sectors that cost most, on the map. Page 1: every lap with its tags, every sector, and
   // this session against the last.

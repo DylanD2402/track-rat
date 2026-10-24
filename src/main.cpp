@@ -1330,7 +1330,7 @@ static void showPersonalBest() {
 static void render() {
   uint32_t now = millis();
   if (tempAlert.showing(now)) {  // the overheat warning covers everything, even the SYNC flash
-    display.drawTempAlert(tempAlert.current().oil, tempAlert.current().c);
+    display.drawTempAlert(tempAlert.current().oil, tempAlert.current().c, tempAlert.redPhase(now));
     return;
   }
   if (syncUntil) {  // the SYNC flash covers everything, with the GPS time ticking
@@ -1785,7 +1785,7 @@ void loop() {
     } else if (wasShowing && !tempAlert.showing(now)) {
       lastRender = 0;  // back to the screen it covered
     }
-    LedBar::setOverheat(tempAlert.showing(now), tempAlert.ledRed(now));
+    LedBar::setOverheat(tempAlert.showing(now), tempAlert.redPhase(now));
   }
   LedBar::setRpm(EngineData::values().rpmKnown(now), EngineData::values().rpm);
   LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);

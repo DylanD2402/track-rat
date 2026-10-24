@@ -592,10 +592,12 @@ int main(int argc, char** argv) {
     d.drawRunning(track, timer, gps, o, 0);
     save(d, "45e_obd_tag_no_coolant_yet");
     obdStatus.connected = false;
-    d.drawTempAlert(false, 112);
+    d.drawTempAlert(false, 112, true);
     save(d, "46_overheat_coolant");
+    d.drawTempAlert(false, 112, false);
+    save(d, "46a_overheat_coolant_yellow");
     mockSettings.units = SpeedUnits::Mph;
-    d.drawTempAlert(true, 131);
+    d.drawTempAlert(true, 131, true);
     save(d, "46b_overheat_oil_mph");
     mockSettings.units = SpeedUnits::Kmh;
     SettingsScreenState cool;

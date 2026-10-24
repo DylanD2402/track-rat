@@ -109,13 +109,14 @@ static void testCard() {
     CHECK(!a.update(500, true, 111, false, 0, l) && !a.showing(500), "not straight back");
     CHECK(a.update(TEMP_REPEAT_MS, true, 111, false, 0, l), "a minute on, still hot: again");
   }
-  {  // The LED bar flashes red in CAM_REC_BLINK_MS halves while it shows
+  {  // The card and the LED bar flash red then yellow in TEMP_ALERT_FLASH_MS halves while it shows
     Alert a;
     a.update(1000, true, 111, false, 0, l);
-    CHECK(a.ledRed(1000) && a.ledRed(1000 + CAM_REC_BLINK_MS - 1) && !a.ledRed(1000 + CAM_REC_BLINK_MS) &&
-              a.ledRed(1000 + 2 * CAM_REC_BLINK_MS),
-          "on, off, on");
-    CHECK(!a.ledRed(1000 + TEMP_ALERT_MS) && !Alert().ledRed(0), "off when it's gone, and before any card");
+    CHECK(a.redPhase(1000) && a.redPhase(1000 + TEMP_ALERT_FLASH_MS - 1) && !a.redPhase(1000 + TEMP_ALERT_FLASH_MS) &&
+              a.redPhase(1000 + 2 * TEMP_ALERT_FLASH_MS),
+          "red, yellow, red");
+    CHECK(TEMP_ALERT_MS / TEMP_ALERT_FLASH_MS >= 6, "flashes at least 3 times each colour in a card");
+    CHECK(!a.redPhase(1000 + TEMP_ALERT_MS) && !Alert().redPhase(0), "off when it's gone, and before any card");
   }
   {  // Raising Hot at while hot re-arms through the drop rule only
     Alert a;
