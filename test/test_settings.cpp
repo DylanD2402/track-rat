@@ -687,7 +687,17 @@ static void testCoolantLimits() {
   d = def;
   d.coolantHotC = COOLANT_SET_MAX_C;
   adjust(d, SettingItem::CoolHot, +1, true);
-  EXPECT(d.coolantHotC == COOLANT_SET_MIN_C + 2 && ordered(d), "BOOT wraps Hot at round to the bottom: %d", d.coolantHotC);
+  EXPECT(d.coolantHotC == def.coolantWarmC + 1 && d.coolantWarmC == def.coolantWarmC && d.coolantColdC == def.coolantColdC && ordered(d),
+         "BOOT wraps Hot at round to just above Warm at, leaving the others: %d", d.coolantHotC);
+  d = def;
+  d.coolantWarmC = COOLANT_SET_MAX_C - 1;
+  adjust(d, SettingItem::CoolWarm, +1, true);
+  EXPECT(d.coolantWarmC == def.coolantColdC + 1 && d.coolantColdC == def.coolantColdC && ordered(d),
+         "BOOT wraps Warm at round to just above Cold below: %d", d.coolantWarmC);
+  d = def;
+  d.coolantColdC = COOLANT_SET_MAX_C - 2;
+  adjust(d, SettingItem::CoolCold, +1, true);
+  EXPECT(d.coolantColdC == COOLANT_SET_MIN_C && ordered(d), "BOOT wraps Cold below round to the bottom: %d", d.coolantColdC);
 
   // Corrupt values from flash
   d = def;

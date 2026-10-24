@@ -232,7 +232,13 @@ inline void adjust(SettingsData& d, SettingItem item, int dir, bool wrap) {
     case SettingItem::CoolCold: case SettingItem::CoolWarm: case SettingItem::CoolHot: case SettingItem::OilHot: {
       int lo, hi;  // 1 C steps; the others move along to keep them in order
       limitRange(item, lo, hi);
-      setLimit(d, item, number(limitValue(d, item), lo, hi, TEMP_STEP_C));
+      // BOOT wraps round past the top to the lowest value that leaves the limits below it where
+      // they are, rather than dragging them all to the bottom
+      const int v = limitValue(d, item);
+      if (wrap && dir > 0 && v + TEMP_STEP_C > hi)
+        setLimit(d, item, item == SettingItem::CoolWarm ? d.coolantColdC + 1 : item == SettingItem::CoolHot ? d.coolantWarmC + 1 : lo);
+      else
+        setLimit(d, item, number(v, lo, hi, TEMP_STEP_C));
       break;
     }
     default: break;

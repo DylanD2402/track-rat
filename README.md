@@ -127,7 +127,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page. After a session that ended by itself, driving off starts the next | press: Ready screen again, hold 1 s: Wi-Fi page |
 | Free Roam summary | tap: menu; WI-FI button: Wi-Fi page | press: menu, hold 1 s: Wi-Fi page |
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
-| Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value, hold goes to the next, and back after the last) |
+| Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value (past the top it goes round to just above the limit below it), hold goes to the next, and back after the last) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
 
 While timing, the screen is built to be read in one glance, top to bottom:

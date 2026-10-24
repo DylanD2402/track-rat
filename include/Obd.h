@@ -104,6 +104,8 @@ inline int parse(uint32_t id, const uint8_t* d, uint8_t len, Values& v, uint32_t
 // between, one request at a time (the next once answered, or after REPLY_TIMEOUT_MS).
 // Oil temperature is slipped in once a second, until OIL_TRIES requests of it in a row
 // have had no answer (most cars don't have it; one that ever answered keeps being asked).
+// A miss only counts once the engine answers something else after it, so a quiet bus
+// (ignition off at start-up) doesn't give up on it.
 class Poller {
 public:
   static constexpr int OIL_TRIES = 3;
@@ -115,7 +117,7 @@ public:
     return oilTurn(nowMs) ? PID_OIL : order(step);
   }
   void sent(uint32_t nowMs) {
-    if (waiting && pending == PID_OIL && oilMisses < 255) oilMisses++;  // the last oil request went unanswered
+    if (waiting && pending == PID_OIL) oilMissed = true;  // the last oil request went unanswered
     if (oilTurn(nowMs)) {
       pending = PID_OIL;
       oilAt = nowMs;
@@ -131,6 +133,8 @@ public:
   void replied(int pid) {
     if (waiting && pid == pending) waiting = false;
     if (pid == PID_OIL) oilAnswered = true;
+    else if (oilMissed && oilMisses < 255) oilMisses++;  // the engine is there, it just has no oil temperature
+    oilMissed = false;
     unanswered = 0;
   }
   // Requests in a row with no reply at all: no engine listening (ignition off, wrong bit rate)
@@ -149,7 +153,7 @@ private:
   int pending = -1;
   uint32_t sentAt = 0;
   int unanswered = 0;
-  bool oilAsked = false, oilAnswered = false;
+  bool oilAsked = false, oilAnswered = false, oilMissed = false;
   uint32_t oilAt = 0;
   int oilMisses = 0;
 };

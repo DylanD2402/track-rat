@@ -112,6 +112,21 @@ int main() {
     }
     CHECK(oil == Poller::OIL_TRIES && after == 0, "unanswered oil: asked %d times", oil);
 
+    // Ignition off at start-up: nothing answers, and oil isn't given up on
+    Poller z;
+    for (uint32_t t2 = 0; t2 < 10000; t2++)
+      if (z.due(t2) >= 0) z.sent(t2);
+    int zOil = 0;
+    for (uint32_t t2 = 10000; t2 < 12500;) {  // then the engine starts and answers everything
+      const int pid = z.due(t2);
+      if (pid < 0) { t2++; continue; }
+      z.sent(t2);
+      if (pid == PID_OIL) zOil++;
+      t2 += 12;
+      z.replied(pid);
+    }
+    CHECK(zOil >= 2, "oil still asked once the engine answers: %d", zOil);
+
     // One that answers keeps being asked about once a second
     Poller a;
     int asked = 0;
