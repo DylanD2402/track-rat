@@ -67,7 +67,7 @@ void DisplayManager::drawAutocross(const AutocrossView& v, const GPSHandler& gps
     // The runs, four to a row, the latest twelve; the best in green with a dot
     gfx->drawFastHLine(cx + 12, cy + 70, cw - 24, C_LINE);
     if (v.runs.empty()) {
-      text(v.loading ? "Reading the day's runs…" : "No runs yet", cx + 12, cy + 82, Font::Caption, C_TEXT3);
+      text(v.retiming ? "Re-timing the runs…" : v.loading ? "Reading the day's runs…" : "No runs yet", cx + 12, cy + 82, Font::Caption, C_TEXT3);
     } else {
       const int n = (int)v.runs.size(), first = n > 12 ? n - 12 : 0;
       for (int i = first; i < n; i++) {
@@ -93,13 +93,18 @@ void DisplayManager::drawAutocross(const AutocrossView& v, const GPSHandler& gps
   };
   btn(5, rowY1, 2 * third - 10, rowH1, "Start runs", canStart, true, highlight == 0);
   btn(2 * third + 5, rowY1, third - 10, rowH1, "New course", canMake, false, highlight == 1);
-  const char* soon[2] = {"Adjust start", "Adjust finish"};
+  const char* adjustNames[2] = {"Adjust start", "Adjust finish"};
   for (int i = 0; i < 2; i++) {
     const int x = i * third + 5, w = third - 10;
+    const bool ok = v.adjustReason[i].empty();
     gfx->fillRoundRect(x, rowY2, w, rowH2, CORNER, highlight == 2 + i ? C_RAISED : C_SURFACE);
     if (highlight == 2 + i) gfx->drawRoundRect(x, rowY2, w, rowH2, CORNER, C_TEXT);
-    text(soon[i], x + w / 2, rowY2 + 14, Font::Body, C_TEXT3, MC_DATUM);
-    text("coming soon", x + w / 2, rowY2 + 29, Font::Caption, C_TEXT3, MC_DATUM);
+    if (ok) {
+      text(adjustNames[i], x + w / 2, rowY2 + rowH2 / 2 + 1, Font::Body, C_TEXT, MC_DATUM);
+    } else {  // greyed out, and why
+      text(adjustNames[i], x + w / 2, rowY2 + 14, Font::Body, C_TEXT3, MC_DATUM);
+      text(fit(v.adjustReason[i].c_str(), Font::Caption, w - 6), x + w / 2, rowY2 + 29, Font::Caption, C_TEXT3, MC_DATUM);
+    }
   }
   btn(2 * third + 5, rowY2, third - 10, rowH2, "Back", true, false, highlight == 4);
   endFrame();

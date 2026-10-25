@@ -36,6 +36,12 @@ public:
   // Screen x and y of the last tap, for screens with more than one row of buttons.
   int16_t lastTapX() const { return tapX; }
   int16_t lastTapY() const { return tapY; }
+  // For a button that repeats while held (Adjust start/finish): how long a finger that is on the screen and
+  // not dragging has been down (0: none), where it is, and how long the finger was down for the last tap
+  uint32_t touchDownMs() const { return touching && !dragged ? millis() - touchStart : 0; }
+  int16_t touchX() const { return curX; }
+  int16_t touchY() const { return curY; }
+  uint32_t lastTapHeldMs() const { return tapHeld; }
   // How long the finger was down for the last tap (the timing screen ignores quick ones while moving).
   // A finger that moves more than DRAG_PX from where it touched down is dragging, not tapping:
   // no Tap or Hold comes of it. dragDy() is how far it has moved up or down since it touched down.
@@ -56,6 +62,7 @@ private:
   int16_t startX = 0, startY = 0;
   int16_t curX = 0, curY = 0;
   int16_t tapX = 0, tapY = 0;
+  uint32_t tapHeld = 0;
 
   ButtonPress boot{LONG_PRESS_MS, POWER_OFF_BAR_MS}, ext{LONG_PRESS_MS};
   int extPin = -1;

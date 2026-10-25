@@ -99,6 +99,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_elm327.cpp -o /tmp/elm && /tmp/elm
       - name: test_linenudge
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_linenudge.cpp src/LapTimer.cpp -o /tmp/ln && /tmp/ln
+      - name: test_adjustline
+        run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_adjustline.cpp src/LapTimer.cpp src/VboFormat.cpp -o /tmp/adj && /tmp/adj
       - name: test_tempalert
         run: g++ -std=c++17 -Iinclude test/test_tempalert.cpp -o /tmp/ta && /tmp/ta
       - name: test_profiles
