@@ -521,6 +521,92 @@ The Wi-Fi page already compares two laps: speed and gap against distance, and th
   
   Filters in Compare can follow later.
 
+### Phase 9: Menus that follow the day, and autocross as a first-class mode (proposed 2026-10-25)
+
+**Why.**
+- **The menu is a flat grid of modes:** Free Roam, New Track, Track List, then Performance, Settings, Wi-Fi.
+- **Autocross is buried** under New Track → Course, next to building a circuit, which is rare.
+- **Every event's course becomes a "track"** in the circuit list.
+- **Runs are grouped by session,** so a power-off between runs splits the day.
+- **A late or early tap on the finish** can only be fixed on the Wi-Fi page.
+
+**What others do (researched):**
+- **RaceBox** boots straight back into the last track nearby.
+- **AiM Solo 2** offers CREATE beside the nearby tracks, and an open course can be kept "for the event duration only".
+- **VBOX** sets a gate while driving, with a 5 s cancel.
+- **RaceChrono** re-times every run when a trap is moved.
+- **The Catalyst** is closed-loop only.
+- **Nobody** lets you nudge a line precisely on the device itself.
+
+#### The home screen: lead with what's next
+```
++--------------------------------------------+
+| Menu                         76%  ±1.4 m ▮▮|
+| +----------------------------------------+ |
+| | ► Autocross · Oct 25 course            | |   one tap: the most likely
+| |   Run 4 next · best 52.31              | |   thing to do now
+| +----------------------------------------+ |
+|  [Track day] [Autocross] [Drag] [Drive]    |   the existing icons, reshuffled
+|  Wi-Fi                          Settings   |
++--------------------------------------------+
+```
+- **Next up** (the big card) picks itself, in this order:
+  1. today's autocross course nearby: its next run;
+  2. a circuit within 5 km: "Calabogie · Full: start", with the PB;
+  3. otherwise "Drive" (Free Roam; it still learns loops into tracks).
+- **Track day:** nearby circuits by distance, as the track list does now, plus layouts, and **+ New circuit** last. Courses don't appear here.
+- **Autocross:** the hub below.
+- **Drag:** today's Performance (0–100, ¼ mile…).
+- **Drive:** Free Roam.
+- **Wi-Fi and Settings** become a small row. BOOT goes through them in this same order.
+
+#### Autocross: courses are events, runs are numbered for the day
+```
++--------------------------------------------+
+| Autocross · Oct 25 course      Run 4 next  |
+|  Best 52.31 (run 2)    Last 53.02 (run 3)  |
+|  1  53.40    2  52.31 ★    3  53.02        |
+| [Adjust start] [Adjust finish] [New course]|
++--------------------------------------------+
+```
+- **New course** (at the event):
+  - Park in the grid or at the lights and press **Set start here**, while stopped. That's the standing start, as now.
+  - On the first run, tap as you cross the finish. A 5 s **Undo** follows (as VBOX does), or set the finish later.
+- **A course is an event:**
+  - It's kept with its date and named "Oct 25 course" (rename it on the Wi-Fi page).
+  - It lives in its own list, not among the circuits.
+  - The hub shows today's course or the nearest recent one. Older courses stay on the card and on the Wi-Fi page.
+- **The whole day is one run list:** Run 1, 2, 3…, whatever happens between runs (a power-off, a session ending, a restart).
+- **Booting near today's course** opens it armed for the next run, so the second run takes no taps.
+- **The debrief** compares the runs of the day: best run, theoretical best from the sectors, where time went.
+
+#### Adjust the line precisely, on the device
+```
++--------------------------------------------+
+| Adjust finish                       Save   |
+|   .. your runs' paths, zoomed to ~30 m ..  |
+|          ====|====  ← the line              |
+|  [◀ 0.5 m earlier]      [0.5 m later ▶]    |
+|  Moved 1.5 m later                          |
+|  Run 1 53.40→53.46   2 52.31→52.37  3 …    |
++--------------------------------------------+
+```
+- **Moving the line:** it slides along the driven paths in 0.5 m steps (hold for more).
+  - That's about 20 ms at 90 km/h, so the line can be placed far more finely than a tap made while driving.
+- **Live re-timing:** every run of the day re-times as you nudge, using the logs with the existing re-timing code.
+- **Save** keeps the line for the rest of the event. **Adjust start** works the same way for rolling starts. A standing start is timed from moving off, so the start line matters less there.
+- **Same edit on the Wi-Fi page:** the track editor gets the same nudge for courses.
+
+#### Steps and who builds them
+| Wave | Step | Built by |
+|---|---|---|
+| 0 | 9.0 Mock-ups: the four screens above, rendered on the PC from the real display code, for Dylan to approve before anything is wired | Sonnet, low |
+| 1 | 9.2 Courses as events: their own list, runs numbered across power-offs, the Autocross hub and run list, resume at boot | Sonnet, medium |
+| 2 | 9.3 Adjust start/finish on the device with live re-timing (and the same nudge on the Wi-Fi page) | Sonnet, medium |
+| 2 | 9.1 The new home screen with Next up, and the Track day screen | Sonnet, medium |
+
+Existing courses ("Course 2026-10-20" stages in tracks.json) move into the course list by themselves. Nothing else changes for circuits, laps or PBs.
+
 ## Not planned, and why
 
 - **Video recording on Track Rat.** No camera input or video encoder. Cameras and phones do it better, so Phase 6 helps them instead: Track Rat feeds its GPS into an Osmo Action's video, starts and stops it with each session, and feeds GPS and engine data to RaceChrono on a phone.
