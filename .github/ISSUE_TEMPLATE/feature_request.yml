@@ -1,0 +1,27 @@
+name: Feature request
+description: An idea for Track Rat
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The job you want done, and why. Describe the problem before the fix.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea (optional)
+      description: How you imagine it working, on the board, the Wi-Fi page or elsewhere.
+    validations:
+      required: false
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware it needs (optional)
+      description: Any part that isn't in the README's hardware list.
+    validations:
+      required: false

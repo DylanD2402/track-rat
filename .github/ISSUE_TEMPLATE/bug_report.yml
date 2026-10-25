@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in Track Rat doesn't work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please remove your home GPS positions from any log or file before you post it.
+
+  - type: input
+    id: firmware-version
+    attributes:
+      label: Firmware version
+      description: The version at the bottom of the Settings list, e.g. v0.1.0-beta.1
+      placeholder: v0.1.0-beta.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware
+      description: The board and GPS, then any add-ons you have fitted.
+      value: |
+        Board: LCDWiki ES3C28P
+        GPS: Beitian BE-252Q (or say which)
+        Battery: yes / no
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: addons
+    attributes:
+      label: Add-ons fitted
+      description: Tick each one you have fitted and using. Leave the rest blank.
+      options:
+        - label: microSD card
+        - label: LED delta bar
+        - label: Big button
+        - label: IMU
+        - label: CAN / OBD-II transceiver
+        - label: Bluetooth OBD-II adapter
+        - label: DJI camera (Osmo Action)
+        - label: Phone app (RaceBox or RaceChrono)
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw. Say which screen it was on.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The steps that make it happen, in order.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Paste the output of `python tools/serial_log.py --port COM4 --seconds 30 --reset`
+        (change COM4 to your port). Remove home GPS positions first.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Files (optional)
+      description: The session's .vbo and .json from the SD card, if the bug is about a session. Remove home GPS positions first.
+    validations:
+      required: false
