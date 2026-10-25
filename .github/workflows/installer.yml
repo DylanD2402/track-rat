@@ -5,7 +5,7 @@ name: Web installer
 # there). It runs from the default branch, the only one the github-pages environment
 # lets deploy:
 # - after the Release workflow finishes for a tag;
-# - when site/ or this file changes on main;
+# - when site/, the Wi-Fi page (web/), the track list or this file changes on main;
 # - by hand ("Run workflow").
 #
 # The binaries are served from Pages itself: a browser can't fetch them from GitHub
@@ -19,6 +19,8 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'web/**'
+      - 'data/tracks.json'
       - '.github/workflows/installer.yml'
   workflow_dispatch:
 
@@ -68,6 +70,12 @@ jobs:
         run: |
           mkdir _site
           cp site/index.html _site/
+          # The Wi-Fi page as a viewer (it opens session files from your computer): its fonts, the
+          # sample session and the track list beside it
+          mkdir -p _site/analyze/fonts _site/analyze/samples
+          cp web/index.html data/tracks.json _site/analyze/
+          cp web/fonts/*.woff2 _site/analyze/fonts/
+          cp site/samples/* _site/analyze/samples/
           cd artifact/dist
           cp bootloader.bin partitions.bin boot_app0.bin firmware.bin littlefs.bin manifest.json ../../_site/
           cat manifest.json

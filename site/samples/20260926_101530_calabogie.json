@@ -1,0 +1,44 @@
+{
+  "track": "calabogie",
+  "trackName": "Calabogie Motorsports Park",
+  "started": "20260926_101530",
+  "log": "20260926_101530_calabogie.vbo",
+  "finished": true,
+  "lapCount": 3,
+  "cleanLaps": 3,
+  "averageMs": 132878,
+  "bestLap": 2,
+  "bestTimeMs": 130615,
+  "bestTime": "2:10.615",
+  "topSpeedKmh": 219.3,
+  "coolantMaxC": 93,
+  "laps": [
+    {
+      "lap": 1,
+      "timeMs": 132421,
+      "time": "2:12.421",
+      "maxKmh": 216.0,
+      "avgKmh": 135.6,
+      "distanceM": 4988,
+      "coolantMaxC": 88
+    },
+    {
+      "lap": 2,
+      "timeMs": 130615,
+      "time": "2:10.615",
+      "maxKmh": 219.3,
+      "avgKmh": 137.5,
+      "distanceM": 4988,
+      "coolantMaxC": 92
+    },
+    {
+      "lap": 3,
+      "timeMs": 135597,
+      "time": "2:15.597",
+      "maxKmh": 211.6,
+      "avgKmh": 132.4,
+      "distanceM": 4988,
+      "coolantMaxC": 93
+    }
+  ]
+}

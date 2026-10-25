@@ -9,12 +9,15 @@
   internet while it's on the TrackRat network.
   tools/build_web.py gzips this file into data/web/index.html.gz, and
   `pio run -e es3c28p -t uploadfs` copies it to the board.
+  The website also publishes it at https://trackrat.me/analyze/, as a viewer that opens session
+  files from your computer (see "the data" below). Its fonts are linked relative to the page, so
+  they load from /fonts/ on the board and from /analyze/fonts/ there.
 -->
 <style>
-/* Inter (SIL Open Font License), served by Track Rat from flash: the phone has no internet here */
-@font-face { font-family: "Inter"; font-weight: 400; font-display: swap; src: url(/fonts/inter-regular.woff2) format("woff2"); }
-@font-face { font-family: "Inter"; font-weight: 500; font-display: swap; src: url(/fonts/inter-medium.woff2) format("woff2"); }
-@font-face { font-family: "Inter"; font-weight: 600; font-display: swap; src: url(/fonts/inter-semibold.woff2) format("woff2"); }
+/* Inter (SIL Open Font License), served by Track Rat from flash (the phone has no internet here), or from beside the page on the website */
+@font-face { font-family: "Inter"; font-weight: 400; font-display: swap; src: url(fonts/inter-regular.woff2) format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 500; font-display: swap; src: url(fonts/inter-medium.woff2) format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 600; font-display: swap; src: url(fonts/inter-semibold.woff2) format("woff2"); }
 :root {
   --bg: #f2f2f7; --card: #fff; --text: #111113; --dim: #6e6e73; --line: #e5e5ea;
   --accent: #111113; --accent-text: #fff; --bad: #d70015; --good: #248a3d; --chip: #ececf0;
@@ -86,6 +89,14 @@ select { width: 100%; margin: 6px 0; }
 .tools button.on { outline: 2px solid var(--good); }
 canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10px; background: var(--bg); }
 .row select { width: auto; flex: 1 1 140px; margin: 0; }
+/* The viewer (the page on the website, no Track Rat): no board tabs, its own card, a drop target */
+.note a { color: var(--text); }
+.viewer-only { display: none; }
+.viewer .viewer-only { display: block; }
+.viewer .board-only { display: none !important; }
+body.drop::after { content: "Drop session files to open them"; position: fixed; inset: 8px; z-index: 5; display: flex;
+                   align-items: center; justify-content: center; font-size: 20px; font-weight: 600; pointer-events: none;
+                   border: 3px dashed var(--good); border-radius: var(--radius); background: color-mix(in srgb, var(--bg) 90%, transparent); }
 </style>
 </head>
 <body>
@@ -93,22 +104,36 @@ canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10
   <h1>Track Rat</h1>
   <nav id="tabs">
     <button data-tab="sessions" class="on">Sessions</button>
-    <button data-tab="tracks">Tracks</button>
+    <button data-tab="tracks" class="board-only">Tracks</button>
     <button data-tab="compare">Compare</button>
-    <button data-tab="firmware">Firmware</button>
-    <button data-tab="device">Device</button>
-    <button data-tab="settings">Settings</button>
+    <button data-tab="firmware" class="board-only">Firmware</button>
+    <button data-tab="device" class="board-only">Device</button>
+    <button data-tab="settings" class="board-only">Settings</button>
   </nav>
 </div></header>
 <main>
 
 <section id="sessions" class="on">
-  <p class="note">Downloads not saving? Some phones open this page in a small sign-in window that can't save files.
+  <div class="card viewer-only">
+    <h3>Open session files</h3>
+    <p class="note">Analyse a Track Rat session here, with no Track Rat connected. Pick a session's <code>.vbo</code> log
+      and its <code>.json</code> summary (and its note), or drop them anywhere on this page. They're matched up by name.</p>
+    <input type="file" id="openFiles" multiple accept=".vbo,.json" hidden>
+    <div class="tools">
+      <button class="btn" id="openBtn">Open files</button>
+      <button class="btn plain" id="sampleBtn">Try a sample session</button>
+    </div>
+    <p id="openMsg" class="note"></p>
+    <p class="note">Your files stay on this computer: nothing is uploaded.</p>
+    <p class="note"><a href="https://trackrat.me/">Install Track Rat</a> on your own board ·
+      <a href="https://github.com/DylanD2402/track-rat">Source on GitHub</a></p>
+  </div>
+  <p class="note board-only">Downloads not saving? Some phones open this page in a small sign-in window that can't save files.
     Open <b>http://192.168.4.1</b> in Safari or Chrome instead.</p>
   <div id="sessionList"><p class="note">Loading…</p></div>
 </section>
 
-<section id="tracks">
+<section id="tracks" class="board-only">
   <div class="card">
     <h3>Track editor</h3>
     <p class="note">Draws a session's laps from its log, with the track's start/finish, splits and corners on top.
@@ -159,7 +184,7 @@ canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10
 <section id="compare">
   <div class="card">
     <h3>Compare two laps</h3>
-    <p class="note">Any two laps at a track, from any sessions, drawn from their logs on the SD card.
+    <p class="note">Any two laps at a track, from any sessions, drawn from their logs <span id="cmpFrom">on the SD card</span>.
       <b style="color:#0a84ff">A</b> in blue, <b style="color:#ff9f0a">B</b> in orange.</p>
     <select id="cmpTrack"></select>
     <div class="row"><b style="color:#0a84ff">A</b><select id="cmpSesA"></select><select id="cmpLapA"></select></div>
@@ -182,7 +207,7 @@ canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10
   </div>
 </section>
 
-<section id="firmware">
+<section id="firmware" class="board-only">
   <div class="card">
     <h3>Install firmware</h3>
     <p class="note">Pick a <code>firmware.bin</code> (from <code>.pio/build/es3c28p/</code> after a build).
@@ -195,13 +220,13 @@ canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10
   </div>
 </section>
 
-<section id="device">
+<section id="device" class="board-only">
   <div class="card"><table id="info"><tr><td>Loading…</td><td></td></tr></table></div>
   <button class="btn plain" id="restart">Restart Track Rat</button>
   <p id="restartMsg" class="note"></p>
 </section>
 
-<section id="settings">
+<section id="settings" class="board-only">
   <p class="note">The same settings as on Track Rat's Settings screen. Changes take effect at once and are kept.
     The first change asks for the upload code on Track Rat's screen.</p>
   <div class="card" id="settingsForm"><p class="note">Loading…</p></div>
@@ -248,8 +273,71 @@ function post(url, body, onProgress) {
   });
 }
 
+// ---- viewer (begin: tested by test/test_web.js) ----
+// The page also runs without a Track Rat, as a viewer on the project website
+// (https://trackrat.me/analyze/): it opens session files from your computer. Track Rat serves
+// plain http, so any other protocol (https, or a copy saved to disk) means it isn't serving
+// the page. "?viewer" asks for the viewer too, to try it from a local server.
+function isViewerMode(loc) {
+  return loc.protocol !== "http:" || /[?&]viewer(&|=|$)/.test(loc.search || "");
+}
+
+// The files opened from the computer ({name, size}...) as a session list like the board's
+// /api/sessions: only .vbo and .json files with a session's name (a later file of the same
+// name replaces the earlier). groupSessions pairs a session's .vbo, its .json summary and its
+// _note.json by their base name, as on the board. tracks: an opened tracks.json, if there was one.
+function localFiles(opened) {
+  const byName = new Map();
+  let tracks = null;
+  for (const f of opened) {
+    if (f.name === "tracks.json") { tracks = f; continue; }
+    if (!/\.(vbo|json)$/.test(f.name) || !parseFile({name: f.name, fs: "sd"})) continue;
+    byName.set(f.name, f);
+  }
+  return {files: [...byName.values()].map((f) => ({name: f.name, fs: "sd", size: f.size})), tracks};
+}
+// ---- viewer (end) ----
+
+// ---- the data: every read of the Sessions and Compare tabs goes through data ----
+// On the board, its own web server. In the viewer, the files opened from the computer, in memory.
+const VIEWER = isViewerMode(location);
+const local = new Map();  // opened files by name (File objects)
+let trackDb = null;       // the viewer's tracks.json (names and maps), once read
+const data = {
+  // -> {files: [{name, fs, size}], tzMin}
+  async list() {
+    if (!VIEWER) return (await fetch("/api/sessions")).json();
+    // Names are shown as they are (their own clock): no time zone in the viewer
+    return {files: localFiles([...local.values()]).files, tzMin: 0};
+  },
+  // A file's text by its {fs, name}, or null if it isn't there
+  async text(f) {
+    if (VIEWER) { const o = local.get(f.name); return o ? o.text() : null; }
+    const r = await fetch("/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name));
+    return r.ok ? r.text() : null;
+  },
+  // The track list: parsed tracks.json, or null (the viewer reads one opened or the one beside the page)
+  async tracks() {
+    if (!VIEWER) return (await fetch("/tracks.json")).json();
+    try {
+      const opened = localFiles([...local.values()]).tracks;
+      if (opened) return JSON.parse(await opened.text());
+      const r = await fetch("tracks.json");
+      return r.ok ? await r.json() : null;
+    } catch (e) { return null; }
+  },
+};
+// A track's name: from tracks.json in the viewer when it's there, else made from its id
+function trackLabel(id) {
+  const t = trackDb && findTrack(trackDb, id);
+  return t ? t.name : trackName(id);
+}
+// Times in session names are the logger's clock: the viewer shows them as they are
+const SHOW_AS_NAMED = VIEWER ? {timeZone: "UTC"} : {};
+
 // ---- time zone: once the phone has sent it, the device names files in local time ----
-post("/api/time", new URLSearchParams({tz: String(-new Date().getTimezoneOffset())}));
+if (!VIEWER) post("/api/time", new URLSearchParams({tz: String(-new Date().getTimezoneOffset())}));
+if (VIEWER) document.body.classList.add("viewer");
 
 // ---- session names (begin: tested by test/test_web.js) ----
 // Names look like 20261018_093012_calabogie.json (date and time, track id), in the
@@ -328,6 +416,8 @@ function groupSessions(files, dayOf, tzMin = 0) {
 // ---- session names (end) ----
 
 function fileLink(f, label) {
+  // In the viewer the file is in memory: a button saves a copy
+  if (VIEWER) return `<button class="chip" data-save="${esc(f.name)}">${esc(label)} <small>${size(f.size)}</small></button>`;
   const href = "/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name);
   return `<a class="chip" href="${href}" download="${esc(f.name)}">${esc(label)} <small>${size(f.size)}</small></a>`;
 }
@@ -336,7 +426,7 @@ async function loadSessions() {
   const box = $("sessionList");
   let files, tzMin = 0;
   try {
-    const list = await (await fetch("/api/sessions")).json();
+    const list = await data.list();
     files = list.files;
     tzMin = list.tzMin || 0;
   } catch (e) {
@@ -344,28 +434,29 @@ async function loadSessions() {
     return;
   }
   if (!files.length) {
-    box.innerHTML = `<p class="note">No sessions yet. They're saved to the SD card after every lap.</p>`;
+    box.innerHTML = VIEWER ? `<p class="note">No sessions open yet. Open some files, or try the sample session.</p>`
+                           : `<p class="note">No sessions yet. They're saved to the SD card after every lap.</p>`;
     return;
   }
 
   notes = [];
   const {days, other} = groupSessions(files, (when) =>
-    when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric"}), tzMin);
+    when.toLocaleDateString(undefined, {weekday: "short", year: "numeric", month: "short", day: "numeric", ...SHOW_AS_NAMED}), tzMin);
 
   let html = "";
   for (const [day, tracks] of days) {
     html += `<h2>${esc(day)}</h2>`;
     for (const [track, list] of tracks) {
-      html += `<div class="card"><h3>${esc(trackName(track))}</h3>`;
+      html += `<div class="card"><h3>${esc(trackLabel(track))}</h3>`;
       for (const s of list) {
-        const time = s.when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+        const time = s.when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", ...SHOW_AS_NAMED});
         const id = "n" + notes.length;
         notes.push({id, s});
         html += `<div class="row"><span class="time">${esc(time)}</span>` +
                 s.files.map((x) => fileLink(x.f, x.label)).join("") +
                 (s.files.some((x) => x.label === "VBO") ? ` <button class="chip" data-csv="${s.files.findIndex((x) => x.label === "VBO")}" data-n="${notes.length - 1}">CSV</button>` : "") +
                 (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") +
-                ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>` +
+                (VIEWER ? "" : ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>`) +
                 `<div class="lognote" id="${id}">${s.noteFile ? `<span class="note">Loading note…</span>` : ""}</div></div>`;
       }
       html += `</div>`;
@@ -384,13 +475,13 @@ async function downloadCsv(btn) {
   const n = notes[+btn.dataset.n];
   const f = n && n.s.files[+btn.dataset.csv] && n.s.files[+btn.dataset.csv].f;
   if (!f) return;
-  const url = (name) => "/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(name);
   btn.disabled = true;
   btn.textContent = "Making CSV…";
   try {
-    const text = await (await fetch(url(f.name))).text();
+    const text = await data.text(f);
+    if (text === null) throw new Error("no log");
     let summary = null;
-    try { summary = await (await fetch(url(f.name.replace(/\.vbo$/, ".json")))).json(); } catch (e) { /* no summary: fastest lap */ }
+    try { summary = JSON.parse(await data.text({fs: f.fs, name: f.name.replace(/\.vbo$/, ".json")})); } catch (e) { /* no summary: fastest lap */ }
     const blob = new Blob([vboToCsv(text, summary)], {type: "text/csv"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -421,8 +512,8 @@ async function loadNotes() {
   for (const n of list) {
     if (!n.s.noteFile || list !== notes) continue;
     try {
-      const r = await fetch("/dl?fs=" + encodeURIComponent(n.s.fs) + "&f=" + encodeURIComponent(n.s.noteFile.name));
-      n.text = r.ok ? String((await r.json()).note || "") : "";
+      const t = await data.text({fs: n.s.fs, name: n.s.noteFile.name});
+      n.text = t !== null ? String(JSON.parse(t).note || "") : "";
     } catch (e) { n.text = ""; }
     if (list === notes && !$(n.id).querySelector("textarea")) showNote(n);
   }
@@ -430,6 +521,8 @@ async function loadNotes() {
 
 $("sessionList").addEventListener("click", async (e) => {
   if (e.target.dataset.csv !== undefined) return downloadCsv(e.target);
+  const saveBtn = e.target.closest("[data-save]");
+  if (saveBtn) return saveLocal(saveBtn.dataset.save);
   const id = e.target.dataset.note, act = e.target.dataset.noteAct;
   if (id) {
     const n = noteOf(id);
@@ -859,7 +952,7 @@ function edMsg(text, bad) {
 // The .vbo logs on the SD card, newest first, for the session picker
 async function edLoadLogs() {
   let files;
-  try { files = (await (await fetch("/api/sessions")).json()).files; } catch (e) { return; }
+  try { files = (await data.list()).files; } catch (e) { return; }
   const logs = files.filter((f) => f.fs === "sd" && f.name.endsWith(".vbo") && !/_freeroam(_\d+)?\.vbo$/.test(f.name))
                     .sort((a, b) => b.name.localeCompare(a.name));
   $("edLog").innerHTML = `<option value="">Pick a session…</option>` +
@@ -872,8 +965,8 @@ $("edLog").addEventListener("change", async () => {
   edMsg("Loading " + name + "…");
   try {
     const [log, db] = await Promise.all([
-      fetch("/dl?fs=sd&f=" + encodeURIComponent(name)).then((r) => r.text()),
-      ed.db ? Promise.resolve(ed.db) : fetch("/tracks.json").then((r) => r.json()),
+      data.text({fs: "sd", name}).then((t) => t || ""),
+      ed.db ? Promise.resolve(ed.db) : data.tracks(),
     ]);
     ed.db = db;
     ed.log = parseVbo(log);
@@ -1073,7 +1166,7 @@ const cmpState = {files: [], logs: new Map(), sums: new Map(), track: ""};
 const COL_A = "#0a84ff", COL_B = "#ff9f0a";
 
 async function cmpFetch(map, name, parse) {
-  if (!map.has(name)) map.set(name, fetch("/dl?fs=sd&f=" + encodeURIComponent(name)).then((r) => (r.ok ? r.text() : "")).then(parse));
+  if (!map.has(name)) map.set(name, data.text({fs: "sd", name}).then((t) => t || "").then(parse));
   return map.get(name);
 }
 const cmpLog = (vbo) => cmpFetch(cmpState.logs, vbo, parseVbo);
@@ -1081,20 +1174,20 @@ const cmpSummary = (vbo) => cmpFetch(cmpState.sums, vbo.replace(/\.vbo$/, ".json
 
 async function cmpLoad() {
   let files;
-  try { files = (await (await fetch("/api/sessions")).json()).files; } catch (e) { return; }
+  try { files = (await data.list()).files; } catch (e) { return; }
   cmpState.files = files.filter((f) => f.fs === "sd" && f.name.endsWith(".vbo"))
     .map((f) => ({name: f.name, p: parseFile(f)})).filter((f) => f.p && f.p.track !== "freeroam")
     .sort((a, b) => b.name.localeCompare(a.name));
   const tracks = [...new Set(cmpState.files.map((f) => f.p.track))];
-  $("cmpTrack").innerHTML = tracks.length ? tracks.map((t) => `<option value="${esc(t)}">${esc(trackName(t))}</option>`).join("")
-                                          : `<option value="">No session logs on the SD card</option>`;
+  $("cmpTrack").innerHTML = tracks.length ? tracks.map((t) => `<option value="${esc(t)}">${esc(trackLabel(t))}</option>`).join("")
+                                          : `<option value="">${VIEWER ? "No session logs open yet" : "No session logs on the SD card"}</option>`;
   cmpTrackChanged();
 }
 
 async function cmpTrackChanged() {
   cmpState.track = $("cmpTrack").value;
   const mine = cmpState.files.filter((f) => f.p.track === cmpState.track);
-  const opts = mine.map((f) => `<option value="${esc(f.name)}">${esc(f.p.when.toLocaleString([], {dateStyle: "medium", timeStyle: "short"}))}</option>`).join("");
+  const opts = mine.map((f) => `<option value="${esc(f.name)}">${esc(f.p.when.toLocaleString([], {dateStyle: "medium", timeStyle: "short", ...SHOW_AS_NAMED}))}</option>`).join("");
   $("cmpSesA").innerHTML = opts;
   $("cmpSesB").innerHTML = opts;
   await Promise.all([cmpLaps("A"), cmpLaps("B")]);
@@ -1178,6 +1271,18 @@ async function cmpDraw() {
   cmp.x.forEach((x, i) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, cmp.y[i]); maxY = Math.max(maxY, cmp.y[i]); });
   const s = Math.min((w - 30) / Math.max(maxX - minX, 1), (h - 30) / Math.max(maxY - minY, 1));
   const X = (x) => w / 2 + (x - (minX + maxX) / 2) * s, Y = (y) => h / 2 - (y - (minY + maxY) / 2) * s;
+  // In the viewer the track's map from tracks.json goes underneath, when it has one
+  const venue = VIEWER && trackDb && findTrack(trackDb, cmpState.track);
+  if (venue && Array.isArray(venue.obj.map)) {
+    g.strokeStyle = getComputedStyle(document.body).getPropertyValue("--dim"); g.lineWidth = 3; g.lineCap = "round"; g.lineJoin = "round";
+    g.globalAlpha = 0.3;
+    for (const line of venue.obj.map) {
+      g.beginPath();
+      line.forEach((pt, i) => { const q = toLocal(pt[0], pt[1], ref.lat, ref.lon); (i ? g.lineTo(X(q.x), Y(q.y)) : g.moveTo(X(q.x), Y(q.y))); });
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
   g.lineWidth = 5; g.lineCap = "round";
   for (const r of fasterRuns(cmp)) {
     g.strokeStyle = r.who === "A" ? COL_A : COL_B;
@@ -1431,7 +1536,80 @@ async function restart() {
 }
 $("restart").addEventListener("click", restart);
 
-loadSessions();
+// ---- the viewer: opening files from the computer ----
+function openMsg(text, bad) {
+  const m = $("openMsg");
+  m.className = bad ? "err" : "note";
+  m.textContent = text;
+}
+
+// Takes the files (picked or dropped) into memory, and redraws the lists
+async function addFiles(list) {
+  let added = 0, skipped = 0;
+  for (const f of [...list]) {
+    if (f.name === "tracks.json" || localFiles([f]).files.length) { local.set(f.name, f); added++; } else skipped++;
+  }
+  if (!added) { openMsg(skipped ? "Those aren't Track Rat session files (a .vbo or .json named like 20261018_093012_calabogie.vbo)." : "", !!skipped); return; }
+  openMsg(`Opened ${added} file${added === 1 ? "" : "s"}.` + (skipped ? ` ${skipped} skipped: not Track Rat session files.` : ""));
+  await afterOpening();
+}
+
+async function afterOpening() {
+  cmpState.logs.clear();
+  cmpState.sums.clear();
+  trackDb = await data.tracks();
+  await loadSessions();
+  if ($("compare").classList.contains("on")) cmpLoad();
+}
+
+// The sample session beside the page (made by tools/make_sample_session.py)
+async function loadSample() {
+  openMsg("Loading the sample…");
+  try {
+    const names = (await (await fetch("samples/index.json")).json()).files;
+    for (const name of names) {
+      const r = await fetch("samples/" + name);
+      if (!r.ok) throw new Error(name);
+      local.set(name, new File([await r.text()], name));
+    }
+  } catch (e) {
+    openMsg("Couldn't load the sample. It's only there on the website.", true);
+    return;
+  }
+  openMsg("Opened the sample: a simulated car at Calabogie, 3 laps.");
+  await afterOpening();
+}
+
+// A copy of an opened file
+function saveLocal(name) {
+  const f = local.get(name);
+  if (!f) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(f);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+if (VIEWER) {
+  $("openBtn").addEventListener("click", () => $("openFiles").click());
+  $("openFiles").addEventListener("change", () => { addFiles($("openFiles").files); $("openFiles").value = ""; });
+  $("sampleBtn").addEventListener("click", loadSample);
+  $("cmpFrom").textContent = "from the files you opened";
+  // Drop files anywhere on the page
+  const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files");
+  window.addEventListener("dragover", (e) => { if (hasFiles(e)) { e.preventDefault(); document.body.classList.add("drop"); } });
+  window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) document.body.classList.remove("drop"); });
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    document.body.classList.remove("drop");
+    addFiles(e.dataTransfer.files);
+  });
+  data.tracks().then((db) => { trackDb = db; loadSessions(); });
+} else {
+  loadSessions();
+}
 </script>
 </body>
 </html>

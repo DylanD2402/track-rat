@@ -5,7 +5,9 @@
 // form body, and that the names and values agree with include/SettingsData.h), and the
 // track editor's rules (the "track editor" part: reading a .vbo, track ids, moving the line,
 // splits, corner names, new layouts), and the lap comparison (the "lap compare" part: laps from a
-// log, speed and gap against distance, who was faster where, the season).
+// log, speed and gap against distance, who was faster where, the season), the viewer (the
+// "viewer" part: when the page is a viewer, and pairing opened files into sessions), and the
+// sample session in site/samples.
 //
 //   node test/test_web.js
 
@@ -577,6 +579,116 @@ console.log("Wi-Fi page lap comparison tests");
   check(carRow.length === carHead.length && carRow[CSV_COLUMNS.length] === "12.35" && carRow[CSV_COLUMNS.length + 1] === "-4.5" &&
         carRow[CSV_COLUMNS.indexOf("oil_c")] === "121.5", "car values: " + carLines[1]);
   check(lines[0] === CSV_COLUMNS.join(","), "without car channels: the same columns as before");
+}
+
+// ---- the viewer (8.1a): the page without a Track Rat, on the website ----
+console.log("Wi-Fi page viewer tests");
+{
+  const vm = html.match(/\/\/ ---- viewer \(begin[^\n]*\n([\s\S]*?)\/\/ ---- viewer \(end\)/);
+  check(!!vm, "the page has the viewer section");
+  const V = new Function(m[1] + vm[1] + "\nreturn {isViewerMode, localFiles, groupSessions};")();
+
+  // The rule: the board serves plain http; anything else (or ?viewer) is the viewer
+  const at = (protocol, search = "") => V.isViewerMode({protocol, search});
+  check(at("https:") === true, "the website (https) is the viewer");
+  check(at("file:") === true, "a saved copy opened from disk is the viewer");
+  check(at("http:") === false, "the board (http) is not");
+  check(at("http:", "?viewer") === true && at("http:", "?x=1&viewer") === true && at("http:", "?viewer=1") === true,
+        "?viewer asks for it from a local server");
+  check(at("http:", "?viewers") === false && at("http:", "?previewer") === false && at("http:", "") === false,
+        "only the word viewer");
+  check(V.isViewerMode({protocol: "http:"}) === false, "no search string");
+
+  // Pairing opened files into sessions
+  const open = (name, size = 100) => ({name, size});
+  const picked = [
+    open("20260926_101530_calabogie.vbo", 1200000), open("20260926_101530_calabogie.json", 900),
+    open("20260926_101530_calabogie_note.json", 80), open("20260927_090000_shannonville.vbo", 500000),
+    open("tracks.json", 4000), open("holiday.jpg"), open("notes.txt"), open("20260926_101530_calabogie.json.bak"),
+    open("session_bench.json"),
+  ];
+  const lf = V.localFiles(picked);
+  check(lf.files.map((f) => f.name).join() === "20260926_101530_calabogie.vbo,20260926_101530_calabogie.json," +
+        "20260926_101530_calabogie_note.json,20260927_090000_shannonville.vbo", "only session files are kept: " + lf.files.map((f) => f.name));
+  check(lf.files.every((f) => f.fs === "sd"), "they look like the board's SD card files, as the Compare tab wants");
+  check(lf.tracks && lf.tracks.name === "tracks.json", "an opened tracks.json is kept apart");
+  check(V.localFiles([open("a.txt")]).tracks === null, "no tracks.json opened: null");
+  const dup = V.localFiles([open("20260926_101530_calabogie.vbo", 1), open("20260926_101530_calabogie.vbo", 2)]);
+  check(dup.files.length === 1 && dup.files[0].size === 2, "the same file opened twice: the later one");
+
+  const g = V.groupSessions(lf.files, (d) => d.toISOString().slice(0, 10));
+  check(g.days.length === 2 && g.other.length === 0, "two days, nothing left over");
+  const cal = g.days.find((d) => d[0] === "2026-09-26")[1][0][1][0];
+  check(cal.files.map((x) => x.label).join() === "JSON,VBO" && cal.noteFile && cal.noteFile.name === "20260926_101530_calabogie_note.json" &&
+        cal.base === "20260926_101530_calabogie", "the .vbo, its summary and its note are one session: " + cal.files.map((x) => x.label));
+  const shan = g.days.find((d) => d[0] === "2026-09-27")[1][0][1][0];
+  check(shan.files.length === 1 && shan.noteFile === null, "a log alone is a session of its own");
+}
+
+// ---- the sample session (site/samples), read with the page's own code ----
+console.log("Sample session tests");
+{
+  const dir = path.join(__dirname, "..", "site", "samples");
+  const names = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+  const vboName = names.find((n) => /^\d{8}_\d{6}_calabogie\.vbo$/.test(n));
+  check(!!vboName, "site/samples has a Calabogie .vbo named like the board's");
+  const index = JSON.parse(fs.readFileSync(path.join(dir, "index.json"), "utf8"));
+  check(index.files.every((n) => names.includes(n)) && index.files.includes(vboName), "index.json lists files that are there");
+  check(fs.statSync(path.join(dir, vboName)).size < 1.5e6, "the log is under 1.5 MB");
+  check(parseFile({name: vboName, fs: "sd"}).track === "calabogie", "the page reads its name");
+  const text = readText("site", "samples", vboName);  // line endings normalised: a checkout may or may not have CRLF
+  const sum = JSON.parse(fs.readFileSync(path.join(dir, vboName.replace(/\.vbo$/, ".json")), "utf8"));
+  const log = CMP.parseVbo(text);
+  check(/simulated/i.test(Object.values(log.comments).join(" ")), "the log says it is simulated");
+  check(log.comments["Track"] === "calabogie" && sum.track === "calabogie" && sum.log === vboName, "log and summary agree on track and name");
+  check(log.points.length > 5000 && log.points[0].lap === 0, "an out-lap, then the laps: " + log.points.length + " fixes");
+
+  // The fixes are 20 Hz, and the laps run 1, 2, 3, then the in-lap (4)
+  const gaps = log.points.slice(1).map((p, i) => p.ms - log.points[i].ms);
+  check(gaps.every((d) => d === 50 || d === 49 || d === 51), "20 Hz: every fix 50 ms after the last");
+  const lapsIn = [...new Set(log.points.map((p) => p.lap))];
+  check(lapsIn.join() === "0,1,2,3,4", "laps in the log: " + lapsIn);
+  // Lap times as the page cuts them (from where each lap's first fix is), against the summary
+  const first = new Map();
+  for (const p of log.points) if (!first.has(p.lap)) first.set(p.lap, p.ms);
+  check(sum.laps.length === 3 && sum.lapCount === 3, "three timed laps in the summary");
+  for (const l of sum.laps) {
+    const fromFixes = first.get(l.lap + 1) - first.get(l.lap);
+    check(Math.abs(fromFixes - l.timeMs) < 60, `lap ${l.lap}: ${l.timeMs} ms in the summary, ${fromFixes} from the fixes`);
+    check(l.time === CMP.lapTimeText(l.timeMs), `lap ${l.lap} time text: ${l.time}`);
+  }
+  const fromLog = sum.laps.map((l) => ({lap: l.lap, ms: first.get(l.lap + 1) - first.get(l.lap)}));
+  const bestFromLog = fromLog.reduce((a, b) => (b.ms < a.ms ? b : a));
+  check(bestFromLog.lap === sum.bestLap, `the best lap from the log (${bestFromLog.lap}) is the summary's (${sum.bestLap})`);
+  check(sum.laps.find((l) => l.lap === sum.bestLap).timeMs === sum.bestTimeMs, "bestTimeMs is that lap's time");
+  const slowest = Math.max(...sum.laps.map((l) => l.timeMs));
+  check(slowest - sum.bestTimeMs > 3000 && slowest < sum.bestTimeMs * 1.07, "one lap clearly slower, but not tagged slow");
+  check(CMP.season([sum]).length === 1 && CMP.season([sum])[0].best === sum.bestTimeMs, "the season reads its summary");
+
+  // The page's traces: three laps of about the same length, which compare
+  const ref = log.points[0];
+  const traces = [1, 2, 3].map((n) => CMP.lapTrace(log.points, n, ref.lat, ref.lon));
+  for (const [i, t] of traces.entries()) {
+    const len = t[t.length - 1].d;
+    check(Math.abs(len - sum.laps[i].distanceM) < 60, `lap ${i + 1} is about ${sum.laps[i].distanceM} m long: ${Math.round(len)}`);
+  }
+  const cmp = CMP.compareLaps(traces[1], traces[2]);
+  check(cmp.d.length > 500 && cmp.gap[cmp.gap.length - 1] > 3000, "lap 3 loses time to lap 2 over the lap: " + cmp.gap[cmp.gap.length - 1]);
+  // Speeds: out-lap from a stop, no impossible jumps, a believable top speed
+  const top = Math.max(...log.points.map((p) => p.kmh));
+  check(log.points[0].kmh < 5 && top > 150 && top < 300 && Math.abs(top - sum.topSpeedKmh) < 0.1, "top speed " + top + " vs " + sum.topSpeedKmh);
+  const jump = Math.max(...log.points.slice(1).map((p, i) => Math.abs(p.kmh - log.points[i].kmh)));
+  check(jump < 5, "no jump over 5 km/h between fixes (1.4 m/s in 50 ms is 3 g): " + jump);
+  // The CSV for overlay tools works on it, with the summary's best lap
+  const csv = new Function(html.match(/\/\/ ---- csv \(begin[^\n]*\n([\s\S]*?)\/\/ ---- csv \(end\) ----/)[1] + "\nreturn vboToCsv;")()(text, sum).trim().split("\n");
+  check(csv.length === log.points.length + 1, "a CSV row per fix");
+  // The board's number formats: the data lines have the log's own widths
+  const dataLines = text.split("\n").slice(text.split("\n").indexOf("[data]") + 1).filter(Boolean);
+  const shape = (l) => l.replace(/\d/g, "9");
+  check(dataLines.every((l) => shape(l).length === shape(dataLines[0]).length), "every data line has the same width, as on the board");
+  check(shape(dataLines[0]) === "999 999999.999 999999.99999 999999.99999 999.999 999.99 +99999.99 99.99 999 +9.999 +9.999 999 99999 999.9 +999.9 +999.9 +999.9",
+        "the board's format: " + shape(dataLines[0]));
+  check(text.split("\n").includes("Lap tag") && text.includes(" RPM Throttle CoolantTemp IntakeTemp OilTemp\n"), "the board's channels and column names");
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");

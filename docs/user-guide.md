@@ -322,6 +322,10 @@ Good to know:
 - **Upload code:** installing firmware, replacing `tracks.json` (or saving the track editor's lines), re-timing, saving a note or changing a setting asks for the 4-digit code on Track Rat's Wi-Fi screen, so only someone who can see the screen can do it. After 5 wrong codes, uploads are locked until Wi-Fi is turned off and on again (which also gives a new code). Downloads don't need it.
 - **Anyone nearby can join** and download sessions while it's on, so turn it off when you're done.
 
+### The viewer on the website
+
+The same page also runs at [trackrat.me/analyze](https://trackrat.me/analyze/), with no Track Rat connected. Open a session's files from your computer (the `.vbo` log and its `.json` summary, and its `_note.json` if it has one), by the **Open files** button or by dropping them anywhere on the page. Files with the same name before the extension are one session. Nothing is uploaded: the page reads them in your browser. The Sessions tab (with CSV for overlay tools) and the Compare tab work on them. The tabs that need the board (Tracks, Firmware, Device, Settings) and the note editor are hidden. **Try a sample session** opens a simulated drive at Calabogie, made by `tools/make_sample_session.py`. The page can also be tried from your own copy of the repository: serve `web/` with any web server and add `?viewer` to its address.
+
 ### Track editor and re-timing
 
 Record first, decide later: a wrong start/finish, a missing split or a layout Track Rat didn't know never costs a session, because every fix is in the log.

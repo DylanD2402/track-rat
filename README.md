@@ -8,6 +8,8 @@ An open-source GPS lap timer you build for about $50. Offline, no app, no subscr
 
 These screenshots are the real display code, rendered on a PC by `tools/render_screens.py`.
 
+Try the analysis on a sample session at [trackrat.me/analyze](https://trackrat.me/analyze/).
+
 ## What it does
 
 - Picks the track itself: 129 built-in tracks, and it learns new ones.
