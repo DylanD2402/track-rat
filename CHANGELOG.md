@@ -7,7 +7,11 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 ### Added
 
 - The Wi-Fi page's track editor can nudge the start/finish, a stage's finish or a split in 0.5 m steps along the direction of travel (◀ ▶, with a reset), and shows each run's or lap's time now and with the moved line, timed again from the log live. Save and re-time work as before.
-- Autocross courses are events: a New course is kept with the day it was made and named "Oct 25 course", and stays out of the circuit list. The new Autocross hub (NEW TRACK, then Autocross) shows today's course, "Run 4 next", the best and last run and the day's run list, and starts runs or makes a new course while you're stopped at the start. Runs are numbered across the whole day, whatever happens between them, the first run's finish tap has a 5 second Undo, and a restart near today's course goes straight to timing, armed for the next run. Old "Course 2026-10-20" stages become courses by themselves.
+- Autocross courses are events: a New course is kept with the day it was made and named "Oct 25 course", and stays out of the circuit list. The new Autocross hub shows today's course, "Run 4 next", the best and last run and the day's run list, and starts runs or makes a new course while you're stopped at the start. Runs are numbered across the whole day, whatever happens between them, the first run's finish tap has a 5 second Undo, and a restart near today's course goes straight to timing, armed for the next run. Old "Course 2026-10-20" stages become courses by themselves.
+
+### Changed
+
+- The menu is now a home screen that leads with what's next. A big **Next up** card picks itself and does the most likely thing in one tap: today's autocross course within 5 km (with "Run 4 next"), else a circuit within 5 km (with its PB), else Drive (Free Roam). Below it are four tiles, **Track day**, **Autocross**, **Drag** and **Drive**, then Wi-Fi and Settings. BOOT goes through them in that order. The circuits list is now Track day, with **+ New circuit** after the last track, and the NEW TRACK screen is gone: a new circuit starts there and a new course in the Autocross hub.
 
 ## [0.1.0-beta.2] - 2026-10-25
 

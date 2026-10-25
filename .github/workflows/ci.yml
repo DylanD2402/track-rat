@@ -81,6 +81,8 @@ jobs:
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/stg && /tmp/stg
       - name: test_courses
         run: g++ -std=c++17 -Iinclude test/test_courses.cpp -o /tmp/co && /tmp/co
+      - name: test_nextup
+        run: g++ -std=c++17 -Iinclude test/test_nextup.cpp -o /tmp/nu && /tmp/nu
       - name: test_fetch_tracks
         run: python3 test/test_fetch_tracks.py
       - name: test_overlay

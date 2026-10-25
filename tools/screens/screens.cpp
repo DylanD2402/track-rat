@@ -20,6 +20,8 @@
 #include "EngineData.h"
 #include "ObdBle.h"
 #include "CameraBle.h"
+#include "HomeLayout.h"
+#include "NextUp.h"
 #include "Settings.h"
 #include "Storage.h"
 #include "Sectors.h"
@@ -192,11 +194,46 @@ int main(int argc, char** argv) {
   setGps(gps, true, SF_LAT + 0.002, SF_LON, 0, 0);
   d.drawGpsWait(gps, 131, "SD", true, true);
   save(d, "03_gps_status");
-  d.drawMenu(-1, gps, true, true);
-  save(d, "04_menu");
-  setGps(gps, false, 0, 0, 0, 0);
-  d.drawMenu(5, gps, false, false);  // BOOT navigation, Wi-Fi highlighted, no fix
-  save(d, "05_menu_boot_nofix");
+  {  // the home screen (9.1): each kind of Next up card, then BOOT navigation
+    nextup::Inputs in;
+    in.fix = true;
+    in.today = "20261025";
+    in.circuitIndex = 3;
+    in.circuitDistM = 40;
+    in.circuitName = "Calabogie";
+    in.layoutName = "Full";
+    in.pbMs = 163611;
+    d.drawHome(nextup::choose(in), -1, gps, true);
+    save(d, "04_home_circuit");
+    nextup::Inputs course = in;
+    course.courseIndex = 7;
+    course.courseDistM = 120;
+    course.courseEvent = "20261025";
+    course.courseName = "Oct 25 course";
+    course.runNext = 4;
+    course.bestRunMs = 52310;
+    d.drawHome(nextup::choose(course), -1, gps, true);
+    save(d, "04b_home_course");
+    nextup::Inputs drive;
+    drive.fix = true;
+    drive.today = "20261025";
+    d.drawHome(nextup::choose(drive), -1, gps, true);
+    save(d, "04c_home_drive");
+    setGps(gps, false, 0, 0, 0, 0);
+    nextup::Inputs nofix = in;
+    nofix.fix = false;
+    d.drawHome(nextup::choose(nofix), -1, gps, true);
+    save(d, "04d_home_no_fix");
+    d.drawHome(nextup::choose(nofix), home::Settings, gps, false);  // BOOT navigation, no fix
+    save(d, "05_home_boot_nofix");
+    setGps(gps, true, SF_LAT + 0.0004, SF_LON, 0, 0);
+    d.drawHome(nextup::choose(in), home::NextUp, gps, false);
+    save(d, "05b_home_boot_next_up");
+    d.drawHome(nextup::choose(in), home::Autocross, gps, false);
+    save(d, "05c_home_boot_tile");
+    d.drawHome(nextup::choose(in), home::Wifi, gps, false);
+    save(d, "05d_home_boot_wifi");
+  }
   setGps(gps, true, SF_LAT + 0.02, SF_LON, 0, 0);
   d.setPersonalBest(163611, 20260914);  // shown on the track list and Ready screens
   d.drawTrackSelect(track, 24, 131, 2210, gps, true);
@@ -214,6 +251,12 @@ int main(int argc, char** argv) {
   save(d, "07d_ready_driver_car");
   d.drawTrackSelect(track, 24, 131, 2210, gps, true);
   save(d, "06b_track_select_driver_car");
+  d.drawTrackDayExtra(false, 130, 132, gps, true);  // + New circuit, last before the Bench Test
+  save(d, "06c_track_day_new_circuit");
+  d.drawTrackDayExtra(false, 130, 132, gps, false);
+  save(d, "06d_track_day_new_circuit_boot");
+  d.drawTrackDayExtra(true, 132, 132, gps, false);  // BOOT only: a Back entry after the Bench Test
+  save(d, "06e_track_day_back_boot");
   d.setPersonalBest(0, 0);
   d.drawTrackConfirm(track, 40, true, true, 0, 1, false, false);  // a pair with no PB yet
   save(d, "07e_ready_driver_car_no_pb");
@@ -705,10 +748,6 @@ int main(int argc, char** argv) {
   d.drawSetup(1, 1, false);
   save(d, "43_setup_units_boot");
   setGps(gps, true, SF_LAT + 0.002, SF_LON, 0, 0);
-  d.drawMenu(4, gps, false, false);  // BOOT navigation, Settings highlighted
-  save(d, "44_menu_settings_highlighted");
-  d.drawNewTrack(-1, true);  // its Course button opens the Autocross hub
-  save(d, "44b_new_track");
 
   // --- Autocross: courses as events (Courses.h) ---
   {

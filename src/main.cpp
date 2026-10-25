@@ -7,7 +7,7 @@
  * Flow: logo -> GPS fix -> a track within 5 km? already moving: start a session
  *       on it (timing begins at the start/finish line); parked: its Ready
  *       screen, which starts the session when the car drives off (Menu is
- *       one button away) : menu (Free Roam / New Track / Track list). Tracks
+ *       one button away) : home screen (Next up, Track day, Autocross, Drag, Drive). Tracks
  *       without a start/finish line get one by tapping the screen while
  *       crossing it.
  *
@@ -57,18 +57,19 @@
 #include "TrackDatabase.h"
 #include "TrackLearn.h"
 #include "TrackOrder.h"
+#include "HomeLayout.h"
+#include "NextUp.h"
 #include "TimingScreen.h"
 #include "SituationScreen.h"
 #include "UiTheme.h"
 #include "WifiPortal.h"
 
 enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
-                      Setup, SettingsScreen, NewTrack, EngineScreen, CameraScreen, Autocross, NewCourse };
+                      Setup, SettingsScreen, EngineScreen, CameraScreen, Autocross, NewCourse };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
-                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK",         "ENGINE_DATA", "CAMERA",
+                                    "WIFI",     "SETUP",      "SETTINGS",     "ENGINE_DATA",       "CAMERA",
                                     "AUTOCROSS", "NEW_COURSE"};
-static int newTrackHighlight = 0;  // the NEW TRACK screen: 0 = Circuit, 1 = Autocross (BOOT button)
 // The Autocross hub (Courses.h): which course it shows (a trackDB index, -1 none), and the BOOT button's place:
 // 0 Start runs, 1 New course, 4 Back (Adjust start and finish are 2 and 3, not wired yet)
 static int hubCourse = -1;
@@ -95,7 +96,11 @@ static int selectedIndex = 0;
 static std::vector<int> listOrder;
 static int listPos = 0;
 static bool listSorted = false;  // ordered by distance (false: no GPS fix when it was made)
-static int menuHighlight = 0;
+static int menuHighlight = 0;  // the home screen's BOOT place (home::Item)
+// The Track day list also holds two entries that are not a track: + New circuit, and (no touch screen) Back
+static const int ENTRY_NEW_CIRCUIT = -2, ENTRY_BACK = -3;
+static nextup::Choice nextUp;     // the home screen's Next up card
+static uint32_t nextUpAt = 0;     // millis() it was worked out; 0: out of date
 static bool autoPickDone = false;
 static bool noTrackNearby = false;
 
@@ -223,17 +228,21 @@ static void sortTrackList(int keepIndex) {
     }
     items.push_back({distanceToTrack(i), group, t->bench});
   }
+  bool hasBench = false;
+  for (const trackorder::Item& it : items) hasBench |= it.last;
   listOrder = trackorder::byDistance(items);
   for (int& i : listOrder) i = trackOf[i];
+  listOrder = trackorder::withEntries(listOrder, hasBench, ENTRY_NEW_CIRCUIT, !input.touchAvailable(), ENTRY_BACK);
   listSorted = gps.hasFix();
   listPos = 0;
   for (size_t p = 0; keepIndex >= 0 && p < listOrder.size(); p++)
     if (listOrder[p] == keepIndex) listPos = p;
-  if (!listOrder.empty()) selectedIndex = listOrder[listPos];
+  if (!listOrder.empty() && listOrder[listPos] >= 0) selectedIndex = listOrder[listPos];
 }
 
-static int circuitCount() {
-  int n = 0;
+// How many entries the Track day list has: the circuits (and the Bench Test), + New circuit, and Back without touch
+static int trackListSize() {
+  int n = 1 + (input.touchAvailable() ? 0 : 1);
   for (int i = 0; i < trackDB.count(); i++) n += !trackDB.get(i)->course;
   return n;
 }
@@ -269,7 +278,7 @@ static void moveInTrackList(int step) {
   const int n = listOrder.size();
   if (n == 0) return;
   listPos = (listPos + step + n) % n;
-  selectedIndex = listOrder[listPos];
+  if (listOrder[listPos] >= 0) selectedIndex = listOrder[listPos];
 }
 
 static uint32_t minLapMs(const Track& t) {
@@ -632,7 +641,7 @@ static void enterState(AppState next) {
     logPending = false;
     if (next != AppState::Running) recentFixes.release();  // (Running: a learned track, timed from them)
   }
-  if (next == AppState::Menu) roamDriveOff.reset();
+  if (next == AppState::Menu) roamDriveOff.reset(), nextUpAt = 0;
 
   if (next == AppState::GpsStatus) statusReturn = state;
 
@@ -655,7 +664,7 @@ static void enterState(AppState next) {
   // Opening the track list from the menu: nearest first. Coming back to it
   // (from a track's Ready screen or GPS status): stay on the same track.
   if (next == AppState::TrackSelect) {
-    if (state == AppState::Menu || (int)listOrder.size() != circuitCount()) sortTrackList(state == AppState::Menu ? -1 : selectedIndex);
+    if (state == AppState::Menu || (int)listOrder.size() != trackListSize()) sortTrackList(state == AppState::Menu ? -1 : selectedIndex);
     else for (size_t p = 0; p < listOrder.size(); p++) if (listOrder[p] == selectedIndex) listPos = p;
   }
 
@@ -674,7 +683,7 @@ static void enterState(AppState next) {
 }
 
 // The driver tapped while crossing the start/finish line: save it and start lap 1.
-// NEW TRACK, then Circuit: created here, start/finish marked on the first pass.
+// Track day, then + New circuit: created here, start/finish marked on the first pass.
 static void createNewTrack() {
   if (!gps.hasFix()) return enterState(AppState::Menu);
   const GpsFix& f = gps.lastFix();
@@ -1147,30 +1156,92 @@ static void replayFixes() {
 }
 #endif
 
-static void chooseMenuItem(int item) {
-  switch (item) {
-    case 0:  // Free Roam
-      if (gps.hasFix()) enterState(AppState::FreeRoam);
-      break;
-    case 1:  // New Track: a circuit or a course (the NEW TRACK screen)
-      if (gps.hasFix()) {
-        newTrackHighlight = 0;
-        enterState(AppState::NewTrack);
+// Works out the home screen's Next up card: today's autocross course nearby, else a circuit within 5 km,
+// else Drive (NextUp.h). The day's runs come from the card a few at a time (CourseRuns.h).
+static void refreshNextUp() {
+  nextup::Inputs in;
+  in.fix = gps.hasFix();
+  if (in.fix) {
+    const GpsFix& f = gps.lastFix();
+    in.today = todayEvent();
+    const std::vector<courses::Candidate> list = courseCandidates();
+    const int k = courses::forHub(list, in.today, f.lat, f.lon);
+    if (k >= 0) {
+      const Track* c = trackDB.get(list[k].index);
+      in.courseIndex = list[k].index;
+      in.courseEvent = list[k].event;
+      in.courseDistM = geo::distanceM(f.lat, f.lon, list[k].lat, list[k].lon);
+      in.courseName = std::string(c->displayName().c_str());
+      if (in.courseEvent == in.today) {
+        CourseRuns::ensure(c->id, c->event);
+        in.runsKnown = CourseRuns::ready();
+        in.runNext = CourseRuns::day().nextNumber();
+        const int best = CourseRuns::day().best();
+        in.bestRunMs = best >= 0 ? CourseRuns::day().runs()[best].timeMs : 0;
       }
+    }
+    double dist = -1;
+    const int n = trackDB.findNearest(f.lat, f.lon, TRACK_DETECTION_RADIUS_M, &dist);
+    if (n >= 0) {
+      const Track* t = trackDB.get(n);
+      uint32_t pb = 0, pbDate = 0;
+      personalBestFor(n, pb, pbDate);
+      in.circuitIndex = n;
+      in.circuitDistM = dist;
+      in.circuitName = std::string(t->name.c_str());
+      in.layoutName = std::string(t->layoutName.c_str());
+      in.pbMs = pb;
+    }
+  }
+  nextUp = nextup::choose(in);
+  nextUpAt = millis() | 1;
+}
+
+// The Next up card was chosen
+static void startNextUp() {
+  refreshNextUp();
+  switch (nextUp.kind) {
+    case nextup::Kind::Course:  // timing runs on it, armed at the start (as at boot)
+      selectedIndex = nextUp.index;
+      enterState(AppState::Running);
       break;
-    case 2:
+    case nextup::Kind::Circuit:
+      selectedIndex = nextUp.index;
+      enterState(selectedTrack().stage ? AppState::Running : AppState::TrackConfirm);
+      break;
+    case nextup::Kind::Drive:
+      enterState(AppState::FreeRoam);
+      break;
+    case nextup::Kind::NoFix:
+      enterState(AppState::GpsStatus);
+      break;
+  }
+}
+
+static void chooseHomeItem(int item) {
+  switch (item) {
+    case home::NextUp:
+      startNextUp();
+      break;
+    case home::TrackDay:
       enterState(AppState::TrackSelect);
       break;
-    case 3:  // Performance: works without a fix too, for the bench demo
+    case home::Autocross:
+      enterState(AppState::Autocross);
+      break;
+    case home::Drag:  // Performance: works without a fix too, for the bench demo
       enterState(AppState::Performance);
       break;
-    case 4:
+    case home::Drive:  // Free Roam needs a fix: without one, the GPS status shows what's missing
+      enterState(gps.hasFix() ? AppState::FreeRoam : AppState::GpsStatus);
+      break;
+    case home::Wifi:
+      enterState(AppState::Wifi);
+      break;
+    case home::Settings:
       settingsUi.begin(input.touchAvailable());
       settingsUi.setPeople(Profiles::get());
       enterState(AppState::SettingsScreen);
-      break;
-    case 5:
-      enterState(AppState::Wifi);
       break;
   }
   lastRender = 0;
@@ -1243,30 +1314,33 @@ static void handleInput(InputEvent ev) {
       }
       break;
 
-    case AppState::Menu:
+    case AppState::Menu:  // the home screen: HomeLayout.h says where a tap lands; BOOT goes through them in order
       if (ev == InputEvent::TapHeader) enterState(AppState::GpsStatus);
-      else if ((ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight) &&
-               input.lastTapY() >= DisplayManager::MENU_WIFI_Y &&
-               input.lastTapY() < DisplayManager::MENU_WIFI_Y + DisplayManager::MENU_ROW_H) {
-        chooseMenuItem(ev == InputEvent::TapLeft ? 3 : ev == InputEvent::TapCenter ? 4 : 5);  // Performance, Settings, Wi-Fi
-      }
-      else if (ev == InputEvent::TapLeft) chooseMenuItem(0);
-      else if (ev == InputEvent::TapCenter) chooseMenuItem(1);
-      else if (ev == InputEvent::TapRight) chooseMenuItem(2);
-      else if (ev == InputEvent::BootShort) menuHighlight = (menuHighlight + 1) % 6;
-      else if (ev == InputEvent::BootLong) chooseMenuItem(menuHighlight);
+      else if (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight)
+        chooseHomeItem(home::hit(input.lastTapX(), input.lastTapY()));
+      else if (ev == InputEvent::BootShort) menuHighlight = home::next(menuHighlight);
+      else if (ev == InputEvent::BootLong) chooseHomeItem(menuHighlight);
       lastRender = 0;
       break;
 
     case AppState::TrackSelect:
-      if (ev == InputEvent::TapHeader) {  // the top bar: back to the menu (GPS status is on the menu's top bar)
+      if (ev == InputEvent::TapHeader) {  // the top bar: back to the home screen (GPS status is on its top bar)
         enterState(AppState::Menu);
         break;
       }
       if (ev == InputEvent::Hold) enterState(AppState::Menu);
       else if (ev == InputEvent::TapLeft) moveInTrackList(-1);
       else if (ev == InputEvent::TapRight || ev == InputEvent::BootShort) moveInTrackList(1);
-      else if (ev == InputEvent::TapCenter || ev == InputEvent::BootLong) enterState(AppState::TrackConfirm);
+      else if (ev == InputEvent::TapCenter || ev == InputEvent::BootLong) {
+        const int entry = listOrder.empty() ? 0 : listOrder[listPos];
+        if (entry == ENTRY_BACK) {
+          enterState(AppState::Menu);
+        } else if (entry == ENTRY_NEW_CIRCUIT) {
+          if (gps.hasFix()) createNewTrack();  // then tap the screen as you cross the line
+        } else {
+          enterState(AppState::TrackConfirm);
+        }
+      }
       lastRender = 0;
       break;
 
@@ -1431,18 +1505,6 @@ static void handleInput(InputEvent ev) {
       break;
     }
 
-    case AppState::NewTrack:  // Circuit on the left, Autocross on the right, Back in the middle
-      if (ev == InputEvent::TapLeft) createNewTrack();
-      else if (ev == InputEvent::TapRight) enterState(AppState::Autocross);
-      else if (ev == InputEvent::TapCenter || ev == InputEvent::TapHeader || ev == InputEvent::Hold) enterState(AppState::Menu);
-      else if (ev == InputEvent::BootShort) newTrackHighlight ^= 1;
-      else if (ev == InputEvent::BootLong) {
-        if (newTrackHighlight == 1) enterState(AppState::Autocross);
-        else createNewTrack();
-      }
-      lastRender = 0;
-      break;
-
     case AppState::Autocross: {  // Start runs and New course on the top row; Adjust start, Adjust finish and Back below
       const bool canStart = hubCourse >= 0, canMake = gps.hasFix();
       const bool topRow = input.lastTapY() < 192;
@@ -1546,15 +1608,24 @@ static void render() {
       display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable(), true);
       break;
     case AppState::Menu:
-      display.drawMenu(input.touchAvailable() ? -1 : menuHighlight, gps, noTrackNearby, input.touchAvailable());
+      if (!nextUpAt || now - nextUpAt >= 500) refreshNextUp();
+      display.drawHome(nextUp, input.touchAvailable() ? -1 : menuHighlight, gps, input.touchAvailable());
       break;
     case AppState::TrackSelect:
       // The list opened before the GPS had a fix: sort it once a fix arrives
       // (to the nearest track, unless the driver has already moved along it).
       if (!listSorted && gps.hasFix()) sortTrackList(listPos == 0 ? -1 : selectedIndex);
-      showPersonalBest();
-      display.drawTrackSelect(selectedTrack(), listPos, (int)listOrder.size(), distanceToTrack(selectedIndex),
-                              gps, input.touchAvailable());
+      {
+        const int entry = listOrder.empty() ? 0 : listOrder[listPos];
+        const int shown = (int)listOrder.size() - (input.touchAvailable() ? 0 : 1);  // (Back isn't counted)
+        if (entry == ENTRY_NEW_CIRCUIT || entry == ENTRY_BACK) {
+          display.drawTrackDayExtra(entry == ENTRY_BACK, listPos, shown, gps, input.touchAvailable());
+          break;
+        }
+        showPersonalBest();
+        display.drawTrackSelect(selectedTrack(), listPos, shown, distanceToTrack(selectedIndex), gps,
+                                input.touchAvailable());
+      }
       break;
     case AppState::TrackConfirm:
       showPersonalBest();
@@ -1622,9 +1693,6 @@ static void render() {
       break;
     case AppState::Setup:
       display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());
-      break;
-    case AppState::NewTrack:
-      display.drawNewTrack(input.touchAvailable() ? -1 : newTrackHighlight, input.touchAvailable());
       break;
     case AppState::Autocross: {
       AutocrossView v;

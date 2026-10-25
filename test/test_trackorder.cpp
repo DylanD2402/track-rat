@@ -39,6 +39,21 @@ int main() {
   // Unknown distance for one track only (shouldn't happen, but goes after the known ones)
   expect({{-1, -1, false}, {700, -1, false}, {-1, -1, true}}, {1, 0, 2}, "unknown after known");
   expect({}, {}, "empty list");
+  // The Track day entries: + New circuit last among the real tracks, ahead of the Bench Test
+  {
+    const int NEW = -2, BACK = -3;
+    auto want = [&](std::vector<int> got, std::vector<int> w, const char* what) {
+      if (got != w) {
+        printf("FAIL %s\n", what);
+        failures++;
+      }
+    };
+    want(trackorder::withEntries({4, 1, 9}, true, NEW, false, BACK), {4, 1, NEW, 9}, "new circuit before the bench test");
+    want(trackorder::withEntries({4, 1}, false, NEW, false, BACK), {4, 1, NEW}, "no bench test: new circuit last");
+    want(trackorder::withEntries({4, 1, 9}, true, NEW, true, BACK), {4, 1, NEW, 9, BACK}, "BOOT only: a Back entry at the end");
+    want(trackorder::withEntries({}, false, NEW, false, BACK), {NEW}, "no circuits: just new circuit");
+    want(trackorder::withEntries({9}, true, NEW, false, BACK), {NEW, 9}, "only the bench test");
+  }
   printf(failures ? "%d FAILED\n" : "ALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

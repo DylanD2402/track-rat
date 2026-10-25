@@ -481,7 +481,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
                                      const GPSHandler& gps, bool touchOk) {
   beginFrame();
   char buf[40];
-  snprintf(buf, sizeof(buf), "‹  Tracks   %d of %d", index + 1, count);  // the top bar goes back to the menu
+  snprintf(buf, sizeof(buf), "‹  Track day   %d of %d", index + 1, count);  // the top bar goes back to the home screen
   header(buf, &gps);
 
   centered(track.name, HEADER_H + 10, Font::Title, C_TEXT);
@@ -510,7 +510,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
 
   if (!track.hasStartFinish && !track.bench) centered("No start/finish line yet: set it on track", 170, Font::Caption, C_YELLOW);
   else if (pbMs) centered(pbText(), 168, Font::Body, C_PURPLE);
-  else if (touchOk) centered("Tap the top bar for the menu", 170, Font::Caption, C_TEXT3);
+  else if (touchOk) centered("Tap the top bar to go home", 170, Font::Caption, C_TEXT3);
   if (driverCar[0]) centered(fit(driverCar, Font::Caption, W - 20), 185, Font::Caption, C_TEXT2);  // whose PB it is
 
   if (touchOk) footerButtons("‹", "Select", "›");
@@ -970,7 +970,7 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
 }
 
 // ---------------------------------------------------------------------------
-// Mode menu, Free Roam, setting a start/finish line
+// Free Roam, setting a start/finish line
 
 static String formatDuration(uint32_t ms) {
   uint32_t s = ms / 1000;
@@ -978,93 +978,6 @@ static String formatDuration(uint32_t ms) {
   if (s >= 3600) snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", (unsigned long)(s / 3600), (unsigned long)(s / 60 % 60), (unsigned long)(s % 60));
   else snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)(s / 60), (unsigned long)(s % 60));
   return String(buf);
-}
-
-// Small line icons for the menu tiles, centred on cx, cy.
-static void menuIcon(TFT_eSPI* g, int which, int cx, int cy, uint16_t c) {
-  if (which == 0) {  // Free Roam: a winding route ending in a dot
-    const int pts[][2] = {{-14, 8}, {-8, 0}, {-2, 4}, {4, -4}, {10, -2}, {14, -9}};
-    for (int i = 1; i < 6; i++)
-      for (int t = 0; t < 2; t++) g->drawLine(cx + pts[i - 1][0], cy + pts[i - 1][1] + t, cx + pts[i][0], cy + pts[i][1] + t, c);
-    g->fillCircle(cx + 14, cy - 9, 3, c);
-    g->fillCircle(cx - 14, cy + 8, 2, c);
-  } else if (which == 1) {  // New Track: a chequered flag
-    g->fillRect(cx - 11, cy - 11, 2, 23, c);
-    for (int r = 0; r < 3; r++)
-      for (int k = 0; k < 4; k++)
-        if ((r + k) % 2 == 0) g->fillRect(cx - 9 + k * 5, cy - 11 + r * 5, 5, 5, c);
-    g->drawRect(cx - 9, cy - 11, 20, 15, c);
-  } else {  // Track list: three rows
-    for (int r = 0; r < 3; r++) {
-      g->fillCircle(cx - 11, cy - 8 + r * 8, 2, c);
-      g->fillRoundRect(cx - 6, cy - 9 + r * 8, 19, 3, 1, c);
-    }
-  }
-}
-
-void DisplayManager::drawNewTrack(int highlight, bool touchOk) {
-  beginFrame();
-  header("New track", nullptr);
-  // In the left and right thirds of the screen, where the taps are
-  const int bw = W / 3 - 8, by = HEADER_H + 10, bh = 150;
-  const int bx[2] = {4, W - 4 - bw};
-  struct Item { const char* title; const char* d1; const char* d2; const char* d3; };
-  const Item items[2] = {
-    {"Circuit", "Laps. Tap the", "screen at the", "start/finish"},
-    {"Autocross", "Today's course,", "its runs, or a", "new course"},
-  };
-  for (int i = 0; i < 2; i++) {
-    const bool hl = i == highlight;
-    gfx->fillRoundRect(bx[i], by, bw, bh, CORNER + 2, hl ? C_RAISED : C_SURFACE);
-    if (hl) gfx->drawRoundRect(bx[i], by, bw, bh, CORNER + 2, C_TEXT);
-    const int mid = bx[i] + bw / 2;
-    text(items[i].title, mid, by + 22, textWidth(items[i].title, Font::Title) <= bw - 8 ? Font::Title : Font::Button, C_TEXT, TC_DATUM);
-    text(items[i].d1, mid, by + 70, Font::Caption, C_TEXT2, TC_DATUM);
-    text(items[i].d2, mid, by + 86, Font::Caption, C_TEXT2, TC_DATUM);
-    text(items[i].d3, mid, by + 102, Font::Caption, C_TEXT2, TC_DATUM);
-  }
-  text("Back", W / 2, by + bh / 2, Font::Body, C_TEXT3, MC_DATUM);
-  centered(touchOk ? "A course is kept for the day it's made" : "BOOT: press for the other, hold to choose", 216,
-           Font::Caption, C_TEXT3);
-  endFrame();
-}
-
-void DisplayManager::drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk) {
-  beginFrame();
-  header(noTrackNearby ? "No track within 5 km" : "Menu", &gps);
-
-  struct Item { const char* title; const char* d1; const char* d2; };
-  const Item items[3] = {
-    {"Free Roam", "Map your drive,", "time and speed"},
-    {"New Track", "A circuit, or an", "autocross course"},
-    {"Track List", "Pick a track or", "Bench Test"},
-  };
-  const int bw = W / 3, top = HEADER_H + 6, bh = MENU_WIFI_Y - top - 6;  // the second row starts at MENU_WIFI_Y
-  for (int i = 0; i < 3; i++) {
-    int x = i * bw + 4, w = bw - 8, mid = x + w / 2;
-    bool hl = (i == highlight);
-    gfx->fillRoundRect(x, top, w, bh, CORNER + 2, hl ? C_RAISED : C_SURFACE);
-    if (hl) gfx->drawRoundRect(x, top, w, bh, CORNER + 2, C_TEXT);
-    bool needsFix = i < 2 && !gps.hasFix();
-    menuIcon(gfx, i, mid, top + 30, needsFix ? C_TEXT3 : C_TEXT);
-    text(items[i].title, mid, top + 58, Font::Button, needsFix ? C_TEXT2 : C_TEXT, TC_DATUM);
-    text(items[i].d1, mid, top + 82, Font::Caption, C_TEXT2, TC_DATUM);
-    text(items[i].d2, mid, top + 96, Font::Caption, C_TEXT2, TC_DATUM);
-  }
-  // The second row, in thirds like the taps: Performance, Settings, Wi-Fi
-  auto rowButton = [&](int x, const char* title, bool hl) {
-    if (textWidth(title, Font::Button) <= bw - 16) return button(x, MENU_WIFI_Y, bw - 8, MENU_ROW_H, title, false, hl);
-    gfx->fillRoundRect(x, MENU_WIFI_Y, bw - 8, MENU_ROW_H, CORNER, hl ? C_RAISED : C_SURFACE);  // too wide for the button font
-    if (hl) gfx->drawRoundRect(x, MENU_WIFI_Y, bw - 8, MENU_ROW_H, CORNER, C_TEXT);
-    text(title, x + (bw - 8) / 2, MENU_WIFI_Y + MENU_ROW_H / 2 + 1, Font::Body, C_TEXT, MC_DATUM);
-  };
-  rowButton(4, "Performance", highlight == 3);
-  rowButton(bw + 4, "Settings", highlight == 4);
-  wifiButton(MENU_WIFI_Y, MENU_ROW_H, highlight == 5);
-  if (!gps.hasFix()) centered("Free Roam and New Track need a GPS fix", 196, Font::Caption, C_YELLOW);
-  centered(touchOk ? "Tap a mode   ·   top bar: GPS status" : "BOOT: press for next, hold to choose", 216, Font::Body,
-           C_TEXT3);
-  endFrame();
 }
 
 void DisplayManager::drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs) {
@@ -1222,8 +1135,8 @@ static void wifiIcon(TFT_eSPI* g, int cx, int y, uint16_t c) {
 }
 
 // holdHint: on the summaries, holding BOOT does the same (for boards without touch)
-void DisplayManager::wifiButton(int y, int h, bool highlight, bool holdHint) {
-  const int bw = W / 3, x = 2 * bw + 4, w = bw - 8;
+void DisplayManager::wifiButton(int y, int h, bool highlight, bool holdHint, int bx, int bwid) {
+  const int x = bx >= 0 ? bx : 2 * (W / 3) + 4, w = bwid >= 0 ? bwid : W / 3 - 8;
   gfx->fillRoundRect(x, y, w, h, CORNER, highlight ? C_RAISED : C_SURFACE);
   gfx->drawRoundRect(x, y, w, h, CORNER, highlight ? C_TEXT : C_BLUE);
   int lw = textWidth("Wi-Fi", Font::Button) + 22;

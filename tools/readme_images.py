@@ -21,7 +21,7 @@ OUT = os.path.join(ROOT, "docs", "images")
 
 # (render file, readable name)
 CHOSEN = [
-    ("04_menu", "menu"),
+    ("04_home_circuit", "menu"),
     ("06_track_select", "track-select"),
     ("07_ready", "ready"),
     ("09_running_ahead", "timing-ahead"),

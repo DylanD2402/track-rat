@@ -56,6 +56,18 @@ inline std::vector<int> byDistance(const std::vector<Item>& items) {
   return order;
 }
 
+// The Track day screen's entries: the tracks of an ordered list (already ordered by byDistance, so
+// a pinned last one, the Bench Test, is final), with the "+ New circuit" entry put in last among the
+// real ones, ahead of the pinned one, and (when addBack) a "Back" entry after everything, for a
+// unit with no touch screen. newMarker and backMarker are the caller's numbers for those entries.
+inline std::vector<int> withEntries(std::vector<int> order, bool lastIsPinned, int newMarker, bool addBack,
+                                    int backMarker) {
+  if (lastIsPinned && !order.empty()) order.insert(order.end() - 1, newMarker);
+  else order.push_back(newMarker);
+  if (addBack) order.push_back(backMarker);
+  return order;
+}
+
 }  // namespace trackorder
 
 #endif  // TRACK_ORDER_H

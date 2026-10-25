@@ -33,6 +33,7 @@ SOURCES = [
     os.path.join(ROOT, "src", "DisplayPerf.cpp"),
     os.path.join(ROOT, "src", "DisplayDebrief.cpp"),
     os.path.join(ROOT, "src", "DisplayAutocross.cpp"),
+    os.path.join(ROOT, "src", "DisplayHome.cpp"),
     os.path.join(ROOT, "src", "DisplayPower.cpp"),
     os.path.join(ROOT, "src", "DisplaySettings.cpp"),
     os.path.join(ROOT, "src", "Version.cpp"),

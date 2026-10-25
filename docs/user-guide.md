@@ -4,34 +4,42 @@ Using Track Rat day to day: driving, settings, tracks, power, the Wi-Fi page and
 
 ## Using it
 
-**At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically. If you're already moving (20 km/h or more), the session starts at once. If you're parked, you get that track's Ready screen, and the session starts by itself when you drive off (20 km/h for 2 seconds). Until then **MENU** (or pressing BOOT) takes you to the main menu, so a track made at home doesn't trap you in a session. Timing begins the first time you cross the start/finish line; everything before that is the out lap.
+**At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically. If you're already moving (20 km/h or more), the session starts at once. If you're parked, you get that track's Ready screen, and the session starts by itself when you drive off (20 km/h for 2 seconds). Until then **MENU** (or pressing BOOT) takes you to the home screen, so a track made at home doesn't trap you in a session. Timing begins the first time you cross the start/finish line; everything before that is the out lap.
 
 **Sessions run themselves.** Park (under 5 km/h) for a minute and you're in the pits: the [debrief](#the-pit-debrief) comes up (or, before there are corner sectors, the session's summary with its laps and their tags). Drive off again within 10 minutes of stopping (a red flag, a quick check) and the same session carries on, back on the timing screen. Stay parked longer and the session ends; the next time you drive off at the track, Session 2 starts by itself, then 3, and so on (leaving the track doesn't start one). Sessions are numbered per track and per local day, and the count is kept in flash, so the first run after a power cut is the next session too. Holding the screen still ends a session at any time.
 
-**Away from a track:** you get a menu. Drive off from it (20 km/h for 2 seconds) and Free Roam starts by itself.
+**Away from a track:** you get the home screen. Drive off from it (20 km/h for 2 seconds) and Free Roam starts by itself.
 
-- **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card, unless **Record road drives** is off in [Settings](#settings). Then the drive is shown but not saved.
-  Free Roam also watches for a track: see [Tracks that learn themselves](#tracks-that-learn-themselves) below.
-- **NEW TRACK:** asks **Circuit** or **Autocross**. **Autocross** opens the Autocross hub: today's course, its runs, and **New course** (see [Point to point](#point-to-point-autocross-hill-climbs-sprints)). **Circuit** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
-- **TRACK LIST:** pick any track by hand. The nearest track comes first, then the rest in order of distance, each with how far away it is. Layouts of one venue stay together. Without a GPS fix the list is in `tracks.json` order, and it sorts itself as soon as there is a fix. **Bench Test** is always last.
-- **PERFORMANCE:** the left button of the second row. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
-- **SETTINGS:** the middle button of the second row. Units, brightness and the rest; see [Settings](#settings).
-- **WI-FI:** the right button of the second row. Turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)).
+**The home screen** leads with what's next:
+
+- **NEXT UP:** the big card at the top. One tap does the most likely thing, and it picks itself:
+  1. **Today's autocross course** within 5 km: "Autocross · Oct 25 course", "Run 4 next · best 52.31". A tap starts timing runs on it, armed for the next one.
+  2. **A circuit** within 5 km: its name and layout and your PB, such as "Calabogie · Full" and "PB 2:43.61". A tap opens its Ready screen.
+  3. **Drive:** "Free Roam, it learns tracks". A tap starts Free Roam.
+  With no GPS fix yet it says "Waiting for GPS…", and a tap shows the GPS status.
+- **TRACK DAY:** the circuits list. The nearest circuit comes first, then the rest in order of distance. Layouts of one venue stay together. Without a GPS fix the list is in `tracks.json` order, and it sorts itself as soon as there is a fix. **+ New circuit** comes after the last track, just before the **Bench Test**, which is always last. On a unit used with BOOT only, a **Back** entry follows the Bench Test.
+  - **+ New circuit** creates a track where you are. Start, drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically. It needs a GPS fix.
+  - Each track shows how far away it is and, once you have one, its PB.
+- **AUTOCROSS:** the Autocross hub: today's course, its runs, and **New course** (see [Point to point](#point-to-point-autocross-hill-climbs-sprints)).
+- **DRAG:** times acceleration and braking runs (0-100, quarter mile and so on); see [Acceleration and braking](#acceleration-and-braking). It works without a GPS fix, for the bench demo.
+- **DRIVE:** Free Roam, which records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card, unless **Record road drives** is off in [Settings](#settings). Then the drive is shown but not saved. It needs a GPS fix: without one its tile is dimmed and a tap shows the GPS status. Free Roam also watches for a track: see [Tracks that learn themselves](#tracks-that-learn-themselves) below.
+- **WI-FI** and **SETTINGS:** the small row at the bottom. Wi-Fi turns on the Wi-Fi page (see [Wi-Fi page](#wi-fi-page)); Settings has the units, brightness and the rest (see [Settings](#settings)).
+- **The top bar** opens the GPS status.
+- **BOOT only:** press goes through Next up, Track day, Autocross, Drag, Drive, Wi-Fi and Settings, round and round; hold chooses the one outlined.
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count. This needs you to be doing at least 15 km/h when you tap; slower than that the GPS direction is too rough, and the line is saved without one.
 
-**Layouts:** a venue with several layouts (Full, Short, the kart track) lists each one separately, and its Ready screen shows which layout is picked. Tap the top bar of the Ready screen for the next layout. You don't have to get it right: after your first full lap, the timer compares your lap with the map of each layout there (and any other track within 3 km that has a map). If another one clearly fits better, it switches to it and shows **Layout: ...** on screen. If you haven't crossed the picked layout's line after 2 km, it checks the same way. It doesn't when you're putting a line down yourself (SET LINE, NEW TRACK): the line goes on the track you chose.
+**Layouts:** a venue with several layouts (Full, Short, the kart track) lists each one separately, and its Ready screen shows which layout is picked. Tap the top bar of the Ready screen for the next layout. You don't have to get it right: after your first full lap, the timer compares your lap with the map of each layout there (and any other track within 3 km that has a map). If another one clearly fits better, it switches to it and shows **Layout: ...** on screen. If you haven't crossed the picked layout's line after 2 km, it checks the same way. It doesn't when you're putting a line down yourself (SET LINE, + New circuit): the line goes on the track you chose.
 
 | Screen | Touch | BOOT button (or big button) |
 |---|---|---|
 | Waiting for GPS | tap: menu | press: menu |
-| Menu | tap a mode, or PERFORMANCE / SETTINGS / WI-FI in the second row; top bar: GPS status | press: next (in the order on screen), hold 1 s: choose |
-| New track | left: circuit, right: Autocross, centre, top bar or hold: menu | press: the other, hold 1 s: choose |
+| Home | tap Next up, one of the four tiles (Track day, Autocross, Drag, Drive), Wi-Fi or Settings; top bar: GPS status | press: next (Next up, the four tiles, Wi-Fi, Settings), hold 1 s: choose |
 | Autocross hub | Start runs: left two thirds of the top button row, New course: right third; Back: bottom right, top bar or hold; Adjust start and finish: not working yet | press: next (Start runs, New course, Back), hold 1 s: choose |
 | New course | left: back, centre or right: Set start here (only while stopped with a fix), top bar or hold: back to the hub | press: the other, hold 1 s: choose |
-| Track list | left / right third: previous / next, centre: select, top bar or hold: menu | press: next, hold 1 s: select |
-| GPS Status (top bar of the menu) | tap: back | press: back |
-| Ready | centre: start, left: menu (back, if you came from the track list), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from the track list) |
+| Track day (the circuits list) | left / right third: previous / next, centre: select (or start, on + New circuit), top bar or hold: home | press: next, hold 1 s: select (or start, on + New circuit; go home, on Back) |
+| GPS Status (top bar of the home screen) | tap: back | press: back |
+| Ready | centre: start, left: menu (back, if you came from Track day), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from Track day) |
 | Timing | tap: timing / map view (the 5 seconds after a new course's first finish tap: undo the finish), hold 2 s: end | press: switch view, hold 1 s: end |
 | In the pits (parked a minute while timing): the debrief | tap: second page, then the timing screen, hold 2 s: end; driving off goes back by itself | press: the same as a tap, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
@@ -40,7 +48,7 @@ Using Track Rat day to day: driving, settings, tracks, power, the Wi-Fi page and
 | Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page. After a session that ended by itself, driving off starts the next | press: Ready screen again, hold 1 s: Wi-Fi page |
 | Free Roam summary | tap: menu; WI-FI button: Wi-Fi page | press: menu, hold 1 s: Wi-Fi page |
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
-| Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value (past the top it goes round to just above the limit below it), hold goes to the next, and back after the last) |
+| Settings | tap a row, drag to scroll, top bar: back (to the home screen from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value (past the top it goes round to just above the limit below it), hold goes to the next, and back after the last) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
 | Any screen | Settings → **Power off**; when it's off, a tap turns it back on | hold 3 s: [power off](#battery-power-off-and-sleep) (BOOT only, not the big button). When it's off, a press turns it back on |
 
@@ -71,7 +79,7 @@ A tap switches between the timing and map views, moving or not. The "keep holdin
 
 The session clock keeps running through a red flag (driving off within 10 minutes is the same session), so a countdown matches the run group.
 
-**Best laps and PBs.** Your best clean lap ever at each track (each layout separately) is kept on the card, path and all, with its date, and so is your best lap of the day. The track list and the Ready screen show the PB and its date. The **Compare with** [setting](#settings) decides what the live diff compares with from your first lap:
+**Best laps and PBs.** Your best clean lap ever at each track (each layout separately) is kept on the card, path and all, with its date, and so is your best lap of the day. Track day and the Ready screen show the PB and its date. The **Compare with** [setting](#settings) decides what the live diff compares with from your first lap:
 
 - **Best ever:** your PB, until you beat it.
 - **Best of the day:** your best lap today at this track, across sessions. Before you've set a lap today, your PB.
@@ -96,7 +104,7 @@ A tagged lap is never the best lap or the live-diff reference, and isn't counted
 A **stage** has a start and a separate finish (plus any splits). Each run counts as a lap: best run, live delta to it, sector colours, PB, debrief.
 
 - **Autocross courses are events.** A course is a stage made for one event day: it's saved with `"kind": "course"` and `"event": "20261025"` (the local date it was made), and named **Oct 25 course** (**Oct 25 course 2** for a second one the same day; rename it on the Wi-Fi page). Courses stay out of the track list, which is for circuits, and out of the nearest-track pick for circuits. Hill climbs and sprints are stages without a kind and are listed and picked as before. A stage named **Course 2026-10-20** (made by the old NEW TRACK > Course) counts as a course for that date, and is marked as one in `tracks.json` at the next boot.
-- **The Autocross hub** (NEW TRACK, then **Autocross**) shows today's course if there's one within 5 km, otherwise the most recent course within 5 km. It shows the name, **Run 4 next**, the best run and the last run, and the day's runs (the best in green; a run with a pit or suspect tag is never the best). Its buttons:
+- **The Autocross hub** (the **Autocross** tile on the home screen) shows today's course if there's one within 5 km, otherwise the most recent course within 5 km. It shows the name, **Run 4 next**, the best run and the last run, and the day's runs (the best in green; a run with a pit or suspect tag is never the best). Its buttons:
   - **Start runs:** timing on that course, armed for a standing start.
   - **New course:** park at the start (in the grid or at the lights) and press **Set start here**. It needs a GPS fix and the car stopped (under 3 km/h). It makes the course at that spot and starts timing, armed.
   - **Adjust start** and **Adjust finish** are on the screen but not working yet ("coming soon").
@@ -121,9 +129,9 @@ At a track Track Rat doesn't know, just drive. When you drive the same loop twic
 - The line is wherever the loop happened to begin. Move it on the Wi-Fi page's [track editor](#track-editor-and-re-timing) and re-time the session. Rename it in `tracks.json`.
 - **Record road drives** off: Free Roam still watches for a loop but saves nothing; once it's a track, the session is saved like any other.
 - Both loops have to fit in 12 minutes, as the fixes are kept in memory (PSRAM) to time them.
-- NEW TRACK's tap-at-the-line stays, for the exact line straight away.
+- Track day's **+ New circuit** and its tap-at-the-line stay, for the exact line straight away.
 
-The rules and limits are in `Config.h` (`LEARN_...`). `TRACK_LEARNING_ENABLED 0` turns it off: the menu then waits for you to pick.
+The rules and limits are in `Config.h` (`LEARN_...`). `TRACK_LEARNING_ENABLED 0` turns it off: the home screen then waits for you to pick.
 
 ### The pit debrief
 
@@ -137,7 +145,7 @@ The best sector times ever and of the day (for the sector strip), and the last s
 
 ## Bench test
 
-The last entry in the track list is **Bench Test**. Pick it and press START to run a simulated car around a small circuit, with real lap timing, splits, live diff and map, all at your desk. No GPS is needed, and if one is connected it's ignored for that session.
+The last entry in Track day is **Bench Test**. Pick it and press START to run a simulated car around a small circuit, with real lap timing, splits, live diff and map, all at your desk. No GPS is needed, and if one is connected it's ignored for that session.
 
 While a bench test runs, a yellow **BENCH** tag shows in the header. When the session ends, the real GPS is used again.
 
@@ -145,7 +153,7 @@ While a bench test runs, a yellow **BENCH** tag shows in the header. When the se
 
 The choices a driver makes live in **Settings**, not in the code. Change them on the device or on the Wi-Fi page. They are kept in the board's flash (NVS, apart from the program and the SD card), so they survive switching off and re-flashing.
 
-**On the device:** tap **SETTINGS** on the menu. It is a list like the phone's Settings, in five groups (Driver and car, Display, Timing, GPS & Bluetooth, Recording), then **Power off**. It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
+**On the device:** tap **Settings** on the home screen. It is a list like the phone's Settings, in five groups (Driver and car, Display, Timing, GPS & Bluetooth, Recording), then **Power off**. It is meant for the pits, before the session starts, so it is a normal touch list, not the big glove buttons of the timing screens.
 
 - **Touch:** drag the list up and down to scroll it. Tap a switch (Screen upside down, Bluetooth, Record road drives) to flip it. Tap a row with a `>` to open its page: **Driver** and **Car** list their names with a tick on the current one (tap one to choose it; with many names the page scrolls); Speed units, Big number, Compare with, Delta colours, Session length and GPS mode show their options with a tick on the current one (tap one to choose it and go back); Brightness has a bar (tap a spot on it) and − and + buttons; Time zone has − and + for half an hour and shows the local time; **Coolant** has its four temperatures, each with its own − and +. **Engine data** and **Camera** open the Bluetooth OBD-II adapter's and the DJI camera's screens (see [Bluetooth OBD-II adapter](hardware.md#bluetooth-obd-ii-adapter)). **Power off** asks first: **Cancel** or **Power off** (see [Battery, power off and sleep](#battery-power-off-and-sleep)). The top bar goes back: to the list from a page, to the menu from the list. So does **Back to menu** at the end of the list. Under it, the firmware version (the git commit it was built from, `-dirty` if it had uncommitted changes) and its build date, the same as the Wi-Fi page shows.
 - **BOOT (or the big button):** press moves a highlight down the list (the list scrolls with it and starts again after the last row), hold for 1 s opens or flips that row. On a page of options (or names), press moves down and hold chooses. On Brightness and Time zone, press is + (going round at the end) and hold goes back. On Power off, hold switches off and press goes back. A line at the bottom of the screen says so when the board has no touch screen.
@@ -186,14 +194,14 @@ A club unit or a shared car can keep each driver's and each car's best laps apar
 
 - **Choosing:** Settings > **Driver** and **Car**. A change applies from the next session, never in the middle of one. Add, rename, remove and choose them on the Wi-Fi page too, and give a car its VIN (see below). The page's request is `POST /api/profiles`; `GET /api/profiles` lists them.
 - **On the Wi-Fi page:** a **Drivers and cars** card at the top of the Settings tab lists both. Each name has **Use** (make it the current one), **Rename** and **Remove** (asks first; off while it is the only one). Type a name under **Add driver** or **Add car**; the field goes away at 8. A name is 1 to 20 bytes (fewer letters with accents) and not used twice in its list. Each car has a VIN field. When Track Rat has read a VIN that no car has, each car offers **Use the VIN Track Rat read**. Changes ask for the 4-digit upload code once, like the other settings, and a refusal shows Track Rat's reason. In the Sessions tab, **Driver and car** on a session shows who drove it (`Dylan · Civic`), read from its summary when you tap it; it works in the viewer too.
-- **On screen:** once there is more than one driver or car, the track list and the Ready screen show `driver · car` under the PB.
+- **On screen:** once there is more than one driver or car, Track day and the Ready screen show `driver · car` under the PB.
 - **Best laps are kept for each pair.** Driver 1 with Car 1 keep the files in `/tracks/<track id>/` exactly as before, so PBs from before drivers and cars are still theirs. Every other pair has a folder inside the track's: `/tracks/<track id>/d3-c2/` (driver 3, car 2) with its own `best.bin`, `day.bin` and `stats.json`. The live delta, the PB on the screens and the pit debrief's records all follow the pair of the session. Ids are never used twice, so removing a driver or car never hands its files to a new one; its folder stays on the card (delete it by hand). Re-timing a track counts only the sessions of the current driver and car for the PB (a log from before drivers and cars counts as Driver 1 with Car 1).
 - **The car's VIN:** give a car its 17-character VIN on the Wi-Fi page and Track Rat picks that car by itself when the Bluetooth OBD-II adapter reports it. Not during a session: it waits for the next. The VIN is only read when there is more than one car (or a car has a VIN), or there are car profiles on the card. The page offers the last VIN seen to save to a car. These cars are not the OBDb car profiles on the SD card (`/obd`), which are matched to the VIN as before.
 - **In the session files:** see [Session logs](#session-logs).
 
 ## Acceleration and braking
 
-Pick **PERFORMANCE** on the menu. Use a flat, straight road or a drag strip.
+Pick **Drag** on the home screen. Use a flat, straight road or a drag strip.
 
 - **READY / GO:** stop for 1 s (under 1 km/h) and the screen shows READY in green. Pull away and it shows GO, with the elapsed time and distance. Timing starts when the car starts to move, worked out from how fast speed is rising.
 - **What's timed:** 0-60 and 0-100 km/h, 0-60 mph, 100-200 km/h, and the 1/8 and 1/4 mile (elapsed time and the speed at the end of each). Times are worked out between GPS fixes, so they're good to a few milliseconds at 10 or 20 Hz. Distance comes from adding up GPS speed.
@@ -321,7 +329,7 @@ Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit
 
 Get your sessions onto your phone without taking the SD card out.
 
-1. In the pits, tap **WI-FI** on the menu or on a session summary (or hold BOOT on a summary). The screen shows the network name, the address and an upload code.
+1. In the pits, tap **Wi-Fi** on the home screen or **WI-FI** on a session summary (or hold BOOT on a summary). The screen shows the network name, the address and an upload code.
 2. On your phone, join the Wi-Fi network **TrackRat-XXXX**. There's no password. The last 4 characters are different on each board.
 3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **http://192.168.4.1** in your browser.
 4. When you're done, tap the Track Rat screen (or press BOOT) to turn Wi-Fi off.

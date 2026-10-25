@@ -25,7 +25,7 @@ More at [trackrat.me](https://trackrat.me/). Try the analysis on a sample sessio
 
 | | | |
 |---|---|---|
-| <img src="docs/images/screens/menu.png" width="280"><br>Menu | <img src="docs/images/screens/track-select.png" width="280"><br>Track list | <img src="docs/images/screens/timing-ahead.png" width="280"><br>Timing, ahead of the reference lap |
+| <img src="docs/images/screens/menu.png" width="280"><br>Home screen | <img src="docs/images/screens/track-select.png" width="280"><br>Track day | <img src="docs/images/screens/timing-ahead.png" width="280"><br>Timing, ahead of the reference lap |
 | <img src="docs/images/screens/map.png" width="280"><br>Map view | <img src="docs/images/screens/lap-flash-pb.png" width="280"><br>A new personal best | <img src="docs/images/screens/pit-debrief.png" width="280"><br>Pit debrief |
 | <img src="docs/images/screens/performance-card.png" width="280"><br>A 0-100 km/h result | <img src="docs/images/screens/wifi.png" width="280"><br>Wi-Fi page | <img src="docs/images/screens/overheat-warning.png" width="280"><br>Overheat warning |
 
@@ -63,7 +63,7 @@ First time? [TESTING.md](TESTING.md) checks each part of the hardware.
 
 1. Mount it with a clear view of the sky.
 2. Switch on and wait for the GPS lock (the bars in the top bar).
-3. At a known track, it's picked for you. Otherwise choose from the track list, or make a New Track.
+3. At a known track, it's picked for you. Otherwise the home screen's **Next up** card offers the nearest circuit or today's autocross course, or **Track day** lists the circuits (with **+ New circuit** to make one).
 4. Drive. Timing starts at the line.
 5. Park in the pits for a minute for the debrief. Download the session on the Wi-Fi page.
 

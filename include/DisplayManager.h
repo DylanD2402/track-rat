@@ -17,6 +17,7 @@
 #include "FreeRoam.h"
 #include "GPSHandler.h"
 #include "LapTimer.h"
+#include "NextUp.h"
 #include "PerfRun.h"
 #include "SettingsData.h"
 #include "SettingsFlow.h"
@@ -131,8 +132,12 @@ public:
   // sectors that cost most, on the map. Page 1: every lap with its tags, every sector, and
   // this session against the last.
   void drawDebrief(const Track& track, const LapTimer& timer, const DebriefView& d, int page);
-  // Mode menu: highlight is for BOOT-button navigation (0..5: the three tiles, then Performance, Settings, Wi-Fi)
-  void drawMenu(int highlight, const GPSHandler& gps, bool noTrackNearby, bool touchOk);
+  // The home screen (DisplayHome.cpp; places in HomeLayout.h): the Next up card, four tiles, Wi-Fi and Settings.
+  // highlight is for BOOT-button navigation (home::Item, -1 none).
+  void drawHome(const nextup::Choice& next, int highlight, const GPSHandler& gps, bool touchOk);
+  // The Track day list's two entries that are not a track: "+ New circuit" (back false) and, for a unit
+  // with no touch screen, "Back" (back true). index of count is the place in the list.
+  void drawTrackDayExtra(bool back, int index, int count, const GPSHandler& gps, bool touchOk);
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
   void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
@@ -150,8 +155,6 @@ public:
     undoMsLeft = msLeft;
     undoTouch = touchOk;
   }
-  // NEW TRACK: a circuit (left) or a point-to-point course (right); highlight for the BOOT button, -1 none
-  void drawNewTrack(int highlight, bool touchOk);
   // Performance mode (DisplayPerf.cpp). Card: a run by index, or the session's best when index < 0.
   void drawPerfLive(const perf::PerfRun& pr, const GPSHandler& gps, perf::SpeedUnit units, const char* leftButton,
                     uint32_t holdMs, bool touchOk);
@@ -186,10 +189,7 @@ public:
   // First boot: step 0 asks which way up (highlight 0 = the left arrow, 1 = the right), step 1 km/h or mph.
   void drawSetup(int step, int highlight, bool touchOk);
 
-  // WI-FI buttons, in the right third: on the menu from MENU_WIFI_Y to
-  // MENU_WIFI_Y + MENU_ROW_H, on the summaries from WIFI_BUTTON_Y to the bottom
-  static constexpr int MENU_WIFI_Y = 154;
-  static constexpr int MENU_ROW_H = 34;
+  // WI-FI buttons, in the right third, on the summaries from WIFI_BUTTON_Y to the bottom
   static constexpr int WIFI_BUTTON_Y = 196;
 
 private:
@@ -201,7 +201,8 @@ private:
   String sessionClock;             // setSessionClock
   bool sessionClockEnding = false;
   String pbText() const;          // "PB 1:42.345  ·  19 Oct 2026"
-  void wifiButton(int y, int h, bool highlight, bool holdHint = false);
+  // x and w: where, if not the right third
+  void wifiButton(int y, int h, bool highlight, bool holdHint = false, int x = -1, int w = -1);
   TFT_eSPI tft;
   TFT_eSprite spr = TFT_eSprite(&tft);
   bool useSprite = false;
