@@ -272,7 +272,7 @@
 
 // ---------------------------------------------------------------------------
 // Auto-sleep: parked with no touch or BOOT press. Waking is by BOOT (IO0) or a touch (INT, IO17).
-// Power off (Settings > Power off, or BOOT held POWER_OFF_HOLD_MS) is the same deep sleep, woken by BOOT only.
+// Power off (Settings > Power off, or BOOT held POWER_OFF_HOLD_MS) is the same deep sleep, straight away.
 // ---------------------------------------------------------------------------
 #define AUTO_SLEEP_ENABLED 1
 #define AUTO_SLEEP_IDLE_MS (20UL * 60UL * 1000UL)  // parked and untouched this long: backlight off

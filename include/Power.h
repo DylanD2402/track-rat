@@ -13,7 +13,8 @@
 namespace Power {
 
 // Call first thing in setup(): frees the backlight pin after a deep sleep and sets up the ADC. Switched off
-// with BOOT still held, the board wakes every 10 s until it's let go: then this goes straight back to sleep.
+// with BOOT or a finger still down, the board wakes every 10 s until they're let go: then this goes straight
+// back to sleep.
 void begin();
 
 // Call every loop. Reads the battery about once a second.
@@ -28,9 +29,10 @@ void backlight(bool on);
 // Brightness for the backlight when it's on, 10..100 percent (the Brightness setting).
 void setBrightness(uint8_t percent);
 
-// Backlight off, then deep sleep until BOOT is pressed, or the screen is touched if touchWakes (false:
-// switched off). Does not return. The caller has already saved any session and put the GPS in standby.
-[[noreturn]] void deepSleep(bool touchWakes);
+// Backlight off, then deep sleep until the screen is touched or BOOT is pressed. Does not return. The caller
+// has already saved any session and put the GPS in standby. switchingOff (Power off): it waits longer for BOOT,
+// held to switch off, to be let go.
+[[noreturn]] void deepSleep(bool switchingOff);
 
 }  // namespace Power
 

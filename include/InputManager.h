@@ -32,9 +32,6 @@ public:
   uint32_t touchHeldMs() const;
   // How long BOOT has been held so far (0 if it isn't, or if it was already down at start-up)
   uint32_t bootHeldMs() const { return boot.heldMs(millis()); }
-  // Before switching off: the touch controller into hibernation, where a touch can't wake anything.
-  // begin() resets it at the next start-up.
-  void sleepTouch();
   // Screen x and y of the last tap, for screens with more than one row of buttons.
   int16_t lastTapX() const { return tapX; }
   int16_t lastTapY() const { return tapY; }

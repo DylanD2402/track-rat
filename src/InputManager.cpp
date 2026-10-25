@@ -94,15 +94,6 @@ InputEvent InputManager::bootEvent(ButtonPress::Event e) {
   return e == ButtonPress::Event::Long ? InputEvent::BootLong : e == ButtonPress::Event::Short ? InputEvent::BootShort : InputEvent::None;
 }
 
-// FT6336G power mode register (ID_G_PMODE): 3 = hibernate, until its reset pin is pulsed
-void InputManager::sleepTouch() {
-  if (!touchOk) return;
-  Wire.beginTransmission(TOUCH_I2C_ADDR);
-  Wire.write(0xA5);
-  Wire.write(0x03);
-  Wire.endTransmission();
-}
-
 InputEvent InputManager::poll() {
   uint32_t now = millis();
   if (now - lastPoll < 20) return InputEvent::None;

@@ -1523,15 +1523,13 @@ static bool noteActivity(uint32_t now) {
   return true;
 }
 
-// The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the LEDs, the
-// touch controller (when only BOOT is to wake it) and the screen off, then deep sleep until BOOT is pressed,
-// or the screen touched if touchWakes.
-[[noreturn]] static void sleepNow(bool touchWakes) {
+// The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the LEDs and
+// the screen off, then deep sleep until the screen is touched or BOOT is pressed.
+[[noreturn]] static void sleepNow(bool switchingOff) {
   gps.standby();
   LedBar::off();
-  if (!touchWakes) input.sleepTouch();
   display.powerDown();
-  Power::deepSleep(touchWakes);
+  Power::deepSleep(switchingOff);
 }
 
 static void lowBatterySleep() {
@@ -1540,7 +1538,7 @@ static void lowBatterySleep() {
   display.setBacklight(true);
   display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
   delay(BATTERY_LOW_SCREEN_MS);
-  sleepNow(true);
+  sleepNow(false);
 }
 
 // Switching off: a recording that follows the sessions stops with the session that just ended (the next
@@ -1557,17 +1555,17 @@ static void stopCameraRecording() {
   }
 }
 
-// Settings > Power off, or BOOT held for POWER_OFF_HOLD_MS: everything saved, then off until BOOT is pressed.
-// It's the deep sleep of auto-sleep without the touch to wake it: nothing on the board can cut the battery.
+// Settings > Power off, or BOOT held for POWER_OFF_HOLD_MS: everything saved, then off until the screen is
+// tapped (or BOOT pressed). It's auto-sleep's deep sleep straight away: nothing on the board can cut the battery.
 static void powerOff() {
-  DEBUG_PRINTLN("Power off: saving, then off until BOOT is pressed");
+  DEBUG_PRINTLN("Power off: saving, then off until the screen is tapped");
   display.setBacklight(true);
-  display.drawMessage("POWER OFF", "Switching off…", "Press BOOT to turn it back on", ui::C_ORANGE);
+  display.drawMessage("POWER OFF", "Switching off…", "Tap the screen to turn it back on", ui::C_ORANGE);
   const uint32_t shown = millis();
   saveForSleep();
   stopCameraRecording();
   while (millis() - shown < POWER_OFF_MESSAGE_MS) delay(10);  // long enough to read
-  sleepNow(false);
+  sleepNow(true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1869,7 +1867,7 @@ void loop() {
       break;
     case SleepAction::DeepSleep:
       saveForSleep();
-      sleepNow(true);
+      sleepNow(false);
       break;
     default:
       break;

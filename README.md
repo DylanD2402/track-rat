@@ -7,7 +7,7 @@ Offline GPS lap timer for the **LCDWiki ES3C28P** (ESP32-S3 N16R8 with a 2.8" to
 - Lap and split times come from GPS timestamps. The crossing is interpolated between fixes, so timing resolution is a few milliseconds even at 1 Hz.
 - Every GPS fix is logged to the SD card in Racelogic's VBO format, which the free Circuit Tools opens. Lap times are saved after every lap, with or without a card.
 - Each session is saved to the SD card (or internal flash) after every lap.
-- Optional battery with a percentage gauge; sleeps by itself when parked, and Power off (hold BOOT 3 s) keeps the GPS in standby so it locks again in about a second. Firmware can be updated from the SD card.
+- Optional battery with a percentage gauge; sleeps by itself when parked. Power off is in Settings (or hold BOOT 3 s), a tap on the screen turns it back on, and the GPS waits in standby so it locks again in about a second. Firmware can be updated from the SD card.
 - Acceleration and braking runs (0-100 km/h, 1/4 mile, 100-0 braking) with a result card for each run.
 - A Wi-Fi page on your phone downloads sessions, swaps the track list and installs firmware. No app needed.
 - Speed units, screen direction, brightness and more are set on the device or on the Wi-Fi page and kept in flash: see [Settings](#settings).
@@ -132,7 +132,7 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
 | Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value (past the top it goes round to just above the limit below it), hold goes to the next, and back after the last) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
-| Any screen | Settings → **Power off** | hold 3 s: [power off](#battery-power-off-and-sleep) (BOOT only, not the big button; the 1 s hold does its own job on the way). Press BOOT to turn it back on |
+| Any screen | Settings → **Power off**; when it's off, a tap turns it back on | hold 3 s: [power off](#battery-power-off-and-sleep) (BOOT only, not the big button; the 1 s hold does its own job on the way). When it's off, a press turns it back on |
 
 While timing, the screen is built to be read in one glance, top to bottom:
 
@@ -605,12 +605,14 @@ Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit
 - **No battery fitted:** a reading under 2.5 V, or over 4.23 V (the charger holds an empty socket at about 4.2 V), for 5 s in a row counts as "no battery". If a missing battery still shows a percentage, or a full one disappears, adjust `BATTERY_PRESENT_MAX_MV`. The serial log prints the readings every 10 s.
 - **Low battery:** at 3.30 V or below for 10 s, Track Rat saves the session, shows **BATTERY LOW** for 5 s, then goes to sleep. Charge it, then touch the screen or press BOOT.
 
-**Power off:** hold BOOT for 3 s on any screen, or use **Settings → Power off** (it asks first). From 1.5 s a **POWER OFF** bar fills; let go before it's full and nothing happens. The 1 s hold does its usual job on the way (ending a session, say), and then **POWER OFF** shows while it saves whatever is running, the same as ending it. A DJI camera recording with the session stops too. Then the screen goes dark: let go of BOOT. Press BOOT to turn it back on.
+**Power off:** hold BOOT for 3 s on any screen, or use **Settings → Power off** (it asks first). From 1.5 s a **POWER OFF** bar fills; let go before it's full and nothing happens. The 1 s hold does its usual job on the way (ending a session, say), and then **POWER OFF** shows while it saves whatever is running, the same as ending it. A DJI camera recording with the session stops too. Then the screen goes dark: let go of BOOT.
 
-- **It's a deep sleep, not a cut:** nothing on the board can disconnect the battery, so off is the same deep sleep as auto-sleep, with the touch controller asleep too: only BOOT wakes it, not a touch or a bump. Plugging in USB doesn't turn it on either.
+**Turning it back on:** tap the screen, like a phone's tap to wake, or press BOOT. It starts up as it does after auto-sleep: the logo, then the GPS, which has its fix a second or so later.
+
+- **It's a deep sleep, not a cut:** nothing on the board can disconnect the battery, so off is the same deep sleep as auto-sleep, straight away. The touch controller keeps feeling for a finger, which uses a little current (not measured yet), and anything that touches the screen turns it on. Plugging in USB doesn't.
 - **The GPS stays in standby** (see [GPS data](#gps-data)), so it has a fix a second or so after turning on, or a few seconds after a day or two off. Unplugging the battery loses that.
 - **Not while firmware installs:** holding BOOT during an update over Wi-Fi does nothing.
-- **Still held when the screen goes dark:** it waits up to 10 s for BOOT to be let go. Held longer, it looks again every 10 s and stays off.
+- **Still held when the screen goes dark:** it waits up to 10 s for BOOT, or a finger on the screen, to be let go. Held longer, it looks again every 10 s and stays off.
 
 **Auto-sleep:** parked with no touch and no BOOT press for 20 minutes, the backlight goes off. This is a full off, whatever the Brightness setting; the chosen level comes back when the screen wakes. A minute later the board goes into deep sleep. Moving at 5 km/h or more counts as activity, so it never sleeps during a session.
 

@@ -118,7 +118,7 @@ Sizes are relative: S small, M medium, L large.
 - Parked for 20 minutes with no input: screen off, then sleep. BOOT or a tap wakes it. This stops a battery-fitted unit from flattening itself in a parked car.
 - Low battery: save, say so, and sleep cleanly.
 - Measure the real current draw before choosing a battery size.
-- Power off with no new hardware (asked for 2026-10-24): Settings → Power off, or BOOT held 3 s. The board can't disconnect its battery, so off is a deep sleep that only BOOT wakes. Unplugging the battery to switch off meant a cold start for the GPS (~30 s), so in every sleep the GPS now goes into standby instead (UBX-RXM-PMREQ, tens of µA), keeping its clock and satellites, with AssistNow Autonomous on for quick fixes after days off.
+- Power off with no new hardware (asked for 2026-10-24): Settings → Power off, or BOOT held 3 s. The board can't disconnect its battery, so off is a deep sleep, and a tap on the screen turns it back on (or BOOT), like a phone's tap to wake. Unplugging the battery to switch off meant a cold start for the GPS (~30 s), so in every sleep the GPS now goes into standby instead (UBX-RXM-PMREQ, tens of µA), keeping its clock and satellites, with AssistNow Autonomous on for quick fixes after days off.
 
 **Status: power off and GPS standby done, untested on hardware** (2026-10-24). The sleep current is still to be measured.
 

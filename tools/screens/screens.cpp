@@ -464,7 +464,7 @@ int main(int argc, char** argv) {
   save(d, "27_battery_low");
   d.drawPowerHold(POWER_OFF_BAR_MS + (POWER_OFF_HOLD_MS - POWER_OFF_BAR_MS) * 2 / 3);  // BOOT held 2.5 s
   save(d, "27b_power_off_hold");
-  d.drawMessage("POWER OFF", "Switching off…", "Press BOOT to turn it back on", ui::C_ORANGE);
+  d.drawMessage("POWER OFF", "Switching off…", "Tap the screen to turn it back on", ui::C_ORANGE);
   save(d, "27c_powering_off");
   d.drawFirmwarePrompt("2026-10-18 21:40", 912384, true);
   save(d, "28_firmware_prompt");

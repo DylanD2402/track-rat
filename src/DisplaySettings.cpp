@@ -261,7 +261,7 @@ void DisplayManager::settingsCoolantPage(const SettingsData& s, const SettingsSc
 void DisplayManager::settingsPowerOffPage(bool touchOk) {
   centered("Switch off now?", 58, Font::Title, C_TEXT);
   centered("Anything running is saved first.", 94, Font::Body, C_TEXT2);
-  centered("Press BOOT to turn it back on.", 118, Font::Body, C_TEXT2);
+  centered("Tap the screen to turn it back on.", 118, Font::Body, C_TEXT2);
   if (touchOk) {
     button(UI::MINUS_X, UI::BTN_Y, UI::BTN_W, UI::BTN_H, "Cancel", false);
     button(UI::PLUS_X, UI::BTN_Y, UI::BTN_W, UI::BTN_H, "Power off", true);

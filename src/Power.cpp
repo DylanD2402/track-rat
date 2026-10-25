@@ -28,12 +28,12 @@ static const char* wakeCauseName(esp_sleep_wakeup_cause_t c) {
   }
 }
 
-[[noreturn]] static void sleepNow(bool touchWakes);
+[[noreturn]] static void sleepNow(bool switchingOff);
 
 void begin() {
-  // Switched off with BOOT still held (see deepSleep): it woke to look again. Still off, so back to sleep
-  // with the backlight and the GPS's line still held, before anything else starts.
-  if (switchedOff && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) sleepNow(false);
+  // Switched off with BOOT or a finger still down (see deepSleep): it woke to look again. Still off, so back
+  // to sleep with the backlight and the GPS's line still held, before anything else starts.
+  if (switchedOff && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) sleepNow(true);
   switchedOff = false;
 #ifdef TFT_BL
   gpio_hold_dis((gpio_num_t)TFT_BL);  // held low through deep sleep
@@ -121,37 +121,38 @@ void setBrightness(uint8_t percent) {
   if (backlightOn) writeBacklight();  // off stays off (screen asleep): the new level shows when it wakes
 }
 
-void deepSleep(bool touchWakes) {
-  DEBUG_PRINTLN(touchWakes ? "Power: deep sleep (BOOT or touch wakes it)" : "Power: off (BOOT turns it on)");
+void deepSleep(bool switchingOff) {
+  DEBUG_PRINTLN(switchingOff ? "Power: off (a tap or BOOT turns it on)" : "Power: deep sleep (BOOT or touch wakes it)");
   delay(50);  // let the log line out (Serial.flush() could wait on a USB host that isn't there)
 
   backlight(false);
-  // A finger or button still down would wake it again at once. Holding BOOT to switch off, it is still
-  // down now: with the screen dark, it's let go.
+  // A finger or button still down would wake it again at once. Held to switch off, BOOT is still down
+  // now: with the screen dark, it's let go.
   uint32_t start = millis();
-  const uint32_t waitMs = touchWakes ? 3000 : 10000;
-  while ((digitalRead(BOOT_BUTTON_PIN) == LOW || (touchWakes && digitalRead(TOUCH_INT) == LOW)) && millis() - start < waitMs) delay(10);
-  sleepNow(touchWakes);
+  const uint32_t waitMs = switchingOff ? 10000 : 3000;
+  while ((digitalRead(BOOT_BUTTON_PIN) == LOW || digitalRead(TOUCH_INT) == LOW) && millis() - start < waitMs) delay(10);
+  sleepNow(switchingOff);
 }
 
-static void sleepNow(bool touchWakes) {
+static void sleepNow(bool switchingOff) {
 #ifdef TFT_BL
   gpio_hold_en((gpio_num_t)TFT_BL);  // keep the backlight off while the chip sleeps
   gpio_deep_sleep_hold_en();
 #endif
-  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);  // (from begin(), nothing has set it up yet)
+  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);  // (from begin(), nothing has set them up yet)
+  pinMode(TOUCH_INT, INPUT);
   // BOOT is IO0 (pulled up on the board, low when pressed); touch INT is IO17 (low while touched).
   // A pin that is still low now (stuck button, touch chip holding INT low) would wake the board
   // immediately, so it is left out of this sleep.
   uint64_t mask = 0;
   if (digitalRead(BOOT_BUTTON_PIN) == HIGH) mask |= 1ULL << BOOT_BUTTON_PIN;
-  if (touchWakes && digitalRead(TOUCH_INT) == HIGH) mask |= 1ULL << TOUCH_INT;
+  if (digitalRead(TOUCH_INT) == HIGH) mask |= 1ULL << TOUCH_INT;
   if (mask) {
     esp_sleep_enable_ext1_wakeup(mask, ESP_EXT1_WAKEUP_ANY_LOW);
   } else {
     esp_sleep_enable_timer_wakeup(10ULL * 1000000ULL);  // nothing usable to wake on: try again in 10 s
   }
-  switchedOff = !touchWakes;
+  switchedOff = switchingOff;
   esp_deep_sleep_start();
   while (true) {}  // never reached
 }
