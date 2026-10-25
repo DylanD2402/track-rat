@@ -4,8 +4,11 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] - 2026-10-25
+
 ### Added
 
+- trackrat.me: a homepage with menus, the firmware installer at /install/, and the analyser at /analyze/, which opens your session files in any browser (nothing is uploaded), with a simulated sample session.
 - Drivers and cars on the device: up to 8 of each, chosen in Settings, with best laps kept for each pair, their names in the session files and on the Ready screen, the car picked by its VIN, and `/api/profiles` for the Wi-Fi page.
 - Drivers and cars on the Wi-Fi page: add, rename, remove and choose them and set a car's VIN from the Settings tab, and see each session's driver and car in the session list.
 - The Wi-Fi page and trackrat.me/analyze Compare tab show RPM, throttle, temperatures, g and car channels against distance, a friction circle, a corner sector table, and a shared cursor across the charts and the map.
@@ -100,5 +103,6 @@ First public beta.
 
 Voice notes for the logbook aren't built yet; text notes work.
 
-[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.0-beta.1...HEAD
+[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1
