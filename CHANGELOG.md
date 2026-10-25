@@ -10,6 +10,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 - Drivers and cars on the Wi-Fi page: add, rename, remove and choose them and set a car's VIN from the Settings tab, and see each session's driver and car in the session list.
 - The Wi-Fi page and trackrat.me/analyze Compare tab show RPM, throttle, temperatures, g and car channels against distance, a friction circle, a corner sector table, and a shared cursor across the charts and the map.
 
+### Fixed
+
+- Compare (on the Wi-Fi page and trackrat.me/analyze) now opens Free Roam drives, stages and performance runs: a log with no laps is offered as one "Whole drive", and Free Roam drives have their own group in the track list.
+
 ## [0.1.0-beta.1] - 2026-10-25
 
 First public beta.

@@ -52,7 +52,7 @@ if (!cm) {
 }
 // The comparison uses the editor's parseVbo and toLocal, as on the page
 const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistance, compareLaps, fasterRuns, season, lapTimeText, gapText," +
-                      " channelLabel, unitText, lapChannels, commonChannels, channelAt, channelSeries, ggPoints, sectorDurations, sectorTable, cursorAt};")();
+                      " channelLabel, unitText, lapChannels, commonChannels, channelAt, channelSeries, ggPoints, sectorDurations, sectorTable, cursorAt, hasLaps, trackGroup};")();
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
                         " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart};")();
 
@@ -621,6 +621,66 @@ console.log("Wi-Fi page lap comparison tests");
   check(CMP.cursorAt({d: [0, 10], kmhA: [1, 2], kmhB: [1, 2], gap: [0, 1], x: [0, 0], y: [0, 0], xB: [0, 0], yB: [0, 0]}, 5, gapSer).a === null,
         "a gap in a channel stays a gap at the cursor");
   check(CMP.cursorAt({d: [], kmhA: [], kmhB: [], gap: [], x: [], y: []}, 5, null) === null, "no comparison, no cursor");
+}
+
+// ---- a log with no laps: Free Roam (every fix is Lap 0) is one whole piece ----
+{
+  const near = (a, b, tol, msg) => check(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+  const mPerDegLon = 6371000 * Math.PI / 180 * Math.cos(45 * Math.PI / 180);
+  const head = ["[comments]", "Track: freeroam", "", "[channel units]", "-", "-", "g", "g", "-", "rpm", "%", "C", "", "[column names]",
+    "sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag RPM Throttle CoolantTemp", "", "[data]"];
+  // 20 Hz, 20 m/s (72 km/h) for 60 s east, then 10 m/s for 60 s: 1800 m in all; 2400 fixes
+  const rows = [];
+  let x = 0;
+  for (let i = 0; i < 2400; i++) {
+    const kmh = i < 1200 ? 72 : 36, t = i * 0.05, hh = 10 + Math.floor(t / 3600), mm = Math.floor(t / 60) % 60, ss = t % 60;
+    rows.push(`012 ${String(hh).padStart(2, "0")}${String(mm).padStart(2, "0")}${ss.toFixed(3).padStart(6, "0")} ${(45 * 60).toFixed(8)} ` +
+              `${(75 * 60 + x / mPerDegLon * 60).toFixed(8)} ${kmh.toFixed(3)} 090.00 +00100.00 0.6 0 ${(i % 100 / 100 - 0.3).toFixed(3)} ` +
+              `${(i % 50 / 100 - 0.2).toFixed(3)} 0 ${2000 + i} ${(i % 100).toFixed(1)} ${(80 + i / 100).toFixed(1)}`);
+    x += kmh / 3.6 * 0.05;
+  }
+  const free = CMP.parseVbo(head.concat(rows).join("\r\n"));
+  check(free.points.length === 2400 && !CMP.hasLaps(free.points), "a Free Roam log has fixes but no laps");
+  const whole = CMP.lapTrace(free.points, "all", 45, -75);
+  check(whole.length === 2400, "the whole drive is one trace of every fix: " + whole.length);
+  check(CMP.lapTrace(free.points, 1, 45, -75).length === 0 && CMP.lapTrace(free.points, 0, 45, -75).length === 2400,
+        "asking for lap 1 still finds nothing");
+  near(whole[whole.length - 1].d, 1800, 5, "1800 m driven");
+  near(whole[whole.length - 1].t, 119950, 1, "two minutes by the clock");
+  check(whole[100].kmh === 72 && whole[2000].kmh === 36, "speeds kept");
+  check(whole.every((p, i) => i === 0 || p.d >= whole[i - 1].d), "distance never goes back");
+  // Channels and g-g
+  const chans = CMP.lapChannels(free, "all");
+  check(["RPM", "Throttle", "CoolantTemp", "LateralG"].every((k) => chans.has(k)), "channels of a whole drive: " + [...chans]);
+  const li = free.channels.findIndex((c) => c.key === "LateralG"), lo = free.channels.findIndex((c) => c.key === "LongitudinalG");
+  const gg = CMP.ggPoints(whole, li, lo);
+  check(gg.pts.length === 2400 && gg.max > 0.2, "friction circle for every fix");
+  const rpm = CMP.commonChannels(free, "all", free, "all").find((c) => c.key === "RPM");
+  near(CMP.channelAt(whole, 900, rpm.ia, false), 2900, 40, "RPM 900 m in (fix 900)");
+  // Against a lap (another log, 1000 m at 100 km/h) and against itself; a coarser step for a long drive
+  const lapPts = [];
+  for (let i = 0; i <= 360; i++) lapPts.push({lat: 45, lon: -75 + i * (100 / 3.6 * 0.1) / mPerDegLon, ms: 40000000 + i * 100, kmh: 100, lap: 1, ch: []});
+  const lap = CMP.lapTrace(lapPts, 1, 45, -75);
+  const cmp = CMP.compareLaps(whole, lap, 1800 / 3000 < 5 ? 5 : 1800 / 3000);
+  check(cmp.d.length > 300 && cmp.kmhA[10] === 72 && cmp.kmhB[10] === 100, "a whole drive against a lap");
+  near(cmp.gap[0], 0, 1, "level at the start");
+  check(cmp.gap.every(isFinite), "the gap is finite all the way");
+  const ser = CMP.channelSeries(whole, whole, rpm, CMP.compareLaps(whole, whole, 5));
+  check(ser.a.length > 300 && ser.a[0] === 2000, "a channel against distance for a whole drive");
+  const self = CMP.compareLaps(whole, whole, 5);
+  near(self.gap[self.gap.length - 1], 0, 1e-6, "a drive against itself is level");
+  check(CMP.cursorAt(cmp, 900, null).kmhA > 0, "the cursor works");
+  // A lap log keeps its laps; the groups of the track picker
+  check(CMP.hasLaps(lapPts) && !CMP.hasLaps([]), "a log with a lap has laps");
+  check(CMP.trackGroup("freeroam") === "Free Roam drives" && CMP.trackGroup("calabogie") === "Tracks" && CMP.trackGroup("perf") === "Performance runs",
+        "track picker groups");
+  // And at the size of a 30 minute drive (36 000 fixes) it is quick
+  const bigPts = [];
+  for (let i = 0; i < 36000; i++) bigPts.push({lat: 45 + Math.sin(i / 3000) * 0.01, lon: -75 + i * 0.000004, ms: 36000000 + i * 50, kmh: 60 + 30 * Math.sin(i / 500), lap: 0, ch: [i % 7, i % 3]});
+  const t0 = Date.now();
+  const bigTr = CMP.lapTrace(bigPts, "all", 45, -75), bigCmp = CMP.compareLaps(bigTr, lap, Math.max(5, bigTr[bigTr.length - 1].d / 3000));
+  CMP.channelSeries(bigTr, lap, {ia: 0, ib: 0, zeroUnknown: false}, bigCmp);
+  check(bigTr.length === 36000 && bigCmp.d.length <= 3100 && Date.now() - t0 < 1000, "36 000 fixes compare in under a second: " + (Date.now() - t0) + " ms");
 }
 
 // ---- CSV for overlay tools (6.4) ----
