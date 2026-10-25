@@ -490,6 +490,7 @@ Phase 8 starts after the 0.1 beta ships, so its README changes don't collide wit
 | 2 | 8.5b Drivers and cars on the Wi-Fi page | Sonnet, low | the Settings and Sessions tabs of web/index.html |
 
 #### 8.1 Analysis in the browser: the plan
+**Status: done** (2026-10-25): 8.1a 4c05845 (the viewer, live at https://trackrat.me/analyze/), 8.1b 060e549 (channel traces, friction circle, sector table, shared cursor). Tried in a browser with the sample session; not yet on the board's own page.
 The Wi-Fi page already compares two laps: speed and gap against distance, and the map coloured by the faster lap. It also has a season view, all tested in test_web.js. So 8.1 grows that page rather than starting another, and the website uses the same page.
 
 - **8.1a The viewer.** The same web/index.html runs off the board too, in a viewer mode:
@@ -506,6 +507,7 @@ The Wi-Fi page already compares two laps: speed and gap against distance, and th
   The new maths lives in the page's tested sections.
 
 #### 8.5 Driver and car profiles: the plan
+**Status: done** (2026-10-25): 8.5a (on the device) and 8.5b 2f8fd04 (the Wi-Fi page). Not yet tried on the board: NVS, the per-pair PB folders on a card, /api/profiles over Wi-Fi, and the VIN.
 - **8.5a On the device.**
   - **The list:** up to 8 drivers and 8 cars, kept in their own module, not in the settings the Wi-Fi page mirrors. Each has a fixed id and a name; a car can also have a VIN.
   - **On screen:** Settings gets Driver and Car rows. The Ready screen and the track list show "driver · car" once there's more than one of either.
