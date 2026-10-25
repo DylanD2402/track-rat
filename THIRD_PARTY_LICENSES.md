@@ -2,7 +2,7 @@
 
 Track Rat's own code is MIT (see [LICENSE](LICENSE)). The track data has its own licence, see [DATA_LICENSE.md](DATA_LICENSE.md).
 
-The firmware binary also contains the libraries and parts listed below, under their own licences. The LGPL ones are used unmodified at the pinned versions. This repository has everything needed to rebuild and relink the firmware: `platformio.ini` pins each version, and the build steps are in the [README](README.md#build-and-flash).
+The firmware binary also contains the libraries and parts listed below, under their own licences. The LGPL ones are used unmodified at the pinned versions. This repository has everything needed to rebuild and relink the firmware: `platformio.ini` pins each version, and the build steps are in the [flashing guide](docs/flashing.md#build-from-source-with-platformio).
 
 | Component | Version | Licence | Link | Where it's used |
 |---|---|---|---|---|

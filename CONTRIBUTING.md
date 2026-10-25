@@ -10,11 +10,11 @@ You need [PlatformIO](https://platformio.org/) (the VS Code extension, or `pip i
 pio run -e es3c28p
 ```
 
-To flash the board, see [Build and flash](README.md#build-and-flash) in the README.
+To flash the board, see [Flashing](docs/flashing.md) guide.
 
 ## Host tests
 
-The logic that doesn't need Arduino is tested on the PC. Each test is a `g++` command in the [README's Tests section](README.md#tests), and the same commands run in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). On Windows, add `-D_USE_MATH_DEFINES` to each one. When you add a test, add its command to the workflow too.
+The logic that doesn't need Arduino is tested on the PC. Each test is a `g++` command in the [Tests section of the development guide](docs/development.md#tests), and the same commands run in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). On Windows, add `-D_USE_MATH_DEFINES` to each one. When you add a test, add its command to the workflow too.
 
 ## Screen renderer
 
