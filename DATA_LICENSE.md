@@ -4,13 +4,12 @@ This applies to the track data in [`data/tracks.json`](data/tracks.json), which 
 
 ## OpenStreetMap
 
-`data/tracks.json` is built from OpenStreetMap data. © OpenStreetMap contributors.
+The Canadian tracks in `data/tracks.json` are built from OpenStreetMap data. © OpenStreetMap contributors.
 
 It is available under the [Open Database Licence (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/). Details are at [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright).
 
 - The database stays under the ODbL. If you share a changed copy of `tracks.json` (for example, a new file of tracks you've made), share it under the ODbL too, and credit OpenStreetMap.
 - The track names, locations and layout maps come from OpenStreetMap. The start/finish points are approximate. Check them before trusting lap times.
-- The same credit will also appear on the Wi-Fi page, in a footer line. That page change is made in a separate session, so it isn't part of this change.
 
 ## How the file was made
 
@@ -22,4 +21,4 @@ It is available under the [Open Database Licence (ODbL) 1.0](https://opendatacom
 
 - **Bench Test** is a built-in simulated circuit. It isn't in `tracks.json`, and it isn't based on any real track.
 - **Your own tracks** are yours. That includes any track you learn or edit on your own unit, and the sessions and logs it records.
-- **Example tracks.** The file also has seven example tracks outside Canada (Laguna Seca, Nurburgring GP, Silverstone, Circuit of the Americas, Spa-Francorchamps, Autodromo Nazionale Monza and Suzuka Circuit) and a placeholder, "My Local Track". The Canadian fetch script doesn't add them, and this repository doesn't record where they came from. Their source needs checking before the release.
+- **Seven circuits outside Canada** (Laguna Seca, Nurburgring GP, Silverstone, Circuit of the Americas, Spa-Francorchamps, Autodromo Nazionale Monza and Suzuka Circuit) were typed in by hand when the project started. They have a start/finish point and no map, and don't come from OpenStreetMap.

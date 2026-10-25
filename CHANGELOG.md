@@ -24,7 +24,7 @@ First public beta.
 
 ### Tracks
 
-- A built-in list of 130 tracks, plus the Bench Test, which runs a simulated car at your desk. The list has 122 Canadian circuits from OpenStreetMap, seven example tracks outside Canada and a placeholder.
+- A built-in list of 129 tracks: all 122 Canadian circuits in OpenStreetMap, with their town and province, and seven well-known circuits elsewhere (Laguna Seca, the Nürburgring GP, Silverstone, COTA, Spa, Monza and Suzuka). Plus the Bench Test, which runs a simulated car at your desk.
 - Tracks that learn themselves from two loops of the same route.
 - A track editor on the Wi-Fi page: drag the line, set its direction, add splits and name corners.
 - Layouts: several layouts per venue, each with its own records.
@@ -44,7 +44,9 @@ First public beta.
 - Power off from Settings or by holding BOOT, with the GPS in standby so it locks again quickly.
 - A big button and an LED delta bar as optional add-ons.
 - The GPS read as binary UBX-NAV-PVT messages, with real accuracy figures.
-- Firmware update from the SD card.
+- An optional IMU (LSM6DSO) for real g-forces.
+- Firmware update from the SD card, and the firmware version at the bottom of Settings.
+- File dates on the SD card from the GPS clock, in your time zone.
 
 ### Wi-Fi page
 
@@ -60,11 +62,10 @@ First public beta.
 
 ### Engine data
 
-- Engine data from a Bluetooth LE OBD-II adapter, with a shift light.
+- Engine data (RPM, throttle, coolant and intake temperatures) from a Bluetooth LE OBD-II adapter, tried with a Veepeak OBDCheck BLE+, with a shift light on the LED bar.
 - Coolant temperature in the top bar, an overheat warning, and the coolant maximum in the summary.
 - Oil temperature where the car supports it.
-- An IMU for real g-forces.
-- CAN / OBD-II over the built-in CAN controller.
+- CAN / OBD-II over the built-in CAN controller, with a transceiver.
 
 ### Video
 
@@ -83,8 +84,9 @@ First public beta.
 - The RaceChrono DIY profile, with RaceChrono.
 - The IMU.
 - CAN / OBD-II, with a car and a transceiver.
-- Bluetooth OBD-II adapters (no adapter has been tried yet).
-- Voice notes are built but off (`VOICE_NOTES_ENABLED` is 0), until the audio codec is brought up on a board.
+- Oil temperature (only some cars report it).
+
+Voice notes for the logbook aren't built yet; text notes work.
 
 [Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.0-beta.1...HEAD
 [0.1.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1

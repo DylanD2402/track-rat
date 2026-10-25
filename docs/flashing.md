@@ -37,7 +37,7 @@ The port name depends on your system:
 
 If it says "Failed to connect", put the board in download mode (hold **BOOT**, tap **RST**, let go of **BOOT**) and run it again. Press **RST** when it's done.
 
-The full image replaces everything in internal flash, like the browser installer.
+The full image replaces everything in internal flash, settings included: it also blanks the settings area, which the browser installer only does when you choose "erase".
 
 ## Update without a cable
 

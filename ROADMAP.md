@@ -415,7 +415,7 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
 
 #### 7.4 Licences, credits and contributor files (Haiku, low)
 - `THIRD_PARTY_LICENSES.md`: each library and its licence (from `.pio/libdeps/*/LICENSE`), the Arduino-ESP32 core, Inter (SIL OFL 1.1), DJI's GPS controller demo (MIT), and DJI's SDK terms.
-- `data/DATA_LICENSE.md`: `tracks.json` comes from OpenStreetMap, © OpenStreetMap contributors, under the ODbL. The same credit goes in the README and the Wi-Fi page's footer.
+- `DATA_LICENSE.md` (at the root, since `data/` becomes the board's file system): the Canadian tracks come from OpenStreetMap, © OpenStreetMap contributors, under the ODbL. The same credit goes in the README, on the install page, and in the Wi-Fi page's footer. The footer waits until the uncommitted Wi-Fi page work from another session lands.
 - `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (the bug form asks for the firmware version from Settings, the hardware, and a log from `serial_log.py`), `.github/pull_request_template.md`.
 - `CHANGELOG.md` (Keep a Changelog): the 0.1.0-beta.1 entry, grouped by area, with what hasn't been tried on hardware yet (DJI camera, RaceChrono DIY profile, IMU, CAN).
 
