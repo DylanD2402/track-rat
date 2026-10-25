@@ -7,6 +7,7 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 ### Added
 
 - Drivers and cars on the device: up to 8 of each, chosen in Settings, with best laps kept for each pair, their names in the session files and on the Ready screen, the car picked by its VIN, and `/api/profiles` for the Wi-Fi page.
+- Drivers and cars on the Wi-Fi page: add, rename, remove and choose them and set a car's VIN from the Settings tab, and see each session's driver and car in the session list.
 
 ## [0.1.0-beta.1] - 2026-10-25
 

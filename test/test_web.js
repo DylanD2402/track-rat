@@ -691,5 +691,49 @@ console.log("Sample session tests");
   check(text.split("\n").includes("Lap tag") && text.includes(" RPM Throttle CoolantTemp IntakeTemp OilTemp\n"), "the board's channels and column names");
 }
 
+// ---- drivers and cars (the page's rules against include/Profiles.h) ----
+{
+  const dm = html.match(/\/\/ ---- drivers and cars \(begin[^\n]*\n([\s\S]*?)\/\/ ---- drivers and cars \(end\) ----/);
+  check(!!dm, "drivers and cars section found in web/index.html");
+  if (dm) {
+    const DC = new Function(dm[1] + "\nreturn {PROFILE_MAX, PROFILE_NAME_LEN, PROFILE_VIN_LEN, checkProfileName, checkVin, profileBody, whoLabel};")();
+    const ph = readText("include", "Profiles.h");
+    const num = (n) => +(ph.match(new RegExp("constexpr int " + n + " = (\\d+);")) || [])[1];
+    check(DC.PROFILE_MAX === num("MAX_PER_LIST"), "the page's list limit is Profiles.h's MAX_PER_LIST: " + DC.PROFILE_MAX);
+    check(DC.PROFILE_NAME_LEN === num("NAME_LEN"), "the page's name length is Profiles.h's NAME_LEN: " + DC.PROFILE_NAME_LEN);
+    check(DC.PROFILE_VIN_LEN === num("VIN_LEN"), "the page's VIN length is Profiles.h's VIN_LEN: " + DC.PROFILE_VIN_LEN);
+
+    // Names: trimmed, 1 to 20 bytes, no control characters, unique in the list (any case)
+    check(DC.checkProfileName("  Dylan ").value === "Dylan", "a name is trimmed");
+    check(!DC.checkProfileName("   ").ok && !DC.checkProfileName("").ok, "an empty name is refused");
+    check(DC.checkProfileName("a".repeat(20)).ok && !DC.checkProfileName("a".repeat(21)).ok, "20 bytes is the most");
+    check(DC.checkProfileName("é".repeat(10)).ok && !DC.checkProfileName("é".repeat(11)).ok, "the length counts bytes, not letters");
+    check(!DC.checkProfileName("a\tb").ok, "a control character is refused");
+    check(!DC.checkProfileName("dylan", ["Dylan", "Sam"]).ok && DC.checkProfileName("Alex", ["Dylan"]).ok, "a name must be new to its list");
+    check(DC.checkProfileName("Dylan", []).ok, "no others: fine");
+
+    // VINs: empty is fine, else 17 of 0-9 A-Z without I, O, Q, kept in capitals
+    check(DC.checkVin("").ok && DC.checkVin("  ").value === "", "no VIN is fine");
+    check(DC.checkVin(" 1hgbh41jxmn109186 ").value === "1HGBH41JXMN109186".toUpperCase(), "a VIN is trimmed and capitalised");
+    check(!DC.checkVin("1HGBH41JXMN10918").ok && !DC.checkVin("1HGBH41JXMN1091866").ok, "a VIN is 17 long");
+    for (const c of "IOQ") check(!DC.checkVin("1HGBH41JXMN10918" + c).ok, c + " is not allowed in a VIN");
+    check(!DC.checkVin("1HGBH41JXMN10918-").ok, "only letters and digits");
+
+    // The POST body
+    const b = DC.profileBody("rename", "car", {id: 3, name: "Civic"}, "1234");
+    check(b.get("action") === "rename" && b.get("kind") === "car" && b.get("id") === "3" && b.get("name") === "Civic" && b.get("code") === "1234" && !b.has("vin"),
+          "rename body: " + b);
+    const v = DC.profileBody("setVin", "car", {id: 2, vin: ""}, 4321);
+    check(v.has("vin") && v.get("vin") === "" && v.get("code") === "4321", "setVin with no VIN sends it empty");
+    const a = DC.profileBody("add", "driver", {name: "A&B"}, "1");
+    check(a.get("name") === "A&B" && !a.has("id") && a.toString().includes("A%26B"), "add body is encoded: " + a);
+
+    // The label
+    check(DC.whoLabel({driver: "Dylan", car: "Civic"}) === "Dylan · Civic", "driver and car");
+    check(DC.whoLabel({driver: "Dylan"}) === "Dylan" && DC.whoLabel({car: "Civic"}) === "Civic", "only one named");
+    check(DC.whoLabel({}) === "" && DC.whoLabel(null) === "" && DC.whoLabel({driver: 5, car: ""}) === "", "neither named: empty");
+  }
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);

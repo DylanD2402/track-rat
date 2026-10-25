@@ -89,6 +89,15 @@ select { width: 100%; margin: 6px 0; }
 .tools button.on { outline: 2px solid var(--good); }
 canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10px; background: var(--bg); }
 .row select { width: auto; flex: 1 1 140px; margin: 0; }
+/* Drivers and cars card */
+.prof { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.prof .pname { flex: 1 1 120px; font-weight: 500; overflow-wrap: anywhere; }
+.prof .pname.cur { font-weight: 600; }
+.prof .vin { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.prof input, .addrow input { font: inherit; font-size: 15px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
+                              background: var(--card); color: var(--text); flex: 1 1 140px; max-width: 100%; min-width: 0; }
+.prof button.chip:disabled { opacity: .4; }
+.addrow { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 10px; }
 /* The viewer (the page on the website, no Track Rat): no board tabs, its own card, a drop target */
 .note a { color: var(--text); }
 .viewer-only { display: none; }
@@ -229,6 +238,8 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
 <section id="settings" class="board-only">
   <p class="note">The same settings as on Track Rat's Settings screen. Changes take effect at once and are kept.
     The first change asks for the upload code on Track Rat's screen.</p>
+  <div class="card" id="profilesCard"><p class="note">Loading…</p></div>
+  <p id="profilesMsg" class="note"></p>
   <div class="card" id="settingsForm"><p class="note">Loading…</p></div>
   <p id="settingsMsg" class="note"></p>
 </section>
@@ -246,7 +257,7 @@ function showTab(name) {
   for (const s of document.querySelectorAll("main section")) s.classList.toggle("on", s.id === name);
   clearInterval(infoTimer);
   if (name === "device") { loadInfo(); infoTimer = setInterval(loadInfo, 2000); }
-  if (name === "settings") loadSettings();
+  if (name === "settings") { loadProfiles(); loadSettings(); }
   if (name === "tracks") edLoadLogs();
   if (name === "compare") cmpLoad();
 }
@@ -456,6 +467,7 @@ async function loadSessions() {
                 s.files.map((x) => fileLink(x.f, x.label)).join("") +
                 (s.files.some((x) => x.label === "VBO") ? ` <button class="chip" data-csv="${s.files.findIndex((x) => x.label === "VBO")}" data-n="${notes.length - 1}">CSV</button>` : "") +
                 (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") +
+                (s.files.some((x) => x.label === "JSON") ? ` <button class="chip" data-who="${notes.length - 1}">Driver and car</button>` : "") +
                 (VIEWER ? "" : ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>`) +
                 `<div class="lognote" id="${id}">${s.noteFile ? `<span class="note">Loading note…</span>` : ""}</div></div>`;
       }
@@ -468,6 +480,21 @@ async function loadSessions() {
   }
   box.innerHTML = html;
   loadNotes();
+}
+
+// Who drove, from the summary: read when asked, so the list doesn't fetch every summary
+async function showWho(btn) {
+  const n = notes[+btn.dataset.who];
+  const x = n && n.s.files.find((y) => y.label === "JSON");
+  if (!x) return;
+  btn.disabled = true;
+  let text = "Not recorded";
+  try {
+    const t = await data.text(x.f);
+    if (t !== null) text = whoLabel(JSON.parse(t)) || text;
+  } catch (e) { text = "Couldn't read it"; }
+  btn.textContent = text;
+  btn.disabled = false;
 }
 
 // The CSV for overlay tools: made here from the .vbo (and its summary for the best lap)
@@ -521,6 +548,7 @@ async function loadNotes() {
 
 $("sessionList").addEventListener("click", async (e) => {
   if (e.target.dataset.csv !== undefined) return downloadCsv(e.target);
+  if (e.target.dataset.who !== undefined) return showWho(e.target);
   const saveBtn = e.target.closest("[data-save]");
   if (saveBtn) return saveLocal(saveBtn.dataset.save);
   const id = e.target.dataset.note, act = e.target.dataset.noteAct;
@@ -1463,6 +1491,150 @@ function settingBody(name, value, code) {
   return new URLSearchParams({[name]: String(value), code: String(code)});  // sent as a form, which the device reads
 }
 // ---- settings (end) ----
+
+// ---- drivers and cars (begin: tested by test/test_web.js) ----
+// The device's rules (include/Profiles.h): up to 8 in a list, a name is 1 to 20 bytes once trimmed
+// and unique in its list, a VIN is 17 characters without I, O or Q (kept in capitals), and you
+// can't remove the last one.
+const PROFILE_MAX = 8, PROFILE_NAME_LEN = 20, PROFILE_VIN_LEN = 17;
+
+// -> {ok, value} or {ok: false, error}. others: the other names in the list.
+function checkProfileName(text, others = []) {
+  const v = String(text).trim();
+  const bytes = new TextEncoder().encode(v).length;
+  if (!bytes) return {ok: false, error: "Type a name."};
+  if (bytes > PROFILE_NAME_LEN) return {ok: false, error: `A name is up to ${PROFILE_NAME_LEN} bytes (fewer letters with accents or emoji).`};
+  if (/[\x00-\x1f\x7f]/.test(v)) return {ok: false, error: "A name can't have control characters."};
+  if (others.some((o) => o.toLowerCase() === v.toLowerCase())) return {ok: false, error: "That name is already used."};
+  return {ok: true, value: v};
+}
+// -> {ok, value} ("" is fine: no VIN)
+function checkVin(text) {
+  const v = String(text).trim().toUpperCase();
+  if (!v) return {ok: true, value: ""};
+  if (v.length !== PROFILE_VIN_LEN || !/^[0-9A-HJ-NPR-Z]+$/.test(v))
+    return {ok: false, error: `A VIN is ${PROFILE_VIN_LEN} letters and digits, without I, O or Q.`};
+  return {ok: true, value: v};
+}
+// The form for POST /api/profiles: action (add, rename, remove, select, setVin), kind (driver, car);
+// f: {id, name, vin}
+function profileBody(action, kind, f, code) {
+  const b = new URLSearchParams({action, kind, code: String(code)});
+  if (f && f.id !== undefined) b.set("id", String(f.id));
+  if (f && f.name !== undefined) b.set("name", f.name);
+  if (f && f.vin !== undefined) b.set("vin", f.vin);
+  return b;
+}
+// "Dylan · Civic" from a session summary, or "" when it names neither
+function whoLabel(summary) {
+  const d = summary && typeof summary.driver === "string" ? summary.driver.trim() : "";
+  const c = summary && typeof summary.car === "string" ? summary.car.trim() : "";
+  return [d, c].filter(Boolean).join(" · ");
+}
+// ---- drivers and cars (end) ----
+
+// ---- drivers and cars: the card at the top of Settings ----
+let profilesNow = null;     // {drivers, cars, driver, car, vinSeen}
+let profEdit = null;        // {kind, id}: the name being renamed
+const KINDS = [["driver", "drivers", "Drivers"], ["car", "cars", "Cars"]];
+
+function renderProfiles() {
+  const p = profilesNow;
+  let html = "";
+  for (const [kind, key, title] of KINDS) {
+    const list = p[key], cur = p[kind];
+    html += `<div class="set"><div class="name">${title}</div>`;
+    for (const it of list) {
+      html += `<div class="prof">`;
+      if (profEdit && profEdit.kind === kind && profEdit.id === it.id) {
+        html += `<input data-pname value="${esc(it.name)}" aria-label="New name" maxlength="40">` +
+                `<button class="chip" data-pact="rename" data-kind="${kind}" data-id="${it.id}">Save</button>` +
+                `<button class="chip" data-pact="cancel">Cancel</button>`;
+      } else {
+        html += `<span class="pname${it.id === cur ? " cur" : ""}">${esc(it.name)}${it.id === cur ? ` <span class="tag">current</span>` : ""}</span>` +
+                (it.id === cur ? "" : `<button class="chip" data-pact="select" data-kind="${kind}" data-id="${it.id}">Use</button>`) +
+                `<button class="chip" data-pact="edit" data-kind="${kind}" data-id="${it.id}">Rename</button>` +
+                `<button class="chip" data-pact="remove" data-kind="${kind}" data-id="${it.id}"${list.length < 2 ? ` disabled title="Track Rat keeps at least one"` : ""}>Remove</button>`;
+      }
+      if (kind === "car") {
+        html += `<div class="vin"><input data-pvin="${it.id}" value="${esc(it.vin || "")}" placeholder="VIN (17 characters, optional)" maxlength="20" aria-label="VIN of ${esc(it.name)}" autocapitalize="characters">` +
+                `<button class="chip" data-pact="setVin" data-kind="car" data-id="${it.id}">Save VIN</button>`;
+        if (p.vinSeen && !p.cars.some((c) => c.vin === p.vinSeen))
+          html += `<button class="chip" data-pact="useVin" data-kind="car" data-id="${it.id}">Use the VIN Track Rat read: ${esc(p.vinSeen.slice(0, 8))}…</button>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+    if (list.length < PROFILE_MAX)
+      html += `<div class="addrow"><input data-padd="${kind}" placeholder="Add ${kind}" maxlength="40" aria-label="Add ${kind}">` +
+              `<button class="chip" data-pact="add" data-kind="${kind}">Add ${kind}</button></div>`;
+    html += `</div>`;
+  }
+  $("profilesCard").innerHTML = html;
+}
+
+function profilesMsg(text, bad) {
+  const m = $("profilesMsg");
+  m.className = bad ? "err" : "note";
+  m.textContent = text;
+}
+
+async function loadProfiles() {
+  try {
+    const r = await fetch("/api/profiles");
+    if (!r.ok) throw new Error();
+    profilesNow = await r.json();
+  } catch (e) {
+    $("profilesCard").innerHTML = `<p class="err">Couldn't read the drivers and cars.</p>`;
+    return;
+  }
+  profEdit = null;
+  renderProfiles();
+}
+
+async function changeProfiles(action, kind, f) {
+  const code = uploadCode || askCode("Change the drivers and cars?");
+  if (code === null) return;
+  const r = uploadResult(await post("/api/profiles", profileBody(action, kind, f, code)));
+  if (!r.ok) { profilesMsg(r.text || "Couldn't save that.", true); return; }
+  try { profilesNow = JSON.parse(r.text); } catch (e) { profilesMsg("Saved, but the reply was odd.", true); return; }
+  profEdit = null;
+  renderProfiles();
+  profilesMsg(action === "select" ? "Saved. It is used from the next session." : "Saved.");
+}
+
+$("profilesCard").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-pact]");
+  if (!b || !profilesNow) return;
+  const act = b.dataset.pact, kind = b.dataset.kind, id = +b.dataset.id;
+  const key = kind === "car" ? "cars" : "drivers";
+  const item = (profilesNow[key] || []).find((x) => x.id === id);
+  const row = b.closest(".prof, .addrow");
+  if (act === "cancel") { profEdit = null; renderProfiles(); return; }
+  if (act === "edit") { profEdit = {kind, id}; renderProfiles(); const i = $("profilesCard").querySelector("[data-pname]"); if (i) { i.focus(); i.select(); } return; }
+  if (act === "select") return changeProfiles("select", kind, {id});
+  if (act === "remove") {
+    if (confirm(`Remove ${item ? item.name : "it"}? Its best laps stay on the card but Track Rat stops using them.`)) changeProfiles("remove", kind, {id});
+    return;
+  }
+  if (act === "add" || act === "rename") {
+    const input = row.querySelector(act === "add" ? "[data-padd]" : "[data-pname]");
+    const others = profilesNow[key].filter((x) => act === "add" || x.id !== id).map((x) => x.name);
+    const c = checkProfileName(input.value, others);
+    if (!c.ok) { profilesMsg(c.error, true); return; }
+    return changeProfiles(act, kind, act === "add" ? {name: c.value} : {id, name: c.value});
+  }
+  if (act === "setVin" || act === "useVin") {
+    const c = checkVin(act === "useVin" ? profilesNow.vinSeen : row.querySelector("[data-pvin]").value);
+    if (!c.ok) { profilesMsg(c.error, true); return; }
+    return changeProfiles("setVin", "car", {id, vin: c.value});
+  }
+});
+$("profilesCard").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !e.target.matches("input")) return;
+  const b = e.target.parentElement.querySelector("button[data-pact]");
+  if (b) b.click();
+});
 
 let settingsNow = null;
 function renderSettings() {
