@@ -511,6 +511,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
   if (!track.hasStartFinish && !track.bench) centered("No start/finish line yet: set it on track", 170, Font::Caption, C_YELLOW);
   else if (pbMs) centered(pbText(), 168, Font::Body, C_PURPLE);
   else if (touchOk) centered("Tap the top bar for the menu", 170, Font::Caption, C_TEXT3);
+  if (driverCar[0]) centered(fit(driverCar, Font::Caption, W - 20), 185, Font::Caption, C_TEXT2);  // whose PB it is
 
   if (touchOk) footerButtons("‹", "Select", "›");
   else centered("BOOT: press for next, hold to select", 212, Font::Body, C_TEXT3);
@@ -548,6 +549,7 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   text(status, (W - pw) / 2 + 26, y + 13, Font::Body, C_TEXT, ML_DATUM);
 
   y = max(y + 40, 118);
+  if (driverCar[0] && track.layoutName.length()) y -= 8;  // room for whose PB it is
   if (autoStart) {
     centered("Starts by itself when you drive off", y, Font::Body, C_GREEN);
     if (track.hasStartFinish) {
@@ -563,7 +565,8 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
     centered("tap the screen as you cross it", y + 19, Font::Body, C_TEXT);
   }
   if (pbMs) centered(pbText(), y + 44, Font::Body, C_PURPLE);
-  else centered(String("Laps are saved to ") + Storage::sessionFSName(), y + 46, Font::Caption, C_TEXT3);
+  if (driverCar[0]) centered(fit(driverCar, Font::Caption, W - 20), y + 62, Font::Caption, C_TEXT2);
+  if (!pbMs) centered(String("Laps are saved to ") + Storage::sessionFSName(), y + 46, Font::Caption, C_TEXT3);
 
   if (touchOk) footerButtons(fromList ? "Back" : "Menu", "Start", track.bench ? "" : "Set line");
   else centered(fromList ? "BOOT: hold to start, press to go back" : "BOOT: hold to start, press for menu", 212, Font::Body, C_TEXT3);

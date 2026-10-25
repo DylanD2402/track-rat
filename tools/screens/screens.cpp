@@ -47,6 +47,7 @@ CameraBle::Status CameraBle::status() { return camStatus; }
 static bool coolantKnown = false, oilKnown = false;  // the engine's temperatures in the top bar (6.5)
 bool EngineData::coolant(uint32_t, float& c) { return coolantKnown && (c = obdValues.coolantC, true); }
 bool EngineData::oil(uint32_t, float& c) { return oilKnown && (c = obdValues.oilC, true); }
+bool EngineData::carValue(int, uint32_t, float&) { return false; }  // (the Engine data screen lists the car's own values)
 void Power::backlight(bool) {}
 static SettingsData mockSettings = [] {
   SettingsData s = settings::defaults();
@@ -208,6 +209,16 @@ int main(int argc, char** argv) {
   save(d, "07b_ready_autostart");
   d.drawTrackConfirm(layout, 2210, true, true, 0, 3, true, false);  // from the track list: Back
   save(d, "07c_ready_from_list");
+  d.setDriverCar("Dylan \xC2\xB7 Civic Type R");  // once there is more than one driver or car (8.5)
+  d.drawTrackConfirm(layout, 2210, true, true, 0, 3);
+  save(d, "07d_ready_driver_car");
+  d.drawTrackSelect(track, 24, 131, 2210, gps, true);
+  save(d, "06b_track_select_driver_car");
+  d.setPersonalBest(0, 0);
+  d.drawTrackConfirm(track, 40, true, true, 0, 1, false, false);  // a pair with no PB yet
+  save(d, "07e_ready_driver_car_no_pb");
+  d.setDriverCar("");
+  d.setPersonalBest(163611, 20260914);
 
   // --- a session: drive laps through the real lap timer ---
   LapTimer timer;
@@ -481,8 +492,20 @@ int main(int argc, char** argv) {
   sd.utcOffsetMin = 330;
   sd.bluetooth = true;
   const int64_t localNow = (int64_t)(14 * 3600 + 5 * 60) * 1000;
+  // Drivers and cars (8.5): three drivers and four cars, the first of each a name of its own
+  profiles::Book people;
+  people.rename(profiles::Kind::Driver, 1, "Dylan");
+  people.add(profiles::Kind::Driver, "Sam");
+  people.add(profiles::Kind::Driver, "Alex");
+  people.rename(profiles::Kind::Car, 1, "Civic Type R");
+  people.add(profiles::Kind::Car, "Miata");
+  people.add(profiles::Kind::Car, "Rental kart");
+  people.add(profiles::Kind::Car, "Club Corolla");
+  people.select(profiles::Kind::Driver, 2);
+  people.select(profiles::Kind::Car, 2);
   SettingsScreenState ui;
   ui.begin(true);
+  ui.setPeople(people);
   d.drawSettings(sd, ui, true, localNow);
   save(d, "30_settings_list");
   ui.drag(-150);  // a finger dragged up part way
@@ -494,18 +517,46 @@ int main(int argc, char** argv) {
   save(d, "30c_settings_list_bottom");
   SettingsScreenState boot;
   boot.begin(false);  // no touch: BOOT highlight, hint at the bottom
+  boot.setPeople(people);
   SettingsData scratch = sd;
   for (int i = 0; i < 3; i++) boot.handle(Key::BootShort, scratch);
   d.drawSettings(sd, boot, false, localNow);
   save(d, "31_settings_list_boot");
+  SettingsScreenState driverPage;  // the Driver page by touch, then the Car page by BOOT (eight names would scroll)
+  driverPage.begin(true);
+  driverPage.setPeople(people);
+  driverPage.tap(100, driverPage.rowScreenY(SettingsScreenState::rowOfItem(SettingItem::Driver)) + 10, scratch);
+  d.drawSettings(sd, driverPage, true, localNow);
+  save(d, "31b_settings_driver");
+  SettingsScreenState carPage;
+  carPage.begin(false);
+  carPage.setPeople(people);
+  carPage.handle(Key::BootShort, scratch);
+  carPage.handle(Key::BootLong, scratch);
+  carPage.handle(Key::BootShort, scratch);
+  d.drawSettings(sd, carPage, false, localNow);
+  save(d, "31c_settings_car_boot");
+  profiles::Book many = people;  // a full list: it scrolls under the top bar
+  for (int i = 0; many.cars.count < 8; i++) {
+    char n[24];
+    snprintf(n, sizeof(n), "Car %d", i + 5);
+    many.add(profiles::Kind::Car, n);
+  }
+  SettingsScreenState fullPage;
+  fullPage.begin(true);
+  fullPage.setPeople(many);
+  fullPage.tap(100, fullPage.rowScreenY(SettingsScreenState::rowOfItem(SettingItem::Car)) + 10, scratch);
+  fullPage.drag(-90);
+  d.drawSettings(sd, fullPage, true, localNow);
+  save(d, "31d_settings_car_eight");
   SettingsScreenState page;  // the Speed units page, then the GPS mode page (it has a long note)
   page.begin(true);
-  page.tap(100, page.rowScreenY(0) + 10, scratch);
+  page.tap(100, page.rowScreenY(SettingsScreenState::rowOfItem(SettingItem::Units)) + 10, scratch);
   d.drawSettings(sd, page, true, localNow);
   save(d, "32_settings_choice");
   SettingsScreenState gpsPage;
   gpsPage.begin(false);
-  for (int i = 0; i < 5; i++) gpsPage.handle(Key::BootShort, scratch);
+  for (int i = 0; i < SettingsScreenState::rowOfItem(SettingItem::Gps); i++) gpsPage.handle(Key::BootShort, scratch);
   gpsPage.handle(Key::BootLong, scratch);
   gpsPage.handle(Key::BootShort, scratch);
   d.drawSettings(sd, gpsPage, false, localNow);

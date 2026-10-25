@@ -6,14 +6,29 @@
 #include <ArduinoJson.h>
 #include "Config.h"
 #include "JsonFile.h"
+#include "ProfileStore.h"
 #include "Storage.h"
 
 namespace BestLapStore {
 
 static const char* DIR = "/tracks";
 
+// The track's folder, or the folder inside it for the current driver and car (Profiles.h): the first
+// driver with the first car keep the track's own, so laps from before drivers and cars stay theirs.
+static String trackDir(const String& trackId) { return String(DIR) + "/" + trackId; }
+static String pairDir(const String& trackId) {
+  const String sub = Profiles::pbFolder();
+  return sub.length() ? trackDir(trackId) + "/" + sub : trackDir(trackId);
+}
+static void makeDirs(fs::FS& fs, const String& trackId) {
+  if (!fs.exists(DIR)) fs.mkdir(DIR);
+  if (!fs.exists(trackDir(trackId))) fs.mkdir(trackDir(trackId));
+  const String dir = pairDir(trackId);
+  if (!fs.exists(dir)) fs.mkdir(dir);
+}
+
 static String pathFor(const String& trackId, Kind kind) {
-  return String(DIR) + "/" + trackId + (kind == Kind::Ever ? "/best.bin" : "/day.bin");
+  return pairDir(trackId) + (kind == Kind::Ever ? "/best.bin" : "/day.bin");
 }
 
 static bool readFile(fs::FS& fs, const String& path, bestlap::Record& out, bool withPath) {
@@ -52,9 +67,7 @@ bool load(const String& trackId, Kind kind, bestlap::Record& out, bool withPath)
 bool save(const String& trackId, Kind kind, const bestlap::Record& r) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs || trackId.length() == 0 || !r.valid()) return false;
-  const String dir = String(DIR) + "/" + trackId;
-  if (!fs->exists(DIR)) fs->mkdir(DIR);
-  if (!fs->exists(dir)) fs->mkdir(dir);
+  makeDirs(*fs, trackId);
 
   const String path = pathFor(trackId, kind);
   const String tmp = path + ".tmp";
@@ -75,7 +88,7 @@ bool save(const String& trackId, Kind kind, const bestlap::Record& r) {
   return true;
 }
 
-static String statsPath(const String& trackId) { return String(DIR) + "/" + trackId + "/stats.json"; }
+static String statsPath(const String& trackId) { return pairDir(trackId) + "/stats.json"; }
 
 bool loadStats(const String& trackId, Stats& out) {
   out = Stats();
@@ -104,9 +117,7 @@ bool loadStats(const String& trackId, Stats& out) {
 bool saveStats(const String& trackId, const Stats& s) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs || trackId.length() == 0) return false;
-  const String dir = String(DIR) + "/" + trackId;
-  if (!fs->exists(DIR)) fs->mkdir(DIR);
-  if (!fs->exists(dir)) fs->mkdir(dir);
+  makeDirs(*fs, trackId);
   DynamicJsonDocument doc(1024 + s.sectorGates.size() * 96 + (s.sectorBestMs.size() + s.daySectorBestMs.size()) * 16);
   JsonArray gates = doc.createNestedArray("sectorGates");
   for (const geo::XY& g : s.sectorGates) {

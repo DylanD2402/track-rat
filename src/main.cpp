@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include "AutoStart.h"
 #include "BestLapStore.h"
+#include "ProfileStore.h"
 #include "Config.h"
 #include "DisplayManager.h"
 #include "FirmwareUpdate.h"
@@ -488,6 +489,10 @@ static std::vector<geo::XYf> lapPath(const std::vector<LapTimer::TracePt>& trace
 static void enterState(AppState next) {
   DEBUG_PRINTF("State: %s -> %s\n", STATE_NAMES[(int)state], STATE_NAMES[(int)next]);
 
+  // A session's laps and files go with the driver and car it started with, even if they are changed meanwhile
+  const bool sessionNext = next == AppState::Running || next == AppState::FreeRoam || next == AppState::Performance;
+  if (sessionNext) Profiles::lockSession();
+
   if (next == AppState::Running) {
     const Track& t = selectedTrack();
     gps.setSimulated(t.bench);
@@ -593,6 +598,8 @@ static void enterState(AppState next) {
   } else if (state == AppState::Wifi) {
     WifiPortal::stop();
   }
+
+  if (!sessionNext) Profiles::unlockSession();  // (the summaries and best laps above were saved under the session's pair)
 
   state = next;
   lastRender = 0;  // redraw now
@@ -1037,6 +1044,7 @@ static void chooseMenuItem(int item) {
       break;
     case 4:
       settingsUi.begin(input.touchAvailable());
+      settingsUi.setPeople(Profiles::get());
       enterState(AppState::SettingsScreen);
       break;
     case 5:
@@ -1240,12 +1248,15 @@ static void handleInput(InputEvent ev) {
 
     case AppState::SettingsScreen: {
       SettingsData s = Settings::get();
+      settingsUi.setPeople(Profiles::get());
       const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
       SettingsScreenState::Result r = tapped ? settingsUi.tap(input.lastTapX(), input.lastTapY(), s)
                                              : settingsUi.handle(toKey(ev), s);
       if (r == SettingsScreenState::Result::Changed) {
         Settings::set(s);
         applySettings();
+      } else if (r == SettingsScreenState::Result::Pick) {  // takes effect at the next session
+        Profiles::select(settingsUi.pickKind, settingsUi.pickId);
       } else if (r == SettingsScreenState::Result::Exit) {
         enterState(AppState::Menu);
       } else if (r == SettingsScreenState::Result::PowerOff) {
@@ -1325,6 +1336,14 @@ static void handleInput(InputEvent ev) {
 
 // The selected track's PB, for the track list and Ready screen
 static void showPersonalBest() {
+  static uint32_t peopleSeen = 0xFFFFFFFF;
+  if (Profiles::changeCount() != peopleSeen) {  // another driver or car: their PBs are in other files
+    peopleSeen = Profiles::changeCount();
+    pbCache.clear();
+  }
+  char who[48] = "";
+  if (Profiles::showLabel()) Profiles::label(who, sizeof(who));
+  display.setDriverCar(who);
   uint32_t ms, date;
   personalBestFor(selectedIndex, ms, date);
   display.setPersonalBest(ms, date);
@@ -1415,6 +1434,7 @@ static void render() {
       }
       break;
     case AppState::SettingsScreen:
+      settingsUi.setPeople(Profiles::get());  // (the car may have been picked by its VIN meanwhile)
       display.drawSettings(Settings::get(), settingsUi, input.touchAvailable(),
                            gps.hasFix() ? (int64_t)settings::localTimeOfDayMs(gps.lastFix().gpsTimeMs,
                                                                                Settings::get().utcOffsetMin)
@@ -1648,6 +1668,7 @@ void setup() {
   Power::begin();
   gps.wake();  // a GPS the last sleep left in standby: it has the rest of setup() to start up
   Settings::begin();  // before the display: it starts the right way up, at the saved brightness
+  Profiles::begin();  // the drivers and cars: before the screens that show them and the OBD adapter that may pick one
   Power::setBrightness(Settings::get().brightness);
   display.begin();
   display.startSplash();  // plays on the other core while the rest of setup runs
@@ -1855,6 +1876,7 @@ void loop() {
     wasRetiming = retiming;
   }
   if (Settings::changeCount() != settingsApplied) applySettings();  // e.g. changed on the Wi-Fi page
+  Profiles::applyVin();  // the adapter has reported the car's VIN: that car, from the next session on
 
   Power::update(now);
   display.setBatteryPercent(Power::batteryPercent());

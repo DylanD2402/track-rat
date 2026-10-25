@@ -79,6 +79,9 @@ public:
     pbMs = lapMs;
     pbDate = date;
   }
+  // The same two screens show "driver · car" under the PB once there is a choice of either (Profiles.h):
+  // set it first ("" = none).
+  void setDriverCar(const char* label) { snprintf(driverCar, sizeof(driverCar), "%s", label); }
   void drawTrackSelect(const Track& track, int index, int count, double distanceM, const GPSHandler& gps,
                        bool touchOk);
   // layoutNumber is 0-based; layoutCount > 1 offers "tap the top bar for the next layout".
@@ -161,6 +164,7 @@ public:
 
 private:
   uint32_t pbMs = 0, pbDate = 0;  // setPersonalBest
+  char driverCar[48] = "";        // setDriverCar
   String sessionClock;             // setSessionClock
   bool sessionClockEnding = false;
   String pbText() const;          // "PB 1:42.345  ·  19 Oct 2026"
@@ -211,6 +215,7 @@ private:
   // Settings (DisplaySettings.cpp)
   void settingsList(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
   void settingsChoicePage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
+  void settingsPickPage(const SettingsScreenState& ui, bool touchOk);
   void settingsLevelPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk, int64_t localMs);
   void settingsCoolantPage(const SettingsData& s, const SettingsScreenState& ui, bool touchOk);
   void settingsPowerOffPage(bool touchOk);

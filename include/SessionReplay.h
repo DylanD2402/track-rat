@@ -69,6 +69,8 @@ public:
   FreeRoam drive;
   std::string trackId, trackName, stamp;
   int session = 0;               // "Session N" of the day at the track, 0 if the log doesn't say
+  std::string driver, car;       // who drove, if the log says (a log from before drivers and cars doesn't)
+  int driverId = 0, carId = 0;   // their ids (0: the log doesn't say)
   const vbo::Reader& reader() const { return rdr; }
 
 private:

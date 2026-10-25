@@ -10,6 +10,10 @@ void SessionReplay::setUpFromHeader() {
   setUp = true;
   stamp = rdr.comment("Started");
   session = atoi(rdr.comment("Session").c_str());
+  driver = rdr.comment("Driver");
+  car = rdr.comment("Car");
+  driverId = atoi(rdr.comment("Driver id").c_str());
+  carId = atoi(rdr.comment("Car id").c_str());
   freeRoam = rdr.comment("Type") == "freeroam";
   if (freeRoam) {
     drive.start(0);

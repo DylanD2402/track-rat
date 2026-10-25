@@ -47,6 +47,11 @@ bool save(const String& path, const String& stamp, const perf::PerfRun& runs) {
   DynamicJsonDocument doc(2048 + results.size() * 1024);
   doc["type"] = "performance";
   doc["started"] = stamp;
+  const SessionLog::Who who = SessionLog::currentWho();
+  doc["driver"] = who.driver;
+  doc["car"] = who.car;
+  doc["driverId"] = who.driverId;
+  doc["carId"] = who.carId;
   doc["runCount"] = results.size();
 
   JsonArray arr = doc.createNestedArray("runs");

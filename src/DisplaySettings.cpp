@@ -139,6 +139,8 @@ void DisplayManager::settingsList(const SettingsData& s, const SettingsScreenSta
         } else if (rw.item == SettingItem::Camera) {
           const CameraBle::Status st = CameraBle::status();
           snprintf(buf, sizeof(buf), "%s", st.connected ? "Connected" : st.configured ? st.name : "None");
+        } else if (rw.item == SettingItem::Driver || rw.item == SettingItem::Car) {  // the lists, not a setting
+          snprintf(buf, sizeof(buf), "%s", rw.item == SettingItem::Driver ? ui.people.driverName() : ui.people.carName());
         } else {
           settings::valueText(s, rw.item, buf, sizeof(buf));
         }
@@ -184,6 +186,32 @@ void DisplayManager::settingsChoicePage(const SettingsData& s, const SettingsScr
   }
   wrappedCaption(settings::itemNote(ui.item), UI::CARD_X + 14, UI::CHOICE_TOP + n * UI::ROW_H + 8, UI::CARD_W - 28, C_TEXT2, false);
 
+  header("‹  Settings", nullptr);
+  text(UI::rowLabel(ui.item), W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+  if (!touchOk) settingsHint("BOOT: press for next, hold to choose");
+}
+
+// Driver and Car: the names in a card, the current one ticked. Up to 8, so it scrolls under the top bar.
+void DisplayManager::settingsPickPage(const SettingsScreenState& ui, bool touchOk) {
+  const int n = ui.pickCount();
+  const profiles::List& l = ui.pickList();
+  gfx->fillRoundRect(UI::CARD_X, ui.pickRowY(0), UI::CARD_W, n * UI::ROW_H, CORNER, C_SURFACE);
+  for (int i = 0; i < n; i++) {
+    const int ry = ui.pickRowY(i), cy = ry + UI::ROW_H / 2;
+    const bool hl = ui.showHighlight && ui.choiceHl == i;
+    if (hl) rowHighlight(gfx, ry);
+    else if (i > 0 && !(ui.showHighlight && ui.choiceHl == i - 1))
+      gfx->drawFastHLine(UI::CARD_X + 14, ry, UI::CARD_W - 14, C_LINE);
+    if (cy < 0 || cy >= UI::SCREEN_H) continue;
+    text(fit(l.items[i].name, Font::Body, UI::CARD_W - 60), UI::CARD_X + 14, cy, Font::Body, C_TEXT, ML_DATUM);
+    if (l.items[i].id == l.current) drawCheck(gfx, UI::CARD_X + UI::CARD_W - 24, cy, C_TEXT);
+  }
+  const bool cars = ui.item == SettingItem::Car;
+  wrappedCaption(cars ? "Best laps are kept for each car. A change applies from the next session. Cars are added on the Wi-Fi page."
+                      : "Best laps are kept for each driver. A change applies from the next session. Drivers are added on the Wi-Fi page.",
+                 UI::CARD_X + 14, ui.pickRowY(n) + 8, UI::CARD_W - 28, C_TEXT2, false);
+
+  gfx->fillRect(0, 0, W, UI::CHOICE_TOP, C_BG);  // the names scroll under the top bar
   header("‹  Settings", nullptr);
   text(UI::rowLabel(ui.item), W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
   if (!touchOk) settingsHint("BOOT: press for next, hold to choose");
@@ -286,6 +314,7 @@ void DisplayManager::drawSettings(const SettingsData& s, const SettingsScreenSta
   beginFrame();
   if (ui.page == UI::Page::List) settingsList(s, ui, touchOk);
   else if (ui.page == UI::Page::Choice) settingsChoicePage(s, ui, touchOk);
+  else if (ui.page == UI::Page::Pick) settingsPickPage(ui, touchOk);
   else if (ui.page == UI::Page::Coolant) settingsCoolantPage(s, ui, touchOk);
   else if (ui.page == UI::Page::PowerOff) settingsPowerOffPage(touchOk);
   else settingsLevelPage(s, ui, touchOk, localMs);

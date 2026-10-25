@@ -33,12 +33,22 @@ void begin();
 // empty if the GPS date is unknown. "" if there's no storage.
 String newSessionBase(const String& stamp, const String& name);
 
+// Who drove (Profiles.h): the driver and car a session is recorded under. They go into the summary
+// ("driver", "car", "driverId", "carId") and the log's comments. 0 and "": not known, as for a log
+// from before drivers and cars, which is then left out.
+struct Who {
+  int driverId = 0, carId = 0;
+  String driver, car;
+};
+Who currentWho();  // the session's pair, or the current one if no session is running
+
 // The lap summary, with each lap's tags (LapTags.h). `session` is its
 // number that day at the track (0: not known). `logName` is the session's
 // .vbo file name ("" if none); `finished` marks a session that was ended,
-// not just saved after a lap.
+// not just saved after a lap. `who` is whoever drove (nullptr: currentWho(); a session built again
+// from its log passes the log's own).
 bool save(const String& path, const Track& track, const String& stamp, int session, const LapTimer& timer,
-          const String& logName, bool finished, bool recovered = false);
+          const String& logName, bool finished, bool recovered = false, const Who* who = nullptr);
 
 // A DJI camera started recording during the session whose summary is at path:
 // its GPS time ("2026-10-20T14:03:12.350Z"). Saved with the summary as
@@ -51,7 +61,7 @@ bool addSyncFlash(const String& path, const String& utc);
 // Free Roam summary: time, distance and speeds. Includes the route (a point
 // every ~10 m) only when there's no full log.
 bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive, uint32_t durationMs,
-                  const String& logName, bool recovered = false);
+                  const String& logName, bool recovered = false, const Who* who = nullptr);
 
 // --- Full-rate log (.vbo) ---------------------------------------------------
 

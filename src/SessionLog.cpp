@@ -16,6 +16,7 @@
 #include "JsonFile.h"
 #include "LogWriter.h"
 #include "BestLapStore.h"
+#include "ProfileStore.h"
 #include "Retime.h"
 #include "SessionReplay.h"
 #include "Storage.h"
@@ -151,10 +152,28 @@ bool addSyncFlash(const String& path, const String& utc) {
   return writeJsonFile(*fs, path, doc, true) > 0;
 }
 
+Who currentWho() {
+  const Profiles::Active a = Profiles::active();
+  Who w;
+  w.driverId = a.driverId;
+  w.carId = a.carId;
+  w.driver = a.driver;
+  w.car = a.car;
+  return w;
+}
+
+static void putWho(JsonDocument& doc, const Who& w) {
+  if (w.driver.length()) doc["driver"] = w.driver;
+  if (w.car.length()) doc["car"] = w.car;
+  if (w.driverId) doc["driverId"] = w.driverId;
+  if (w.carId) doc["carId"] = w.carId;
+}
+
 bool save(const String& path, const Track& track, const String& stamp, int session, const LapTimer& timer,
-          const String& logName, bool finished, bool recovered) {
+          const String& logName, bool finished, bool recovered, const Who* who) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs || path.length() == 0) return false;
+  const Who driven = who ? *who : currentWho();
 
   size_t splitTimes = 0;
   for (size_t i = 0; i < timer.lapCount(); i++) splitTimes += timer.lap(i).splitMs.size() + timer.lap(i).sectorMs.size();
@@ -164,6 +183,7 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
   if (track.layoutName.length()) doc["layout"] = track.layoutName;
   doc["started"] = stamp;
   if (session > 0) doc["session"] = session;
+  putWho(doc, driven);
   if (logName.length()) doc["log"] = logName;
   doc["finished"] = finished;
   if (recovered) doc["recovered"] = true;
@@ -214,9 +234,10 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
 }
 
 bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive, uint32_t durationMs,
-                  const String& logName, bool recovered) {
+                  const String& logName, bool recovered, const Who* who) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs || path.length() == 0 || (!drive.hasPosition() && logName.length() == 0)) return false;
+  const Who driven = who ? *who : currentWho();
 
   const bool withRoute = logName.length() == 0;  // the full log has the route at every fix
   const size_t step = max((size_t)1, (size_t)(10.0f / FreeRoam::MIN_POINT_SPACING_M));
@@ -224,6 +245,7 @@ bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive
   DynamicJsonDocument doc(4096 + points * 80);  // a [lat, lon] pair takes up to 71 bytes
   doc["type"] = "freeroam";
   doc["started"] = stamp;
+  putWho(doc, driven);
   if (logName.length()) doc["log"] = logName;
   doc["finished"] = true;
   if (recovered) doc["recovered"] = true;
@@ -276,6 +298,11 @@ static vbo::Header headerFor(const String& stamp, const GpsFix& first) {
   h.utcMs = first.gpsTimeMs;
   h.comments.push_back("Track Rat GPS lap timer");
   h.comments.push_back(std::string("Started: ") + stamp.c_str());
+  const Who w = currentWho();  // the session's driver and car; the ids let it be built again from the log
+  h.comments.push_back(std::string("Driver: ") + w.driver.c_str());
+  h.comments.push_back(std::string("Car: ") + w.car.c_str());
+  h.comments.push_back("Driver id: " + std::to_string(w.driverId));
+  h.comments.push_back("Car id: " + std::to_string(w.carId));
   return h;
 }
 
@@ -471,6 +498,16 @@ static bool validJson(fs::FS& fs, const String& path) {
   return !err;
 }
 
+// Whoever the log says drove: nobody for a log from before drivers and cars
+static Who whoOf(const SessionReplay& r) {
+  Who w;
+  w.driverId = r.driverId;
+  w.carId = r.carId;
+  w.driver = r.driver.c_str();
+  w.car = r.car.c_str();
+  return w;
+}
+
 // Replays a log through the lap timer (or Free Roam) and writes its summary.
 static void recoverSession(fs::FS& fs, const String& vboPath) {
   File f = fs.open(vboPath, "r");
@@ -510,13 +547,15 @@ static void recoverSession(fs::FS& fs, const String& vboPath) {
   String logName = fileName(vboPath);
   bool ok;
   if (replay->freeRoam) {
-    ok = saveFreeRoam(base + ".json", stamp, replay->drive, replay->durationMs, logName, true);
+    const Who who = whoOf(*replay);
+    ok = saveFreeRoam(base + ".json", stamp, replay->drive, replay->durationMs, logName, true, &who);
   } else {
     Track track;
     if (const Track* known = recoveryTrack(replay->trackId)) track = *known;
     track.id = replay->trackId.c_str();
     if (replay->trackName.size()) track.name = replay->trackName.c_str();
-    ok = save(base + ".json", track, stamp, replay->session, replay->timer, logName, true, true);
+    const Who who = whoOf(*replay);
+    ok = save(base + ".json", track, stamp, replay->session, replay->timer, logName, true, true, &who);
   }
   const Lap* best = replay->timer.bestLap();
   DEBUG_PRINTF("Session: %s %s from its log: %lu fixes, %u laps%s%s%s%s, %lu bad lines%s (%lu ms)\n",
@@ -678,6 +717,7 @@ static void retimeAll(fs::FS& fs) {
   std::vector<retime::Found> found;
   bestlap::Record pb, day;
   int laps = 0;
+  const Who pair = currentWho();
   for (size_t i = 0; i < chosen.size(); i++) {
     const String& log = chosen[i];
     const String base = withoutExt(log, ".vbo");
@@ -698,8 +738,15 @@ static void retimeAll(fs::FS& fs) {
     replay->finish();
     if (replay->freeRoam) continue;
 
-    save(base + ".json", t, replay->stamp.c_str(), replay->session, replay->timer, fileName(log), true);
+    const Who who = whoOf(*replay);
+    save(base + ".json", t, replay->stamp.c_str(), replay->session, replay->timer, fileName(log), true, false, &who);
     laps += (int)replay->timer.lapCount();
+    // The best laps are kept per driver and car: only this pair's sessions count (a log from before
+    // drivers and cars was the first driver's with the first car)
+    if ((replay->driverId ? replay->driverId : 1) != pair.driverId || (replay->carId ? replay->carId : 1) != pair.carId) {
+      DEBUG_PRINTF("Re-time: %s: another driver or car - its best laps are not counted\n", fileName(log).c_str());
+      continue;
+    }
 
     bestlap::Record rec = recordOf(*replay, t);
     retime::Found fd;
