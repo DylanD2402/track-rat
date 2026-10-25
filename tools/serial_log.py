@@ -46,12 +46,18 @@ def open_quiet(port, baud, wait_s=8.0):
 
 
 def restart_board(port, baud):
-    """Normal reset through the USB serial/JTAG controller: RTS pulse with DTR off."""
+    """Normal reset through the USB serial/JTAG controller: RTS pulse with DTR off.
+
+    Windows' usbser.sys only sends the board a line-state change when DTR is set, so DTR is set
+    again after each RTS change (as esptool does); without it the RTS pulse never arrives.
+    """
     s = open_quiet(port, baud)
     s.dtr = False
     s.rts = True
+    s.dtr = False
     time.sleep(0.1)
     s.rts = False
+    s.dtr = False
     s.close()
     time.sleep(0.3)  # let the USB port drop before reconnecting
 
