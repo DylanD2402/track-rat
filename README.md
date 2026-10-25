@@ -132,7 +132,9 @@ The board resets itself before and after uploading, so no buttons are needed. On
 | Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
 | Settings | tap a row, drag to scroll, top bar: back (to the menu from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value (past the top it goes round to just above the limit below it), hold goes to the next, and back after the last) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
-| Any screen | Settings → **Power off**; when it's off, a tap turns it back on | hold 3 s: [power off](#battery-power-off-and-sleep) (BOOT only, not the big button; the 1 s hold does its own job on the way). When it's off, a press turns it back on |
+| Any screen | Settings → **Power off**; when it's off, a tap turns it back on | hold 3 s: [power off](#battery-power-off-and-sleep) (BOOT only, not the big button). When it's off, a press turns it back on |
+
+**A BOOT hold acts when you let go:** hold it for a second, then let go (before 2 s) to choose, start or end. Held on past 2 s it's switching off instead, so holding to switch off never starts anything on the way, and letting go before the bar is full does nothing at all. The big button acts as soon as it has been held 1 s.
 
 While timing, the screen is built to be read in one glance, top to bottom:
 
@@ -285,7 +287,7 @@ Two optional add-ons on the expansion header. Both are off the screen, so they w
 
 ### Button
 
-The button does exactly what BOOT does: a short press is "next / switch view" and a hold of 1 s is "select / start / end the session". See the BOOT column in the table under "Using it".
+The button does what BOOT does: a short press is "next / switch view" and a hold of 1 s is "select / start / end the session". See the BOOT column in the table under "Using it". Unlike BOOT, its hold acts as soon as it reaches 1 s, while still held, and it never switches the unit off.
 
 ### LED bar
 
@@ -605,7 +607,7 @@ Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit
 - **No battery fitted:** a reading under 2.5 V, or over 4.23 V (the charger holds an empty socket at about 4.2 V), for 5 s in a row counts as "no battery". If a missing battery still shows a percentage, or a full one disappears, adjust `BATTERY_PRESENT_MAX_MV`. The serial log prints the readings every 10 s.
 - **Low battery:** at 3.30 V or below for 10 s, Track Rat saves the session, shows **BATTERY LOW** for 5 s, then goes to sleep. Charge it, then touch the screen or press BOOT.
 
-**Power off:** hold BOOT for 3 s on any screen, or use **Settings → Power off** (it asks first). From 1.5 s a **POWER OFF** bar fills; let go before it's full and nothing happens. The 1 s hold does its usual job on the way (ending a session, say), and then **POWER OFF** shows while it saves whatever is running, the same as ending it. A DJI camera recording with the session stops too. Then the screen goes dark: let go of BOOT.
+**Power off:** hold BOOT for 3 s on any screen, or use **Settings → Power off** (it asks first). From 2 s a **POWER OFF** bar fills; let go before it's full and nothing happens. Nothing else happens on the way either: BOOT's 1 s hold only acts when it's let go before 2 s. **POWER OFF** shows while it saves whatever is running, the same as ending it. A DJI camera recording with the session stops too. Then the screen goes dark: let go of BOOT.
 
 **Turning it back on:** tap the screen, like a phone's tap to wake, or press BOOT. It starts up as it does after auto-sleep: the logo, then the GPS, which has its fix a second or so later.
 
@@ -824,7 +826,7 @@ What a driver chooses (units, brightness and so on) is a [setting](#settings), c
 | `AUTO_SLEEP_IDLE_MS` | 20 minutes | Parked and untouched this long: backlight off |
 | `AUTO_SLEEP_DEEP_AFTER_MS` | 60 s | Backlight off this long: deep sleep |
 | `AUTO_SLEEP_MOVING_KMH` | 5 | At or above this speed the car counts as moving |
-| `POWER_OFF_HOLD_MS`, `POWER_OFF_BAR_MS` | 3000, 1500 | Holding BOOT this long switches off; its bar shows from this long |
+| `POWER_OFF_HOLD_MS`, `POWER_OFF_BAR_MS` | 3000, 2000 | Holding BOOT this long switches off; its bar shows from this long. A BOOT hold let go before the bar is a 1 s hold |
 | `GPS_STANDBY_IN_SLEEP` | 1 | The GPS goes into standby while the board sleeps or is off. 0 = it keeps tracking (about 20 mA) |
 | `GPS_ASSISTNOW_AUTONOMOUS` | 1 | The GPS predicts satellite orbits 3 to 6 days ahead, for quick fixes after days off. 0 = leave it off |
 | `FIRMWARE_FILE` | `/trackrat.bin` | File on the SD card offered as a firmware update |
@@ -1036,7 +1038,7 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 
 **On Windows** without g++, the `ziglang` Python package has a C++ compiler that needs no install: `pip install ziglang`, then use `python -m ziglang c++` in place of `g++`, add `-D_USE_MATH_DEFINES`, and write the output to a `.exe`.
 
-`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), a BOOT press (a tap, the 1 s hold, the 3 s hold that switches off, and the press that woke the board doing nothing), and that firmware files, from the SD card or sent over Wi-Fi in chunks of any size, are accepted only if they're an ESP32-S3 app image:
+`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), a BOOT press (a tap, a hold that acts when let go before 2 s, one held on to switch off doing nothing else, the big button's hold acting at 1 s, and the press that woke the board doing nothing), and that firmware files, from the SD card or sent over Wi-Fi in chunks of any size, are accepted only if they're an ESP32-S3 app image:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw

@@ -33,7 +33,7 @@ Expected:
 8. Hold the screen for 2 s. A progress bar fills, then the **summary** appears and lists your laps.
 9. If you have an SD card in, look for `/sessions/SIM_..._bench.json` and `SIM_..._bench.vbo` on it. The `.vbo` opens in Racelogic's Circuit Tools (see "Session logs" in the README).
 
-The **BOOT** button also works on every screen: press = next/back, hold 1 s = select/start/end.
+The **BOOT** button also works on every screen: press = next/back, hold 1 s and let go = select/start/end.
 
 ## 2. GPS link: real build, indoors is fine
 
@@ -94,7 +94,7 @@ Needs a 3.7 V LiPo in the battery socket for the battery steps.
 2. **No battery.** Unplug the battery (USB connected). The log should say `Battery: none fitted` and the top bar shows no percentage. If it still shows one, send the `pin ... mV` figure from the log.
 3. **Auto-sleep.** To avoid waiting 20 minutes, set `AUTO_SLEEP_IDLE_MS` to `30000` and `AUTO_SLEEP_DEEP_AFTER_MS` to `10000`, flash, and leave the board alone. The backlight goes off after 30 s and the log says `deep sleep` 10 s later. Touch the screen: the board restarts. Sleep it again and press BOOT: same. Set the two values back afterwards.
 4. **Low battery.** With a partly charged battery, set `BATTERY_LOW_MV` just above the logged battery voltage and flash. After 10 s the screen should say **BATTERY LOW** and then go to sleep. Set it back to `3300`.
-5. **Power off.** Outdoors with a fix, hold BOOT: at 1.5 s a **POWER OFF** bar fills; let go before it's full and you're back where you were. Hold it to the end: **POWER OFF** shows, the screen goes dark, and the log says `GPS: standby` and `Power: off`. Tap the screen: it starts up (the log says `started by touch`) and should have a fix within a few seconds of the logo, not the half minute of a cold start. Try **Settings → Power off** too: Cancel goes back, Power off switches off; this time press BOOT to turn it on (`started by BOOT button`).
+5. **Power off.** Outdoors with a fix, on the menu, hold BOOT: at 2 s a **POWER OFF** bar fills; let go before it's full and you're back on the menu, with nothing started. Hold it to the end (still nothing started on the way: no Free Roam in the log): **POWER OFF** shows, the screen goes dark, and the log says `GPS: standby` and `Power: off`. Tap the screen: it starts up (the log says `started by touch`) and should have a fix within a few seconds of the logo, not the half minute of a cold start. Try **Settings → Power off** too: Cancel goes back, Power off switches off; this time press BOOT to turn it on (`started by BOOT button`).
 6. **Current while off.** With a multimeter in series with the battery's + lead (USB unplugged), note the current while running, after Power off, and with `GPS_STANDBY_IN_SLEEP` set to `0` (the GPS keeps tracking). Send the figures: they say how long a charge lasts switched off.
 7. **SD update.** Build, copy `.pio/build/es3c28p/firmware.bin` to the SD card root as `trackrat.bin`, put the card in and reset. Tap **INSTALL**. After the progress bar the board restarts, and the card now has `trackrat.installed.bin` instead. Also try a wrong file (rename any text file to `trackrat.bin`): it should be refused.
 

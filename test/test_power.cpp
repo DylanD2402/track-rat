@@ -535,8 +535,8 @@ static void testNoisyAndFloating() {
   printf("  noisy readings, floating charger, garbage readings and charging all behave\n");
 }
 
-// Same numbers as include/Config.h: LONG_PRESS_MS, POWER_OFF_HOLD_MS
-static const uint32_t LONG_MS = 1000, OFF_MS = 3000;
+// Same numbers as include/Config.h: LONG_PRESS_MS, POWER_OFF_BAR_MS, POWER_OFF_HOLD_MS
+static const uint32_t LONG_MS = 1000, BAR_MS = 2000, OFF_MS = 3000;
 
 // Holds the button from `from` to `to` (polled every 20 ms like InputManager), counting what it gives
 struct PressLog {
@@ -555,45 +555,64 @@ static PressLog press(ButtonPress& b, uint32_t from, uint32_t to, uint32_t until
 }
 
 static void testButtonPress() {
+  // BOOT: its long press comes when it's let go, between 1 s and the power-off bar
   {  // a tap: Short when it's let go, and never long enough to switch off
-    ButtonPress b(LONG_MS);
+    ButtonPress b(LONG_MS, BAR_MS);
     b.begin(false, 0);
     const PressLog p = press(b, 100, 300, 2000);
     CHECK(p.shorts == 1 && p.longs == 0 && !p.offAt, "tap: %d short %d long", p.shorts, p.longs);
     CHECK(b.heldMs(2000) == 0, "nothing held after it");
   }
   {  // contact bounce: under 30 ms gives nothing
-    ButtonPress b(LONG_MS);
+    ButtonPress b(LONG_MS, BAR_MS);
     b.begin(false, 0);
     CHECK(b.update(true, 100) == ButtonPress::Event::None && b.update(false, 120) == ButtonPress::Event::None, "a 20 ms blip");
   }
-  {  // a 1.5 s hold: Long at 1 s while still held, nothing when it's let go, no power off
-    ButtonPress b(LONG_MS);
+  {  // held 1.5 s: nothing while held, Long when it's let go
+    ButtonPress b(LONG_MS, BAR_MS);
     b.begin(false, 0);
     const PressLog p = press(b, 100, 1600, 4000);
-    CHECK(p.longs == 1 && p.shorts == 0 && p.longAt == 1100 && !p.offAt, "1.5 s hold: long at %u ms", (unsigned)p.longAt);
+    CHECK(p.longs == 1 && p.shorts == 0 && p.longAt == 1600 && !p.offAt, "1.5 s hold: long at %u ms, when let go", (unsigned)p.longAt);
   }
-  {  // held 3 s: Long at 1 s on the way, then the hold reaches the power-off time
-    ButtonPress b(LONG_MS);
+  {  // either side of the bar: let go at 1.9 s is a Long, at 2.1 s (the bar showing) nothing at all
+    ButtonPress b(LONG_MS, BAR_MS);
+    b.begin(false, 0);
+    PressLog p = press(b, 100, 2000, 3000);
+    CHECK(p.longs == 1 && p.shorts == 0, "let go at 1.9 s: %d long", p.longs);
+    p = press(b, 3100, 5200, 6000);
+    CHECK(p.longs == 0 && p.shorts == 0 && !p.offAt, "let go at 2.1 s: nothing (%d long %d short)", p.longs, p.shorts);
+  }
+  {  // held on to switch off: no Long on the way (on the menu it would start Free Roam), and none after
+    ButtonPress b(LONG_MS, BAR_MS);
     b.begin(false, 0);
     const PressLog p = press(b, 100, 5000, 6000);
-    CHECK(p.longs == 1 && p.longAt == 1100 && p.offAt == 3100 && p.shorts == 0, "3 s hold: long at %u, off at %u",
-          (unsigned)p.longAt, (unsigned)p.offAt);
+    CHECK(p.longs == 0 && p.shorts == 0 && p.offAt == 3100, "3 s hold: off at %u, %d long", (unsigned)p.offAt, p.longs);
     CHECK(b.heldMs(6000) == 0, "nothing held once let go");
     b.update(true, 7000);
     b.update(true, 9000);
     CHECK(b.heldMs(9500) == 2500, "held 2.5 s: %u", (unsigned)b.heldMs(9500));
   }
   {  // held through start-up (the press that woke the board): ignored until let go, then normal again
-    ButtonPress b(LONG_MS);
+    ButtonPress b(LONG_MS, BAR_MS);
     b.begin(true, 0);
     PressLog p = press(b, 0, 4000, 5000);
     CHECK(p.shorts == 0 && p.longs == 0 && !p.offAt, "the waking press: %d short %d long, off at %u", p.shorts, p.longs, (unsigned)p.offAt);
     p = press(b, 5100, 5300, 6000);
     CHECK(p.shorts == 1, "the next press counts");
     b.begin(true, 7000);
-    p = press(b, 7000, 7040, 8000);
-    CHECK(p.shorts == 0, "let go at once: still nothing");
+    p = press(b, 7000, 8500, 9000);
+    CHECK(p.shorts == 0 && p.longs == 0, "a waking press let go after 1.5 s: still nothing");
+  }
+  // The big button: its long press fires at 1 s, still held
+  {
+    ButtonPress b(LONG_MS);
+    b.begin(false, 0);
+    PressLog p = press(b, 100, 300, 1000);
+    CHECK(p.shorts == 1 && p.longs == 0, "big button tap");
+    p = press(b, 1100, 2600, 4000);
+    CHECK(p.longs == 1 && p.shorts == 0 && p.longAt == 2100, "big button 1.5 s hold: long at %u ms, still held", (unsigned)p.longAt);
+    p = press(b, 4100, 9000, 9500);
+    CHECK(p.longs == 1 && p.longAt == 5100, "held on: one long, at 1 s");
   }
   {  // millis() wrapping during a hold
     ButtonPress b(LONG_MS);
@@ -601,8 +620,12 @@ static void testButtonPress() {
     b.begin(false, t0);
     b.update(true, t0);
     CHECK(b.update(true, t0 + 1000) == ButtonPress::Event::Long && b.heldMs(t0 + 3000) == 3000, "a hold across the wrap");
+    ButtonPress boot(LONG_MS, BAR_MS);
+    boot.begin(false, t0);
+    boot.update(true, t0);
+    CHECK(boot.update(false, t0 + 1200) == ButtonPress::Event::Long, "a BOOT hold let go across the wrap");
   }
-  printf("  BOOT press: tap, 1 s hold, 3 s hold to switch off, the press that woke it ignored\n");
+  printf("  BOOT press: tap, a hold acts when let go before 2 s, held on to switch off does nothing else; big button at 1 s\n");
 }
 
 int main() {

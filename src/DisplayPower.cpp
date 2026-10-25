@@ -65,9 +65,9 @@ void DisplayManager::drawFirmwarePrompt(const char* modified, uint32_t sizeBytes
   centered("Install it, then restart?", 124, Font::Body, C_TEXT);
   if (touchOk) {
     footerButtons("Skip", "Install", "Skip");
-    centered("Or hold BOOT for 1 s. Anything else skips.", 160, Font::Caption, C_TEXT3);
+    centered("Or hold BOOT for 1 s, then let go.", 160, Font::Caption, C_TEXT3);
   } else {
-    centered("Hold BOOT for 1 s to install.", 156, Font::Body, C_TEXT2);
+    centered("Hold BOOT 1 s, then let go, to install.", 156, Font::Body, C_TEXT2);
     centered("Any other press skips.", 178, Font::Body, C_TEXT2);
   }
   endFrame();

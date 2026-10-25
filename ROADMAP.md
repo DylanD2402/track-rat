@@ -120,7 +120,7 @@ Sizes are relative: S small, M medium, L large.
 - Measure the real current draw before choosing a battery size.
 - Power off with no new hardware (asked for 2026-10-24): Settings → Power off, or BOOT held 3 s. The board can't disconnect its battery, so off is a deep sleep, and a tap on the screen turns it back on (or BOOT), like a phone's tap to wake. Unplugging the battery to switch off meant a cold start for the GPS (~30 s), so in every sleep the GPS now goes into standby instead (UBX-RXM-PMREQ, tens of µA), keeping its clock and satellites, with AssistNow Autonomous on for quick fixes after days off.
 
-**Status: power off and GPS standby done, untested on hardware** (2026-10-24). The sleep current is still to be measured.
+**Status: power off and GPS standby done** (2026-10-24). Tried on the board: off with BOOT, a tap back on, and the GPS out of standby with a fix 3.3 s after waking, as the logo finished. That test found the 1 s BOOT hold starting Free Roam on the menu on its way to switching off, so BOOT's hold now acts when it's let go (1 to 2 s), and held on it only switches off. The sleep current is still to be measured.
 
 **1.7 Binary GPS messages (M)**
 

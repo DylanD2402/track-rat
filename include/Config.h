@@ -96,13 +96,14 @@
 #define TOUCH_INVERT_X 0
 #define TOUCH_INVERT_Y 1
 
-// BOOT button (GPIO0): short press = next, long press = select / confirm
+// BOOT button (GPIO0): short press = next, long press = select / confirm. BOOT's long press is let go
+// between LONG_PRESS_MS and POWER_OFF_BAR_MS; the big button's fires at LONG_PRESS_MS, still held.
 #define BOOT_BUTTON_PIN 0
 #define LONG_PRESS_MS 1000
 #define HOLD_BAR_DELAY_MS 400           // the "keep holding to end" bar appears after this long, not on a tap
 #define END_SESSION_HOLD_MS 2000     // hold (touch or BOOT) to end a running session
-#define POWER_OFF_HOLD_MS 3000       // BOOT held this long switches off, on any screen (the 1 s hold's own action comes first)...
-#define POWER_OFF_BAR_MS 1500        // ...with a bar filling from here, so an ordinary 1 s hold never shows it
+#define POWER_OFF_HOLD_MS 3000       // BOOT held this long switches off, on any screen...
+#define POWER_OFF_BAR_MS 2000        // ...with a bar filling from here. Let go of before it's full: nothing happens
 
 // ---------------------------------------------------------------------------
 // Optional add-ons on the expansion header (see README, "Big button and LED bar").

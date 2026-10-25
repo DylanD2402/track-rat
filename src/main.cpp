@@ -1803,9 +1803,11 @@ void loop() {
   InputEvent ev = input.poll();
   if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
   handleInput(ev);
-  // BOOT held for POWER_OFF_HOLD_MS switches off, on any screen (render() shows the bar on the way), but not
-  // while firmware is being installed over Wi-Fi
-  if (input.bootHeldMs() >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) powerOff();
+  // BOOT held for POWER_OFF_HOLD_MS switches off, on any screen (render() shows the bar on the way, lighting a
+  // dark screen for it), but not while firmware is being installed over Wi-Fi
+  const uint32_t bootHeld = input.bootHeldMs();
+  if (bootHeld >= POWER_OFF_BAR_MS && sleepTimer.screenOff()) noteActivity(now);
+  if (bootHeld >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) powerOff();
 
   // A finger dragging the Settings list: the list follows it (and counts as using the board)
   static bool listDragged = false;

@@ -89,7 +89,7 @@ bool InputManager::readTouch(int16_t& x, int16_t& y) {
   return true;
 }
 
-// A button's press (ButtonPress.h): BootLong fires while still held, BootShort on release.
+// A button's press (ButtonPress.h): BootShort on release; BootLong on release for BOOT, while still held for the big button.
 InputEvent InputManager::bootEvent(ButtonPress::Event e) {
   return e == ButtonPress::Event::Long ? InputEvent::BootLong : e == ButtonPress::Event::Short ? InputEvent::BootShort : InputEvent::None;
 }

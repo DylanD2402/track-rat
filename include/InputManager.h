@@ -4,10 +4,11 @@
  * Touch (FT6336G capacitive panel) and the on-board BOOT button.
  *   Touch: tap the top bar, or the left / centre / right third below it, or hold. A finger that moves
  *          is a drag (dragging(), dragDy()) and gives no tap.
- *   BOOT:  short press, or long press (fires while still held). Held for POWER_OFF_HOLD_MS, it
- *          switches the unit off: main.cpp watches bootHeldMs().
- *   Big button (optional, EXT_BUTTON_PIN): same as BOOT, reported as BootShort / BootLong (it doesn't
- *          switch off).
+ *   BOOT:  short press, or long press, given when it's let go between LONG_PRESS_MS and
+ *          POWER_OFF_BAR_MS. Held on to POWER_OFF_HOLD_MS, it switches the unit off: main.cpp watches
+ *          bootHeldMs().
+ *   Big button (optional, EXT_BUTTON_PIN): BootShort / BootLong too, but its long press fires at
+ *          LONG_PRESS_MS while still held, and it doesn't switch off.
  * A button still held from before begin() (the press that woke the board) counts once it's let go.
  */
 
@@ -56,7 +57,7 @@ private:
   int16_t curX = 0, curY = 0;
   int16_t tapX = 0, tapY = 0;
 
-  ButtonPress boot{LONG_PRESS_MS}, ext{LONG_PRESS_MS};
+  ButtonPress boot{LONG_PRESS_MS, POWER_OFF_BAR_MS}, ext{LONG_PRESS_MS};
   int extPin = -1;
   static InputEvent bootEvent(ButtonPress::Event e);
 

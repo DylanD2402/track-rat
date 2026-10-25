@@ -468,6 +468,8 @@ int main(int argc, char** argv) {
   save(d, "27c_powering_off");
   d.drawFirmwarePrompt("2026-10-18 21:40", 912384, true);
   save(d, "28_firmware_prompt");
+  d.drawFirmwarePrompt("2026-10-18 21:40", 912384, false);
+  save(d, "28b_firmware_prompt_boot_only");
   d.drawFirmwareProgress(42);
   save(d, "29_firmware_progress");
 
