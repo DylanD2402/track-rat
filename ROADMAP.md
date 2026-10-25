@@ -385,6 +385,7 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
 **How it's built:** from Phase 7 on, each step is a self-contained brief built by a cheaper agent in its own git worktree: Sonnet at medium effort for code, Haiku at low effort for docs and images. Opus writes the briefs, reviews each diff, runs the firmware build and host tests, and merges. No agent flashes the board.
 
 #### 7.1 Release pipeline and web installer (Sonnet, medium)
+**Status: done** (2026-10-25, 559b388). The workflow itself runs at the first tag.
 - `tools/make_release.py` builds the firmware and file system, then merges one full image with esptool, into `dist/`:
   - Offsets: bootloader `0x0`, partitions `0x8000`, boot_app0 `0xe000`, app `0x10000`, LittleFS `0xc90000`. QIO, 80 MHz, 16 MB.
   - Files: `trackrat-<version>-full.bin`, `trackrat.bin` (the app alone, for the SD card and the Wi-Fi page), `trackrat-<version>-littlefs.bin`, `SHA256SUMS`, and the installer's `manifest.json`.
@@ -402,6 +403,7 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
 - `docs/flashing.md`: install from the browser, esptool with a downloaded release, SD card and Wi-Fi updates, building from source.
 
 #### 7.2 Screenshots and images (Sonnet, low)
+**Status: done** (2026-10-25, 6c2e720). The demo GIF and a photo are still to come.
 - `tools/readme_images.py` renders the screens and writes three things:
   - a chosen dozen at 2x to `docs/images/screens/`;
   - `docs/images/gallery.png`, a grid;
@@ -411,15 +413,18 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
 - Dylan: one photo of Track Rat on the dash for the top of the README.
 
 #### 7.3 Wiring diagram (Haiku, low)
+**Status: done** (2026-10-25, 5a1e09f).
 - `docs/images/wiring.svg`: the BE-252Q on the board's UART connector (5 V, GND, TX, RX, either way round), plus the optional button (IO21) and LED bar (IO2).
 
 #### 7.4 Licences, credits and contributor files (Haiku, low)
+**Status: done** (2026-10-25, 4902274 and c0127a0), except the Wi-Fi page footer (see below).
 - `THIRD_PARTY_LICENSES.md`: each library and its licence (from `.pio/libdeps/*/LICENSE`), the Arduino-ESP32 core, Inter (SIL OFL 1.1), DJI's GPS controller demo (MIT), and DJI's SDK terms.
 - `DATA_LICENSE.md` (at the root, since `data/` becomes the board's file system): the Canadian tracks come from OpenStreetMap, © OpenStreetMap contributors, under the ODbL. The same credit goes in the README, on the install page, and in the Wi-Fi page's footer. The footer waits until the uncommitted Wi-Fi page work from another session lands.
 - `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (the bug form asks for the firmware version from Settings, the hardware, and a log from `serial_log.py`), `.github/pull_request_template.md`.
 - `CHANGELOG.md` (Keep a Changelog): the 0.1.0-beta.1 entry, grouped by area, with what hasn't been tried on hardware yet (DJI camera, RaceChrono DIY profile, IMU, CAN).
 
 #### 7.5 A one-screen README and docs/ (Sonnet, medium; after 7.1 to 7.4)
+**Status: done** (2026-10-25, ef75001 and 7c15c21): a 100-line README; the rest moved word for word to docs/.
 - The new README top, in order:
   - name and one line: an open-source GPS lap timer you build for about $50; offline, no app, no subscription;
   - badges: CI, latest release, licence, beta;
