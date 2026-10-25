@@ -138,6 +138,8 @@
 // adapter has been chosen. Untested on hardware: no adapter has been tried yet.
 #define OBD_BLE_ENABLED 1
 #define OBD_SCAN_S 10                // Find adapter scans this long
+#define OBD_ALIVE_MS 6000            // the OBD tag and "Connected" need the adapter to have sent something within this long (DeviceLink.h);
+                                     // a car that is off still gets an answer every ~3.5 s. A remembered adapter that is away shows nothing
 // The engine's temperatures (6.5), the defaults of Settings > Coolant: the top bar's coolant tag is
 // blue below COLD, yellow from WARM and blinking red from HOT (COOLANT_WARN_C), where a full-screen
 // warning shows too, as it does for oil at OIL_HOT_C (TempAlert.h)
@@ -154,6 +156,8 @@
 // until then. Untested with a camera.
 #define CAMERA_BLE_ENABLED 1
 #define CAMERA_SCAN_S 10
+#define CAMERA_ALIVE_MS 3000        // the CAM/REC tag and "Connected" need a status from the camera (about 2 a second) this recent (DeviceLink.h);
+                                    // a camera switched off drops the tag in this time, not at the Bluetooth link's own timeout
 #define CAM_REC_BLINK_MS 700        // the camera's REC tag blinks red this slowly (on, then off)
 #define CAM_ASK_SHOW_MS 3000         // after a tap on the camera's tag: "REC..." until its status follows, at most this long
 #define CLOCK_RESYNC_MS 2000         // the system clock (file dates on the card) is set again from GPS if this far off

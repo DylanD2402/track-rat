@@ -5,6 +5,7 @@
 
 #include "ObdBle.h"
 #include "Config.h"
+#include "DeviceLink.h"
 #include <Arduino.h>
 
 #if BLE_ENABLED && OBD_BLE_ENABLED
@@ -43,6 +44,7 @@ static NimBLERemoteCharacteristic* writeChr = nullptr;
 static bool writeWithResponse = false;
 static elm::Client elmc;
 static bool wasConnected = false;
+static uint32_t lastRxAt = 0;  // millis() of the adapter's last bytes on this link (0: none yet)
 
 static void notified(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
   if (rx) xStreamBufferSend(rx, data, len, 0);  // full: dropped, and the reply times out
@@ -124,6 +126,7 @@ static bool connectTo(const char* addr, uint8_t type) {
     return false;
   }
   xStreamBufferReset(rx);
+  lastRxAt = 0;  // not connected for display until it has answered
   elmc.begin(millis());
   RaceBoxBle::resumeAdvertising();  // the phone can still find the RaceBox output
   DEBUG_PRINTF("OBD: connected to %s\n", addr);
@@ -168,7 +171,8 @@ static void publish() {
   copyText(s.address, sizeof(s.address), wantAddr);
   portEXIT_CRITICAL(&lock);
   s.configured = s.address[0] != 0;
-  s.connected = client && client->isConnected() && writeChr;
+  s.linked = client && client->isConnected() && writeChr;
+  s.lastRxAt = s.linked ? lastRxAt : 0;
   s.phase = elmc.state();
   copyText(s.protocol, sizeof(s.protocol), elmc.protocol());
   s.stats = elmc.statistics();
@@ -243,7 +247,10 @@ static void taskMain(void*) {
     } else {
       char in[64];
       size_t n;
-      while ((n = xStreamBufferReceive(rx, in, sizeof(in), 0)) > 0) elmc.feed(in, (int)n, millis());
+      while ((n = xStreamBufferReceive(rx, in, sizeof(in), 0)) > 0) {
+        lastRxAt = millis();  // it is talking
+        elmc.feed(in, (int)n, lastRxAt);
+      }
       char cmd[24];
       if (elmc.poll(millis(), cmd, sizeof(cmd))) {
         if (!writeChr->writeValue((const uint8_t*)cmd, strlen(cmd), writeWithResponse)) DEBUG_PRINTLN("OBD: write failed");
@@ -278,6 +285,8 @@ void poll() {
   st = shared;
   vals = sharedVals;
   portEXIT_CRITICAL(&lock);
+  // Judged here, at loop()'s time: a task stuck in a Bluetooth call can't leave a stale "connected" behind
+  st.connected = devicelink::obdAlive(st.linked, st.lastRxAt, millis());
 }
 
 bool configured() { return st.configured; }

@@ -41,7 +41,7 @@ static obd::Values obdValues;
 bool ObdBle::connected() { return obdStatus.connected; }
 ObdBle::Status ObdBle::status() { return obdStatus; }
 static CameraBle::Status camStatus;
-bool CameraBle::connected() { return camStatus.phase == dji::Remote::Phase::Connected; }
+bool CameraBle::connected() { return camStatus.connected; }
 CameraBle::Status CameraBle::status() { return camStatus; }
 static bool coolantKnown = false, oilKnown = false;  // the engine's temperatures in the top bar (6.5)
 bool EngineData::coolant(uint32_t, float& c) { return coolantKnown && (c = obdValues.coolantC, true); }
@@ -534,6 +534,7 @@ int main(int argc, char** argv) {
   snprintf(obdStatus.name, sizeof(obdStatus.name), "VEEPEAK");
   snprintf(obdStatus.address, sizeof(obdStatus.address), "c4:be:84:12:34:56");
   snprintf(obdStatus.protocol, sizeof(obdStatus.protocol), "AUTO, ISO 15765-4 (CAN 11/500)");
+  obdStatus.linked = true;
   obdStatus.phase = elm::Client::Phase::Running;
   obdStatus.suffix = obdStatus.multi = true;
   obdStatus.stats.requestHz = 21.4f;
@@ -559,6 +560,7 @@ int main(int argc, char** argv) {
   d.drawCamera(cam, camStatus, true, nullptr, 0, false, true);
   save(d, "37_camera_pairing");
   camStatus.phase = dji::Remote::Phase::Connected;
+  camStatus.connected = true;
   camStatus.cam.known = true;
   camStatus.cam.status = 0x03;
   camStatus.cam.battery = 78;

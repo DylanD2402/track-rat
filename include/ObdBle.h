@@ -28,12 +28,16 @@ void begin();  // at boot, after the settings: starts the task if an adapter has
 void poll();   // from loop(): takes the latest values and status from the task. Never waits
 
 bool configured();             // an adapter has been chosen
-bool connected();              // and Track Rat is connected to it
+bool connected();              // and it is there: the link is up AND it has sent something within OBD_ALIVE_MS (DeviceLink.h).
+                               // A remembered adapter that is away, unplugged or still connecting is not connected
 const obd::Values& values();   // the latest figures (check ...Known() for each)
 
 // The Engine data screen
 struct Status {
-  bool configured = false, connected = false;
+  bool configured = false;
+  bool linked = false;      // the Bluetooth link is up (the adapter may not have answered yet)
+  bool connected = false;   // linked, and the adapter has sent something recently (set by poll())
+  uint32_t lastRxAt = 0;    // millis() when the adapter last sent anything on this link (0: nothing yet)
   elm::Client::Phase phase = elm::Client::Phase::Off;
   char name[24] = "";       // the adapter's name, as it advertised it
   char address[18] = "";

@@ -136,7 +136,7 @@ void DisplayManager::settingsList(const SettingsData& s, const SettingsScreenSta
           snprintf(buf, sizeof(buf), "%s", st.connected ? "Connected" : st.configured ? st.name : "None");
         } else if (rw.item == SettingItem::Camera) {
           const CameraBle::Status st = CameraBle::status();
-          snprintf(buf, sizeof(buf), "%s", st.phase == dji::Remote::Phase::Connected ? "Connected" : st.configured ? st.name : "None");
+          snprintf(buf, sizeof(buf), "%s", st.connected ? "Connected" : st.configured ? st.name : "None");
         } else {
           settings::valueText(s, rw.item, buf, sizeof(buf));
         }
@@ -325,7 +325,8 @@ void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::S
     } else {
       snprintf(buf, sizeof(buf), "%s  %s", st.name, st.address);
       line(buf, C_TEXT);
-      line(st.connected ? phaseText(st.phase) : "Not connected: trying every 5-10 s", st.connected ? C_GREEN : C_YELLOW);
+      line(st.connected ? phaseText(st.phase) : st.linked ? "Linked: waiting for it to answer" : "Not connected: trying every 5-10 s",
+           st.connected ? C_GREEN : C_YELLOW);
       if (st.protocol[0]) line(st.protocol, C_TEXT2, Font::Caption);
       if (st.connected && st.phase == elm::Client::Phase::Running) {
         snprintf(buf, sizeof(buf), "%.1f requests/s%s%s", st.stats.requestHz, st.suffix ? "  fast replies" : "", st.multi ? "  2 in 1" : "");
@@ -391,7 +392,7 @@ void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::St
       if (st.linked && st.pairing && (st.phase == P::Asking || st.phase == P::Waiting)) {
         snprintf(buf, sizeof(buf), "Code %04u: accept it on the camera", st.code);
         line(buf, C_YELLOW);
-      } else if (st.phase == P::Connected) {
+      } else if (st.connected) {
         line("Connected: Track Rat is its GPS", C_GREEN);
         if (st.cam.known) {
           snprintf(buf, sizeof(buf), "%s   battery %u%%%s", st.cam.recording() ? "Recording" : "Not recording", st.cam.battery,
@@ -402,6 +403,8 @@ void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::St
         line(buf, C_TEXT2, Font::Caption);
       } else if (st.refused) {
         line("Rejected on the camera: Pair to try again", C_ORANGE);
+      } else if (st.linked && st.phase == P::Connected) {  // the link is up but the camera has gone quiet (switched off?)
+        line("Linked: no status from the camera", C_YELLOW);
       } else {
         line(st.linked ? "Asking the camera" : "Not connected: trying every 5-10 s", C_YELLOW);
       }

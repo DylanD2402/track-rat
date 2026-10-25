@@ -5,6 +5,7 @@
 
 #include "CameraBle.h"
 #include "Config.h"
+#include "DeviceLink.h"
 #include <Arduino.h>
 
 #if BLE_ENABLED && CAMERA_BLE_ENABLED
@@ -188,6 +189,7 @@ static void publish(bool linked) {
   s.pairing = remote.pairingAsked();
   s.code = remote.code();
   s.cam = remote.status();
+  s.statusAt = linked ? remote.statusMs() : 0;
   s.gpsSent = gpsSent;
   s.refused = refused;
   uint32_t at;
@@ -358,6 +360,9 @@ void poll() {
   portENTER_CRITICAL(&lock);
   st = shared;
   portEXIT_CRITICAL(&lock);
+  // Judged here, at loop()'s time: the Bluetooth link takes seconds to notice a camera that was switched off.
+  // The handshake is done and a status has come lately (about twice a second): nothing less is "connected"
+  st.connected = st.phase == dji::Remote::Phase::Connected && st.cam.known && devicelink::cameraAlive(st.linked, st.statusAt, millis());
 }
 
 void onFix(const GpsFix& fix, bool hasFix) {
@@ -382,7 +387,7 @@ void setRecording(bool want) { recordWanted = want; }
 void toggleRecording() { toggleAsked = true; }
 
 bool configured() { return st.configured; }
-bool connected() { return st.phase == dji::Remote::Phase::Connected; }
+bool connected() { return st.connected; }
 Status status() { return st; }
 
 bool takeStarted(uint32_t& atMs) {

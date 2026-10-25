@@ -324,10 +324,10 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
         }
       }
     } else if (ObdBle::connected()) {
-      tag("OBD", C_BLUE, C_TEXT);  // the Bluetooth OBD-II adapter is connected
+      tag("OBD", C_BLUE, C_TEXT);  // the Bluetooth OBD-II adapter is there and answering (not just remembered)
     }
 #if BLE_ENABLED
-    if (CameraBle::connected()) {  // the DJI camera: REC while it records, its battery, and a warning when too hot.
+    if (CameraBle::connected()) {  // the DJI camera, there and sending its status: REC while it records, its battery, and a warning when too hot.
       const CameraBle::Status cs = CameraBle::status();  // Tap it to start or stop recording
       const uint32_t now = millis();
       const bool rec = cs.cam.known && cs.cam.recording();
@@ -340,11 +340,9 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
         snprintf(t, sizeof(t), "REC %u%%", cs.cam.battery);
         const bool on = now / CAM_REC_BLINK_MS % 2 == 0;
         tag(t, on ? C_RED : rgb(110, 24, 20), on ? C_BG : C_TEXT);
-      } else if (cs.cam.known) {
+      } else {  // (connected() means its status is known: no bare "CAM" before one has come)
         snprintf(t, sizeof(t), "CAM %u%%", cs.cam.battery);
         tag(t, C_BLUE, C_TEXT);
-      } else {
-        tag("CAM", C_BLUE, C_TEXT);
       }
       camTagL = right + 6, camTagR = r0;
     }

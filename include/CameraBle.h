@@ -37,12 +37,15 @@ void setRecording(bool want);
 void toggleRecording();
 
 bool configured();  // a camera has been paired
-bool connected();   // and the remote handshake is done
+bool connected();   // and it is there: the handshake is done AND its status came within CAMERA_ALIVE_MS (DeviceLink.h).
+                    // A paired camera that is off, away or hasn't answered yet is not connected
 // The camera started recording since the last call: millis() of the status that said so
 bool takeStarted(uint32_t& atMs);
 
 struct Status {
   bool configured = false, linked = false;  // linked: Bluetooth connected
+  bool connected = false;  // the handshake is done and the camera has sent a status recently (set by poll())
+  uint32_t statusAt = 0;   // millis() of the camera's last status (0: none on this link)
   dji::Remote::Phase phase = dji::Remote::Phase::Off;
   bool pairing = false;   // asking the camera to accept us
   uint16_t code = 0;      // the code it should show
