@@ -30,6 +30,8 @@ void poll();   // from loop(): takes the latest values and status from the task.
 bool configured();             // an adapter has been chosen
 bool connected();              // and it is there: the link is up AND it has sent something within OBD_ALIVE_MS (DeviceLink.h).
                                // A remembered adapter that is away, unplugged or still connecting is not connected
+bool readingEngine();          // and the car's engine is answering through it: the top bar's OBD tag. Not while the
+                               // adapter is still finding the car (SEARCHING...) or the ignition is off (NO DATA)
 const obd::Values& values();   // the latest figures (check ...Known() for each)
 
 // The Engine data screen

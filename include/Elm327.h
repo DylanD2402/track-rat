@@ -315,6 +315,9 @@ public:
     float requestHz = 0, rpmHz = 0, throttleHz = 0, coolantHz = 0, intakeHz = 0, oilHz = 0;  // over the last second or two
   };
   Phase state() const { return phase; }
+  // The car's engine is answering (not just the adapter: it also answers while finding the car,
+  // SEARCHING..., and with the ignition off, NO DATA). What the top bar's OBD tag means
+  static bool engineAnswering(Phase p) { return p == Phase::Probe || p == Phase::Running; }
   bool running() const { return phase == Phase::Running; }
   const obd::Values& values() const { return vals; }
   const Stats& statistics() const { return stats; }

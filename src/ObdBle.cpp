@@ -291,6 +291,7 @@ void poll() {
 
 bool configured() { return st.configured; }
 bool connected() { return st.connected; }
+bool readingEngine() { return st.connected && elm::Client::engineAnswering(st.phase); }
 const obd::Values& values() { return vals; }
 Status status() { return st; }
 
@@ -354,6 +355,7 @@ void begin() {}
 void poll() {}
 bool configured() { return false; }
 bool connected() { return false; }
+bool readingEngine() { return false; }
 const obd::Values& values() { return none; }
 Status status() { return Status(); }
 void startScan() {}

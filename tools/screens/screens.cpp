@@ -39,6 +39,7 @@ bool RaceBoxBle::connected() { return btConnected; }
 static ObdBle::Status obdStatus;
 static obd::Values obdValues;
 bool ObdBle::connected() { return obdStatus.connected; }
+bool ObdBle::readingEngine() { return obdStatus.connected && elm::Client::engineAnswering(obdStatus.phase); }
 ObdBle::Status ObdBle::status() { return obdStatus; }
 static CameraBle::Status camStatus;
 bool CameraBle::connected() { return camStatus.connected; }

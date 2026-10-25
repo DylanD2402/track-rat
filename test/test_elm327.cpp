@@ -281,6 +281,7 @@ int main() {
     b.a.carOn = false;
     b.run(1000);
     CHECK(b.c.state() == Client::Phase::NoCar, "no car after NO DATA in a row");
+    CHECK(!Client::engineAnswering(b.c.state()), "no car: no OBD tag, though the adapter answers");
     const int asked = b.count("0100");
     b.run(RETRY_MS + 200);
     CHECK(b.count("0100") == asked + 1, "asks again after RETRY_MS");
@@ -381,11 +382,22 @@ int main() {
     CHECK(looksLikeAdapter("", true), "anything with FFF0 / FFE0");
   }
 
+  {  // Once the car answers, it's reading the engine: the top bar's OBD tag shows
+    Bench b;
+    b.connect();
+    b.run(10000);
+    CHECK(b.c.state() == Client::Phase::Running && Client::engineAnswering(b.c.state()), "reading the engine: the OBD tag shows");
+  }
+
   // Disconnected: nothing to send
   {
     Bench b;
     b.connect();
+    CHECK(!Client::engineAnswering(b.c.state()), "just connected, setting up: no OBD tag");
     b.run(500);
+    CHECK(!Client::engineAnswering(Client::Phase::Setup) && !Client::engineAnswering(Client::Phase::Pids) &&
+              !Client::engineAnswering(Client::Phase::Off),
+          "setting up the adapter or finding the car: no OBD tag");
     b.c.end();
     const size_t n = b.sent.size();
     b.run(1000);

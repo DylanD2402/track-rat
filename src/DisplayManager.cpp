@@ -323,8 +323,8 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
           break;
         }
       }
-    } else if (ObdBle::connected()) {
-      tag("OBD", C_BLUE, C_TEXT);  // the Bluetooth OBD-II adapter is there and answering (not just remembered)
+    } else if (ObdBle::readingEngine()) {
+      tag("OBD", C_BLUE, C_TEXT);  // the car's engine is answering through the Bluetooth adapter (not while it finds the car)
     }
 #if BLE_ENABLED
     if (CameraBle::connected()) {  // the DJI camera, there and sending its status: REC while it records, its battery, and a warning when too hot.
