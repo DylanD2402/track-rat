@@ -197,7 +197,7 @@ int main(int argc, char** argv) {
   d.drawMenu(5, gps, false, false);  // BOOT navigation, Wi-Fi highlighted, no fix
   save(d, "05_menu_boot_nofix");
   setGps(gps, true, SF_LAT + 0.02, SF_LON, 0, 0);
-  d.setPersonalBest(102345, 20260914);  // shown on the track list and Ready screens
+  d.setPersonalBest(163611, 20260914);  // shown on the track list and Ready screens
   d.drawTrackSelect(track, 24, 131, 2210, gps, true);
   save(d, "06_track_select");
   Track layout = track;
