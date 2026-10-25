@@ -1018,7 +1018,7 @@ void DisplayManager::drawNewTrack(int highlight, bool touchOk) {
     gfx->fillRoundRect(bx[i], by, bw, bh, CORNER + 2, hl ? C_RAISED : C_SURFACE);
     if (hl) gfx->drawRoundRect(bx[i], by, bw, bh, CORNER + 2, C_TEXT);
     const int mid = bx[i] + bw / 2;
-    text(items[i].title, mid, by + 22, Font::Title, C_TEXT, TC_DATUM);
+    text(items[i].title, mid, by + 22, textWidth(items[i].title, Font::Title) <= bw - 8 ? Font::Title : Font::Button, C_TEXT, TC_DATUM);
     text(items[i].d1, mid, by + 70, Font::Caption, C_TEXT2, TC_DATUM);
     text(items[i].d2, mid, by + 86, Font::Caption, C_TEXT2, TC_DATUM);
     text(items[i].d3, mid, by + 102, Font::Caption, C_TEXT2, TC_DATUM);

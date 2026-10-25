@@ -251,6 +251,12 @@ python test/test_overlay.py
 g++ -std=c++17 -Iinclude test/test_tempalert.cpp -o /tmp/ta && /tmp/ta
 ```
 
+`test/test_courses.cpp` checks autocross courses as events (`include/Courses.h`, no Arduino code): which stages are courses (`"kind": "course"` with its `"event"`, old "Course 2026-10-20" names, hill climbs left alone), a new course's name and id ("Oct 25 course", "Oct 25 course 2"), choosing today's course within 5 km and the hub's most recent one, which session summaries belong to a course's day, and the day's run list across sessions (numbering, best and last, tagged runs never best). `test/test_stage.cpp` also checks taking the first run's finish tap back:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_courses.cpp -o /tmp/co && /tmp/co
+```
+
 `test/test_profiles.cpp` checks the drivers and cars (`include/Profiles.h`, no Arduino code): the defaults, names (trimmed, up to 20 bytes, unique in their list), ids that are never reused, the limit of 8, removing (never the last; the current one hands over to the first), choosing, a car's VIN and finding a car by it, the label, a damaged saved list being repaired, and the best-lap folder (empty for driver 1 with car 1 so older PBs stay, else `d3-c2`). `test/test_settings.cpp` also checks the Driver and Car pages:
 
 ```bash

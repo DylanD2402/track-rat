@@ -22,7 +22,7 @@ static File dir;
 static std::vector<std::string> files;  // matching summaries (full paths)
 static size_t readPos = 0;
 
-static const int LIST_PER_POLL = 24;  // directory entries a call looks at
+static const int LIST_PER_POLL = 6;  // directory entries a call looks at (each is opened: about 2 ms on the card)
 
 const courses::Day& day() { return runs; }
 bool ready() { return step == Step::Done; }

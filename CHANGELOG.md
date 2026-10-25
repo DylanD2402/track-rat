@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- Autocross courses are events: a New course is kept with the day it was made and named "Oct 25 course", and stays out of the circuit list. The new Autocross hub (NEW TRACK, then Autocross) shows today's course, "Run 4 next", the best and last run and the day's run list, and starts runs or makes a new course while you're stopped at the start. Runs are numbered across the whole day, whatever happens between them, the first run's finish tap has a 5 second Undo, and a restart near today's course goes straight to timing, armed for the next run. Old "Course 2026-10-20" stages become courses by themselves.
+
 ## [0.1.0-beta.2] - 2026-10-25
 
 ### Added

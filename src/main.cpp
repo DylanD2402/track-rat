@@ -251,6 +251,12 @@ static std::vector<courses::Candidate> courseCandidates() {
 // Today's local date, "YYYYMMDD" ("" if the GPS hasn't given one)
 static std::string todayEvent() { return courses::dateOfStamp(std::string(gps.timestampString().c_str())); }
 
+// The runs already made on the selected course's day, before this session (CourseRuns.h); 0 for anything else
+static int courseRunsBefore() {
+  const Track& t = selectedTrack();
+  return t.course && CourseRuns::wanted(t.id, t.event) ? (int)CourseRuns::day().count() : 0;
+}
+
 // trackDB index of today's course nearby (made today, start within 5 km), or -1
 static int todaysCourseNearby() {
   if (!gps.hasFix()) return -1;
@@ -940,7 +946,7 @@ static void onLapEvent(const LapEvent& ev) {
       overlay.showLap = true;
       overlay.isRun = lapTimer.isStage();
       // A run is numbered across the day's sessions (CourseRuns.h); a lap by the session
-      overlay.lapNumber = overlay.isRun ? (selectedTrack().course ? (int)CourseRuns::day().count() : 0) + (int)lapTimer.lapCount() : lap->number;
+      overlay.lapNumber = overlay.isRun ? courseRunsBefore() + (int)lapTimer.lapCount() : lap->number;
       overlay.lapMs = lap->timeMs;
       overlay.lapIsBest = ev.isBest;
       overlay.lapIsPb = false;
@@ -1527,9 +1533,7 @@ static void render() {
     syncUntil = 0;
   }
   // Runs on a course count on through the day (CourseRuns.h); the finish tap has a few seconds of Undo
-  display.setRunBase((state == AppState::Running || state == AppState::Summary) && selectedTrack().course
-                         ? (int)CourseRuns::day().count()
-                         : 0);
+  display.setRunBase(state == AppState::Running || state == AppState::Summary ? courseRunsBefore() : 0);
   display.setFinishUndo(state == AppState::Running && finishUndoUntil && (int32_t)(finishUndoUntil - now) > 0
                             ? finishUndoUntil - now
                             : 0,
@@ -2024,7 +2028,7 @@ void loop() {
   if (replaying && state == AppState::Running) replayFixes();
 #endif
   noteCameraStart();
-  CourseRuns::poll();  // a little of the day's runs from the card at a time (CourseRuns.h)
+  if (!(state == AppState::Running && lapTimer.lapRunning())) CourseRuns::poll();  // the day's runs from the card, a little at a time, never mid-run
   if (state == AppState::Running) {
     CourseRuns::setSkip(sessionPath);  // this session's own summary is followed from the lap timer
     if (finishUndoUntil && (int32_t)(now - finishUndoUntil) >= 0) commitFinishLap();  // the Undo window is over

@@ -12,7 +12,7 @@ Using Track Rat day to day: driving, settings, tracks, power, the Wi-Fi page and
 
 - **FREE ROAM:** records your drive. A map of your route draws as you go, with elapsed time, live speed, distance and top speed. Hold the screen to finish; the summary (and the route) is saved to the SD card, unless **Record road drives** is off in [Settings](#settings). Then the drive is shown but not saved.
   Free Roam also watches for a track: see [Tracks that learn themselves](#tracks-that-learn-themselves) below.
-- **NEW TRACK:** asks **Circuit** or **Course**. **Course** is for autocross, hill climbs and sprints: see [Point to point](#point-to-point-autocross-hill-climbs-sprints). **Circuit** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
+- **NEW TRACK:** asks **Circuit** or **Autocross**. **Autocross** opens the Autocross hub: today's course, its runs, and **New course** (see [Point to point](#point-to-point-autocross-hill-climbs-sprints)). **Circuit** creates a track where you are. Drive to the start/finish line and **tap the screen as you cross it**. That sets the line and starts lap 1. After your first full lap, the lap becomes the track's map, saved when you finish the session. The track is saved to `tracks.json`, so next time it's picked automatically.
 - **TRACK LIST:** pick any track by hand. The nearest track comes first, then the rest in order of distance, each with how far away it is. Layouts of one venue stay together. Without a GPS fix the list is in `tracks.json` order, and it sorts itself as soon as there is a fix. **Bench Test** is always last.
 - **PERFORMANCE:** the left button of the second row. Times acceleration and braking runs; see [Acceleration and braking](#acceleration-and-braking).
 - **SETTINGS:** the middle button of the second row. Units, brightness and the rest; see [Settings](#settings).
@@ -26,10 +26,13 @@ Using Track Rat day to day: driving, settings, tracks, power, the Wi-Fi page and
 |---|---|---|
 | Waiting for GPS | tap: menu | press: menu |
 | Menu | tap a mode, or PERFORMANCE / SETTINGS / WI-FI in the second row; top bar: GPS status | press: next (in the order on screen), hold 1 s: choose |
+| New track | left: circuit, right: Autocross, centre, top bar or hold: menu | press: the other, hold 1 s: choose |
+| Autocross hub | Start runs: left two thirds of the top button row, New course: right third; Back: bottom right, top bar or hold; Adjust start and finish: not working yet | press: next (Start runs, New course, Back), hold 1 s: choose |
+| New course | left: back, centre or right: Set start here (only while stopped with a fix), top bar or hold: back to the hub | press: the other, hold 1 s: choose |
 | Track list | left / right third: previous / next, centre: select, top bar or hold: menu | press: next, hold 1 s: select |
 | GPS Status (top bar of the menu) | tap: back | press: back |
 | Ready | centre: start, left: menu (back, if you came from the track list), right: set line, top bar: next layout | hold 1 s: start, press: menu (back, from the track list) |
-| Timing | tap: timing / map view, hold 2 s: end | press: switch view, hold 1 s: end |
+| Timing | tap: timing / map view (the 5 seconds after a new course's first finish tap: undo the finish), hold 2 s: end | press: switch view, hold 1 s: end |
 | In the pits (parked a minute while timing): the debrief | tap: second page, then the timing screen, hold 2 s: end; driving off goes back by itself | press: the same as a tap, hold 1 s: end |
 | Setting the line | tap as you cross the line, hold 2 s: end | hold 1 s: end |
 | Free Roam | hold 2 s: end | hold 1 s: end |
@@ -92,11 +95,19 @@ A tagged lap is never the best lap or the live-diff reference, and isn't counted
 
 A **stage** has a start and a separate finish (plus any splits). Each run counts as a lap: best run, live delta to it, sector colours, PB, debrief.
 
-- **NEW TRACK, then Course**, while you're at the start (in the grid or the start box). It makes a stage called **Course 2026-10-20** (today's date: autocross courses change at every event) with its start where you are, and starts timing.
-- **Standing start:** stopped within 25 m of the start, the run is **armed** (it says so on screen) and the clock starts the moment you move. If the start line has a direction and you're stopped more than 1 m behind it (timing lights a little way on), the clock starts as you cross the line instead. A start line with a direction also takes a **rolling start**: driving through it starts a run. A start with no direction (a NEW COURSE start) only does standing starts, so driving back to the grid never starts one.
+- **Autocross courses are events.** A course is a stage made for one event day: it's saved with `"kind": "course"` and `"event": "20261025"` (the local date it was made), and named **Oct 25 course** (**Oct 25 course 2** for a second one the same day; rename it on the Wi-Fi page). Courses stay out of the track list, which is for circuits, and out of the nearest-track pick for circuits. Hill climbs and sprints are stages without a kind and are listed and picked as before. A stage named **Course 2026-10-20** (made by the old NEW TRACK > Course) counts as a course for that date, and is marked as one in `tracks.json` at the next boot.
+- **The Autocross hub** (NEW TRACK, then **Autocross**) shows today's course if there's one within 5 km, otherwise the most recent course within 5 km. It shows the name, **Run 4 next**, the best run and the last run, and the day's runs (the best in green; a run with a pit or suspect tag is never the best). Its buttons:
+  - **Start runs:** timing on that course, armed for a standing start.
+  - **New course:** park at the start (in the grid or at the lights) and press **Set start here**. It needs a GPS fix and the car stopped (under 3 km/h). It makes the course at that spot and starts timing, armed.
+  - **Adjust start** and **Adjust finish** are on the screen but not working yet ("coming soon").
+  - **Back.** With BOOT only: press moves, hold chooses.
+- **Runs are numbered for the day:** Run 1, 2, 3... of that course on its event date, counted across every session, so a power-off or a session ending doesn't start them again. They're worked out from the day's session summaries on the card (not the logs), and the timing screen and the summary say "Run 4" rather than "Lap". Without an SD card the numbering carries on from the flash summaries; with neither, from the runs since the power came on.
+- **At boot,** today's course within 5 km starts timing straight away, armed for the next run, so a restart between runs needs no taps. The timing screen says **Run 4 next** (green once armed).
+- **The finish on a new course:** the first run taps as it crosses the finish. A bar then shows for 5 seconds with **Tap to undo** (BOOT does the same): it takes the finish back and the run keeps timing, so tap again at the real finish. After the 5 seconds the finish stands. (Only the first run of a course has this: later runs finish by themselves.)
+- **Standing start:** stopped within 25 m of the start, the run is **armed** (it says so on screen) and the clock starts the moment you move. If the start line has a direction and you're stopped more than 1 m behind it (timing lights a little way on), the clock starts as you cross the line instead. A start line with a direction also takes a **rolling start**: driving through it starts a run. A start with no direction (a New course start) only does standing starts, so driving back to the grid never starts one.
 - **Finish:** crossing the finish line ends the run (only the way it was set, if it has a direction). With no finish yet, **tap the screen as you cross it** on the first run: that sets the finish (with your direction, above 15 km/h) and times the run. Or don't: a run that stops for 5 s before a finish ends untimed, and you can set the finish later on the Wi-Fi page's [track editor](#track-editor-and-re-timing) (**Set finish**) and re-time the session.
 - A run that stops for 5 s before the finish (a spin, a red flag) ends without a time.
-- Waiting in line between runs: parked for a minute shows the debrief as usual, but the session doesn't end after 10 minutes; the whole event stays one session. A stage within 5 km at boot starts timing straight away, so the first run's standing start isn't missed. The slow screen never takes over during a run.
+- Waiting in line between runs: parked for a minute shows the debrief as usual, but the session doesn't end after 10 minutes; the whole event stays one session. A stage within 5 km at boot (or today's course, above) starts timing straight away, so the first run's standing start isn't missed. The slow screen never takes over during a run.
 - In `tracks.json` a stage has `"type": "stage"` and a `"finish"` next to its `"startFinish"` (the start). Its `.vbo` says `Type: stage` and records the finish, and its `[laptiming]` has **Start** and **Finish** lines for Circuit Tools (when they have a direction).
 - The thresholds are in `Config.h` (`STAGE_...`).
 

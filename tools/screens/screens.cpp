@@ -707,6 +707,96 @@ int main(int argc, char** argv) {
   setGps(gps, true, SF_LAT + 0.002, SF_LON, 0, 0);
   d.drawMenu(4, gps, false, false);  // BOOT navigation, Settings highlighted
   save(d, "44_menu_settings_highlighted");
+  d.drawNewTrack(-1, true);  // its Course button opens the Autocross hub
+  save(d, "44b_new_track");
+
+  // --- Autocross: courses as events (Courses.h) ---
+  {
+    setGps(gps, true, SF_LAT + 0.002, SF_LON, 0, 0);
+    AutocrossView hub;
+    hub.gpsFix = true;
+    hub.haveCourse = true;
+    hub.name = "Oct 25 course";
+    hub.today = true;
+    const uint32_t times[] = {53400, 52310, 53020, 51980, 52840, 54210, 55020, 52500, 52390};
+    for (uint32_t t : times) hub.runs.push_back({t, 0});
+    hub.runs[5].tags = laptags::PIT;
+    hub.runs[3].tags = laptags::PIT;  // faster, but not clean: never the best
+    hub.nextRun = (int)hub.runs.size() + 1;
+    courses::Day day;
+    for (const courses::Run& r : hub.runs) day.add(r);
+    hub.best = day.best();
+    hub.last = day.last();
+    d.drawAutocross(hub, gps, -1, true);
+    save(d, "45_autocross_hub");
+    d.drawAutocross(hub, gps, 1, false);  // BOOT navigation
+    save(d, "45b_autocross_hub_boot");
+    AutocrossView few = hub;
+    few.runs.resize(3);
+    few.nextRun = 4;
+    few.best = 1;
+    few.last = 2;
+    d.drawAutocross(few, gps, -1, true);
+    save(d, "45c_autocross_hub_three_runs");
+    AutocrossView old = few;
+    old.today = false;
+    old.dateText = "Oct 20";
+    old.name = "Oct 20 course";
+    d.drawAutocross(old, gps, -1, true);
+    save(d, "45d_autocross_hub_older_course");
+    AutocrossView none;
+    none.gpsFix = true;
+    d.drawAutocross(none, gps, -1, true);
+    save(d, "46_autocross_hub_no_course");
+    none.gpsFix = false;
+    setGps(gps, false, 0, 0, 0, 0);
+    d.drawAutocross(none, gps, 4, false);
+    save(d, "46b_autocross_hub_no_course_no_fix");
+
+    setGps(gps, true, SF_LAT + 0.002, SF_LON, 0, 0);
+    d.drawNewCourse(gps, true, -1, true);
+    save(d, "47_new_course");
+    setGps(gps, true, SF_LAT + 0.002, SF_LON, 23, 0);
+    d.drawNewCourse(gps, false, 1, false);
+    save(d, "47b_new_course_moving_boot");
+
+    // The timing screen waiting for run 4: armed at the start of a course, then the finish tap's Undo
+    LapTimer stage;
+    stage.begin({SF_LAT, SF_LON, 15}, {}, STAGE_MIN_RUN_MS);
+    stage.setStage({SF_LAT + 0.004, SF_LON, 15}, true);
+    uint32_t t0 = 40000000;
+    for (int i = 0; i < 30; i++) stage.onFix(SF_LAT, SF_LON, 0, t0 + i * 50, 5000 + i * 50);
+    setGps(gps, true, SF_LAT, SF_LON, 0, t0 + 1500);
+    RunningOverlay sov;
+    d.setSessionClock("", false);
+    d.setRunBase(3);
+    d.drawRunning(track, stage, gps, sov, 0);
+    save(d, "48c_timing_run_armed");
+    d.setFinishUndo(0, true);
+    // Moving off, the run under way; then the first run's finish tap
+    LapTimer first;
+    first.begin({SF_LAT, SF_LON, 15}, {}, STAGE_MIN_RUN_MS);
+    first.setStage({0, 0, 15}, false);
+    for (int i = 0; i < 30; i++) first.onFix(SF_LAT, SF_LON, 0, t0 + i * 50, 5000 + i * 50);  // armed at the start
+    for (int i = 30; i < 1230; i++) first.onFix(SF_LAT + (i - 30) * 0.000004, SF_LON, 55, t0 + i * 50, 5000 + i * 50);
+    first.finishRunNow(SF_LAT + 1200 * 0.000004, SF_LON, t0 + 1230 * 50);
+    d.setRunBase(0);
+    RunningOverlay fov;
+    fov.showLap = true;
+    fov.isRun = true;
+    fov.lapNumber = 1;
+    fov.lapMs = first.lastLap() ? first.lastLap()->timeMs : 0;
+    fov.lapIsBest = true;
+    d.setFinishUndo(3400, true);
+    setGps(gps, true, SF_LAT + 0.004, SF_LON, 38, t0 + 20000);
+    d.drawRunning(track, first, gps, fov, 0);
+    save(d, "48d_finish_undo");
+    d.setFinishUndo(2000, false);
+    d.drawRunning(track, first, gps, fov, 0);
+    save(d, "48e_finish_undo_boot");
+    d.setFinishUndo(0, true);
+    d.setRunBase(0);
+  }
   printf("render_screens: laps %d, best %s\n", (int)timer.lapCount(), formatLapTime(timer.bestLap()->timeMs).c_str());
   return 0;
 }
