@@ -4,11 +4,7 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-### Added
-
-- Car-specific data from an OBDb car profile on the SD card: brake pressure, steering angle and other values from the car's own modules, asked through the Bluetooth OBD-II adapter alongside the engine's, chosen by the car's VIN, logged as extra `.vbo` channels and CSV columns, and shown on the Engine data screen. `tools/obd_car.py` makes a profile from OBDb's signal sets. Untested in a car.
-
-## [0.1.0-beta.1] - 2026-10-26
+## [0.1.0-beta.1] - 2026-10-25
 
 First public beta.
 
@@ -70,6 +66,7 @@ First public beta.
 - Coolant temperature in the top bar, an overheat warning, and the coolant maximum in the summary.
 - Oil temperature where the car supports it.
 - CAN / OBD-II over the built-in CAN controller, with a transceiver.
+- Car-specific data from an OBDb car profile on the SD card: brake pressure, steering angle and other values from the car's own modules, asked through the Bluetooth OBD-II adapter alongside the engine's, chosen by the car's VIN, logged as extra `.vbo` channels and CSV columns, and shown on the Engine data screen. `tools/obd_car.py` makes a profile from OBDb's signal sets.
 
 ### Video
 
@@ -89,6 +86,7 @@ First public beta.
 - The IMU.
 - CAN / OBD-II, with a car and a transceiver.
 - Oil temperature (only some cars report it).
+- Car-specific data from OBDb car profiles, in a car.
 
 Voice notes for the logbook aren't built yet; text notes work.
 
