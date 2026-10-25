@@ -212,6 +212,7 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
   <div class="card">
     <h3>Compare two laps</h3>
     <p class="note">Any two laps at a track, from any sessions, drawn from their logs <span id="cmpFrom">on the SD card</span>.
+      A drive with no laps (Free Roam) is one piece, "Whole drive".
       <b style="color:#0a84ff">A</b> in blue, <b style="color:#ff9f0a">B</b> in orange.</p>
     <select id="cmpTrack"></select>
     <div class="row"><b style="color:#0a84ff">A</b><select id="cmpSesA"></select><select id="cmpLapA"></select></div>
@@ -931,11 +932,13 @@ const DAY_MS = 86400000;
 // One lap of a log (fixes marked with its number in the Lap column) as a trace from the line:
 // distance driven (m), time into the lap (ms, across midnight), speed, position (m from ref), and
 // the fix's other channel values (ch, in the log's channel order).
+// lap "all" is the whole log, first fix to last: a log with no laps (a Free Roam drive, whose Lap
+// column is 0 throughout) is one piece, measured by distance like any lap.
 function lapTrace(points, lap, refLat, refLon) {
   const out = [];
   let d = 0, t0 = null, prev = null;
   for (const p of points) {
-    if (p.lap !== lap) continue;
+    if (lap !== "all" && p.lap !== lap) continue;
     const q = toLocal(p.lat, p.lon, refLat, refLon);
     if (t0 === null) t0 = p.ms;
     if (prev) d += Math.hypot(q.x - prev.x, q.y - prev.y);
@@ -943,6 +946,14 @@ function lapTrace(points, lap, refLat, refLon) {
     prev = q;
   }
   return out;
+}
+
+// Whether a log has any laps (a fix with a Lap above 0). If not, it's offered as one whole piece.
+const hasLaps = (points) => points.some((p) => p.lap > 0);
+
+// Which group of the track picker a track id goes in
+function trackGroup(id) {
+  return id === "freeroam" ? "Free Roam drives" : id === "perf" ? "Performance runs" : "Tracks";
 }
 
 // A trace's time and speed at distance d, between its two nearest fixes
@@ -1031,7 +1042,7 @@ const unitText = (u) => (u === "C" ? "°C" : u || "");
 function lapChannels(log, lap) {
   const known = new Set(), n = (log.channels || []).length;
   for (const p of log.points) {
-    if (p.lap !== lap || !p.ch) continue;
+    if ((lap !== "all" && p.lap !== lap) || !p.ch) continue;
     for (let k = 0; k < n; k++) if (!known.has(k) && isFinite(p.ch[k]) && p.ch[k] !== 0) known.add(k);
   }
   return new Set([...known].map((k) => log.channels[k].key));
@@ -1397,10 +1408,12 @@ async function cmpLoad() {
   let files;
   try { files = (await data.list()).files; } catch (e) { return; }
   cmpState.files = files.filter((f) => f.fs === "sd" && f.name.endsWith(".vbo"))
-    .map((f) => ({name: f.name, p: parseFile(f)})).filter((f) => f.p && f.p.track !== "freeroam")
+    .map((f) => ({name: f.name, p: parseFile(f)})).filter((f) => f.p)
     .sort((a, b) => b.name.localeCompare(a.name));
   const tracks = [...new Set(cmpState.files.map((f) => f.p.track))];
-  $("cmpTrack").innerHTML = tracks.length ? tracks.map((t) => `<option value="${esc(t)}">${esc(trackLabel(t))}</option>`).join("")
+  const groups = ["Tracks", "Free Roam drives", "Performance runs"].map((g) => [g, tracks.filter((t) => trackGroup(t) === g)]).filter(([, ts]) => ts.length);
+  $("cmpTrack").innerHTML = tracks.length ? groups.map(([g, ts]) => `<optgroup label="${g}">` +
+      ts.map((t) => `<option value="${esc(t)}">${esc(trackLabel(t))}</option>`).join("") + `</optgroup>`).join("")
                                           : `<option value="">${VIEWER ? "No session logs open yet" : "No session logs on the SD card"}</option>`;
   cmpTrackChanged();
 }
@@ -1421,7 +1434,10 @@ async function cmpLaps(which) {
   if (!vbo) { sel.innerHTML = ""; return; }
   const [log, sum] = await Promise.all([cmpLog(vbo), cmpSummary(vbo)]);
   let laps;
-  if (sum && Array.isArray(sum.laps) && sum.laps.length) {
+  if (!hasLaps(log.points)) {
+    // No lap crossings (Free Roam, a performance run): the whole log is one piece
+    laps = [{n: "all", text: cmpState.track === "freeroam" ? "Whole drive" : "Whole log"}];
+  } else if (sum && Array.isArray(sum.laps) && sum.laps.length) {
     laps = sum.laps.map((l) => ({n: l.lap, text: `Lap ${l.lap}  ${lapTimeText(l.timeMs)}` + (l.tags ? "  " + l.tags.join(", ") : "") +
                                                 (l.lap === sum.bestLap ? "  best" : "")}));
   } else {
@@ -1497,19 +1513,22 @@ function cmpTracks() {
 }
 
 async function cmpDraw() {
-  const va = $("cmpSesA").value, vb = $("cmpSesB").value, la = +$("cmpLapA").value, lb = +$("cmpLapB").value;
+  const lapOf = (v) => (v === "all" ? "all" : +v);
+  const va = $("cmpSesA").value, vb = $("cmpSesB").value, la = lapOf($("cmpLapA").value), lb = lapOf($("cmpLapB").value);
   cmpView.cmp = null;
   if (!va || !vb || !la || !lb) { $("cmpOut").hidden = true; return; }
   const [logA, logB, sumA, sumB, tdb] = await Promise.all([cmpLog(va), cmpLog(vb), cmpSummary(va), cmpSummary(vb), cmpTracks()]);
   const ref = logA.points[0];
   const a = lapTrace(logA.points, la, ref.lat, ref.lon), b = lapTrace(logB.points, lb, ref.lat, ref.lon);
-  const cmp = compareLaps(a, b);
+  // A long drive is compared in at most about 3000 steps; the maths reads every fix
+  const lenA = a.length ? a[a.length - 1].d : 0;
+  const cmp = compareLaps(a, b, Math.max(5, lenA / 3000));
   if (!cmp.d.length) { $("cmpOut").hidden = true; $("cmpMsg").textContent = "One of those laps isn't in its log."; return; }
   $("cmpOut").hidden = false;
   $("cmpMsg").textContent = "";
-  const final = cmp.gap[cmp.gap.length - 1];
-  $("cmpMsg").textContent = final === 0 ? "Level at the line." :
-    `${final > 0 ? "A" : "B"} is ${(Math.abs(final) / 1000).toFixed(2)} s quicker at the line (from the logs: each fix is 0.05 to 0.1 s apart).`;
+  const final = cmp.gap[cmp.gap.length - 1], end = la === "all" || lb === "all" ? "at the end" : "at the line";
+  $("cmpMsg").textContent = final === 0 ? "Level " + end + "." :
+    `${final > 0 ? "A" : "B"} is ${(Math.abs(final) / 1000).toFixed(2)} s quicker ${end} (from the logs: each fix is 0.05 to 0.1 s apart).`;
   Object.assign(cmpView, {cmp, a, b, la, lb});
   // The readout sticks just under the page's header
   document.documentElement.style.setProperty("--hdr", document.querySelector("header").offsetHeight + "px");
@@ -1623,7 +1642,8 @@ function cmpGgDraw(logA, logB) {
   g.fillText("braking", c, h - 6);
   for (const [gp, colour] of [[ga, COL_A], [gb, COL_B]]) {
     g.fillStyle = colour; g.globalAlpha = 0.6;
-    for (const p of gp.pts) { g.beginPath(); g.arc(c + p.x * S, c - p.y * S, 1.7, 0, 2 * Math.PI); g.fill(); }
+    const stride = Math.max(1, Math.ceil(gp.pts.length / 4000));  // a long drive: draw every few fixes
+    for (let i = 0; i < gp.pts.length; i += stride) { const p = gp.pts[i]; g.beginPath(); g.arc(c + p.x * S, c - p.y * S, 1.7, 0, 2 * Math.PI); g.fill(); }
   }
   g.globalAlpha = 1;
   v.gg = {c, S};
