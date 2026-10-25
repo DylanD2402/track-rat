@@ -1,0 +1,81 @@
+name: Web installer
+
+# Publishes site/ and the latest release's firmware to GitHub Pages
+# (https://dyland2402.github.io/track-rat/). It runs from the default branch, which is
+# the only one the github-pages environment lets deploy:
+# - after the Release workflow finishes for a tag;
+# - when site/ or this file changes on main;
+# - by hand ("Run workflow").
+#
+# The binaries are served from Pages itself: a browser can't fetch them from GitHub
+# Release links (no CORS headers). One-time setup: Settings > Pages > Source: GitHub Actions.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the web installer
+    # After a Release run: only a tag build (not a dry run) whose build succeeded
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The newest tag build of the Release workflow, and its "dist" artifact (the separate
+      # parts and manifest.json that the installer writes)
+      - name: Get the latest release build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            id="${{ github.event.workflow_run.id }}"
+          else
+            id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow release.yml --event push --limit 20 \
+                   --json databaseId,headBranch -q '[.[] | select(.headBranch | startswith("v"))][0].databaseId')
+          fi
+          if [ -z "$id" ] || [ "$id" = "null" ]; then echo "No tagged Release run found"; exit 1; fi
+          echo "Release run $id"
+          gh run download "$id" -R "$GITHUB_REPOSITORY" -n dist -D artifact
+          test -f artifact/dist/manifest.json
+
+      - name: Build the site folder
+        run: |
+          mkdir _site
+          cp site/index.html _site/
+          cd artifact/dist
+          cp bootloader.bin partitions.bin boot_app0.bin firmware.bin littlefs.bin manifest.json ../../_site/
+          cat manifest.json
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
