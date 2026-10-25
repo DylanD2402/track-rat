@@ -98,6 +98,24 @@ canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10
                               background: var(--card); color: var(--text); flex: 1 1 140px; max-width: 100%; min-width: 0; }
 .prof button.chip:disabled { opacity: .4; }
 .addrow { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 10px; }
+/* Compare: the cursor (a line on each distance chart, dots on the map and the friction circle), its readout, the channel chips, the sectors */
+.cw { position: relative; }
+.cw.gg { max-width: 440px; margin: 0 auto; }
+canvas.dist { touch-action: pan-y; cursor: crosshair; }
+.vline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--dim); pointer-events: none; display: none; }
+.dot { position: absolute; left: 0; top: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid var(--card);
+       pointer-events: none; display: none; }
+.dot.a { background: #0a84ff; }
+.dot.b { background: #ff9f0a; }
+.read { position: sticky; top: var(--hdr, 100px); z-index: 1; margin: 8px -4px 0; padding: 8px 12px; border-radius: 10px; background: var(--chip);
+        font-size: 14px; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.read .hint { color: var(--dim); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+button.chip.on { background: var(--accent); color: var(--accent-text); }
+table.sect td, table.sect th { padding: 8px 0; text-align: right; border-top: 1px solid var(--line); }
+table.sect th { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; border-top: 0; }
+table.sect td:first-child, table.sect th:first-child { text-align: left; width: auto; color: var(--text); }
+table.sect .tag { display: block; line-height: 1.1; }
 /* The viewer (the page on the website, no Track Rat): no board tabs, its own card, a drop target */
 .note a { color: var(--text); }
 .viewer-only { display: none; }
@@ -200,12 +218,28 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
     <div class="row"><b style="color:#ff9f0a">B</b><select id="cmpSesB"></select><select id="cmpLapB"></select></div>
     <p id="cmpMsg" class="note"></p>
     <div id="cmpOut" hidden>
+      <div id="cmpRead" class="read"></div>
       <h2>Speed against distance</h2>
-      <canvas id="cmpSpeed" class="chart"></canvas>
+      <div class="cw"><canvas id="cmpSpeed" class="chart dist"></canvas><i class="vline"></i></div>
       <h2>Time gap against distance (B − A: up is B losing time)</h2>
-      <canvas id="cmpGap" class="chart"></canvas>
+      <div class="cw"><canvas id="cmpGap" class="chart dist"></canvas><i class="vline"></i></div>
+      <div id="cmpChans" hidden>
+        <h2 id="cmpChTitle">Channels</h2>
+        <div id="cmpChips" class="chips"></div>
+        <div class="cw"><canvas id="cmpChan" class="chart dist"></canvas><i class="vline"></i></div>
+      </div>
       <h2>Who was faster where</h2>
-      <canvas id="cmpMap" class="chart"></canvas>
+      <div class="cw"><canvas id="cmpMap" class="chart"></canvas><i class="dot a"></i><i class="dot b"></i></div>
+      <div id="cmpGg" hidden>
+        <h2>Friction circle (g against g)</h2>
+        <div class="cw gg"><canvas id="cmpGgCanvas" class="chart"></canvas><i class="dot a"></i><i class="dot b"></i></div>
+        <p id="cmpGgNote" class="note"></p>
+      </div>
+      <div id="cmpSect" hidden>
+        <h2>Corner sectors</h2>
+        <table id="cmpSectTable" class="sect"></table>
+        <p class="note">Difference is B − A. Best is the quickest of that corner in these sessions.</p>
+      </div>
     </div>
   </div>
   <div class="card">
@@ -639,9 +673,13 @@ const round7 = (v) => Math.round(v * 1e7) / 1e7;
 
 // A .vbo log: its [comments] ("Key: value") and each fix's position, UTC time (ms), speed and lap.
 // Positions are in minutes, and longitude's sign is reversed (west is positive).
+// Its other channels (g, RPM, the car's) are channels: [{key, unit}], and each fix's values for
+// them are p.ch, in the same order. The units come from [channel units], one line for each
+// column after the seven standard ones.
+const VBO_CORE = ["sats", "time", "lat", "long", "velocity", "heading", "height", "HDOP", "Lap", "LapTag"];
 function parseVbo(text) {
-  const comments = {}, points = [];
-  let section = "", cols = null;
+  const comments = {}, points = [], units = [];
+  let section = "", cols = null, channels = [], chCols = [];
   for (const raw of text.split("\n")) {
     const line = raw.replace(/\r$/, "");
     if (line.startsWith("[")) { section = line.trim(); continue; }
@@ -649,8 +687,18 @@ function parseVbo(text) {
     if (section === "[comments]") {
       const i = line.indexOf(": ");
       if (i > 0) comments[line.slice(0, i)] = line.slice(i + 2);
+    } else if (section === "[channel units]") {
+      units.push(line.trim());
     } else if (section === "[column names]") {
       cols = line.trim().split(/\s+/);
+      chCols = [];
+      channels = [];
+      cols.forEach((c, i) => {
+        if (VBO_CORE.includes(c)) return;
+        const u = i >= 7 ? units[i - 7] : "";
+        chCols.push(i);
+        channels.push({key: c, unit: !u || u === "-" ? "" : u});
+      });
     } else if (section === "[data]" && cols) {
       const t = line.trim().split(/\s+/);
       if (t.length !== cols.length) continue;  // cut short by a power cut
@@ -659,10 +707,11 @@ function parseVbo(text) {
       if (!isFinite(lat) || !isFinite(lon) || (lat === 0 && lon === 0)) continue;
       const tm = t[cols.indexOf("time")] || "";  // hhmmss.sss UTC
       const ms = (+tm.slice(0, 2) * 3600 + +tm.slice(2, 4) * 60 + +tm.slice(4)) * 1000;
-      points.push({lat, lon, ms: Math.round(ms) || 0, kmh: v("velocity") || 0, lap: cols.includes("Lap") ? v("Lap") || 0 : 0});
+      points.push({lat, lon, ms: Math.round(ms) || 0, kmh: v("velocity") || 0, lap: cols.includes("Lap") ? v("Lap") || 0 : 0,
+                   ch: chCols.map((i) => +t[i])});
     }
   }
-  return {comments, points};
+  return {comments, points, channels};
 }
 
 // "Short Course" -> "short-course", as the device makes layout ids
@@ -880,7 +929,8 @@ function vboToCsv(text, summary) {
 const DAY_MS = 86400000;
 
 // One lap of a log (fixes marked with its number in the Lap column) as a trace from the line:
-// distance driven (m), time into the lap (ms, across midnight), speed, and position (m from ref).
+// distance driven (m), time into the lap (ms, across midnight), speed, position (m from ref), and
+// the fix's other channel values (ch, in the log's channel order).
 function lapTrace(points, lap, refLat, refLon) {
   const out = [];
   let d = 0, t0 = null, prev = null;
@@ -889,7 +939,7 @@ function lapTrace(points, lap, refLat, refLon) {
     const q = toLocal(p.lat, p.lon, refLat, refLon);
     if (t0 === null) t0 = p.ms;
     if (prev) d += Math.hypot(q.x - prev.x, q.y - prev.y);
-    out.push({d, t: ((p.ms - t0) % DAY_MS + DAY_MS) % DAY_MS, kmh: p.kmh, x: q.x, y: q.y});
+    out.push({d, t: ((p.ms - t0) % DAY_MS + DAY_MS) % DAY_MS, kmh: p.kmh, x: q.x, y: q.y, ch: p.ch});
     prev = q;
   }
   return out;
@@ -912,7 +962,7 @@ function atDistance(tr, d) {
 // length (two laps never measure quite the same), so the same point on track lines up.
 // gap: B's time minus A's at that point (+ = B behind).
 function compareLaps(a, b, step = 5) {
-  const out = {d: [], kmhA: [], kmhB: [], gap: [], x: [], y: []};
+  const out = {d: [], kmhA: [], kmhB: [], gap: [], x: [], y: [], xB: [], yB: []};
   if (a.length < 2 || b.length < 2) return out;
   const lenA = a[a.length - 1].d, lenB = b[b.length - 1].d;
   if (lenA <= 0 || lenB <= 0) return out;
@@ -927,6 +977,8 @@ function compareLaps(a, b, step = 5) {
     out.gap.push(pb.t - pa.t);
     out.x.push(pa.x);
     out.y.push(pa.y);
+    out.xB.push(pb.x);  // and where B was, for the cursor
+    out.yB.push(pb.y);
   }
   return out;
 }
@@ -959,6 +1011,147 @@ function season(summaries) {
     pb = Math.min(pb, best);
     return {day, best, pb, isPb};
   });
+}
+
+// ---- the other channels: what a log recorded besides the fix (RPM, throttle, temperatures, g, the car's) ----
+const CHANNEL_ORDER = ["RPM", "Throttle", "CoolantTemp", "IntakeTemp", "OilTemp", "LateralG", "LongitudinalG"];
+const CHANNEL_LABELS = {RPM: "RPM", Throttle: "Throttle", CoolantTemp: "Coolant", IntakeTemp: "Intake", OilTemp: "Oil",
+                        LateralG: "Lateral g", LongitudinalG: "Longitudinal g"};
+const TEMP_CHANNELS = ["CoolantTemp", "IntakeTemp", "OilTemp"];  // 0 in the log means not known
+
+// "BrakePressure" -> "Brake pressure"
+function channelLabel(key) {
+  if (CHANNEL_LABELS[key]) return CHANNEL_LABELS[key];
+  const words = String(key).replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_+/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+const unitText = (u) => (u === "C" ? "°C" : u || "");
+
+// Which of a log's channels (by key) have a value other than 0 somewhere in the lap
+function lapChannels(log, lap) {
+  const known = new Set(), n = (log.channels || []).length;
+  for (const p of log.points) {
+    if (p.lap !== lap || !p.ch) continue;
+    for (let k = 0; k < n; k++) if (!known.has(k) && isFinite(p.ch[k]) && p.ch[k] !== 0) known.add(k);
+  }
+  return new Set([...known].map((k) => log.channels[k].key));
+}
+
+// The channels both laps have values for: [{key, label, unit, ia, ib, zeroUnknown}], where ia and ib
+// are the channel's place in each log (a trace point's ch[ia]). Known ones first, in a set order.
+function commonChannels(logA, lapA, logB, lapB) {
+  const ka = lapChannels(logA, lapA), kb = lapChannels(logB, lapB), out = [];
+  (logA.channels || []).forEach((c, ia) => {
+    const ib = (logB.channels || []).findIndex((x) => x.key === c.key);
+    if (ib < 0 || !ka.has(c.key) || !kb.has(c.key)) return;
+    out.push({key: c.key, label: channelLabel(c.key), unit: unitText(c.unit || logB.channels[ib].unit), ia, ib,
+              zeroUnknown: TEMP_CHANNELS.includes(c.key), rank: CHANNEL_ORDER.includes(c.key) ? CHANNEL_ORDER.indexOf(c.key) : 100 + ia});
+  });
+  return out.sort((x, y) => x.rank - y.rank);
+}
+
+// A trace's channel number ci at distance d (between its two nearest fixes), or null where it
+// isn't known (not a number, or 0 for a temperature): a gap, not a zero.
+function channelAt(tr, d, ci, zeroUnknown) {
+  if (!tr.length) return null;
+  const val = (p) => {
+    const v = p.ch ? p.ch[ci] : undefined;
+    return v === undefined || !isFinite(v) || (zeroUnknown && v === 0) ? null : v;
+  };
+  const last = tr.length - 1;
+  if (d <= tr[0].d) return val(tr[0]);
+  if (d >= tr[last].d) return val(tr[last]);
+  let lo = 0, hi = last;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tr[mid].d <= d) lo = mid; else hi = mid; }
+  const a = tr[lo], b = tr[hi], u = b.d > a.d ? (d - a.d) / (b.d - a.d) : 0;
+  const va = val(a), vb = val(b);
+  if (u === 0) return va;
+  if (va === null || vb === null) return null;
+  return va + (vb - va) * u;
+}
+
+// One channel for both laps along the comparison's distances (cmp.d, in lap A's metres; lap B's
+// distance is stretched to A's length, as in compareLaps): {a, b}, null where not known.
+function channelSeries(a, b, ch, cmp) {
+  const out = {a: [], b: []};
+  if (!cmp.d.length || a.length < 2 || b.length < 2) return out;
+  const k = b[b.length - 1].d / a[a.length - 1].d;
+  for (const d of cmp.d) {
+    out.a.push(channelAt(a, d, ch.ia, ch.zeroUnknown));
+    out.b.push(channelAt(b, d * k, ch.ib, ch.zeroUnknown));
+  }
+  return out;
+}
+
+// The friction circle of a lap: a point {x: lateral g, y: longitudinal g} for each fix, and the
+// largest combined g, from channel numbers ilat and ilong (or -1 for a log without them)
+function ggPoints(tr, ilat, ilong) {
+  const pts = [];
+  let max = 0;
+  if (ilat < 0 || ilong < 0) return {pts, max};
+  for (const p of tr) {
+    const x = p.ch ? p.ch[ilat] : NaN, y = p.ch ? p.ch[ilong] : NaN;
+    if (!isFinite(x) || !isFinite(y)) continue;
+    pts.push({x, y});
+    max = Math.max(max, Math.hypot(x, y));
+  }
+  return {pts, max};
+}
+
+// ---- the sectors: corner times from the summaries' sectorsMs ----
+// sectorsMs is the time into the lap at the end of each corner sector (the last ends at the line).
+// Their lengths: [t1, t2 - t1, ...]. null if they aren't a growing list of times.
+function sectorDurations(sectorsMs) {
+  if (!Array.isArray(sectorsMs) || !sectorsMs.length) return null;
+  const out = [];
+  let prev = 0;
+  for (const t of sectorsMs) {
+    if (typeof t !== "number" || !isFinite(t) || t <= prev) return null;
+    out.push(t - prev);
+    prev = t;
+  }
+  return out;
+}
+
+// Two laps' sectors, one row for each: {name, a, b, diff (B - A, ms), best, aBest, bBest}, where best
+// is the quickest of that sector in either session (laps with a tag, such as pit or slow, don't
+// count unless it is one of the two). names: the track's corner names, T1, T2... where missing.
+// null if either lap has no sectors, or they differ in number.
+function sectorTable(sumA, lapA, sumB, lapB, names) {
+  const find = (s, n) => (s && Array.isArray(s.laps) ? s.laps.find((l) => l.lap === n) : null);
+  const la = find(sumA, lapA), lb = find(sumB, lapB);
+  const da = la ? sectorDurations(la.sectorsMs) : null, db = lb ? sectorDurations(lb.sectorsMs) : null;
+  if (!da || !db || da.length !== db.length) return null;
+  const best = da.map((v, i) => Math.min(v, db[i]));
+  for (const s of sumA === sumB ? [sumA] : [sumA, sumB]) {
+    for (const l of s.laps) {
+      const d = l.tags && l.tags.length ? null : sectorDurations(l.sectorsMs);
+      if (d && d.length === best.length) d.forEach((v, i) => { best[i] = Math.min(best[i], v); });
+    }
+  }
+  return da.map((a, i) => ({name: (names && names[i]) || "T" + (i + 1), a, b: db[i], diff: db[i] - a, best: best[i],
+                            aBest: a === best[i], bBest: db[i] === best[i]}));
+}
+
+// ---- the cursor: both laps' values at one distance ----
+// d (m, lap A's) -> {d, kmhA, kmhB, gap, xA, yA, xB, yB, a, b}: everything of the comparison at that
+// distance, mixed between its two nearest rows. series: a channelSeries (a and b are its values,
+// null where not known). null if there is no comparison.
+function cursorAt(cmp, d, series) {
+  const n = cmp.d.length;
+  if (!n) return null;
+  d = Math.min(Math.max(d, cmp.d[0]), cmp.d[n - 1]);
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cmp.d[mid] <= d) lo = mid; else hi = mid; }
+  const u = hi > lo && cmp.d[hi] > cmp.d[lo] ? (d - cmp.d[lo]) / (cmp.d[hi] - cmp.d[lo]) : 0;
+  const mix = (arr) => {
+    if (!arr) return null;
+    const a = arr[lo], b = arr[hi];
+    if (u === 0) return a;
+    return a === null || b === null || a === undefined || b === undefined ? null : a + (b - a) * u;
+  };
+  return {d, kmhA: mix(cmp.kmhA), kmhB: mix(cmp.kmhB), gap: mix(cmp.gap), xA: mix(cmp.x), yA: mix(cmp.y), xB: mix(cmp.xB), yB: mix(cmp.yB),
+          a: series ? mix(series.a) : null, b: series ? mix(series.b) : null};
 }
 
 // "1:42.345" and "+0.31"
@@ -1257,41 +1450,79 @@ function canvas2d(id, ratio) {
   g.font = "12px Inter, sans-serif";
   return {g, w, h};
 }
-// A line chart of series against cmp.d
+// A line chart of series against cmp.d. A null value is a gap in the line. Returns where its
+// x axis is ({L, R, w, max}: pixels in from the left and right, width, the distance at the right end)
+// so the cursor can find a distance from a touch, and a touch from a distance.
 function chart(id, cmp, series, zeroLine, xLabel) {
   const {g, w, h} = canvas2d(id, 0.45);
   const dim = getComputedStyle(document.body).getPropertyValue("--dim");
   let lo = Infinity, hi = -Infinity;
-  for (const s of series) for (const v of s.v) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  for (const s of series) for (const v of s.v) if (v !== null) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
   if (zeroLine) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  if (lo === Infinity) { lo = 0; hi = 1; }
   if (!(hi > lo)) hi = lo + 1;
-  const L = 44, B = 18, X = (d) => L + (d / cmp.d[cmp.d.length - 1]) * (w - L - 6), Y = (v) => 6 + (hi - v) / (hi - lo) * (h - B - 12);
+  const max = cmp.d[cmp.d.length - 1];
+  const L = 44, R = 6, B = 18, X = (d) => L + (d / max) * (w - L - R), Y = (v) => 6 + (hi - v) / (hi - lo) * (h - B - 12);
   g.fillStyle = dim;
   for (const v of [lo, (lo + hi) / 2, hi]) g.fillText(series[0].fmt(v), 2, Y(v) + 4);
-  g.fillText(xLabel !== undefined ? xLabel : Math.round(cmp.d[cmp.d.length - 1]) + " m", w - 50, h - 4);
+  g.fillText(xLabel !== undefined ? xLabel : Math.round(max) + " m", w - 50, h - 4);
   if (zeroLine) { g.strokeStyle = dim; g.lineWidth = 1; g.beginPath(); g.moveTo(L, Y(0)); g.lineTo(w, Y(0)); g.stroke(); }
   for (const s of series) {
-    g.strokeStyle = s.colour; g.lineWidth = 2; g.beginPath();
-    s.v.forEach((v, i) => (i ? g.lineTo(X(cmp.d[i]), Y(v)) : g.moveTo(X(cmp.d[i]), Y(v))));
+    g.strokeStyle = s.colour; g.lineWidth = 2; g.lineJoin = "round"; g.beginPath();
+    let pen = false;
+    s.v.forEach((v, i) => {
+      if (v === null) { pen = false; return; }
+      if (pen) g.lineTo(X(cmp.d[i]), Y(v)); else g.moveTo(X(cmp.d[i]), Y(v));
+      pen = true;
+    });
     g.stroke();
   }
+  return {L, R, w, max};
+}
+
+// What the Compare tab shows now: the comparison and the cursor, shared by its charts
+const cmpView = {cmp: null, a: null, b: null, chans: [], sel: "", ch: null, series: null, geo: null, map: null, gg: null, d: null};
+
+// Decimals to show a channel's values with, from how far they range
+function chanDecimals(series) {
+  let lo = Infinity, hi = -Infinity;
+  for (const arr of [series.a, series.b]) for (const v of arr) if (v !== null) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  return !(hi > lo) || hi - lo >= 20 ? 0 : hi - lo >= 2 ? 1 : 2;
+}
+
+function cmpTracks() {
+  if (trackDb) return Promise.resolve(trackDb);
+  if (!cmpState.tracksP) cmpState.tracksP = data.tracks().catch(() => null);
+  return cmpState.tracksP;
 }
 
 async function cmpDraw() {
   const va = $("cmpSesA").value, vb = $("cmpSesB").value, la = +$("cmpLapA").value, lb = +$("cmpLapB").value;
+  cmpView.cmp = null;
   if (!va || !vb || !la || !lb) { $("cmpOut").hidden = true; return; }
-  const [logA, logB] = await Promise.all([cmpLog(va), cmpLog(vb)]);
+  const [logA, logB, sumA, sumB, tdb] = await Promise.all([cmpLog(va), cmpLog(vb), cmpSummary(va), cmpSummary(vb), cmpTracks()]);
   const ref = logA.points[0];
   const a = lapTrace(logA.points, la, ref.lat, ref.lon), b = lapTrace(logB.points, lb, ref.lat, ref.lon);
   const cmp = compareLaps(a, b);
   if (!cmp.d.length) { $("cmpOut").hidden = true; $("cmpMsg").textContent = "One of those laps isn't in its log."; return; }
   $("cmpOut").hidden = false;
+  $("cmpMsg").textContent = "";
   const final = cmp.gap[cmp.gap.length - 1];
   $("cmpMsg").textContent = final === 0 ? "Level at the line." :
     `${final > 0 ? "A" : "B"} is ${(Math.abs(final) / 1000).toFixed(2)} s quicker at the line (from the logs: each fix is 0.05 to 0.1 s apart).`;
+  Object.assign(cmpView, {cmp, a, b, la, lb});
+  // The readout sticks just under the page's header
+  document.documentElement.style.setProperty("--hdr", document.querySelector("header").offsetHeight + "px");
   const kmh = (v) => Math.round(v) + "", sec = (v) => gapText(v);
-  chart("cmpSpeed", cmp, [{v: cmp.kmhA, colour: COL_A, fmt: kmh}, {v: cmp.kmhB, colour: COL_B, fmt: kmh}], false);
+  cmpView.geo = chart("cmpSpeed", cmp, [{v: cmp.kmhA, colour: COL_A, fmt: kmh}, {v: cmp.kmhB, colour: COL_B, fmt: kmh}], false);
   chart("cmpGap", cmp, [{v: cmp.gap, colour: COL_B, fmt: sec}], true);
+
+  // The other channels both laps have, one drawn at a time
+  cmpView.chans = commonChannels(logA, la, logB, lb);
+  if (!cmpView.chans.some((c) => c.key === cmpView.sel)) cmpView.sel = cmpView.chans.length ? cmpView.chans[0].key : "";
+  $("cmpChans").hidden = !cmpView.chans.length;
+  if (cmpView.chans.length) cmpChannel();
+  else { cmpView.ch = null; cmpView.series = null; }
 
   // The map: lap A's path, each stretch in the colour of whoever was faster there
   const {g, w, h} = canvas2d("cmpMap", 0.75);
@@ -1299,6 +1530,7 @@ async function cmpDraw() {
   cmp.x.forEach((x, i) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, cmp.y[i]); maxY = Math.max(maxY, cmp.y[i]); });
   const s = Math.min((w - 30) / Math.max(maxX - minX, 1), (h - 30) / Math.max(maxY - minY, 1));
   const X = (x) => w / 2 + (x - (minX + maxX) / 2) * s, Y = (y) => h / 2 - (y - (minY + maxY) / 2) * s;
+  cmpView.map = {X, Y};
   // In the viewer the track's map from tracks.json goes underneath, when it has one
   const venue = VIEWER && trackDb && findTrack(trackDb, cmpState.track);
   if (venue && Array.isArray(venue.obj.map)) {
@@ -1318,7 +1550,136 @@ async function cmpDraw() {
     for (let i = r.from; i <= r.to; i++) (i === r.from ? g.moveTo(X(cmp.x[i]), Y(cmp.y[i])) : g.lineTo(X(cmp.x[i]), Y(cmp.y[i])));
     g.stroke();
   }
+
+  cmpGgDraw(logA, logB);
+
+  // The corner sectors, when both laps have them (named as the track's corners are)
+  const t = tdb && findTrack(tdb, cmpState.track);
+  const names = t && Array.isArray(t.obj.sectors) ? t.obj.sectors.map((sc) => sc.name) : [];
+  const rows = sectorTable(sumA, la, sumB, lb, names);
+  $("cmpSect").hidden = !rows;
+  if (rows) {
+    const time = (ms) => (ms >= 60000 ? lapTimeText(ms) : (ms / 1000).toFixed(2));
+    const best = `<span class="tag">best</span>`;
+    const total = (sum, lap) => sum.laps.find((l) => l.lap === lap).sectorsMs.slice(-1)[0];
+    const ta = total(sumA, la), tb = total(sumB, lb);
+    const colour = (d) => (d > 0 ? COL_A : d < 0 ? COL_B : "inherit");
+    $("cmpSectTable").innerHTML =
+      `<tr><th>Sector</th><th style="color:${COL_A}">A</th><th style="color:${COL_B}">B</th><th>B − A</th></tr>` +
+      rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${time(r.a)}${r.aBest ? best : ""}</td><td>${time(r.b)}${r.bBest ? best : ""}</td>` +
+                      `<td style="color:${colour(r.diff)}">${gapText(r.diff)}</td></tr>`).join("") +
+      `<tr><td>Lap</td><td>${time(ta)}</td><td>${time(tb)}</td><td style="color:${colour(tb - ta)}">${gapText(tb - ta)}</td></tr>`;
+  }
+  cmpCursor();
 }
+
+// The picked channel for both laps, with its chips
+function cmpChannel() {
+  const v = cmpView;
+  const ch = v.chans.find((c) => c.key === v.sel) || v.chans[0];
+  v.sel = ch.key;
+  v.ch = ch;
+  $("cmpChips").innerHTML = v.chans.map((c) =>
+    `<button class="chip${c === ch ? " on" : ""}" data-ch="${esc(c.key)}" aria-pressed="${c === ch}">${esc(c.label)}</button>`).join("");
+  v.series = channelSeries(v.a, v.b, ch, v.cmp);
+  v.dec = chanDecimals(v.series);
+  $("cmpChTitle").textContent = ch.label + (ch.unit ? " (" + ch.unit + ")" : "") + " against distance";
+  chart("cmpChan", v.cmp, [{v: v.series.a, colour: COL_A, fmt: (x) => x.toFixed(v.dec)}, {v: v.series.b, colour: COL_B, fmt: (x) => x.toFixed(v.dec)}], false);
+}
+$("cmpChips").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-ch]");
+  if (!b) return;
+  cmpView.sel = b.dataset.ch;
+  cmpChannel();
+  cmpCursor();
+});
+
+// The friction circle: lateral g across, longitudinal up (acceleration up, braking down), a point
+// for each fix of the two laps. Hidden if neither log has any g.
+function cmpGgDraw(logA, logB) {
+  const v = cmpView, idx = (log, key) => (log.channels || []).findIndex((c) => c.key === key);
+  v.ggIdx = {a: [idx(logA, "LateralG"), idx(logA, "LongitudinalG")], b: [idx(logB, "LateralG"), idx(logB, "LongitudinalG")]};
+  const ga = ggPoints(v.a, ...v.ggIdx.a), gb = ggPoints(v.b, ...v.ggIdx.b);
+  const has = Math.max(ga.max, gb.max) > 0;
+  $("cmpGg").hidden = !has;
+  v.gg = null;
+  if (!has) return;
+  const {g, w, h} = canvas2d("cmpGgCanvas", 1);
+  const dim = getComputedStyle(document.body).getPropertyValue("--dim");
+  const R = Math.max(1, Math.ceil(Math.max(ga.max, gb.max) * 2) / 2);  // the outer ring, in 0.5 g steps
+  const c = w / 2, S = (c - 28) / R;  // pixels for each g
+  g.strokeStyle = dim; g.fillStyle = dim; g.textAlign = "left";
+  g.globalAlpha = 0.4; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(c, 4); g.lineTo(c, h - 4); g.moveTo(4, c); g.lineTo(w - 4, c); g.stroke();
+  for (let r = 0.5; r <= R + 1e-9; r += 0.5) {
+    g.globalAlpha = r === 1 ? 0.7 : 0.35;
+    g.beginPath(); g.arc(c, c, r * S, 0, 2 * Math.PI); g.stroke();
+    g.globalAlpha = 1;
+    g.fillText(r.toFixed(1) + " g", c + r * S * Math.SQRT1_2 + 3, c - r * S * Math.SQRT1_2 - 2);
+  }
+  g.globalAlpha = 1;
+  g.textAlign = "center";
+  g.fillText("accelerating", c, 14);
+  g.fillText("braking", c, h - 6);
+  for (const [gp, colour] of [[ga, COL_A], [gb, COL_B]]) {
+    g.fillStyle = colour; g.globalAlpha = 0.6;
+    for (const p of gp.pts) { g.beginPath(); g.arc(c + p.x * S, c - p.y * S, 1.7, 0, 2 * Math.PI); g.fill(); }
+  }
+  g.globalAlpha = 1;
+  v.gg = {c, S};
+  const f = (x) => x.toFixed(2) + " g";
+  $("cmpGgNote").innerHTML = `Biggest combined g: <b style="color:${COL_A}">A ${f(ga.max)}</b>, <b style="color:${COL_B}">B ${f(gb.max)}</b>. ` +
+    `Across is cornering, up and down is accelerating and braking.`;
+}
+
+// ---- the cursor: a distance picked on any distance chart, shown on all of them, the map and the readout ----
+function cmpCursor() {
+  const v = cmpView, read = $("cmpRead");
+  const c = v.cmp && v.d !== null ? cursorAt(v.cmp, v.d, v.series) : null;
+  const show = (el, x, y) => {
+    el.style.display = x === null ? "none" : "block";
+    if (x !== null) { el.style.left = x + "px"; if (y !== undefined) el.style.top = y + "px"; }
+  };
+  for (const el of document.querySelectorAll("#cmpOut .vline"))
+    show(el, c && v.geo ? v.geo.L + c.d / v.geo.max * (v.geo.w - v.geo.L - v.geo.R) : null);
+  const [ma, mb] = $("cmpMap").parentNode.querySelectorAll(".dot");
+  if (c && v.map) { show(ma, v.map.X(c.xA), v.map.Y(c.yA)); show(mb, v.map.X(c.xB), v.map.Y(c.yB)); }
+  else { show(ma, null); show(mb, null); }
+  const [ga, gb] = $("cmpGgCanvas").parentNode.querySelectorAll(".dot");
+  const k = c ? v.b[v.b.length - 1].d / v.a[v.a.length - 1].d : 1;
+  for (const [dot, tr, d, ix] of [[ga, v.a, c && c.d, c && v.ggIdx.a], [gb, v.b, c && c.d * k, c && v.ggIdx.b]]) {
+    const x = c && v.gg ? channelAt(tr, d, ix[0], false) : null, y = c && v.gg ? channelAt(tr, d, ix[1], false) : null;
+    if (x === null || y === null) show(dot, null);
+    else show(dot, v.gg.c + x * v.gg.S, v.gg.c - y * v.gg.S);
+  }
+  if (!c) { read.innerHTML = `<span class="hint">Touch or hover over a chart to read both laps at one point.</span>`; return; }
+  const pair = (x, y, dec) => `<b style="color:${COL_A}">${x === null ? "–" : x.toFixed(dec)}</b> / <b style="color:${COL_B}">${y === null ? "–" : y.toFixed(dec)}</b>`;
+  read.innerHTML = `<span><b>${Math.round(c.d)} m</b></span>` +
+    `<span>Speed ${pair(c.kmhA, c.kmhB, 0)} km/h</span>` +
+    `<span>Gap <b>${gapText(c.gap)}</b> s</span>` +
+    (v.ch ? `<span>${esc(v.ch.label)} ${pair(c.a, c.b, v.dec)}${v.ch.unit ? " " + esc(v.ch.unit) : ""}</span>` : "");
+}
+function cmpPointer(e) {
+  const v = cmpView;
+  if (!v.cmp || !v.geo) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  const frac = (e.clientX - r.left - v.geo.L) / (r.width - v.geo.L - v.geo.R);
+  v.d = Math.min(Math.max(frac, 0), 1) * v.geo.max;
+  cmpCursor();
+}
+for (const el of document.querySelectorAll("canvas.dist")) {
+  el.addEventListener("pointerdown", cmpPointer);
+  el.addEventListener("pointermove", cmpPointer);
+}
+// A turned phone or a resized window: draw again at the new width
+let cmpWidth = window.innerWidth, cmpResizing = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(cmpResizing);
+  cmpResizing = setTimeout(() => {
+    if (window.innerWidth !== cmpWidth && $("compare").classList.contains("on") && !$("cmpOut").hidden) cmpDraw();
+    cmpWidth = window.innerWidth;
+  }, 200);
+});
 
 // The season: best lap of each visit, and the PB as it stood
 async function cmpSeason(mine) {

@@ -51,7 +51,8 @@ if (!cm) {
   process.exit(1);
 }
 // The comparison uses the editor's parseVbo and toLocal, as on the page
-const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistance, compareLaps, fasterRuns, season, lapTimeText, gapText};")();
+const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistance, compareLaps, fasterRuns, season, lapTimeText, gapText," +
+                      " channelLabel, unitText, lapChannels, commonChannels, channelAt, channelSeries, ggPoints, sectorDurations, sectorTable, cursorAt};")();
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
                         " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart};")();
 
@@ -520,6 +521,108 @@ console.log("Wi-Fi page lap comparison tests");
   check(CMP.gapText(310) === "+0.31" && CMP.gapText(-1500) === "−1.50" && CMP.gapText(0) === "0.00", "gap text");
 }
 
+// ---- channels, sectors and the cursor in the lap comparison (8.1b) ----
+{
+  const near = (a, b, tol, msg) => check(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+  // A log with the board's channels and one car channel: lap 1 (RPM, throttle, coolant, oil unknown), lap 2 (oil known)
+  const mk = (lap, rows) => rows.map(([x, rpm, thr, cool, oil, lat, lon, brake]) =>
+    `012 120000.000 ${(45 * 60).toFixed(8)} ${(75 * 60 + x / 1853).toFixed(8)} 100.000 090.00 +00100.00 0.6 ${lap} ${lat} ${lon} 0 ${rpm} ${thr} ${cool} +025.0 ${oil} ${brake}`);
+  const head = ["[header]", "satellites", "time", "latitude", "longitude", "velocity kmh", "heading", "height", "HDOP", "Lap", "Lateral G",
+    "Longitudinal G", "Lap tag", "RPM", "Throttle position", "Coolant temperature", "Intake temperature", "Oil temperature", "BrakePressure", "",
+    "[channel units]", "-", "-", "g", "g", "-", "rpm", "%", "C", "C", "C", "bar", "", "[column names]",
+    "sats time lat long velocity heading height HDOP Lap LateralG LongitudinalG LapTag RPM Throttle CoolantTemp IntakeTemp OilTemp BrakePressure", "", "[data]"];
+  const vbo = head.concat(
+    mk(1, [[0, "03000", "010.0", "+000.0", "+000.0", "+0.500", "+0.250", "+0.0e+00"], [100, "04000", "020.0", "+090.0", "+000.0", "-0.750", "-0.500", "+1.5e+01"],
+           [200, "05000", "030.0", "+092.0", "+000.0", "+0.100", "+0.100", "+2.0e+01"]]),
+    mk(2, [[0, "03500", "015.0", "+000.0", "+080.0", "+0.000", "+0.000", "+0.0e+00"], [100, "04500", "025.0", "+091.0", "+081.0", "+0.600", "-0.800", "+1.0e+01"],
+           [200, "05500", "035.0", "+093.0", "+082.0", "+0.000", "+0.000", "+0.0e+00"]])).join("\r\n");
+  const log = CMP.parseVbo(vbo);
+  check(log.channels.map((c) => c.key).join() === "LateralG,LongitudinalG,RPM,Throttle,CoolantTemp,IntakeTemp,OilTemp,BrakePressure",
+        "channels in the log's order: " + log.channels.map((c) => c.key));
+  check(log.channels.map((c) => c.unit).join() === "g,g,rpm,%,C,C,C,bar", "their units: " + log.channels.map((c) => c.unit));
+  check(log.points[0].ch.length === 8 && log.points[0].ch[2] === 3000 && log.points[1].ch[7] === 15, "each fix keeps its channel values");
+  check(CMP.parseVbo("").channels.length === 0, "no channels in an empty log");
+
+  check(CMP.channelLabel("CoolantTemp") === "Coolant" && CMP.channelLabel("BrakePressure") === "Brake pressure" &&
+        CMP.channelLabel("steering_angle") === "Steering angle", "channel names");
+  check(CMP.unitText("C") === "°C" && CMP.unitText("bar") === "bar" && CMP.unitText("") === "", "unit text");
+  // Oil is 0 (not known) through lap 1: left out of the list for that lap
+  check([...CMP.lapChannels(log, 1)].sort().join() === "BrakePressure,CoolantTemp,IntakeTemp,LateralG,LongitudinalG,RPM,Throttle",
+        "lap 1 channels: " + [...CMP.lapChannels(log, 1)].sort());
+  check(CMP.lapChannels(log, 2).has("OilTemp"), "lap 2 has oil");
+  const common = CMP.commonChannels(log, 1, log, 2);
+  check(common.map((c) => c.key).join() === "RPM,Throttle,CoolantTemp,IntakeTemp,LateralG,LongitudinalG,BrakePressure",
+        "both laps' channels, in the set order, the car's last: " + common.map((c) => c.key));
+  check(!common.some((c) => c.key === "OilTemp"), "oil is unknown in one lap, so it isn't offered");
+  check(common[0].label === "RPM" && common[2].label === "Coolant" && common[2].unit === "°C" && common[2].zeroUnknown && !common[0].zeroUnknown,
+        "labels, units and which zeros are unknown");
+  const oilBoth = CMP.commonChannels(log, 2, log, 2);
+  check(oilBoth.some((c) => c.key === "OilTemp"), "oil is offered when both laps know it");
+  check(CMP.commonChannels({points: [], channels: []}, 1, log, 2).length === 0, "a log with no channels offers none");
+
+  // A channel against distance: mixed between fixes, 0 temperature is a gap
+  const a = CMP.lapTrace(log.points, 1, 45, -75), b = CMP.lapTrace(log.points, 2, 45, -75);
+  const rpm = common.find((c) => c.key === "RPM"), cool = common.find((c) => c.key === "CoolantTemp");
+  near(CMP.channelAt(a, a[1].d / 2, rpm.ia, false), 3500, 1, "RPM half way to the second fix");
+  check(CMP.channelAt(a, a[0].d, cool.ia, true) === null, "coolant 0 at the start: not known");
+  check(CMP.channelAt(a, a[0].d, cool.ia, false) === 0, "but 0 is a value for a channel that allows it");
+  check(CMP.channelAt(a, a[1].d / 2, cool.ia, true) === null, "between a known and an unknown value: a gap");
+  near(CMP.channelAt(a, a[1].d * 1.5, cool.ia, true), 91, 0.1, "between two known values");
+  near(CMP.channelAt(a, 1e6, rpm.ia, false), 5000, 0, "past the end: the last value");
+  check(CMP.channelAt([], 5, 0, false) === null, "no trace, no value");
+  const cmp = CMP.compareLaps(a, b);
+  const ser = CMP.channelSeries(a, b, rpm, cmp);
+  check(ser.a.length === cmp.d.length && ser.b.length === cmp.d.length, "a value for each comparison row");
+  near(ser.a[0], 3000, 0, "A starts at 3000 rpm");
+  near(ser.b[0], 3500, 0, "B starts at 3500 rpm");
+  near(ser.b[ser.b.length - 1], 5500, 0, "B ends at 5500 rpm");
+  const coolSer = CMP.channelSeries(a, b, cool, cmp);
+  check(coolSer.a[0] === null && coolSer.a[coolSer.a.length - 1] === 92 && coolSer.b[0] === null, "coolant has a gap at the start");
+
+  // The friction circle
+  const gg = CMP.ggPoints(a, log.channels.findIndex((c) => c.key === "LateralG"), log.channels.findIndex((c) => c.key === "LongitudinalG"));
+  check(gg.pts.length === 3 && gg.pts[1].x === -0.75 && gg.pts[1].y === -0.5, "a point for each fix");
+  near(gg.max, Math.hypot(0.75, 0.5), 1e-9, "largest combined g");
+  check(CMP.ggPoints(a, -1, -1).pts.length === 0 && CMP.ggPoints(a, -1, -1).max === 0, "a log without g has no circle");
+  check(CMP.ggPoints([{ch: [0, 0]}, {ch: [0, 0]}], 0, 1).max === 0, "all zeros: nothing to draw");
+
+  // Sectors: elapsed at the end of each corner, as the summary writes them
+  check(CMP.sectorDurations([30000, 75000, 130615]).join() === "30000,45000,55615", "sector times from the elapsed times");
+  check(CMP.sectorDurations(undefined) === null && CMP.sectorDurations([]) === null && CMP.sectorDurations([5000, 4000]) === null &&
+        CMP.sectorDurations([5000, "x"]) === null, "bad sectors are none");
+  const sum = {laps: [{lap: 1, sectorsMs: [30000, 75000, 130000]}, {lap: 2, sectorsMs: [29500, 75500, 129000]},
+                      {lap: 3, tags: ["pit"], sectorsMs: [20000, 40000, 100000]}, {lap: 4}]};
+  const sum2 = {laps: [{lap: 1, sectorsMs: [30500, 74500, 131000]}]};
+  let rows = CMP.sectorTable(sum, 1, sum, 2, ["Turn 1", "", undefined]);
+  check(rows && rows.length === 3, "a row for each sector");
+  check(rows[0].name === "Turn 1" && rows[1].name === "T2" && rows[2].name === "T3", "track names where there are some, else T1, T2: " + rows.map((r) => r.name));
+  check(rows[0].a === 30000 && rows[0].b === 29500 && rows[0].diff === -500, "sector 1: B quicker by 0.5 s");
+  check(rows[1].a === 45000 && rows[1].b === 46000 && rows[1].diff === 1000, "sector 2: B slower");
+  check(rows[0].bBest && !rows[0].aBest && rows[1].aBest && !rows[1].bBest, "the best of the session marked");
+  check(rows[0].best === 29500 && rows[2].best === 53500, "a tagged lap's sectors (pit) don't count: " + rows.map((r) => r.best));
+  rows = CMP.sectorTable(sum, 1, sum2, 1, null);
+  check(rows[0].a === 30000 && rows[0].b === 30500 && rows[0].best === 29500, "best across both sessions, even from a lap not picked: " + rows[0].best);
+  check(rows[0].name === "T1", "T1 without names");
+  check(CMP.sectorTable(sum, 4, sum, 1, null) === null, "a lap without sectors: no table");
+  check(CMP.sectorTable(sum, 1, {laps: [{lap: 1, sectorsMs: [50000, 100000]}]}, 1, null) === null, "different numbers of sectors: no table");
+  check(CMP.sectorTable(null, 1, sum, 1, null) === null && CMP.sectorTable(sum, 9, sum, 1, null) === null, "no summary or lap: no table");
+
+  // The cursor: everything at one distance
+  const c0 = CMP.cursorAt(cmp, 0, ser), cEnd = CMP.cursorAt(cmp, 1e9, ser);
+  check(c0.d === 0 && c0.a === 3000 && c0.b === 3500 && c0.gap === 0, "cursor at the start");
+  near(cEnd.d, cmp.d[cmp.d.length - 1], 0, "cursor past the end is the end");
+  near(cEnd.gap, cmp.gap[cmp.gap.length - 1], 1e-6, "and its gap");
+  near(cEnd.b, 5500, 1e-6, "and its channel value");
+  const mid = CMP.cursorAt(cmp, cmp.d[10] + (cmp.d[11] - cmp.d[10]) / 2, ser);
+  near(mid.kmhA, (cmp.kmhA[10] + cmp.kmhA[11]) / 2, 1e-9, "between two rows: speed mixed");
+  near(mid.xB, (cmp.xB[10] + cmp.xB[11]) / 2, 1e-9, "and lap B's position on the map");
+  check(CMP.cursorAt(cmp, 0, null).a === null, "no channel: no values");
+  const gapSer = {a: [null, 1], b: [2, 3]};
+  check(CMP.cursorAt({d: [0, 10], kmhA: [1, 2], kmhB: [1, 2], gap: [0, 1], x: [0, 0], y: [0, 0], xB: [0, 0], yB: [0, 0]}, 5, gapSer).a === null,
+        "a gap in a channel stays a gap at the cursor");
+  check(CMP.cursorAt({d: [], kmhA: [], kmhB: [], gap: [], x: [], y: []}, 5, null) === null, "no comparison, no cursor");
+}
+
 // ---- CSV for overlay tools (6.4) ----
 {
   const near = (a, b, tol, msg) => check(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
@@ -688,6 +791,24 @@ console.log("Sample session tests");
   check(dataLines.every((l) => shape(l).length === shape(dataLines[0]).length), "every data line has the same width, as on the board");
   check(shape(dataLines[0]) === "999 999999.999 999999.99999 999999.99999 999.999 999.99 +99999.99 99.99 999 +9.999 +9.999 999 99999 999.9 +999.9 +999.9 +999.9",
         "the board's format: " + shape(dataLines[0]));
+  // Channels, the friction circle and the cursor on the sample's real laps; it has no sectors
+  const common = CMP.commonChannels(log, 1, log, 2);
+  check(common.map((c) => c.key).join() === "RPM,Throttle,CoolantTemp,IntakeTemp,LateralG,LongitudinalG",
+        "the sample's channels (oil is 0, not known): " + common.map((c) => c.key));
+  check(common.find((c) => c.key === "RPM").unit === "rpm" && common.find((c) => c.key === "Throttle").unit === "%" &&
+        common.find((c) => c.key === "CoolantTemp").unit === "°C", "units from the log");
+  const cool = common.find((c) => c.key === "CoolantTemp");
+  const ser = CMP.channelSeries(traces[1], traces[2], cool, cmp);
+  check(ser.a.length === cmp.d.length && ser.a.every((v) => v !== null && v > 50 && v < 120), "coolant against distance, in a believable range");
+  const rpmSer = CMP.channelSeries(traces[1], traces[2], common[0], cmp);
+  check(Math.max(...rpmSer.a) > 4000 && Math.max(...rpmSer.a) < 12000, "RPM against distance: top " + Math.max(...rpmSer.a));
+  const ci = (k) => log.channels.findIndex((c) => c.key === k);
+  const gg1 = CMP.ggPoints(traces[0], ci("LateralG"), ci("LongitudinalG")), gg2 = CMP.ggPoints(traces[1], ci("LateralG"), ci("LongitudinalG"));
+  check(gg1.pts.length === traces[0].length && gg1.max > 0.5 && gg1.max < 3, "the friction circle of lap 1: max " + gg1.max.toFixed(2) + " g");
+  check(gg2.max > 0.5 && gg2.max < 3, "and lap 2: max " + gg2.max.toFixed(2) + " g");
+  const cur = CMP.cursorAt(cmp, 2000, ser);
+  check(cur.d === 2000 && cur.kmhA > 20 && cur.kmhB > 20 && cur.a > 50 && cur.b > 50 && isFinite(cur.gap), "the cursor 2 km in has speed, gap and coolant for both laps");
+  check(sum.laps.every((l) => !l.sectorsMs) && CMP.sectorTable(sum, 1, sum, 2, null) === null, "the sample has no sectors, so no table");
   check(text.split("\n").includes("Lap tag") && text.includes(" RPM Throttle CoolantTemp IntakeTemp OilTemp\n"), "the board's channels and column names");
 }
 
