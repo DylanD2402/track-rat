@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- The Wi-Fi page and trackrat.me/analyze Compare tab show RPM, throttle, temperatures, g and car channels against distance, a friction circle, a corner sector table, and a shared cursor across the charts and the map.
+
 ## [0.1.0-beta.1] - 2026-10-25
 
 First public beta.
