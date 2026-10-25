@@ -235,6 +235,7 @@
 #define STAGE_LIGHTS_M 1.0               // stopped further than this behind the start line: the clock starts at the line
 #define STAGE_END_STOP_MS 5000           // stopped this long in a run without crossing the finish: it ends, untimed
 #define STAGE_MIN_RUN_MS 5000            // finish crossings sooner than this after the start are ignored
+#define FINISH_UNDO_MS 5000              // after the finish tap on a new course: Undo for this long
 
 // ---------------------------------------------------------------------------
 // Performance runs (acceleration and braking)

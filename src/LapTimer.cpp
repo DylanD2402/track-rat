@@ -61,6 +61,7 @@ void LapTimer::reset() {
   sfHeadingConfirmed = false;
   sfWrongWay = false;
   armedHere = armedGo = stopping = false;
+  undoable = false;
 }
 
 int64_t LapTimer::continuousTime(uint32_t gpsTimeMs) {
@@ -73,6 +74,7 @@ int64_t LapTimer::continuousTime(uint32_t gpsTimeMs) {
 }
 
 void LapTimer::startLap(int64_t t, uint32_t startMillis) {
+  undoable = false;
   running = true;
   lapNumber++;
   lapStartT = t;
@@ -141,9 +143,32 @@ LapEvents LapTimer::finishRunNow(double lat, double lon, uint32_t gpsTimeMs) {
   if (!stage || !running) return evs;
   const int64_t t = continuousTime(gpsTimeMs);
   LapEvent ev;
-  if (t - lapStartT > 0 && completeLap(t, geo::toLocal(lat, lon, sf.lat, sf.lon), prevSpeed, ev)) evs.add(ev);
+  if (t - lapStartT > 0 && completeLap(t, geo::toLocal(lat, lon, sf.lat, sf.lon), prevSpeed, ev)) {
+    evs.add(ev);
+    undoable = laps.size() == 1;  // (the first run: there was no finish, so no run before it either)
+  }
   running = false;
   return evs;
+}
+
+bool LapTimer::undoFinishRun() {
+  if (!stage || running || !undoable || laps.size() != 1) return false;
+  undoable = false;
+  if (refIndex == 0) {  // this run's path was kept as the best: it is the run under way again
+    curTrace.swap(bestTrace);
+    if (!curTrace.empty()) curTrace.pop_back();  // (the point at the finish)
+  }
+  bestTrace.clear();
+  refIndex = -1;
+  laps.clear();
+  bestIndex = -1;
+  sectorBest.clear();
+  sectorBestTrace.clear();
+  running = true;
+  stopping = false;
+  liveDelta = NO_DELTA;
+  matchIdx = 0;
+  return true;
 }
 
 // Records the splits crossed on the segment from the previous fix to (lat, lon), whose crossing

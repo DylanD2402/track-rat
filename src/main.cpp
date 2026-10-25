@@ -26,6 +26,8 @@
 #include "BestLapStore.h"
 #include "ProfileStore.h"
 #include "Config.h"
+#include "CourseRuns.h"
+#include "Courses.h"
 #include "DisplayManager.h"
 #include "FirmwareUpdate.h"
 #include "FreeRoam.h"
@@ -61,11 +63,22 @@
 #include "WifiPortal.h"
 
 enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
-                      Setup, SettingsScreen, NewTrack, EngineScreen, CameraScreen };
+                      Setup, SettingsScreen, NewTrack, EngineScreen, CameraScreen, Autocross, NewCourse };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
-                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK",         "ENGINE_DATA", "CAMERA"};
-static int newTrackHighlight = 0;  // the NEW TRACK screen: 0 = Circuit, 1 = Course (BOOT button)
+                                    "WIFI",     "SETUP",      "SETTINGS",     "NEW_TRACK",         "ENGINE_DATA", "CAMERA",
+                                    "AUTOCROSS", "NEW_COURSE"};
+static int newTrackHighlight = 0;  // the NEW TRACK screen: 0 = Circuit, 1 = Autocross (BOOT button)
+// The Autocross hub (Courses.h): which course it shows (a trackDB index, -1 none), and the BOOT button's place:
+// 0 Start runs, 1 New course, 4 Back (Adjust start and finish are 2 and 3, not wired yet)
+static int hubCourse = -1;
+static int autocrossHighlight = 0;
+static int newCourseHighlight = 1;  // the New course screen: 0 Back, 1 Set start here
+// The first run's finish tap on a new course can be taken back for FINISH_UNDO_MS. Meanwhile what a finished
+// run does (the best lap, the map, the corner sectors) waits, so an undone finish leaves nothing behind.
+static uint32_t finishUndoUntil = 0;
+static bool finishCommitPending = false;
+static void commitFinishLap();
 
 static DisplayManager display;
 static GPSHandler gps;
@@ -196,9 +209,12 @@ static double distanceToTrack(int index) {
 // otherwise the nearest track is.
 static void sortTrackList(int keepIndex) {
   std::vector<trackorder::Item> items;
+  std::vector<int> trackOf;    // trackDB index of each item: autocross courses are left out (the Autocross hub has them)
   std::vector<String> venues;  // venue ids, so layouts of one venue share a group number
   for (int i = 0; i < trackDB.count(); i++) {
     const Track* t = trackDB.get(i);
+    if (t->course) continue;
+    trackOf.push_back(i);
     int group = -1;
     if (t->layoutIndex >= 0) {
       auto it = std::find(venues.begin(), venues.end(), t->venueId);
@@ -208,11 +224,39 @@ static void sortTrackList(int keepIndex) {
     items.push_back({distanceToTrack(i), group, t->bench});
   }
   listOrder = trackorder::byDistance(items);
+  for (int& i : listOrder) i = trackOf[i];
   listSorted = gps.hasFix();
   listPos = 0;
   for (size_t p = 0; keepIndex >= 0 && p < listOrder.size(); p++)
     if (listOrder[p] == keepIndex) listPos = p;
   if (!listOrder.empty()) selectedIndex = listOrder[listPos];
+}
+
+static int circuitCount() {
+  int n = 0;
+  for (int i = 0; i < trackDB.count(); i++) n += !trackDB.get(i)->course;
+  return n;
+}
+
+// Autocross courses (Courses.h), by trackDB index
+static std::vector<courses::Candidate> courseCandidates() {
+  std::vector<courses::Candidate> out;
+  for (int i = 0; i < trackDB.count(); i++) {
+    const Track* t = trackDB.get(i);
+    if (t->course && t->hasStartFinish) out.push_back({i, std::string(t->event.c_str()), t->startFinish.lat, t->startFinish.lon});
+  }
+  return out;
+}
+
+// Today's local date, "YYYYMMDD" ("" if the GPS hasn't given one)
+static std::string todayEvent() { return courses::dateOfStamp(std::string(gps.timestampString().c_str())); }
+
+// trackDB index of today's course nearby (made today, start within 5 km), or -1
+static int todaysCourseNearby() {
+  if (!gps.hasFix()) return -1;
+  const std::vector<courses::Candidate> list = courseCandidates();
+  const int k = courses::todaysNearby(list, todayEvent(), gps.lastFix().lat, gps.lastFix().lon);
+  return k < 0 ? -1 : list[k].index;
 }
 
 static void moveInTrackList(int step) {
@@ -511,6 +555,9 @@ static void enterState(AppState next) {
     inPitLane = false;
     sessionStartMs = millis();
     layoutChecked = t.bench || t.stage;  // a stage is its own course
+    finishUndoUntil = 0;
+    finishCommitPending = false;
+    if (t.course && t.event.length()) CourseRuns::ensure(t.id, t.event);  // the day's runs so far, read in the background
     drivenPath.clear();
     drivenM = 0;
     nextLayoutCheckM = 2000;
@@ -527,6 +574,8 @@ static void enterState(AppState next) {
   if (state == AppState::Running && next != AppState::Running) {
     replaying = false;
     recentFixes.release();
+    commitFinishLap();  // a finish tap still open for Undo stands
+    if (selectedTrack().course) CourseRuns::markStale();  // this session's runs are in its summary now
     finishSessionFiles();
     trackDB.keepGuessedHeadings(selectedIndex, lapTimer.startFinish(), lapTimer.splits());
     trackDB.saveMaps();  // the map from this session's best lap: saved now that nothing is being timed
@@ -581,13 +630,26 @@ static void enterState(AppState next) {
 
   if (next == AppState::GpsStatus) statusReturn = state;
 
+  // The Autocross hub: today's course nearby, else the latest one within 5 km, and its day's runs from the card
+  if (next == AppState::Autocross && state != AppState::NewCourse) {
+    hubCourse = -1;
+    if (gps.hasFix()) {
+      const std::vector<courses::Candidate> list = courseCandidates();
+      const int k = courses::forHub(list, todayEvent(), gps.lastFix().lat, gps.lastFix().lon);
+      if (k >= 0) hubCourse = list[k].index;
+    }
+    autocrossHighlight = hubCourse >= 0 ? 0 : 1;
+    if (hubCourse >= 0) CourseRuns::start(trackDB.get(hubCourse)->id, trackDB.get(hubCourse)->event);
+  }
+  if (next == AppState::NewCourse) newCourseHighlight = 1;
+
   if (next == AppState::TrackConfirm && state != AppState::TrackConfirm) readyFromList = state == AppState::TrackSelect;
   if (state == AppState::TrackConfirm && next != AppState::TrackConfirm) autoStart = false;
 
   // Opening the track list from the menu: nearest first. Coming back to it
   // (from a track's Ready screen or GPS status): stay on the same track.
   if (next == AppState::TrackSelect) {
-    if (state == AppState::Menu || (int)listOrder.size() != trackDB.count()) sortTrackList(state == AppState::Menu ? -1 : selectedIndex);
+    if (state == AppState::Menu || (int)listOrder.size() != circuitCount()) sortTrackList(state == AppState::Menu ? -1 : selectedIndex);
     else for (size_t p = 0; p < listOrder.size(); p++) if (listOrder[p] == selectedIndex) listPos = p;
   }
 
@@ -607,23 +669,38 @@ static void enterState(AppState next) {
 
 // The driver tapped while crossing the start/finish line: save it and start lap 1.
 // NEW TRACK, then Circuit: created here, start/finish marked on the first pass.
-// Course (autocross, hill climb, sprint): a stage named with the date, starting
-// here (where the car waits to start), finish tapped on the first run.
-static void createNewTrack(bool course) {
+static void createNewTrack() {
   if (!gps.hasFix()) return enterState(AppState::Menu);
   const GpsFix& f = gps.lastFix();
-  int idx = course ? trackDB.createCourse(f.lat, f.lon, gps.timestampString()) : trackDB.createTrack(f.lat, f.lon);
+  int idx = trackDB.createTrack(f.lat, f.lon);
   if (idx < 0) return enterState(AppState::Menu);
   selectedIndex = idx;
   enterState(AppState::Running);
   layoutChecked = true;  // the driver asked for a new track: don't swap it for one nearby
-  if (course) {
-    overlay.notice = "Start here: the clock starts as you go";
-    layoutNoticeUntil = millis() + 10000;
-  }
+}
+
+// The Autocross hub's New course, then Set start here: a course (a stage made for today, Courses.h)
+// starting where the car stands, timing runs from the next movement. The finish is tapped on the
+// first run, with a few seconds to take it back.
+static bool courseStartReady() { return gps.hasFix() && gps.lastFix().speedKmh < STAGE_STOPPED_KMH; }
+
+static void createNewCourse() {
+  if (!courseStartReady()) return;
+  const GpsFix& f = gps.lastFix();
+  int idx = trackDB.createCourse(f.lat, f.lon, gps.timestampString());
+  if (idx < 0) return enterState(AppState::Autocross);
+  selectedIndex = idx;
+  enterState(AppState::Running);
+  layoutChecked = true;
+  overlay.notice = "Start set: the clock starts as you go";
+  layoutNoticeUntil = millis() + 10000;
 }
 
 static void onLapEvent(const LapEvent& ev);
+static void saveMapFromLap();
+static bool saveBestLaps(const Lap& lap, bool& isDayBest);
+static void makeSectors(const Lap& lap);
+static void commitFinishLap();
 
 // A stage with no finish yet: the driver tapped crossing it. Saves it and ends the run there.
 static void markFinish() {
@@ -634,8 +711,41 @@ static void markFinish() {
   trackDB.setFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
   lapTimer.setStage(selectedTrack().finish, true);
   overlay.notice = "";
+  // The first run of a course can be taken back for a few seconds (VBOX offers the same cancel)
+  if (selectedTrack().course && lapTimer.lapCount() == 1 && evs.find(LapEventType::LapCompleted)) finishUndoUntil = millis() + FINISH_UNDO_MS;
   for (const LapEvent& ev : evs) onLapEvent(ev);
   DEBUG_PRINTLN("Finish set - the run ends here");
+}
+
+// The finish stands once the Undo window has passed: now the first run can set the best lap, the map
+// and the corner sectors, which onLapEvent held back.
+static void commitFinishLap() {
+  finishUndoUntil = 0;
+  if (!finishCommitPending) return;
+  finishCommitPending = false;
+  const Lap* lap = lapTimer.lastLap();
+  if (!lap || lapTimer.bestLapIndex() != (int)lapTimer.lapCount() - 1) return;
+  saveMapFromLap();
+  overlay.lapIsPb = saveBestLaps(*lap, overlay.lapIsDayBest);
+  makeSectors(*lap);
+  LedBar::onBestLap(overlay.lapIsPb);
+}
+
+// Undo: the finish is gone again, and the first run is still being timed.
+static void undoFinish() {
+  finishUndoUntil = 0;
+  finishCommitPending = false;
+  if (!lapTimer.undoFinishRun()) return;
+  trackDB.clearFinish(selectedIndex);
+  trackDB.discardUnsavedMap(selectedIndex);
+  lapTimer.setStage(selectedTrack().finish, false);
+  overlay.showLap = false;
+  lapOverlayUntil = 0;
+  overlay.notice = "Finish taken back: tap at it again";
+  layoutNoticeUntil = millis() + 8000;
+  if (sessionPath.length())  // the summary was saved with that run
+    SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false);
+  DEBUG_PRINTLN("Finish taken back - the run goes on");
 }
 
 static void markStartFinish() {
@@ -828,7 +938,9 @@ static void onLapEvent(const LapEvent& ev) {
                    formatLapTime(lap->timeMs).c_str(), formatDelta(ev.deltaMs).c_str(), ev.isBest ? "  BEST" : "",
                    lap->tags ? "  " : "", laptags::shortLabel(lap->tags), lap->maxSpeedKmh, lap->distanceM);
       overlay.showLap = true;
-      overlay.lapNumber = lap->number;
+      overlay.isRun = lapTimer.isStage();
+      // A run is numbered across the day's sessions (CourseRuns.h); a lap by the session
+      overlay.lapNumber = overlay.isRun ? (selectedTrack().course ? (int)CourseRuns::day().count() : 0) + (int)lapTimer.lapCount() : lap->number;
       overlay.lapMs = lap->timeMs;
       overlay.lapIsBest = ev.isBest;
       overlay.lapIsPb = false;
@@ -848,10 +960,14 @@ static void onLapEvent(const LapEvent& ev) {
         switched = checkLayout(lapPath(lapTimer.bestPath(), 5.0f), true);
       }
       if (ev.isBest && !switched) {
-        saveMapFromLap();
-        overlay.lapIsPb = saveBestLaps(*lap, overlay.lapIsDayBest);
-        makeSectors(*lap);
-        LedBar::onBestLap(overlay.lapIsPb);
+        if (finishUndoUntil) {  // the finish was just tapped: it can still be taken back
+          finishCommitPending = true;
+        } else {
+          saveMapFromLap();
+          overlay.lapIsPb = saveBestLaps(*lap, overlay.lapIsDayBest);
+          makeSectors(*lap);
+          LedBar::onBestLap(overlay.lapIsPb);
+        }
       }
       updateSectorBests();  // with this lap's sectors in
       break;
@@ -1165,6 +1281,7 @@ static void handleInput(InputEvent ev) {
 
     case AppState::Running:
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) enterState(AppState::Summary);
+      else if (finishUndoUntil && ev != InputEvent::TapHeader) undoFinish();  // any tap or press in the Undo window
       else if (settingLine) markStartFinish();  // any tap marks the line
       else if (lapTimer.isStage() && lapTimer.lapRunning() && !lapTimer.hasFinish() && !pitView &&
                ev != InputEvent::BootShort)
@@ -1308,12 +1425,54 @@ static void handleInput(InputEvent ev) {
       break;
     }
 
-    case AppState::NewTrack:  // Circuit on the left, Course on the right, Back in the middle
-      if (ev == InputEvent::TapLeft) createNewTrack(false);
-      else if (ev == InputEvent::TapRight) createNewTrack(true);
+    case AppState::NewTrack:  // Circuit on the left, Autocross on the right, Back in the middle
+      if (ev == InputEvent::TapLeft) createNewTrack();
+      else if (ev == InputEvent::TapRight) enterState(AppState::Autocross);
       else if (ev == InputEvent::TapCenter || ev == InputEvent::TapHeader || ev == InputEvent::Hold) enterState(AppState::Menu);
       else if (ev == InputEvent::BootShort) newTrackHighlight ^= 1;
-      else if (ev == InputEvent::BootLong) createNewTrack(newTrackHighlight == 1);
+      else if (ev == InputEvent::BootLong) {
+        if (newTrackHighlight == 1) enterState(AppState::Autocross);
+        else createNewTrack();
+      }
+      lastRender = 0;
+      break;
+
+    case AppState::Autocross: {  // Start runs and New course on the top row; Adjust start, Adjust finish and Back below
+      const bool canStart = hubCourse >= 0, canMake = gps.hasFix();
+      const bool topRow = input.lastTapY() < 192;
+      int choice = -1;  // 0 Start runs, 1 New course, 4 Back (2 and 3: coming soon)
+      if (ev == InputEvent::TapHeader || ev == InputEvent::Hold) choice = 4;
+      else if (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter) choice = topRow ? (input.lastTapY() >= 150 ? 0 : -1) : ev == InputEvent::TapLeft ? 2 : 3;
+      else if (ev == InputEvent::TapRight) choice = topRow ? (input.lastTapY() >= 150 ? 1 : -1) : 4;
+      else if (ev == InputEvent::BootShort) {  // Start runs, New course, Back: the ones that work
+        for (int step = 1; step <= 5; step++) {
+          const int next = (autocrossHighlight + step) % 5;
+          if ((next == 0 && canStart) || (next == 1 && canMake) || next == 4) {
+            autocrossHighlight = next;
+            break;
+          }
+        }
+      } else if (ev == InputEvent::BootLong) choice = autocrossHighlight;
+      if (choice == 0 && canStart) {
+        selectedIndex = hubCourse;
+        enterState(AppState::Running);
+      } else if (choice == 1 && canMake) {
+        enterState(AppState::NewCourse);
+      } else if (choice == 4) {
+        enterState(AppState::Menu);
+      }
+      lastRender = 0;
+      break;
+    }
+
+    case AppState::NewCourse:  // Back on the left, Set start here across the other two thirds
+      if (ev == InputEvent::TapLeft || ev == InputEvent::TapHeader || ev == InputEvent::Hold) enterState(AppState::Autocross);
+      else if (ev == InputEvent::TapCenter || ev == InputEvent::TapRight) createNewCourse();
+      else if (ev == InputEvent::BootShort) newCourseHighlight ^= 1;
+      else if (ev == InputEvent::BootLong) {
+        if (newCourseHighlight == 1) createNewCourse();
+        else enterState(AppState::Autocross);
+      }
       lastRender = 0;
       break;
 
@@ -1367,6 +1526,14 @@ static void render() {
     }
     syncUntil = 0;
   }
+  // Runs on a course count on through the day (CourseRuns.h); the finish tap has a few seconds of Undo
+  display.setRunBase((state == AppState::Running || state == AppState::Summary) && selectedTrack().course
+                         ? (int)CourseRuns::day().count()
+                         : 0);
+  display.setFinishUndo(state == AppState::Running && finishUndoUntil && (int32_t)(finishUndoUntil - now) > 0
+                            ? finishUndoUntil - now
+                            : 0,
+                        input.touchAvailable());
   switch (state) {
     case AppState::GpsWait:
       display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable(), false);
@@ -1455,6 +1622,29 @@ static void render() {
     case AppState::NewTrack:
       display.drawNewTrack(input.touchAvailable() ? -1 : newTrackHighlight, input.touchAvailable());
       break;
+    case AppState::Autocross: {
+      AutocrossView v;
+      v.gpsFix = gps.hasFix();
+      if (hubCourse >= 0) {
+        const Track& c = *trackDB.get(hubCourse);
+        v.haveCourse = true;
+        v.name = c.displayName();
+        v.today = c.event.length() && c.event == todayEvent().c_str();
+        if (!v.today && c.event.length()) v.dateText = courses::shortDate(std::string(c.event.c_str())).c_str();
+        if (CourseRuns::wanted(c.id, c.event)) {
+          v.runs = CourseRuns::day().runs();
+          v.loading = !CourseRuns::ready();
+        }
+        v.nextRun = (int)v.runs.size() + 1;
+        v.best = CourseRuns::day().best();
+        v.last = CourseRuns::day().last();
+      }
+      display.drawAutocross(v, gps, input.touchAvailable() ? -1 : autocrossHighlight, input.touchAvailable());
+      break;
+    }
+    case AppState::NewCourse:
+      display.drawNewCourse(gps, courseStartReady(), input.touchAvailable() ? -1 : newCourseHighlight, input.touchAvailable());
+      break;
     case AppState::Wifi:
       display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),
                        WifiPortal::clientCount(), WifiPortal::uploadCodeValue(), WifiPortal::updateProgress(),
@@ -1472,6 +1662,14 @@ static void autoPickTrack() {
   if (state != AppState::GpsWait && state != AppState::Menu) return;
   autoPickDone = true;
   double dist;
+  // Today's autocross course nearby: timing starts armed for its next run, so a restart between runs needs no taps
+  const int course = todaysCourseNearby();
+  if (course >= 0) {
+    selectedIndex = course;
+    DEBUG_PRINTF("Today's course: %s - timing runs, armed at the start\n", selectedTrack().name.c_str());
+    enterState(AppState::Running);
+    return;
+  }
   int nearest = trackDB.findNearest(gps.lastFix().lat, gps.lastFix().lon, TRACK_DETECTION_RADIUS_M, &dist);
   if (nearest >= 0) {
     selectedIndex = nearest;
@@ -1826,6 +2024,11 @@ void loop() {
   if (replaying && state == AppState::Running) replayFixes();
 #endif
   noteCameraStart();
+  CourseRuns::poll();  // a little of the day's runs from the card at a time (CourseRuns.h)
+  if (state == AppState::Running) {
+    CourseRuns::setSkip(sessionPath);  // this session's own summary is followed from the lap timer
+    if (finishUndoUntil && (int32_t)(now - finishUndoUntil) >= 0) commitFinishLap();  // the Undo window is over
+  }
 
   LogWriter::poll();
   InputEvent ev = input.poll();
