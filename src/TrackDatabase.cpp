@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include "TrackDatabase.h"
 #include "Config.h"
+#include "Courses.h"
 #include "JsonFile.h"
 #include "JsonText.h"
 #include "Settings.h"
@@ -45,12 +46,37 @@ static void restoreTracksFile(fs::FS& fs, const char* name) {
   }
 }
 
+// Set by readEntry when a stage is a course by its "Course 2026-10-20" name alone (made before courses had a
+// "kind"): begin() then writes the kind and event into tracks.json, so renaming it later can't lose that
+static bool oldCoursesSeen = false;
+
 void TrackDatabase::begin() {
   if (Storage::sdMounted()) restoreTracksFile(SD_MMC, "SD");
   if (Storage::flashMounted()) restoreTracksFile(LittleFS, "flash");
-  if (Storage::sdMounted() && loadFrom(SD_MMC, "SD")) return;
-  if (Storage::flashMounted() && loadFrom(LittleFS, "flash")) return;
+  oldCoursesSeen = false;
+  if ((Storage::sdMounted() && loadFrom(SD_MMC, "SD")) || (Storage::flashMounted() && loadFrom(LittleFS, "flash"))) {
+    if (oldCoursesSeen) migrateCourses();
+    return;
+  }
   loadBuiltIn();
+}
+
+// Old courses ("Course 2026-10-20" stages with no kind): add "kind": "course" and "event" to tracks.json
+void TrackDatabase::migrateCourses() {
+  oldCoursesSeen = false;
+  const bool ok = editFile(2048, [&](JsonArray arr) {
+    bool changed = false;
+    for (JsonObject o : arr) {
+      if (strcmp(o["type"] | "", "stage") != 0 || !o["kind"].isNull()) continue;
+      const courses::Parsed p = courses::classify(true, "", "", o["name"] | "");
+      if (!p.course) continue;
+      o["kind"] = "course";
+      o["event"] = String(p.event.c_str());  // (a String is copied into the document; a const char* is only linked)
+      changed = true;
+    }
+    return changed;
+  });
+  DEBUG_PRINTF("Tracks: old courses %s\n", ok ? "marked as courses in tracks.json" : "not marked (read-only or no room)");
 }
 
 // defaultRadius: for a line with no "radius" (narrower on a kart track)
@@ -140,6 +166,11 @@ static void readEntry(JsonObject t, std::vector<Track>& out) {
   venue.centerLon = t["center"]["lon"] | 0.0;
 
   venue.stage = strcmp(t["type"] | "", "stage") == 0;  // every layout of a stage venue is a stage
+  // An autocross course: "kind": "course" and its "event" date, or an old stage named "Course 2026-10-20"
+  const courses::Parsed cp = courses::classify(venue.stage, t["kind"] | "", t["event"] | "", std::string(venue.name.c_str()));
+  venue.course = cp.course;
+  venue.event = cp.event.c_str();
+  if (cp.course && !(t["kind"] | "")[0]) oldCoursesSeen = true;
   // A kart track ("kind": "kart", from OSM's karting tag), or every track with Kart everywhere on
   venue.kart = strcmp(t["kind"] | "", "kart") == 0 || Settings::get().kartEverywhere;
   JsonArray layouts = t["layouts"];
@@ -246,11 +277,12 @@ const Track* TrackDatabase::get(int index) const {
   return &tracks[index];
 }
 
-int TrackDatabase::findNearest(double lat, double lon, double maxDistanceM, double* distanceOut) const {
+int TrackDatabase::findNearest(double lat, double lon, double maxDistanceM, double* distanceOut,
+                               bool includeCourses) const {
   int best = -1;
   double bestDist = maxDistanceM;
   for (size_t i = 0; i < tracks.size(); i++) {
-    if (tracks[i].bench) continue;
+    if (tracks[i].bench || (tracks[i].course && !includeCourses)) continue;
     double d = geo::distanceM(lat, lon, tracks[i].refLat(), tracks[i].refLon());
     if (d < bestDist) {
       bestDist = d;
@@ -426,7 +458,12 @@ static void writeTrack(JsonObject o, const Track& t) {
   o["center"]["lon"] = serialized(String(t.centerLon, 7));
   if (t.hasStartFinish && t.layoutIndex < 0) writePoint(o.createNestedObject("startFinish"), t.startFinish);
   if (t.stage) o["type"] = "stage";
-  if (t.kart && !Settings::get().kartEverywhere) o["kind"] = "kart";
+  if (t.course) {
+    o["kind"] = "course";
+    if (t.event.length()) o["event"] = t.event;
+  } else if (t.kart && !Settings::get().kartEverywhere) {
+    o["kind"] = "kart";
+  }
   if (t.stage && t.hasFinish && t.layoutIndex < 0) writePoint(o.createNestedObject("finish"), t.finish);
 }
 
@@ -517,23 +554,21 @@ int TrackDatabase::createTrack(double lat, double lon) {
 }
 
 int TrackDatabase::createCourse(double lat, double lon, const String& stamp) {
-  // "Course 2026-10-20", and "Course 2026-10-20 (2)" for a second that day
-  const String date = stamp.length() >= 8 ? stamp.substring(0, 4) + "-" + stamp.substring(4, 6) + "-" + stamp.substring(6, 8)
-                                          : String("new");
-  String id = "course-" + date, name = "Course " + date;
-  for (int n = 2;; n++) {
-    bool taken = false;
-    for (const Track& t : tracks) taken = taken || t.venueId == id;
-    if (!taken) break;
-    id = "course-" + date + "-" + n;
-    name = "Course " + date + " (" + n + ")";
+  // "Oct 25 course", and "Oct 25 course 2" for a second that day (Courses.h)
+  const std::string event = courses::dateOfStamp(stamp.c_str());
+  std::vector<std::string> ids, names;
+  for (const Track& o : tracks) {
+    ids.push_back(o.venueId.c_str());
+    names.push_back(o.name.c_str());
   }
   Track t;
-  t.id = id;
-  t.venueId = id;
-  t.name = name;
+  t.id = courses::courseId(event, ids).c_str();
+  t.venueId = t.id;
+  t.name = courses::courseName(event, names).c_str();
   t.location = "Created on the timer";
   t.stage = true;
+  t.course = true;
+  t.event = event.c_str();
   t.kart = Settings::get().kartEverywhere;
   t.startFinish = {lat, lon, settings::defaultGateM(t.kart)};  // no direction: standing starts only
   t.hasStartFinish = true;
@@ -568,6 +603,36 @@ bool TrackDatabase::setFinish(int index, double lat, double lon, float headingDe
     writePoint(o.createNestedObject("finish"), t.finish);
     return true;
   });
+}
+
+bool TrackDatabase::clearFinish(int index) {
+  if (index < 0 || index >= (int)tracks.size()) return false;
+  Track& t = tracks[index];
+  if (!t.stage) return false;
+  t.hasFinish = false;
+  t.finish = {0, 0, t.finish.radius};
+  DEBUG_PRINTF("Tracks: finish for '%s' taken back\n", t.displayName().c_str());
+  return editFile(256, [&](JsonArray arr) {
+    JsonObject o = findLayout(arr, t);
+    if (o.isNull()) return false;
+    o.remove("finish");
+    return true;
+  });
+}
+
+void TrackDatabase::discardUnsavedMap(int index) {
+  if (index < 0 || index >= (int)tracks.size()) return;
+  Track& t = tracks[index];
+  if (t.mapUnsaved) {
+    t.map.clear();
+    t.map.shrink_to_fit();
+    t.hasMap = false;
+    t.mapUnsaved = false;
+  }
+  if (t.sectorsUnsaved) {
+    t.sectors.clear();
+    t.sectorsUnsaved = false;
+  }
 }
 
 bool TrackDatabase::setStartFinish(int index, double lat, double lon, float headingDeg) {

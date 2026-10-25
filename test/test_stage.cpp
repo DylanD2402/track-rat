@@ -221,6 +221,40 @@ int main() {
     CHECK(timer.lapCount() == 2, "next run finishes at the line: %d", (int)timer.lapCount());
   }
 
+  // The finish tap taken back (the Undo after it on a new course): the first run is under way again,
+  // and the next tap times it
+  {
+    LapTimer timer;
+    timer.begin(at(0, 0), {}, MIN_LAP_TIME_MS);
+    TrackPoint none = {0, 0, 0};
+    timer.setStage(none, false);
+    Car c(timer);
+    c.wait(3);
+    c.driveTo(300, 0, 70);
+    c.driveTo(300, 100, 70, 70);
+    double lat, lon;
+    geo::fromLocal(c.x, c.y, REF_LAT, REF_LON, lat, lon);
+    CHECK(!timer.undoFinishRun(), "nothing to undo before a tap");
+    LapEvents evs = timer.finishRunNow(lat, lon, c.ms - 50);
+    CHECK(evs.find(LapEventType::LapCompleted) && timer.lapCount() == 1 && !timer.lapRunning(), "tapped: timed");
+    CHECK(timer.undoFinishRun(), "undone");
+    CHECK(timer.lapRunning() && timer.lapCount() == 0 && timer.bestLap() == nullptr && timer.currentLapNumber() == 1,
+          "the run goes on, with no lap kept");
+    CHECK(!timer.undoFinishRun(), "only once");
+    c.driveTo(300, 200, 70, 70);
+    CHECK(timer.lapRunning(), "still timing past the wrong tap");
+    geo::fromLocal(c.x, c.y, REF_LAT, REF_LON, lat, lon);
+    evs = timer.finishRunNow(lat, lon, c.ms - 50);
+    CHECK(evs.find(LapEventType::LapCompleted) && timer.lapCount() == 1, "the second tap times it");
+    CHECK(timer.lap(0).timeMs > 6000, "the run's clock never stopped: %lu ms", (unsigned long)timer.lap(0).timeMs);
+    // Once another run has started it can't be undone
+    timer.setStage(at(300, 200, 0), true);
+    back(c);
+    c.wait(3);
+    run(c, 75);
+    CHECK(!timer.undoFinishRun(), "not after a later run");
+  }
+
   // A run that stops short of the finish (a spin, a red flag) ends untimed
   {
     LapTimer timer;

@@ -595,11 +595,11 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
     const timing::LineFlash fl = timing::lineFlash(ov.lapIsPb, ov.lapIsDayBest);
     const uint16_t bg = timing::flashColour(fl, pal), fg = timing::flashTextColour(fl);
     gfx->fillRect(0, HEADER_H, W, H - HEADER_H, bg);
-    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb        ? "LAP %d  ·  NEW PB"
-                               : fl == timing::LineFlash::DayBest ? "LAP %d  ·  BEST OF THE DAY"
-                               : ov.lapIsBest                     ? "LAP %d  ·  SESSION BEST"
-                                                                  : "LAP %d",
-             ov.lapNumber);
+    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb        ? "%s %d  ·  NEW PB"
+                               : fl == timing::LineFlash::DayBest ? "%s %d  ·  BEST OF THE DAY"
+                               : ov.lapIsBest                     ? "%s %d  ·  SESSION BEST"
+                                                                  : "%s %d",
+             ov.isRun ? "RUN" : "LAP", ov.lapNumber);
     text(buf, W / 2, HEADER_H + 14, Font::Button, fg, TC_DATUM);
     String t = formatLapTime(ov.lapMs, 3);
     Font f = textWidth(t, Font::NumXL) <= W - 12 ? Font::NumXL : Font::NumL;
@@ -625,7 +625,13 @@ void DisplayManager::drawRunning(const Track& track, const LapTimer& timer, cons
 
   // --- the band ---
   const int bandMid = 4 + BAND_W / 2;
-  if (!timer.lapRunning()) {
+  if (!timer.lapRunning() && timer.isStage()) {  // waiting for a run: "Run 4 next", the day's number
+    gfx->fillRoundRect(4, BAND_Y, BAND_W, BAND_H, CORNER, C_SURFACE);
+    snprintf(buf, sizeof(buf), "Run %d next", runBase + (int)timer.lapCount() + 1);
+    text(buf, bandMid, BAND_Y + 28, Font::Title, timer.armed() ? C_GREEN : C_YELLOW, TC_DATUM);
+    text(timer.armed() ? "Armed: the clock starts as you go" : "Stop at the start to arm the run", bandMid,
+         BAND_Y + 64, Font::Caption, C_TEXT2, TC_DATUM);
+  } else if (!timer.lapRunning()) {
     gfx->fillRoundRect(4, BAND_Y, BAND_W, BAND_H, CORNER, C_SURFACE);
     text("Out lap", bandMid, BAND_Y + 28, Font::Title, C_YELLOW, TC_DATUM);
     text("Cross the start/finish line to begin timing", bandMid, BAND_Y + 64, Font::Caption, C_TEXT2, TC_DATUM);
@@ -728,7 +734,19 @@ void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs, con
   if (ov && ov->notice.length() && holdMs <= 150) {
     gfx->fillRoundRect(10, 156, W - 20, 60, CORNER, C_YELLOW);  // over the delta box, below the lap times
     text(fit(ov->notice, Font::Title, W - 40), W / 2, 164, Font::Title, C_BG, TC_DATUM);
-    text("Matched your lap, switched", W / 2, 192, Font::Body, C_BG, TC_DATUM);
+    if (ov->notice.startsWith("Layout:")) text("Matched your lap, switched", W / 2, 192, Font::Body, C_BG, TC_DATUM);
+  }
+
+  // The finish was just set (the first run's tap): Undo for a few seconds, over everything
+  if (undoMsLeft > 0) {
+    const int x = 8, y = H - 50, w = W - 16, h = 44;
+    gfx->fillRoundRect(x - 1, y - 1, w + 2, h + 2, CORNER + 1, C_LINE);
+    gfx->fillRoundRect(x, y, w, h, CORNER, C_RAISED);
+    text("Finish set here", x + 12, y + 8, Font::Body, C_TEXT, TL_DATUM);
+    text(undoTouch ? "Tap to undo" : "BOOT: undo", x + w - 12, y + 8, Font::Body, C_YELLOW, TR_DATUM);
+    const int bw = w - 24, fill = (int)min((uint32_t)bw, (uint32_t)bw * undoMsLeft / FINISH_UNDO_MS);
+    gfx->fillRoundRect(x + 12, y + 32, bw, 5, 2, C_SURFACE);
+    if (fill > 4) gfx->fillRoundRect(x + 12, y + 32, fill, 5, 2, C_YELLOW);
   }
 
   holdBar(holdMs, "Keep holding to end the session");
@@ -740,7 +758,8 @@ String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
   const String clock = sessionClock.length() ? sessionClock + "   " : String();
   if (!timer.lapRunning()) return clock + track.displayName();
   char buf[16];
-  snprintf(buf, sizeof(buf), "Lap %d   ", timer.currentLapNumber());
+  if (timer.isStage()) snprintf(buf, sizeof(buf), "Run %d   ", runBase + (int)timer.lapCount() + 1);  // the day's run
+  else snprintf(buf, sizeof(buf), "Lap %d   ", timer.currentLapNumber());
   return sessionClock.length() ? buf + sessionClock : buf + track.displayName();
 }
 
@@ -908,12 +927,13 @@ void DisplayManager::drawRunningMap(const Track& track, const LapTimer& timer, c
     uint16_t bg = timing::flashColour(fl, pal), fg = timing::flashTextColour(fl);
     gfx->fillRoundRect(PANEL_X - 4, y, PANEL_W + 4, 46, CORNER, bg);
     char buf[16];
-    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb ? "LAP %d PB" : ov.lapIsBest ? "LAP %d BEST" : "LAP %d",
-             ov.lapNumber);
+    snprintf(buf, sizeof(buf), fl == timing::LineFlash::Pb ? "%s %d PB" : ov.lapIsBest ? "%s %d BEST" : "%s %d",
+             ov.isRun ? "RUN" : "LAP", ov.lapNumber);
     text(buf, PANEL_X + 2, y + 6, Font::Caption, fg);
     text(formatLapTime(ov.lapMs, 1), PANEL_X + 2, y + 20, Font::Title, fg);
   } else {
-    label(timer.lapRunning() ? "LAP TIME" : "OUT LAP", PANEL_X + 2, y + 6);
+    label(timer.lapRunning() ? (timer.isStage() ? "RUN TIME" : "LAP TIME") : (timer.isStage() ? "NEXT RUN" : "OUT LAP"),
+          PANEL_X + 2, y + 6);
     text(timer.lapRunning() ? formatLapTime(timer.currentLapMs(millis()), 1) : String("–"), PANEL_X + 2, y + 20,
          Font::Title, C_TEXT);
   }
@@ -991,20 +1011,20 @@ void DisplayManager::drawNewTrack(int highlight, bool touchOk) {
   struct Item { const char* title; const char* d1; const char* d2; const char* d3; };
   const Item items[2] = {
     {"Circuit", "Laps. Tap the", "screen at the", "start/finish"},
-    {"Course", "Autocross, hill", "climb: starts here,", "tap at the finish"},
+    {"Autocross", "Today's course,", "its runs, or a", "new course"},
   };
   for (int i = 0; i < 2; i++) {
     const bool hl = i == highlight;
     gfx->fillRoundRect(bx[i], by, bw, bh, CORNER + 2, hl ? C_RAISED : C_SURFACE);
     if (hl) gfx->drawRoundRect(bx[i], by, bw, bh, CORNER + 2, C_TEXT);
     const int mid = bx[i] + bw / 2;
-    text(items[i].title, mid, by + 22, Font::Title, C_TEXT, TC_DATUM);
+    text(items[i].title, mid, by + 22, textWidth(items[i].title, Font::Title) <= bw - 8 ? Font::Title : Font::Button, C_TEXT, TC_DATUM);
     text(items[i].d1, mid, by + 70, Font::Caption, C_TEXT2, TC_DATUM);
     text(items[i].d2, mid, by + 86, Font::Caption, C_TEXT2, TC_DATUM);
     text(items[i].d3, mid, by + 102, Font::Caption, C_TEXT2, TC_DATUM);
   }
   text("Back", W / 2, by + bh / 2, Font::Body, C_TEXT3, MC_DATUM);
-  centered(touchOk ? "A course is named with today's date" : "BOOT: press for the other, hold to choose", 216,
+  centered(touchOk ? "A course is kept for the day it's made" : "BOOT: press for the other, hold to choose", 216,
            Font::Caption, C_TEXT3);
   endFrame();
 }
@@ -1143,7 +1163,8 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
   const uint32_t avg = timer.averageLapMs();  // of the untagged laps
   // Laps, best and average across the top
   int y = HEADER_H + 6;
-  label("LAPS", 12, y);
+  const bool runs = timer.isStage();
+  label(runs ? "RUNS" : "LAPS", 12, y);
   label("BEST", 76, y);
   label("AVERAGE", 196, y);
   text(String((int)timer.lapCount()), 12, y + 14, Font::Title, C_TEXT);
@@ -1158,7 +1179,7 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
   for (int i = (int)timer.lapCount() - 1; i >= 0 && rows < maxRows; i--, rows++) {
     const Lap& l = timer.lap(i);
     bool isBest = (i == timer.bestLapIndex());
-    snprintf(buf, sizeof(buf), "Lap %d", l.number);
+    snprintf(buf, sizeof(buf), runs ? "Run %d" : "Lap %d", runs ? runBase + i + 1 : (int)l.number);  // a run's day number
     text(buf, 20, y, Font::Body, C_TEXT2, ML_DATUM);
     text(formatLapTime(l.timeMs), 92, y, Font::Body, isBest ? C_GREEN : C_TEXT, ML_DATUM);
     if (isBest) text("BEST", 168, y, Font::Caption, C_GREEN, ML_DATUM);
@@ -1168,7 +1189,7 @@ void DisplayManager::drawSummary(const Track& track, const LapTimer& timer, cons
     if (rows < maxRows - 1 && i > 0) gfx->drawFastHLine(20, y + rowH / 2, W - 40, C_LINE);
     y += rowH;
   }
-  if (timer.lapCount() == 0) text("No complete laps recorded", W / 2, ly + (rowH * maxRows + 8) / 2, Font::Body, C_TEXT3, MC_DATUM);
+  if (timer.lapCount() == 0) text(runs ? "No timed runs recorded" : "No complete laps recorded", W / 2, ly + (rowH * maxRows + 8) / 2, Font::Body, C_TEXT3, MC_DATUM);
 
   String saved = savedPath.length() ? "Saved to " + String(Storage::sessionFSName()) + ": " + savedPath : String("Not saved");
   const int temps = tempMaxLine(timer, W - 12, 186);  // the engine's hottest, when it sent temperatures

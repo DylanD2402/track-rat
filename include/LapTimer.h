@@ -44,7 +44,7 @@
  * it does for a rolling start. A start with no direction only does standing
  * starts. A run that stops for STAGE_END_STOP_MS before
  * the finish (or with no finish set yet) ends untimed (RunEnded); with no
- * finish, finishRunNow() ends it where the driver tapped.
+ * finish, finishRunNow() ends it where the driver tapped (undoFinishRun takes that back).
  *
  * No Arduino dependencies: unit-tested on a PC in test/test_laptimer.cpp.
  */
@@ -135,6 +135,10 @@ public:
   bool armed() const { return stage && !running && armedHere; }
   // The driver tapped crossing the finish: the run under way ends now.
   LapEvents finishRunNow(double lat, double lon, uint32_t gpsTimeMs);
+  // Take that back (the Undo after the finish tap): the first run is under way again, and its clock
+  // never stopped. False if there is nothing to undo (a run has started since, or it wasn't the first).
+  // The seconds since the tap are missing from the run's path. Call setStage(finish, false) after.
+  bool undoFinishRun();
 
   // rxMillis is the device clock when the fix arrived; only used to run the
   // live on-screen clock between fixes. hAccM: the fix's horizontal
@@ -276,6 +280,7 @@ private:
   bool stage = false;
   bool finHave = false;
   TrackPoint fin = {0, 0, 0};
+  bool undoable = false;      // finishRunNow ended the first run: undoFinishRun can take it back
   bool armedHere = false;     // stopped near the start
   bool armedGo = false;       // ...and the first movement starts the clock
   bool stopping = false;      // stopped in a run since stopSinceT

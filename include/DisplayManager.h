@@ -25,6 +25,7 @@
 #include "CameraBle.h"
 #include "TrackDatabase.h"
 #include "Debrief.h"
+#include "Courses.h"
 
 struct RunningOverlay {
   // Shown for a few seconds after a lap or split
@@ -38,6 +39,7 @@ struct RunningOverlay {
   int32_t deltaMs = NO_DELTA;  // split delta
   int splitIndex = -1;         // >= 0: delta box shows a split
   uint32_t splitMs = 0;
+  bool isRun = false;  // a point-to-point run (the flash says RUN, not LAP); lapNumber is the day's run number
   String notice;  // e.g. "Layout: Short" after switching layout
   // Kept while timing (TimingScreen.h)
   int32_t trendMs = INT32_MIN;          // the delta's change over the last few seconds (timing::NO_TREND: none)
@@ -54,6 +56,20 @@ struct DebriefView {
   int lastSession = 0;                // the session before at this track (0: none)
   uint32_t lastBestMs = 0;
   bool lastToday = false;
+};
+
+// What the Autocross hub shows (DisplayAutocross.cpp). main.cpp chooses the course and works out the
+// runs (Courses.h, CourseRuns.h).
+struct AutocrossView {
+  bool haveCourse = false;
+  String name;            // "Oct 25 course"
+  String dateText;        // "Oct 20": shown when the course isn't today's
+  bool today = false;     // made today: runs go on from the list
+  int nextRun = 0;        // "Run N next" (today's course)
+  bool loading = false;   // the runs are still being read from the card
+  std::vector<courses::Run> runs;
+  int best = -1, last = -1;  // indexes into runs
+  bool gpsFix = false;
 };
 
 class DisplayManager {
@@ -120,6 +136,20 @@ public:
   void drawFreeRoam(const FreeRoam& fr, const GPSHandler& gps, uint32_t holdMs);
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
   void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
+  // The Autocross hub. highlight (BOOT button): 0 Start runs, 1 New course, 2 Adjust start, 3 Adjust finish,
+  // 4 Back; -1 none. Adjust start and Adjust finish are shown but not wired yet ("coming soon").
+  void drawAutocross(const AutocrossView& v, const GPSHandler& gps, int highlight, bool touchOk);
+  // New course: park at the start and press Set start here. ready: has a fix and is stopped.
+  // highlight: 0 Back, 1 Set start here.
+  void drawNewCourse(const GPSHandler& gps, bool ready, int highlight, bool touchOk);
+  // The timing screens count runs, not laps, on a point-to-point track: the runs of the day before this
+  // session (CourseRuns.h; 0 for a hill climb or sprint). "Run 4 next" shows while waiting for a run.
+  void setRunBase(int before) { runBase = before; }
+  // The finish was just set: Undo for this long (0: not showing). Drawn over the timing screens.
+  void setFinishUndo(uint32_t msLeft, bool touchOk) {
+    undoMsLeft = msLeft;
+    undoTouch = touchOk;
+  }
   // NEW TRACK: a circuit (left) or a point-to-point course (right); highlight for the BOOT button, -1 none
   void drawNewTrack(int highlight, bool touchOk);
   // Performance mode (DisplayPerf.cpp). Card: a run by index, or the session's best when index < 0.
@@ -165,6 +195,9 @@ public:
 private:
   uint32_t pbMs = 0, pbDate = 0;  // setPersonalBest
   char driverCar[48] = "";        // setDriverCar
+  int runBase = 0;                 // setRunBase
+  uint32_t undoMsLeft = 0;         // setFinishUndo
+  bool undoTouch = true;
   String sessionClock;             // setSessionClock
   bool sessionClockEnding = false;
   String pbText() const;          // "PB 1:42.345  ·  19 Oct 2026"

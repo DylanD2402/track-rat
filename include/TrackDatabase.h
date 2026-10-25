@@ -20,7 +20,9 @@
  *
  * A point-to-point track (autocross, hill climb, sprint) has "type": "stage"
  * and a "finish" as well as its "startFinish" (the start): see
- * LapTimer::setStage. NEW COURSE on the device makes one named with the date.
+ * LapTimer::setStage. An autocross course (Courses.h) is a stage with "kind":
+ * "course" and "event": "YYYYMMDD", the day it was made, named "Oct 25 course".
+ * Courses are left out of the circuit list; the Autocross hub finds them.
  */
 
 #ifndef TRACK_DATABASE_H
@@ -68,6 +70,9 @@ struct Track {
   bool stage = false;
   bool hasFinish = false;
   TrackPoint finish = {0, 0, 0};
+  // An autocross course (Courses.h): a stage made for one event day. event is "YYYYMMDD", "" if not known.
+  bool course = false;
+  String event;
 
   double refLat() const { return hasStartFinish ? startFinish.lat : centerLat; }
   double refLon() const { return hasStartFinish ? startFinish.lon : centerLon; }
@@ -84,7 +89,9 @@ public:
 
   // Index of the closest track within maxDistanceM (start/finish, or centre
   // if it has none), or -1. The bench track is never matched.
-  int findNearest(double lat, double lon, double maxDistanceM, double* distanceOut = nullptr) const;
+  // Courses are left out unless includeCourses (they are found by the Autocross hub, not as circuits).
+  int findNearest(double lat, double lon, double maxDistanceM, double* distanceOut = nullptr,
+                  bool includeCourses = false) const;
 
   // In-memory only (the bench track). Kept last in the list.
   void add(const Track& track) { tracks.push_back(track); }
@@ -113,9 +120,14 @@ public:
   // These change tracks.json (SD if present, else flash) as well as memory.
   // createTrack returns the new index, or -1.
   int createTrack(double centerLat, double centerLon);
-  // NEW COURSE: a stage starting here (no direction: standing starts), named
-  // "Course <date>" from the stamp ("YYYYMMDD_hhmmss"). The finish comes later.
+  // New course: a stage starting here (no direction: standing starts), made for the day in the stamp
+  // ("YYYYMMDD_hhmmss"): "kind": "course", that "event", named "Oct 25 course" ("... 2" for a second
+  // that day). The finish comes later.
   int createCourse(double lat, double lon, const String& stamp);
+  // Take back a finish just set (the Undo after the finish tap): the course has none again.
+  bool clearFinish(int index);
+  // Drop a map and corner sectors made on the device and not saved yet (they came from a run that was undone)
+  void discardUnsavedMap(int index);
   // A stage's finish line. headingDeg < 0: no direction.
   bool setFinish(int index, double lat, double lon, float headingDeg = -1);
   // headingDeg < 0: no direction (crossings either way count).
@@ -139,6 +151,7 @@ private:
   bool editFile(size_t extraBytes, std::function<bool(JsonArray tracks)> change);
   int insertIndex() const;  // before the bench track
   bool readFile(std::function<void(JsonArray tracks)> use);  // parse tracks.json, read only
+  void migrateCourses();  // old "Course 2026-10-20" stages get "kind": "course" and "event" in tracks.json
 };
 
 #endif  // TRACK_DATABASE_H
