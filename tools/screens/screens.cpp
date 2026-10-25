@@ -624,6 +624,11 @@ int main(int argc, char** argv) {
     save(d, "47c_settings_coolant_boot_mph");
   }
   {  // Settings > Power off: it asks first
+    SettingsScreenState end;  // the bottom of the list: Back to menu and the firmware version
+    end.begin(true);
+    end.setScroll(1000);
+    d.drawSettings(sd, end, true, localNow);
+    save(d, "47d_settings_list_end_firmware");
     SettingsScreenState off;
     off.begin(true);
     const int offRow = SettingsScreenState::rowOfItem(SettingItem::PowerOff);

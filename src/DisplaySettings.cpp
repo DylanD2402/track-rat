@@ -7,9 +7,11 @@
  * work with gloves: two big halves of the screen.
  */
 
+#include <string.h>
 #include "DisplayManager.h"
 #include "Config.h"
 #include "UiTheme.h"
+#include "Version.h"
 
 using namespace ui;
 using Font = DisplayManager::Font;
@@ -142,7 +144,13 @@ void DisplayManager::settingsList(const SettingsData& s, const SettingsScreenSta
         text(fit(buf, Font::Body, valueRight - (UI::CARD_X + 14 + nameW + 10)), valueRight, cy, Font::Body, C_TEXT2, MR_DATUM);
       }
     }
-    if (sc.foot) wrappedCaption(sc.foot, UI::CARD_X + 14, cardY + cardH + 6, UI::CARD_W - 28, C_TEXT2, false);
+    if (sc.foot && strcmp(sc.foot, UI::FIRMWARE_FOOT) == 0) {  // under Back to menu: which firmware this is
+      char fw[64];
+      snprintf(fw, sizeof(fw), "Firmware %s  \xC2\xB7  built %.11s", firmwareVersion(), firmwareBuilt());
+      text(fit(fw, Font::Caption, UI::CARD_W - 28), W / 2, cardY + cardH + 8, Font::Caption, C_TEXT3, TC_DATUM);
+    } else if (sc.foot) {
+      wrappedCaption(sc.foot, UI::CARD_X + 14, cardY + cardH + 6, UI::CARD_W - 28, C_TEXT2, false);
+    }
   }
 
   // The top bar stays put: rows scroll under it

@@ -58,6 +58,7 @@ struct SettingsScreenState {
     SettingItem item;  // SettingItem::Count for the Back row
     RowKind kind;
   };
+  static constexpr const char* FIRMWARE_FOOT = "Firmware";  // the last card's footnote: the version
   struct Section {
     const char* title;  // nullptr: no caption
     int first, count;   // rows
@@ -103,7 +104,7 @@ struct SettingsScreenState {
         {"GPS & BLUETOOTH", 9, 7, "GPS mode and Bluetooth profile are used from the next restart"},
         {"RECORDING", 16, 2, nullptr},
         {"POWER", 18, 1, "Or hold BOOT for 3 s on any screen"},
-        {nullptr, 19, 1, nullptr},
+        {nullptr, 19, 1, FIRMWARE_FOOT},  // DisplaySettings writes the version there
     };
     return sections[i];
   }

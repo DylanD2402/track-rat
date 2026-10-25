@@ -32,9 +32,7 @@
 #error "Voice notes aren't built yet (see Config.h)"
 #endif
 
-#ifndef TRACKRAT_VERSION
-#define TRACKRAT_VERSION "dev"  // set from git by tools/build_web.py
-#endif
+#include "Version.h"
 
 namespace WifiPortal {
 
@@ -316,8 +314,8 @@ static void sendInfo(AsyncWebServerRequest* req) {
   portEXIT_CRITICAL(&snapLock);
 
   DynamicJsonDocument doc(1536);
-  doc["version"] = TRACKRAT_VERSION;
-  doc["built"] = __DATE__ " " __TIME__;
+  doc["version"] = firmwareVersion();
+  doc["built"] = firmwareBuilt();
   doc["network"] = ssid;
   doc["uptimeS"] = millis() / 1000;
   doc["freeHeap"] = ESP.getFreeHeap();

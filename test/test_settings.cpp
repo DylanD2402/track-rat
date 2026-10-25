@@ -917,12 +917,20 @@ static void testSettingsLayout() {
   touch.setScroll(touch.maxScroll() / 2);
   EXPECT(touch.scrollBar(y, h) && y > ST::TOP && y + h < touch.viewBottom, "scroll bar in the middle: y %d h %d", y, h);
 
-  // Footnotes: under the GPS section, and under Power off (holding BOOT does it too)
+  // Footnotes: under the GPS section, under Power off (holding BOOT does it too), and the firmware version under Back
   int notes = 0;
   for (int i = 0; i < ST::SECTIONS; i++) notes += ST::section(i).foot != nullptr;
-  EXPECT(notes == 2 && ST::section(ST::sectionOf(rowOf(SettingItem::Gps))).foot &&
-             ST::section(ST::sectionOf(rowOf(SettingItem::PowerOff))).foot,
-         "two footnotes, under the GPS group and Power off");
+  EXPECT(notes == 3 && ST::section(ST::sectionOf(rowOf(SettingItem::Gps))).foot &&
+             ST::section(ST::sectionOf(rowOf(SettingItem::PowerOff))).foot &&
+             strcmp(ST::section(ST::SECTIONS - 1).foot, ST::FIRMWARE_FOOT) == 0,
+         "three footnotes, under the GPS group, Power off and Back to menu (the firmware)");
+  {  // the end of the list scrolls far enough to show the firmware line under Back to menu
+    ST end;
+    end.begin(true);
+    end.setScroll(end.maxScroll());
+    const int back = ST::ROWS - 1;
+    EXPECT(end.rowScreenY(back) + ST::ROW_H + ST::FOOT_H <= end.viewBottom, "the firmware line is in view at the bottom");
+  }
   printf("  settings layout: %d rows in %d sections, %d px tall, scrolls %d\n", ST::ROWS, ST::SECTIONS, ST::contentHeight(), touch.maxScroll() );
 }
 

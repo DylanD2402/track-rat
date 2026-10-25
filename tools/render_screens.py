@@ -34,6 +34,7 @@ SOURCES = [
     os.path.join(ROOT, "src", "DisplayDebrief.cpp"),
     os.path.join(ROOT, "src", "DisplayPower.cpp"),
     os.path.join(ROOT, "src", "DisplaySettings.cpp"),
+    os.path.join(ROOT, "src", "Version.cpp"),
     os.path.join(ROOT, "src", "LapTimer.cpp"),
     os.path.join(ROOT, "src", "GpsSource.cpp"),
     os.path.join(ROOT, "src", "UbxParser.cpp"),
@@ -66,6 +67,7 @@ def main():
 
     exe = os.path.join(args.out, "screens.exe" if os.name == "nt" else "screens")
     cmd = [*shlex.split(os.environ.get("CXX", "g++")), "-std=c++17", "-O1", "-DDEBUG_MODE=0", "-DBLE_ENABLED=1",
+           '-DTRACKRAT_VERSION="b65364c"', '-DTRACKRAT_BUILT="Oct 24 2026 17:03:12"',
            "-I" + os.path.join(SCREENS, "mock"), "-I" + os.path.join(ROOT, "include"), "-I" + args.out,
            *SOURCES, "-o", exe]
     subprocess.run(cmd, check=True)

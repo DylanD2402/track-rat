@@ -7,7 +7,7 @@ PlatformIO pre-build script (extra_scripts in platformio.ini).
 - Copies the page's fonts (web/fonts/*.woff2, Inter, already compressed)
   to data/web/fonts/. The phone has no internet on Track Rat's network, so
   the page can't load fonts from anywhere else.
-- Builds WifiPortal.cpp with TRACKRAT_VERSION set from `git describe`, shown
+- Builds Version.cpp with TRACKRAT_VERSION set from `git describe`, shown
   on the page's Device tab. Only that one file is rebuilt when it changes.
 
 Can also be run on its own: python tools/build_web.py
@@ -76,4 +76,4 @@ if env is not None:
     def add_version(env, node):
         return env.Object(node, CPPDEFINES=list(env["CPPDEFINES"]) + [("TRACKRAT_VERSION", env.StringifyMacro(version))])
 
-    env.AddBuildMiddleware(add_version, "*WifiPortal.cpp")
+    env.AddBuildMiddleware(add_version, "*Version.cpp")
