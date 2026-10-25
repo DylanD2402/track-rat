@@ -1,7 +1,7 @@
 name: Web installer
 
 # Publishes site/ and the latest release's firmware to GitHub Pages
-# (https://trackrat.me/, the repo's custom domain; dyland2402.github.io/track-rat/ redirects
+# (https://trackrat.me/, with the installer at /install/; the repo's custom domain; dyland2402.github.io/track-rat/ redirects
 # there). It runs from the default branch, the only one the github-pages environment
 # lets deploy:
 # - after the Release workflow finishes for a tag;
@@ -69,7 +69,12 @@ jobs:
       - name: Build the site folder
         run: |
           mkdir _site
-          cp site/index.html _site/
+          # The homepage (index.html), the installer (install/) and any other site files, but not
+          # the sample sessions, which go under analyze/ below
+          cp -r site/. _site/
+          rm -rf _site/samples
+          mkdir -p _site/assets
+          cp docs/images/social-preview.png _site/assets/
           # The Wi-Fi page as a viewer (it opens session files from your computer): its fonts, the
           # sample session and the track list beside it
           mkdir -p _site/analyze/fonts _site/analyze/samples
