@@ -20,7 +20,7 @@ Track Rat isn't affiliated with RaceBox. The device name is used only so apps re
 
 **Untested with RaceChrono:** the encodings follow RaceChrono's [DIY Bluetooth API](https://github.com/aollin/racechrono-ble-diy-device) and are tested on a PC, but nobody has connected an iPhone yet.
 
-With **Bluetooth profile** set to **RaceChrono** (then restart Track Rat), it stops being a RaceBox Mini and becomes a RaceChrono "DIY" device named `Track Rat` and 4 digits. It sends its GPS at the fix rate (20 a second) and, with an OBD-II adapter or CAN fitted (see [Bluetooth OBD-II adapter](hardware.md#bluetooth-obd-ii-adapter-untested-on-hardware)), the engine's values as CAN packets. With an IMU fitted, its lateral and longitudinal g go too. Only one profile at a time: iOS has been seen to stop receiving DIY data when a second serial-style service (the RaceBox one) is there.
+With **Bluetooth profile** set to **RaceChrono** (then restart Track Rat), it stops being a RaceBox Mini and becomes a RaceChrono "DIY" device named `Track Rat` and 4 digits. It sends its GPS at the fix rate (20 a second) and, with an OBD-II adapter or CAN fitted (see [Bluetooth OBD-II adapter](hardware.md#bluetooth-obd-ii-adapter)), the engine's values as CAN packets. With an IMU fitted, its lateral and longitudinal g go too. Only one profile at a time: iOS has been seen to stop receiving DIY data when a second serial-style service (the RaceBox one) is there.
 
 **In RaceChrono Pro (iPhone or Android):**
 

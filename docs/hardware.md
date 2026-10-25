@@ -128,9 +128,9 @@ An SN65HVD230 CAN transceiver board (3.3 V) on IO3 (its TX/D pin) and IO14 (its 
 - **Shift light:** from `SHIFT_LIGHT_START_RPM` the LED bar fills left to right, green, then yellow, then red; at `SHIFT_LIGHT_RPM` the whole bar flashes blue. Below the start it shows the delta as usual. The board's own LED keeps the delta. Set both for your engine.
 - It only asks: it never writes to the car or clears codes. With the ignition off nothing answers, and Track Rat carries on without it.
 
-### Bluetooth OBD-II adapter (untested on hardware)
+### Bluetooth OBD-II adapter
 
-**Not yet tried with an adapter or a car: none has been bought yet.** The ELM327 conversation is tested on a PC against recorded adapter replies; the Bluetooth side is written to NimBLE's documentation.
+**Tried with a Veepeak OBDCheck BLE+** (October 2026): engine speed, throttle, coolant and intake temperatures logged on the road and on screen. Other adapters haven't been tried. The ELM327 conversation is also tested on a PC against recorded adapter replies.
 
 The same engine data as CAN, with nothing to wire: a **Bluetooth LE** OBD-II adapter plugged into the car's OBD-II socket. It must be a Bluetooth LE model, as the ESP32-S3 has no Classic Bluetooth: the Veepeak OBDCheck BLE+ (about $30) or the OBDLink CX (faster, CAN cars only). The Veepeak Mini, Wi-Fi adapters and the OBDLink MX+ can't connect.
 

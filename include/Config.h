@@ -106,7 +106,7 @@
 #define POWER_OFF_BAR_MS 2000        // ...with a bar filling from here. Let go of before it's full: nothing happens
 
 // ---------------------------------------------------------------------------
-// Optional add-ons on the expansion header (see README, "Big button and LED bar").
+// Optional add-ons on the expansion header (see docs/hardware.md, "Big button and LED bar").
 // Each add-on is switched off at boot if the GPS was found on its pin.
 // ---------------------------------------------------------------------------
 #define EXT_BUTTON_ENABLED 1         // momentary push button, IO21 to GND; same as BOOT

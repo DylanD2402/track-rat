@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Same commands as the README's Tests section, one step per test.
+      # Same commands as the Tests section of docs/development.md, one step per test.
       # GitHub runs each step with bash -e, so any failing test fails the job.
       - name: test_laptimer
         run: g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_laptimer.cpp src/LapTimer.cpp -o /tmp/lt && /tmp/lt

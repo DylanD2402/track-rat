@@ -150,7 +150,7 @@ def fetch_osm(lat, lon, radius_m):
         except Exception as e:
             print(f"  {OSM_API_MAP}: {e}", file=sys.stderr)
             time.sleep(5)
-    raise SystemExit("Could not reach OpenStreetMap. Try again later, or use --file (see README).")
+    raise SystemExit("Could not reach OpenStreetMap. Try again later, or use --file (see docs/development.md).")
 
 
 def parse_osm_xml(xml_bytes):
