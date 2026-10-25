@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- Car-specific data from an OBDb car profile on the SD card: brake pressure, steering angle and other values from the car's own modules, asked through the Bluetooth OBD-II adapter alongside the engine's, chosen by the car's VIN, logged as extra `.vbo` channels and CSV columns, and shown on the Engine data screen. `tools/obd_car.py` makes a profile from OBDb's signal sets. Untested in a car.
+
 ## [0.1.0-beta.1] - 2026-10-26
 
 First public beta.

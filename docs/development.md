@@ -275,6 +275,18 @@ g++ -std=c++17 -Iinclude test/test_elm327.cpp -o /tmp/elm && /tmp/elm
 g++ -std=c++17 -Iinclude test/test_obd.cpp -o /tmp/obd && /tmp/obd
 ```
 
+`test/test_carobd.cpp` checks car-specific data from an OBDb car profile (`CarObd.h`) and the ELM327 client's turns with it: reading OBDb's module and request fields (11-bit, Honda's short 29-bit form, priority, extended address), decoding values (bit positions, signs, byte order, scaling, limits, "no value"), finding a reply among frames shown with headers on (long replies, a missing frame, late answers to an earlier request, other modules, refusals, "response pending"), the adapter settings sent on the way to a module and back (only those that change), choosing the car by its VIN, and whole conversations with a simulated adapter that only answers a module when it's set up for it: a BMW-style module (11-bit, extended address) at about 10 Hz with the engine still read, a Honda-style one (29-bit), an 11-bit request skipped on a 29-bit car, a refused request paused, the profile removed mid-way, an old clone without extended addressing, the ignition going off while pointed at a module, and the old conversation when there are no profiles. The replies are made up for the tests. `test/test_vbo.cpp` and `test/test_web.js` check the log's and the CSV's car channels:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_carobd.cpp -o /tmp/car && /tmp/car
+```
+
+`test/test_obd_car.py` checks `tools/obd_car.py` on made-up signal sets (no download): model years, the make's commands filling in for the model's, OBDb's recorded answers (seen, not seen, unverified), and the profile it writes (only the chosen signals, the rate, the licence and sources):
+
+```bash
+python test/test_obd_car.py
+```
+
 `test/test_imu.cpp` checks the IMU maths: reading the chip's raw bytes, which chips answer, and learning the mount (up from standing still, forward from straight-line speeding up and braking) at eight different angles, flat, on its side, upside down and tilted, then the car's g and rotation rates; that corners, too little speeding up, readings that disagree, and engine shake while parked teach it nothing; and averaging between fixes:
 
 ```bash
@@ -370,7 +382,8 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            Retime.h (which sessions are re-timed, when best laps are replaced),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
            the Settings and first-boot screens), ButtonPress.h (a button's presses and holds),
-           Obd.h (OBD-II values and schedules),
+           Obd.h (OBD-II values and schedules), CarObd.h (car-specific requests from an OBDb car profile),
+           CarProfileJson.h (reading a car profile),
            Elm327.h (the Bluetooth adapter's conversation), RaceChrono.h (RaceChrono's DIY encodings), DjiRemote.h (the DJI camera remote, ported
            from DJI's demo), DeviceLink.h (is the OBD adapter or camera really there), DeviceScreen.h (Settings > Engine data and Camera), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
@@ -384,11 +397,13 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            DisplaySettings (Settings and first-boot screens)
            Settings (kept in flash)
            CanObd (OBD-II over CAN), ObdBle (the Bluetooth OBD-II adapter), EngineData (either),
+           CarProfiles (car profiles on the SD card),
            CameraBle (the DJI camera's GPS remote), RaceBoxBle, RaceChronoBle (the phone's two profiles)
            WifiPortal (Wi-Fi page)
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)
 data/      tracks.json
 test/      host-side tests (check.h: shared by all of them)
-tools/     overlay.py (overlay videos; requirements-overlay.txt), render_screens.py, fetch_track_map.py...
+tools/     overlay.py (overlay videos; requirements-overlay.txt), render_screens.py, fetch_track_map.py,
+           obd_car.py (car profiles from OBDb)...
 ```

@@ -37,7 +37,22 @@ void formatTime(uint32_t utcMs, char* out) {
            (unsigned)(utcMs / 1000UL % 60), (unsigned)(utcMs % 1000UL));
 }
 
-size_t formatLine(const Sample& s, char* out, size_t cap, bool engine) {
+std::string columnName(const std::string& channel) {
+  std::string c;
+  bool up = true;
+  for (char ch : channel) {
+    const bool alnum = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
+    if (!alnum) {
+      up = true;
+      continue;
+    }
+    c += (up && ch >= 'a' && ch <= 'z') ? (char)(ch - 32) : ch;
+    up = false;
+  }
+  return c.empty() ? std::string("Car") : c;
+}
+
+size_t formatLine(const Sample& s, char* out, size_t cap, bool engine, int car) {
   char t[11];
   formatTime(s.utcMs, t);
   float heading = fmodf(s.headingDeg, 360.0f);
@@ -54,6 +69,19 @@ size_t formatLine(const Sample& s, char* out, size_t cap, bool engine) {
                            clampf(s.throttlePct, 0, 100), clampf(s.coolantC, -99.9f, 999.9f), clampf(s.intakeC, -99.9f, 999.9f),
                            clampf(s.oilC, -99.9f, 999.9f));
     n = m > 0 ? n + m : -1;
+  }
+  if (car > Sample::MAX_CAR) car = Sample::MAX_CAR;
+  if (car > 0 && n > 2 && (size_t)n < cap) {  // scientific notation: always 11 characters, any size of value
+    n -= 2;
+    for (int i = 0; i < car && n > 0; i++) {
+      const float v = isfinite(s.car[i]) ? clampf(s.car[i], -9.9999e37f, 9.9999e37f) : 0.0f;
+      const int m = snprintf(out + n, cap - n, " %+.4E", v);
+      n = (m > 0 && (size_t)(n + m) < cap) ? n + m : -1;
+    }
+    if (n > 0) {
+      const int m = snprintf(out + n, cap - n, "\r\n");
+      n = m > 0 ? n + m : -1;
+    }
   }
   return (n > 0 && (size_t)n < cap) ? (size_t)n : 0;
 }
@@ -84,6 +112,8 @@ std::string headerText(const Header& h) {
       s += c;
       s += "\r\n";
     }
+  const size_t car = h.carNames.size() < (size_t)Sample::MAX_CAR ? h.carNames.size() : (size_t)Sample::MAX_CAR;
+  for (size_t i = 0; i < car; i++) s += h.carNames[i] + "\r\n";
   s += "\r\n[channel units]\r\n";
   for (const char* u : UNITS) {
     s += u;
@@ -94,6 +124,8 @@ std::string headerText(const Header& h) {
       s += u;
       s += "\r\n";
     }
+  for (size_t i = 0; i < car; i++)
+    s += (i < h.carUnits.size() && !h.carUnits[i].empty() ? h.carUnits[i] : std::string("-")) + "\r\n";
   s += "\r\n[comments]\r\n";
   for (const std::string& c : h.comments) {
     s += c;
@@ -115,6 +147,7 @@ std::string headerText(const Header& h) {
   s += "\r\n[column names]\r\n";
   s += COLUMN_NAMES;
   if (h.engine) s += ENGINE_COLUMN_NAMES;
+  for (size_t i = 0; i < car; i++) s += " " + columnName(h.carNames[i]);
   s += "\r\n\r\n[data]\r\n";
   return s;
 }

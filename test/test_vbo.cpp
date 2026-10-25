@@ -751,6 +751,61 @@ static void testEngineChannels() {
   CHECK(!plainR.hasCoolant() && !plainR.hasOil(), "no engine columns");
 }
 
+// Car-specific channels from a car profile (CarObd.h): after the engine's, any number up to 8
+static void testCarChannels() {
+  vbo::Header h;
+  h.engine = true;
+  h.carNames = {"Brake pressure", "Steering wheel angle"};
+  h.carUnits = {"bar", "deg"};
+  const std::string text = vbo::headerText(h);
+  CHECK(text.find("Oil temperature\r\nBrake pressure\r\nSteering wheel angle\r\n\r\n[channel units]") != std::string::npos,
+        "car channels after the engine's in [header]");
+  CHECK(text.find("C\r\nbar\r\ndeg\r\n\r\n[comments]") != std::string::npos, "and their units");
+  CHECK(text.find("OilTemp BrakePressure SteeringWheelAngle\r\n") != std::string::npos, "and column names");
+  CHECK(vbo::columnName("brake pressure (front)") == "BrakePressureFront" && vbo::columnName("--") == "Car", "column names");
+
+  vbo::Sample s;
+  s.utcMs = 36000000;
+  s.lat = 45.1;
+  s.lon = -76.2;
+  s.speedKmh = 120;
+  s.car[0] = 12.34f;
+  s.car[1] = -123.5f;
+  char a[256], b[256];
+  const size_t na = vbo::formatLine(s, a, sizeof(a), true), nb = vbo::formatLine(s, b, sizeof(b), true, 2);
+  CHECK(na && nb == na + 24, "12 more characters a channel: %zu vs %zu", nb, na);
+  CHECK(std::string(b, nb).find(" +1.2340E+01 -1.2350E+02\r\n") != std::string::npos, "car values: %s", b);
+  s.car[0] = 0;
+  s.car[1] = 3.2e9f;
+  CHECK(vbo::formatLine(s, b, sizeof(b), true, 2) == nb, "same length for any size of value");
+  s.car[1] = NAN;
+  CHECK(vbo::formatLine(s, b, sizeof(b), true, 2) == nb && std::string(b, nb).find("+0.0000E+00\r\n") != std::string::npos,
+        "not a number: 0");
+  CHECK(vbo::formatLine(s, b, nb, true, 2) == 0, "no partial lines");
+  for (int i = 0; i < vbo::Sample::MAX_CAR; i++) s.car[i] = -9999.99f;
+  const size_t full = vbo::formatLine(s, b, sizeof(b), true, vbo::Sample::MAX_CAR);
+  CHECK(full == na + 12 * vbo::Sample::MAX_CAR && full < 255, "8 car channels: %zu characters, within what replay reads", full);
+
+  // Layout counts, and read back (recovery and re-timing): the extra columns don't get in the way
+  size_t channels = 0, units = 0;
+  std::string section;
+  for (size_t st = 0, en; (en = text.find("\r\n", st)) != std::string::npos; st = en + 2) {
+    const std::string l = text.substr(st, en - st);
+    if (!l.empty() && l[0] == '[') section = l;
+    else if (!l.empty() && section == "[header]") channels++;
+    else if (!l.empty() && section == "[channel units]") units++;
+  }
+  CHECK(channels == 19 && units == channels - 7, "%zu channels, %zu units", channels, units);
+  s.car[0] = 50;
+  std::string all = text;
+  all.append(b, vbo::formatLine(s, b, sizeof(b), true, 2));
+  SessionReplay r;
+  r.feed(all.data(), all.size());
+  r.finish();
+  CHECK(r.samples == 1 && r.reader().badLines() == 0, "read back with car columns: %u samples, %u bad", r.samples,
+        r.reader().badLines());
+}
+
 // The laps' hottest coolant and oil (6.5): recovery and re-timing read them back from the log
 static void testLapTemperatures() {
   SessionFile s;
@@ -795,6 +850,7 @@ static void testLapTemperatures() {
 int main() {
   printf("VBO log tests\n");
   testEngineChannels();
+  testCarChannels();
   testLapTemperatures();
   testCoordinates();
   testTime();

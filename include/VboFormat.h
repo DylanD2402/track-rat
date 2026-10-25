@@ -40,6 +40,9 @@ struct Sample {
   uint8_t tag = 0;     // laptags:: flags this fix gives its lap (stopped, after a gap, poor accuracy)
   // From the car (OBD-II over CAN or a Bluetooth adapter), in logs with Header::engine; 0 when not known
   float rpm = 0, throttlePct = 0, coolantC = 0, intakeC = 0, oilC = 0;
+  // Car-specific channels (a car profile: brake pressure...), in logs with Header::carNames; 0 when not known
+  static constexpr int MAX_CAR = 8;
+  float car[MAX_CAR] = {};
 };
 
 // A timing line for [laptiming], by its two ends.
@@ -57,6 +60,8 @@ struct Header {
   std::vector<Gate> splits;            // named S1, S2...
   std::vector<Gate> sectors;           // corner sector gates, written as splits named T1, T2... after the splits
   bool engine = false;                // five more channels from the car: RPM, throttle, coolant, intake and oil temperature
+  std::vector<std::string> carNames;  // car-specific channels after those (up to Sample::MAX_CAR), and their units
+  std::vector<std::string> carUnits;
   bool hasFinish = false;             // point to point: the start is "Start", and this is the finish
   Gate finish = {0, 0, 0, 0};
 };
@@ -66,8 +71,11 @@ std::string headerText(const Header& h);
 
 // One data line, with its CRLF. Returns its length, or 0 if `cap` is too small.
 // Every line is the same length for the same file layout. engine: the log's
-// header has the engine channels (Header::engine).
-size_t formatLine(const Sample& s, char* out, size_t cap, bool engine = false);
+// header has the engine channels (Header::engine); car: how many car channels it has.
+size_t formatLine(const Sample& s, char* out, size_t cap, bool engine = false, int car = 0);
+
+// A channel name as a column name: no spaces ("Brake pressure" -> "BrakePressure")
+std::string columnName(const std::string& channel);
 
 // "hhmmss.sss"; out needs 11 bytes.
 void formatTime(uint32_t utcMs, char* out);

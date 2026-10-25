@@ -255,6 +255,8 @@ static uint32_t fixCount = 0;
 static uint32_t fixesMissed = 0;
 static vbo::GForce gforce;
 static bool logEngine = false;  // the log has the engine channels (OBD-II over CAN or Bluetooth)
+static const carobd::Profile* logCar = nullptr;  // the car profile whose channels the log has (nullptr: none)
+static int logCarCount = 0;
 static uint32_t lastFixMs = 0;  // GPS time of the last fix logged (for the gap mark)
 
 void begin() {
@@ -282,9 +284,20 @@ static bool beginLog(const String& path, const vbo::Header& h) {
   if (!fullLogAvailable() || path.length() == 0) return false;
   vbo::Header withEngine = h;
   withEngine.engine = EngineData::logged();  // OBD-II over CAN or Bluetooth: four more channels
+  // A car profile in use (brake pressure...): its channels too, as they are now. A car
+  // recognised after the log has started is in the next session's log.
+  const carobd::Profile* car = EngineData::carProfile();
+  const int carCount = car ? (car->nSigs < vbo::Sample::MAX_CAR ? car->nSigs : vbo::Sample::MAX_CAR) : 0;
+  for (int i = 0; i < carCount; i++) {
+    withEngine.carNames.push_back(car->sigs[i].name);
+    withEngine.carUnits.push_back(car->sigs[i].unit);
+  }
+  if (carCount) withEngine.comments.push_back(std::string("Car: ") + car->name + " (car profile, from OBDb)");
   std::string text = vbo::headerText(withEngine);
   if (!LogWriter::open(path, text.data(), text.size())) return false;
   logEngine = withEngine.engine;
+  logCar = carCount ? car : nullptr;
+  logCarCount = carCount;
   logOpen = true;
   logPath = path;
   fixCount = fixesMissed = 0;
@@ -385,8 +398,14 @@ void logFix(const GpsFix& f, uint16_t lap) {
     s.intakeC = e.intakeKnown(now) ? e.intakeC : 0;
     s.oilC = e.oilKnown(now) ? e.oilC : 0;
   }
-  char line[160];
-  size_t n = vbo::formatLine(s, line, sizeof(line), logEngine);
+  if (logCarCount) {  // 0 for anything not read lately, or if the car's profile has changed since
+    const uint32_t now = millis();
+    const bool same = EngineData::carProfile() == logCar;
+    for (int i = 0; i < logCarCount; i++)
+      if (!same || !EngineData::carValue(i, now, s.car[i])) s.car[i] = 0;
+  }
+  char line[256];
+  size_t n = vbo::formatLine(s, line, sizeof(line), logEngine, logCarCount);
   if (n && LogWriter::append(line, n)) fixCount++;
   else fixesMissed++;
 }

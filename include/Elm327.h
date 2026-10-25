@@ -22,8 +22,18 @@
  * on a default connection). NO DATA, SEARCHING..., STOPPED, ?, CAN ERROR,
  * UNABLE TO CONNECT, BUS INIT and multi-line replies are all understood.
  *
+ * With car profiles on the SD card (CarObd.h, setWantVin): the set-up starts
+ * with ATD (an adapter left powered in the car keeps whatever it was set to),
+ * the car's VIN is read (0902) so the right profile can be chosen
+ * (setProfile), and then the car's own requests (brake pressure...) take
+ * turns with the standard ones: a few standard requests, then the adapter is
+ * pointed at the car's module (headers on, its IDs: only the settings that
+ * change are sent) for a few of the car's, and back. A request the module
+ * doesn't answer is asked again only every 10 s, so it costs little.
+ *
  * Pure C++, tested on a PC with recorded adapter conversations in
- * test/test_elm327.cpp. Untested with a real adapter (none bought yet).
+ * test/test_elm327.cpp and test/test_carobd.cpp. Untested with a real adapter
+ * (none bought yet).
  */
 
 #ifndef ELM327_H
@@ -32,6 +42,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "CarObd.h"
 #include "Obd.h"
 
 namespace elm {
@@ -211,6 +222,12 @@ constexpr int TIMEOUTS_BEFORE_RESET = 3;      // prompts missed in a row before 
 constexpr int ERRORS_BEFORE_RESTART = 5;      // bus errors / NO DATA in a row before finding the car again
 constexpr int UNKNOWNS_BEFORE_PLAIN = 3;      // "?" in a row to the speed-ups before doing without them
 constexpr uint32_t LATE_REPLY_MS = 200;       // after a missed prompt: wait this long before the next request
+// The car's own requests (CarObd.h), taking turns with the standard ones
+constexpr int STD_PER_TURN = 4;               // standard requests, then...
+constexpr int CAR_PER_TURN = 6;               // ...up to this many of the car's
+constexpr int CAR_MISSES_BEFORE_PAUSE = 3;    // unanswered in a row: then only asked every CAR_PAUSE_MS
+constexpr uint32_t CAR_PAUSE_MS = 10000;
+constexpr uint32_t CAR_EARLY_MS = 300;        // on a module: asked up to this early, so a turn isn't one request
 
 class Client {
 public:
@@ -218,11 +235,33 @@ public:
 
   // The adapter connected (or reconnected): start from the set-up.
   void begin(uint32_t nowMs) {
+    const bool vin = wantVin;  // survives a reconnect
     *this = Client();
+    wantVin = vin;
     phase = Phase::Setup;
     nextAt = nowMs;
     rateFrom = nowMs;
   }
+
+  // --- the car's own requests (CarObd.h) ---
+  // There are car profiles: read the VIN after finding the car, and reset the
+  // adapter's settings (ATD) in the set-up. Call before begin().
+  void setWantVin(bool on) { wantVin = on; }
+  bool vinDone() const { return vinAsked; }  // asked (and answered, or not)
+  const char* vin() const { return vinText; }  // "" if the car didn't say
+  bool car29() const { return proto29; }       // the car's CAN IDs are 29-bit (from ATDP)
+  // The car's profile (nullptr: none). Its commands for the other kind of CAN ID than the car's are skipped.
+  void setProfile(const carobd::Profile* p) {
+    prof = p;
+    carVals = carobd::Values();
+    for (int i = 0; i < carobd::MAX_COMMANDS; i++) answers[i] = carobd::Answer::NotAsked, carAsked[i] = 0, carMisses[i] = 0, carHzCount[i] = 0, carHzNow[i] = 0;
+    checkUsable();
+    if (atModule >= 0 || nSteps) planSteps(carobd::standardTarget(proto29), -1);  // first back to the standard requests
+  }
+  const carobd::Profile* profile() const { return prof; }
+  const carobd::Values& carValues() const { return carVals; }
+  carobd::Answer carAnswer(int cmd) const { return cmd >= 0 && cmd < carobd::MAX_COMMANDS ? answers[cmd] : carobd::Answer::NotAsked; }
+  float carHz(int cmd) const { return cmd >= 0 && cmd < carobd::MAX_COMMANDS ? carHzNow[cmd] : 0; }
   // The adapter disconnected.
   void end() { phase = Phase::Off; }
 
@@ -253,10 +292,18 @@ public:
         resetting = true;
         phase = Phase::Setup;
         step = 0;
+        adapterReset();
+      } else if (phase == Phase::Running && waitKind == Wait::Car) {
+        carMissed(curCmd);
+      } else if (phase == Phase::Running && waitKind == Wait::Step) {
+        // asked again (the same step) after the quiet moment
       } else if (phase == Phase::Running) {
         failed(nowMs);
       } else if (phase == Phase::Probe) {  // no prompt to a speed-up: do without it
         probed(false, 0, nowMs);
+      } else if (phase == Phase::Pids && step == 4) {  // no VIN: the car didn't say
+        vinAsked = true;
+        pidsKnown(nowMs);
       }
       // A quiet moment, so a late reply is taken as stray rather than as the next one's
       if (phase != Phase::NoCar) nextAt = nowMs + LATE_REPLY_MS;
@@ -264,21 +311,25 @@ public:
     if ((int32_t)(nowMs - nextAt) < 0) return false;
     if (phase == Phase::NoCar) phase = Phase::Pids, step = 0;
 
-    char cmd[16] = "";
+    char cmd[24] = "";
     timeout = DATA_TIMEOUT_MS;
+    waitKind = Wait::Std;
     switch (phase) {
       case Phase::Setup:
         if (resetting) {
           snprintf(cmd, sizeof(cmd), "ATZ");
           timeout = RESET_TIMEOUT_MS;
         } else {
-          snprintf(cmd, sizeof(cmd), "%s", setupCommand(step));
+          snprintf(cmd, sizeof(cmd), "%s", setupCommand(step - (wantVin ? 1 : 0)));
           timeout = AT_TIMEOUT_MS;
         }
         break;
       case Phase::Pids:
         if (step == 3) {
           snprintf(cmd, sizeof(cmd), "ATDP");  // the protocol found, for the diagnostics screen
+          timeout = AT_TIMEOUT_MS;
+        } else if (step == 4) {
+          snprintf(cmd, sizeof(cmd), "0902");  // the VIN, to choose the car's profile
           timeout = AT_TIMEOUT_MS;
         } else {
           snprintf(cmd, sizeof(cmd), "01%02X", step * 0x20);
@@ -289,15 +340,9 @@ public:
         if (step == 0) snprintf(cmd, sizeof(cmd), "01%02X1", sched.rpmPid() ? sched.rpmPid() : sched.throttlePid());
         else snprintf(cmd, sizeof(cmd), "01%02X%02X%s", sched.rpmPid(), sched.throttlePid(), suffix ? "1" : "");
         break;
-      case Phase::Running: {
-        const uint8_t pid = sched.next(nowMs);
-        if (!pid) return false;
-        if (multi && (pid == sched.rpmPid() || pid == sched.throttlePid()))
-          snprintf(cmd, sizeof(cmd), "01%02X%02X%s", sched.rpmPid(), sched.throttlePid(), suffix ? "1" : "");
-        else
-          snprintf(cmd, sizeof(cmd), "01%02X%s", pid, suffix ? "1" : "");
+      case Phase::Running:
+        if (!runningCommand(nowMs, cmd, sizeof(cmd))) return false;
         break;
-      }
       default: return false;
     }
     const int n = snprintf(out, outLen, "%s\r", cmd);
@@ -331,7 +376,179 @@ private:
   static constexpr int SETUP_STEPS = 7;
   static const char* setupCommand(int i) {
     static const char* const SETUP[SETUP_STEPS] = {"ATE0", "ATL0", "ATS0", "ATH0", "ATSP0", "ATAT2", "ATST19"};  // ATST19: 25 x 4 ms
-    return SETUP[i];
+    return i < 0 ? "ATD" : SETUP[i];  // ATD first with car profiles: the defaults (headers, filters, addresses)
+  }
+  int setupSteps() const { return SETUP_STEPS + (wantVin ? 1 : 0); }
+
+  // --- the car's own requests ---
+  enum class Wait : uint8_t { Std, Step, Car };
+  Wait waitKind = Wait::Std;
+  bool wantVin = false, vinAsked = false, proto29 = false, protoKnown = false;
+  char vinText[18] = "";
+  const carobd::Profile* prof = nullptr;
+  carobd::Values carVals;
+  carobd::Answer answers[carobd::MAX_COMMANDS] = {};
+  uint32_t carAsked[carobd::MAX_COMMANDS] = {};
+  uint8_t carMisses[carobd::MAX_COMMANDS] = {};
+  uint32_t carHzCount[carobd::MAX_COMMANDS] = {};
+  float carHzNow[carobd::MAX_COMMANDS] = {};
+  carobd::AdapterState adapter;  // its settings, as far as we know
+  bool dirty = false;            // pointed at a car module since the last reset or set-up
+  int atModule = -1;             // the command whose module the adapter is pointed at; -1: the standard requests
+  char steps[carobd::Target::SLOTS][16];
+  int nSteps = 0, stepAt = 0, stepsFor = -1;  // settings still to send, and where they lead
+  carobd::Target planTarget;
+  int curCmd = -1;               // the car's request being answered
+  int stdTurn = 0, carTurn = 0;  // requests so far in this turn
+
+  void adapterReset() {  // ATZ: back to its defaults
+    adapter.forget();
+    atModule = -1;
+    nSteps = stepAt = 0;
+    dirty = false;
+  }
+  // The adapter is at its defaults: the standard requests' settings
+  void adapterAtDefaults() {
+    adapter.forget();
+    const carobd::Target t = carobd::standardTarget(proto29);
+    for (int k = 0; k < carobd::Target::SLOTS; k++)
+      if (t.cmd[k][0]) adapter.applied(t.cmd[k]);
+    atModule = -1;
+    nSteps = stepAt = 0;
+    dirty = false;
+  }
+  // Commands for the other kind of CAN ID than the car's can't be asked
+  void checkUsable() {
+    if (!prof) return;
+    for (int i = 0; i < prof->nCmds && i < carobd::MAX_COMMANDS; i++)
+      if (protoKnown && prof->cmds[i].ext29 != proto29) answers[i] = carobd::Answer::Unusable;
+  }
+  // Head for t (a module's settings for command forCmd, or the standard ones if -1).
+  // The settings still to send are worked out again after each answer, from
+  // what the adapter has, so a change of plan while one is on its way is safe.
+  void planSteps(const carobd::Target& t, int forCmd) {
+    planTarget = t;
+    stepsFor = forCmd;
+    replan();
+  }
+  void replan() {
+    nSteps = adapter.stepsTo(planTarget, steps, carobd::Target::SLOTS);
+    stepAt = 0;
+    if (!nSteps) arrived();
+  }
+  void arrived() {
+    nSteps = stepAt = 0;
+    atModule = stepsFor;
+    if (atModule >= 0) dirty = true, carTurn = 0;
+    else stdTurn = 0;
+  }
+  // The car's request most overdue (of those on module `like`'s, or any if -1), or -1.
+  // early: also one due within this many ms (not one that's paused).
+  int carDue(uint32_t nowMs, int like, uint32_t early = 0) const {
+    if (!prof) return -1;
+    int best = -1;
+    int32_t bestLate = -1;
+    for (int i = 0; i < prof->nCmds && i < carobd::MAX_COMMANDS; i++) {
+      const carobd::Command& c = prof->cmds[i];
+      if (answers[i] == carobd::Answer::Unusable) continue;
+      if (like >= 0 && !c.sameModule(prof->cmds[like])) continue;
+      const bool paused = answers[i] == carobd::Answer::NoReply || answers[i] == carobd::Answer::Refused;
+      const uint32_t period = paused ? CAR_PAUSE_MS : c.periodMs;
+      const int32_t late = carAsked[i] ? (int32_t)(nowMs - carAsked[i]) - (int32_t)period + (paused ? 0 : (int32_t)early) : INT32_MAX;
+      if (late >= 0 && late > bestLate) best = i, bestLate = late;
+    }
+    return best;
+  }
+  void carMissed(int i) {
+    if (i < 0 || i >= carobd::MAX_COMMANDS) return;
+    if (++carMisses[i] >= CAR_MISSES_BEFORE_PAUSE) answers[i] = carobd::Answer::NoReply;
+  }
+
+  // What to send while running: a setting on the way to or from a car
+  // module, one of the car's requests, or a standard request.
+  bool runningCommand(uint32_t nowMs, char* cmd, int cmdLen) {
+    if (!prof && atModule >= 0 && !nSteps) planSteps(carobd::standardTarget(proto29), -1);  // the profile went
+    if (prof && !nSteps) {
+      if (atModule >= 0) {
+        const int same = carTurn < CAR_PER_TURN ? carDue(nowMs, atModule, CAR_EARLY_MS) : -1;
+        if (same >= 0) {
+          const carobd::Command& c = prof->cmds[same];
+          int n = 0;
+          for (int k = 0; k < c.reqLen && n + 2 < cmdLen; k++) n += snprintf(cmd + n, cmdLen - n, "%02X", c.req[k]);
+          waitKind = Wait::Car;
+          curCmd = same;
+          carAsked[same] = nowMs;
+          carTurn++;
+          return true;
+        }
+        const int other = carTurn < CAR_PER_TURN ? carDue(nowMs, -1) : -1;
+        planSteps(other >= 0 ? carobd::moduleTarget(prof->cmds[other]) : carobd::standardTarget(proto29), other);
+        if (!nSteps) return runningCommand(nowMs, cmd, cmdLen);  // (already set: no settings to send)
+      } else {
+        const int due = carDue(nowMs, -1);
+        if (due >= 0 && (stdTurn >= STD_PER_TURN || (!sched.rpmPid() && !sched.throttlePid()))) {
+          planSteps(carobd::moduleTarget(prof->cmds[due]), due);
+          if (!nSteps) return runningCommand(nowMs, cmd, cmdLen);
+        }
+      }
+    }
+    if (nSteps) {
+      snprintf(cmd, cmdLen, "%s", steps[stepAt]);
+      waitKind = Wait::Step;
+      timeout = AT_TIMEOUT_MS;
+      return true;
+    }
+    const uint8_t pid = sched.next(nowMs);
+    if (!pid) return false;
+    if (multi && (pid == sched.rpmPid() || pid == sched.throttlePid()))
+      snprintf(cmd, cmdLen, "01%02X%02X%s", sched.rpmPid(), sched.throttlePid(), suffix ? "1" : "");
+    else
+      snprintf(cmd, cmdLen, "01%02X%s", pid, suffix ? "1" : "");
+    stdTurn++;
+    return true;
+  }
+
+  // The answer to a setting on the way to or from a car module
+  void stepAnswered(const Reply& r) {
+    if (r.kind == Reply::Unknown) {  // "?": this adapter can't
+      const carobd::Target back = carobd::standardTarget(proto29);
+      bool standardSetting = false;
+      for (int k = 0; k < carobd::Target::SLOTS; k++) standardSetting |= !strcmp(back.cmd[k], lastCmd);
+      if (!standardSetting) {  // a module's setting: that module is out of reach, its requests aren't asked
+        for (int i = 0; prof && i < prof->nCmds && i < carobd::MAX_COMMANDS; i++)
+          if (stepsFor >= 0 && prof->cmds[i].sameModule(prof->cmds[stepsFor])) answers[i] = carobd::Answer::Unusable;
+        planSteps(back, -1);
+        return;
+      }
+      // A standard one ("ATCEA" on an adapter without extended addressing): it doesn't
+      // have that setting, so it was never changed either
+    }
+    adapter.applied(lastCmd);
+    replan();
+  }
+
+  // The answer to one of the car's requests (headers on)
+  void carAnswered(uint32_t at) {
+    const int i = curCmd;
+    curCmd = -1;
+    if (!prof || i < 0 || i >= prof->nCmds) return;
+    uint8_t data[256];
+    const int n = carobd::findReply(buf, len, prof->cmds[i], data, sizeof(data));
+    if (n > 0) {
+      answers[i] = carobd::Answer::Yes;
+      carMisses[i] = 0;
+      carHzCount[i]++;
+      const int skip = prof->cmds[i].reqLen;  // the echo: 62 DB E5
+      for (int s = 0; s < prof->nSigs && s < carobd::MAX_SIGNALS; s++) {
+        if (prof->sigs[s].command != i) continue;
+        float v;
+        if (carobd::decode(data + skip, n - skip, prof->sigs[s].fmt, v)) carVals.v[s] = v, carVals.at[s] = at;
+      }
+    } else if (n < 0) {
+      answers[i] = carobd::Answer::Refused;
+    } else {
+      carMissed(i);
+    }
   }
 
   Phase phase = Phase::Off;
@@ -343,9 +560,9 @@ private:
   int failures = 0;  // requests in a row the car didn't answer
   int unknowns = 0;  // "?" in a row while using the speed-ups
   bool suffix = false, multi = false;
-  char buf[256];
+  char buf[512];
   int len = 0;
-  char lastCmd[16] = "";
+  char lastCmd[24] = "";
   char proto[40] = "";
   Supported sup;
   obd::Schedule sched;
@@ -361,6 +578,7 @@ private:
     stats.requestHz = nReq / s, stats.rpmHz = nRpm / s, stats.throttleHz = nThr / s;
     stats.coolantHz = nCool / s, stats.intakeHz = nIntake / s, stats.oilHz = nOil / s;
     nReq = nRpm = nThr = nCool = nIntake = nOil = 0;
+    for (int i = 0; i < carobd::MAX_COMMANDS; i++) carHzNow[i] = carHzCount[i] / s, carHzCount[i] = 0;
     rateFrom = nowMs;
   }
 
@@ -371,6 +589,7 @@ private:
       failures = 0;
       phase = Phase::NoCar;
       nextAt = nowMs + RETRY_MS;
+      if (dirty || nSteps) phase = Phase::Setup, step = 0;  // pointed at a car module: its defaults first (ATD)
     }
   }
 
@@ -378,6 +597,7 @@ private:
     phase = Phase::Running;
     failures = 0;
     nextAt = nowMs;
+    checkUsable();
   }
 
   // What the car supports, once the masks are in: the schedule, then the probes
@@ -409,9 +629,11 @@ private:
         if (resetting) {
           resetting = false;  // whatever ATZ said ("ELM327 v1.5"): now set it up
           step = 0;
+          adapterReset();
           return;
         }
-        if (++step >= SETUP_STEPS) {  // a "?" (a clone without ATAT2, say) isn't worth stopping for
+        if (wantVin && step == 0) adapterReset();  // ATD
+        if (++step >= setupSteps()) {  // a "?" (a clone without ATAT2, say) isn't worth stopping for
           phase = Phase::Pids;
           step = 0;
         }
@@ -420,6 +642,19 @@ private:
       case Phase::Pids: {
         if (step == 3) {  // ATDP
           if (r.kind == Reply::Text) snprintf(proto, sizeof(proto), "%s", r.text);
+          proto29 = strstr(proto, "29/") != nullptr;  // "ISO 15765-4 (CAN 29/500)"
+          protoKnown = proto[0] != 0;
+          adapterAtDefaults();
+          if (wantVin && !vinAsked) {
+            step = 4;
+            return;
+          }
+          pidsKnown(nowMs);
+          return;
+        }
+        if (step == 4) {  // 0902
+          vinAsked = true;
+          if (r.kind == Reply::Data && !carobd::vinFromReply(r.data, r.len, vinText)) vinText[0] = 0;
           pidsKnown(nowMs);
           return;
         }
@@ -448,6 +683,14 @@ private:
       }
 
       case Phase::Running: {
+        if (waitKind == Wait::Step) {
+          stepAnswered(r);
+          return;
+        }
+        if (waitKind == Wait::Car) {
+          carAnswered(at);
+          return;
+        }
         uint8_t got = 0;
         if (r.kind == Reply::Data && readMode01(r, vals, at, nullptr, &got) > 0) {
           failures = unknowns = 0;

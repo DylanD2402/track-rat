@@ -8,7 +8,9 @@
  */
 
 #include <string.h>
+#include <string>
 #include "DisplayManager.h"
+#include "EngineData.h"
 #include "Config.h"
 #include "UiTheme.h"
 #include "Version.h"
@@ -328,7 +330,32 @@ void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::S
       line(st.connected ? phaseText(st.phase) : st.linked ? "Linked: waiting for it to answer" : "Not connected: trying every 5-10 s",
            st.connected ? C_GREEN : C_YELLOW);
       if (st.protocol[0]) line(st.protocol, C_TEXT2, Font::Caption);
-      if (st.connected && st.phase == elm::Client::Phase::Running) {
+      if (st.connected && st.phase == elm::Client::Phase::Running && st.profiles) {
+        // Car profiles on the card: one line of rates, then the car and its own values
+        snprintf(buf, sizeof(buf), "%.1f requests/s   RPM %.1f Hz   Throttle %.1f Hz", st.stats.requestHz, st.stats.rpmHz,
+                 st.stats.throttleHz);
+        line(buf, C_TEXT2, Font::Caption);
+        if (st.car) {
+          snprintf(buf, sizeof(buf), "Car: %s", st.car->name);
+          line(buf, C_TEXT, Font::Caption);
+          std::string vals;
+          const uint32_t now = millis();
+          for (int i = 0; i < st.car->nSigs; i++) {
+            const carobd::Signal& s = st.car->sigs[i];
+            const carobd::Answer a = s.command >= 0 ? st.answers[(int)s.command] : carobd::Answer::NotAsked;
+            float v;
+            char one[64];
+            if (EngineData::carValue(i, now, v)) snprintf(one, sizeof(one), "%s %.4g %s", s.name, v, s.unit[0] == '-' ? "" : s.unit);
+            else snprintf(one, sizeof(one), "%s: %s", s.name, carobd::answerText(a));
+            if (!vals.empty()) vals += "   ";
+            vals += one;
+          }
+          line(vals.c_str(), C_TEXT2, Font::Caption);
+        } else {
+          line(!st.vinDone ? "Car: reading its VIN" : st.vin[0] ? "Car: no profile on the card for its VIN" : "Car: it didn't give its VIN",
+               C_TEXT2, Font::Caption);
+        }
+      } else if (st.connected && st.phase == elm::Client::Phase::Running) {
         snprintf(buf, sizeof(buf), "%.1f requests/s%s%s", st.stats.requestHz, st.suffix ? "  fast replies" : "", st.multi ? "  2 in 1" : "");
         line(buf, C_TEXT2, Font::Caption);
         snprintf(buf, sizeof(buf), "RPM %.1f Hz   Throttle %.1f Hz", st.stats.rpmHz, st.stats.throttleHz);

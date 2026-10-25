@@ -46,8 +46,18 @@ struct Status {
   char protocol[40] = "";   // "AUTO, ISO 15765-4 (CAN 11/500)"
   elm::Client::Stats stats;
   bool suffix = false, multi = false;
+  // Car-specific data (CarObd.h, a profile on the SD card)
+  int profiles = 0;                          // car profiles on the card
+  char vin[18] = "";                         // the car's VIN, "" if it didn't say (or not asked yet)
+  bool vinDone = false;
+  const carobd::Profile* car = nullptr;      // the profile in use, or nullptr
+  carobd::Answer answers[carobd::MAX_COMMANDS] = {};
+  float carHz[carobd::MAX_COMMANDS] = {};
 };
 Status status();
+// The car's profile in use (nullptr: none) and its latest values (check Values::known)
+const carobd::Profile* carProfile();
+const carobd::Values& carValues();
 
 // Find adapter
 struct Found {

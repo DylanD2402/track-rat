@@ -674,8 +674,13 @@ function addLayout(db, id, name) {
 // engine temperature not known (oil, on most cars): empty here.
 const CSV_COLUMNS = ["utc", "lat", "lon", "speed_kmh", "lap", "lap_time_s", "delta_s", "g_lat", "g_long", "rpm", "throttle_pct", "coolant_c",
                      "oil_c"];
+// The log's own columns; any others are a car profile's (brake pressure...), added at the end
+const VBO_OWN_COLUMNS = ["sats", "time", "lat", "long", "velocity", "heading", "height", "HDOP", "Lap", "LateralG", "LongitudinalG", "LapTag",
+                         "RPM", "Throttle", "CoolantTemp", "IntakeTemp", "OilTemp"];
+// "BrakePressure" -> "brake_pressure"
+const csvName = (col) => col.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 function vboToCsv(text, summary) {
-  let section = "", cols = null, day0 = Date.UTC(2000, 0, 1), lastSod = null, days = 0;
+  let section = "", cols = null, extra = [], day0 = Date.UTC(2000, 0, 1), lastSod = null, days = 0;
   const m = /File created on (\d\d)\/(\d\d)\/(\d{4})/.exec(text);
   if (m) day0 = Date.UTC(+m[3], +m[2] - 1, +m[1]);
   const rows = [];
@@ -683,8 +688,10 @@ function vboToCsv(text, summary) {
     const line = raw.replace(/\r$/, "").trim();
     if (line.startsWith("[")) { section = line; continue; }
     if (!line) continue;
-    if (section === "[column names]") cols = line.split(/\s+/);
-    else if (section === "[data]" && cols) {
+    if (section === "[column names]") {
+      cols = line.split(/\s+/);
+      extra = cols.filter((c) => !VBO_OWN_COLUMNS.includes(c));
+    } else if (section === "[data]" && cols) {
       const t = line.split(/\s+/);
       if (t.length !== cols.length) continue;  // cut short by a power cut
       const v = (name) => (cols.includes(name) ? +t[cols.indexOf(name)] : null);
@@ -696,7 +703,7 @@ function vboToCsv(text, summary) {
       lastSod = sod;
       rows.push({ms: day0 + (days * 86400 + sod) * 1000, lat, lon, kmh: v("velocity"), lap: v("Lap") || 0,
                  glat: v("LateralG"), glong: v("LongitudinalG"), rpm: v("RPM"), thr: v("Throttle"), cool: v("CoolantTemp") || null,
-                 oil: v("OilTemp") || null});
+                 oil: v("OilTemp") || null, extra: extra.map((c) => v(c))});
     }
   }
   // Distance into each lap, when each began, how long the finished ones took
@@ -726,7 +733,9 @@ function vboToCsv(text, summary) {
   };
   const refLen = ref.length ? ref[ref.length - 1].d : 0;
   const num = (x, n) => (x === null || x === undefined || !isFinite(x) ? "" : x.toFixed(n));
-  const out = [CSV_COLUMNS.join(",")];
+  const out = [CSV_COLUMNS.concat(extra.map(csvName)).join(",")];
+  // A car value at 4 significant figures, without the exponent the log writes it with
+  const sig = (x) => (x === null || x === undefined || !isFinite(x) ? "" : String(+x.toPrecision(4)));
   for (const r of rows) {
     const lapTime = r.lap > 0 ? (r.ms - start.get(r.lap)) / 1000 : null;
     let delta = null;
@@ -735,7 +744,7 @@ function vboToCsv(text, summary) {
       delta = lapTime - refAt(dd);
     }
     out.push([new Date(r.ms).toISOString(), num(r.lat, 7), num(r.lon, 7), num(r.kmh, 2), r.lap, num(lapTime, 3), num(delta, 3),
-              num(r.glat, 3), num(r.glong, 3), num(r.rpm, 0), num(r.thr, 1), num(r.cool, 1), num(r.oil, 1)].join(","));
+              num(r.glat, 3), num(r.glong, 3), num(r.rpm, 0), num(r.thr, 1), num(r.cool, 1), num(r.oil, 1)].concat(r.extra.map(sig)).join(","));
   }
   return out.join("\n") + "\n";
 }

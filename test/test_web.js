@@ -566,6 +566,17 @@ console.log("Wi-Fi page lap comparison tests");
   const oilRows = vboToCsv(oilLog, null).trim().split("\n").slice(1);
   check(oilRows.length === rows.length && oilRows.some((l) => col(l, "oil_c") === "121.5") && oilRows.some((l) => col(l, "oil_c") === "") &&
         oilRows.every((l) => col(l, "coolant_c") === "93.0"), "oil read, 0 left empty");
+  // A car profile's channels (brake pressure...) after the engine's: added at the end, under their own names
+  const withCar = vbo.replace("CoolantTemp IntakeTemp", "CoolantTemp IntakeTemp OilTemp BrakePressure SteeringWheelAngle").split("\r\n");
+  const carLog = withCar.map((l) => (/^012 /.test(l) ? l + " +121.5 +1.2345E+01 -4.5000E+00" : l)).join("\r\n");
+  const carLines = vboToCsv(carLog, null).trim().split("\n");
+  const carHead = carLines[0].split(",");
+  check(carHead.length === CSV_COLUMNS.length + 2 && carHead[CSV_COLUMNS.length] === "brake_pressure" &&
+        carHead[CSV_COLUMNS.length + 1] === "steering_wheel_angle", "car columns at the end: " + carLines[0]);
+  const carRow = carLines[1].split(",");
+  check(carRow.length === carHead.length && carRow[CSV_COLUMNS.length] === "12.35" && carRow[CSV_COLUMNS.length + 1] === "-4.5" &&
+        carRow[CSV_COLUMNS.indexOf("oil_c")] === "121.5", "car values: " + carLines[1]);
+  check(lines[0] === CSV_COLUMNS.join(","), "without car channels: the same columns as before");
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");

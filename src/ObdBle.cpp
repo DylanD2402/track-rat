@@ -4,6 +4,7 @@
  */
 
 #include "ObdBle.h"
+#include "CarProfiles.h"
 #include "Config.h"
 #include "DeviceLink.h"
 #include <Arduino.h>
@@ -25,6 +26,7 @@ constexpr uint8_t CONNECT_TIMEOUT_S = 5;
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 static Status shared;
 static obd::Values sharedVals;
+static carobd::Values sharedCar;
 static Found foundList[MAX_FOUND];
 static int foundCount = 0;
 static volatile bool scanAsked = false, scanOn = false;
@@ -34,7 +36,12 @@ static uint8_t wantType = 0;
 
 // --- loop()'s copies ---
 static obd::Values vals;
+static carobd::Values carVals;
 static Status st;
+
+// --- car profiles: read at boot, then only read (by both) ---
+static carobd::Profile profiles[CarProfiles::MAX_PROFILES];
+static int nProfiles = 0;
 
 // --- the task's own ---
 static TaskHandle_t task = nullptr;
@@ -43,6 +50,7 @@ static NimBLEClient* client = nullptr;
 static NimBLERemoteCharacteristic* writeChr = nullptr;
 static bool writeWithResponse = false;
 static elm::Client elmc;
+static bool profileChosen = false;  // this connection's car profile has been chosen (or there's none for it)
 static bool wasConnected = false;
 static uint32_t lastRxAt = 0;  // millis() of the adapter's last bytes on this link (0: none yet)
 
@@ -127,7 +135,9 @@ static bool connectTo(const char* addr, uint8_t type) {
   }
   xStreamBufferReset(rx);
   lastRxAt = 0;  // not connected for display until it has answered
+  elmc.setWantVin(nProfiles > 0);  // car profiles: read the VIN to choose one
   elmc.begin(millis());
+  profileChosen = false;
   RaceBoxBle::resumeAdvertising();  // the phone can still find the RaceBox output
   DEBUG_PRINTF("OBD: connected to %s\n", addr);
   return true;
@@ -178,9 +188,15 @@ static void publish() {
   s.stats = elmc.statistics();
   s.suffix = elmc.usesSuffix();
   s.multi = elmc.usesMulti();
+  s.profiles = nProfiles;
+  s.vinDone = elmc.vinDone();
+  copyText(s.vin, sizeof(s.vin), elmc.vin());
+  s.car = elmc.profile();
+  for (int i = 0; i < carobd::MAX_COMMANDS; i++) s.answers[i] = elmc.carAnswer(i), s.carHz[i] = elmc.carHz(i);
   portENTER_CRITICAL(&lock);
   shared = s;
   sharedVals = elmc.values();
+  sharedCar = elmc.carValues();
   portEXIT_CRITICAL(&lock);
 }
 
@@ -251,9 +267,17 @@ static void taskMain(void*) {
         lastRxAt = millis();  // it is talking
         elmc.feed(in, (int)n, lastRxAt);
       }
-      char cmd[24];
+      char cmd[32];
       if (elmc.poll(millis(), cmd, sizeof(cmd))) {
         if (!writeChr->writeValue((const uint8_t*)cmd, strlen(cmd), writeWithResponse)) DEBUG_PRINTLN("OBD: write failed");
+      }
+      if (nProfiles && !profileChosen && elmc.vinDone()) {  // the car has said who it is (or that it won't)
+        profileChosen = true;
+        const int i = carobd::chooseProfile(profiles, nProfiles, elmc.vin());
+        if (i >= 0) elmc.setProfile(&profiles[i]);
+        // Only the start of the VIN (make, model, body): the rest identifies the car itself
+        DEBUG_PRINTF("OBD: VIN %.8s%s: %s%s\n", elmc.vin()[0] ? elmc.vin() : "(not given)", elmc.vin()[0] ? "..." : "",
+                     i >= 0 ? "car profile " : "no car profile for it", i >= 0 ? profiles[i].name : "");
       }
     }
 
@@ -273,6 +297,7 @@ static void startTask() {
 }
 
 void begin() {
+  nProfiles = CarProfiles::load(profiles, CarProfiles::MAX_PROFILES);
   loadSaved();
   if (wantAddr[0]) {
     DEBUG_PRINTF("OBD: adapter %s (%s)\n", wantName, wantAddr);
@@ -284,6 +309,7 @@ void poll() {
   portENTER_CRITICAL(&lock);
   st = shared;
   vals = sharedVals;
+  carVals = sharedCar;
   portEXIT_CRITICAL(&lock);
   // Judged here, at loop()'s time: a task stuck in a Bluetooth call can't leave a stale "connected" behind
   st.connected = devicelink::obdAlive(st.linked, st.lastRxAt, millis());
@@ -294,6 +320,8 @@ bool connected() { return st.connected; }
 bool readingEngine() { return st.connected && elm::Client::engineAnswering(st.phase); }
 const obd::Values& values() { return vals; }
 Status status() { return st; }
+const carobd::Profile* carProfile() { return st.connected ? st.car : nullptr; }
+const carobd::Values& carValues() { return carVals; }
 
 void startScan() {
   startTask();
@@ -351,6 +379,9 @@ void forget() {
 
 namespace ObdBle {
 static obd::Values none;
+static carobd::Values noCar;
+const carobd::Profile* carProfile() { return nullptr; }
+const carobd::Values& carValues() { return noCar; }
 void begin() {}
 void poll() {}
 bool configured() { return false; }

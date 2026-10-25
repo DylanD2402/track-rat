@@ -144,6 +144,41 @@ The same engine data as CAN, with nothing to wire: a **Bluetooth LE** OBD-II ada
 - **Alongside the phone:** the RaceBox output keeps advertising and working while the adapter is connected. Up to four Bluetooth connections at once (the phone, the adapter, and room for the camera).
 - Like CAN, it only asks: it never writes to the car or clears codes. `OBD_BLE_ENABLED 0` in `Config.h` leaves it out.
 
+### Car-specific data: brake pressure, steering angle (OBDb car profiles)
+
+**Untested in a car.** The requests, the replies and the adapter's settings are tested on a PC, and the decoding against 6,637 replies OBDb recorded from real BMW 1 Series and Honda Civic cars. Whether *your* car answers is the open question: see the two cars below.
+
+The standard OBD-II requests only cover the engine. Most cars' other modules answer their maker's own requests too: brake pressure and steering angle from the stability control, wheel speeds, gear. **[OBDb](https://github.com/OBDb)** documents these per make and model. With a **car profile** on the SD card, Track Rat asks for them through the Bluetooth adapter alongside the engine's values and logs them.
+
+**Making a profile** (on your PC, Python 3, no extra packages):
+
+```bash
+python tools/obd_car.py list BMW-1-Series --year 2010 --find brake
+python tools/obd_car.py make BMW-1-Series --year 2010 --signals 1SERIES_BRAKE_P,BMW_STEERING_WHEEL_ANGLE,BMW_YAW_RATE --name "BMW 128i" --vin WBAUP --hz 10
+```
+
+- **`list`** downloads the model's and the make's signal sets from OBDb (`BMW-1-Series` and `BMW`), keeps what's for that model year, and lists each signal with its ID, name, module and request. The last column says what OBDb knows for that year: **seen** (recorded answering on a car of that year), **not seen** (recorded *not* answering), **unverified** (not checked for that year), or nothing.
+- **`make`** writes `obd/<name>.json` with only the signals you chose, up to 8. **`--hz`** sets how often they're asked (OBDb's own rate otherwise, often 4 a second). **`--vin`** is the start of your car's VIN (from the windscreen or the door pillar): with several profiles on the card, the one whose VIN start matches the car is used. A profile with no VIN is used for any car, as long as it's the only one without.
+- Copy the `obd` folder to the root of the SD card. Profiles are read at start-up.
+
+**On the car:** with profiles on the card, Track Rat reads the car's VIN once connected, and picks the profile. Then it takes turns: four standard requests, then up to six of the car's, with the adapter pointed at the car's module (headers on, its CAN IDs, BMW's extended address) and back. Only the settings that change are sent. On a Veepeak-class adapter that's about 10 brake-pressure readings a second, with engine speed and throttle still about 6 a second. A request the module doesn't answer, or refuses, is asked again only every 10 s.
+
+- **The Engine data screen** shows *Car: BMW 128i* and each signal's latest value, or why there's none: *no reply*, *not supported*, or *adapter can't ask* (an old clone without extended addressing, `ATCEA`, can't reach a BMW module). Or *Car: no profile on the card for its VIN*.
+- **In the log:** each signal is a channel of the `.vbo`, after the engine's, named and in units as OBDb has them (*Brake pressure*, bar), so Circuit Tools graphs it like any other. The header says which profile it came from. A value not read in the last three of its requests is 0. A car recognised after the session's log has started is in the next session's log.
+- **The Wi-Fi page's CSV** gets them too, as extra columns (`brake_pressure`, `steering_wheel_angle`).
+- **The serial log** gives only the first 8 characters of the VIN (make, model and body), not the part that identifies the car.
+
+**Your two cars,** from what OBDb has recorded:
+
+| Car | Brake pressure | Steering angle |
+|---|---|---|
+| BMW 128i (E82, 2010) | `1SERIES_BRAKE_P` (`22 DBE5` to the stability control, `6F1`/`629`, address 29). **Unverified for 2010**, and a 2010 1 Series in OBDb didn't answer its neighbour `22 DBE4` (wheel speeds), so it's likely written for newer BMWs | `BMW_STEERING_WHEEL_ANGLE` and `BMW_YAW_RATE` (`21 04`, the older E-series style): unverified for 2010, but worth trying |
+| Honda Civic Si (2008) | `HONDA_BRK_P` (`22 4005`) and `HONDA_BP` (`22 4A7C`) from the VSA module (29-bit IDs, `18DA28F1`): unverified for 2008, from Honda's make-wide set | `HONDA_STEER_ANGLE` (`22 4C2D`): unverified |
+
+A minute of driving settles it: the Engine data screen shows which answer. What's learned is worth sending back to OBDb, which records exactly this.
+
+**Licence:** OBDb's data is [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Track Rat's code (MIT) has no OBDb data in it: the firmware only reads profiles from the card, and `tools/obd_car.py` downloads OBDb's files when you run it. A profile is an adaptation of OBDb's data, so it's CC BY-SA 4.0 too: the tool writes the licence, OBDb's repositories and what was changed into the file. Share one under the same licence. See [DATA_LICENSE.md](../DATA_LICENSE.md).
+
 ### Engine temperatures (coolant and oil)
 
 **Untested on hardware,** like the engine data itself. Oil temperature also depends on the car reporting it (standard PID 0x5C): many don't.

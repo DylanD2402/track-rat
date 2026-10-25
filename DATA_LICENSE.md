@@ -17,6 +17,13 @@ It is available under the [Open Database Licence (ODbL) 1.0](https://opendatacom
 - [`tools/fill_track_locations.py`](tools/fill_track_locations.py) adds the town and province names. It uses Nominatim and Photon, both run on OpenStreetMap data.
 - [`tools/fetch_track_map.py`](tools/fetch_track_map.py) adds a track's layout map from OpenStreetMap.
 
+## OBDb (car profiles)
+
+Car profiles (`/obd/*.json` on the SD card, for brake pressure, steering angle and other car-specific data) are made by [`tools/obd_car.py`](tools/obd_car.py) from [OBDb](https://github.com/OBDb), the community database of OBD parameters, under the [Creative Commons Attribution-ShareAlike 4.0 licence (CC BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/).
+
+- **None of OBDb's data is in this repository or the firmware.** The tool downloads a car's signal sets when you run it, and the firmware only reads the profiles you put on your card.
+- **A profile is an adaptation of OBDb's data,** so it's under CC BY-SA 4.0 too. The tool writes into each file the licence, the OBDb repositories it came from, the date, and what was changed (only the chosen signals, for one model year, and the request rate). If you share a profile, keep those and share it under CC BY-SA 4.0.
+
 ## Not from OpenStreetMap
 
 - **Bench Test** is a built-in simulated circuit. It isn't in `tracks.json`, and it isn't based on any real track.
