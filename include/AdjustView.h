@@ -14,6 +14,8 @@
 
 namespace adjust {
 
+constexpr double VIEW_HALF_M = 18.0;  // half the width of the zoomed view, metres
+
 // A point on a run's path in the view's frame, metres: along = in the direction of travel from where the
 // line was before it was moved (negative: behind it), across = to the right of travel.
 struct PathPt {
@@ -34,10 +36,20 @@ enum class Phase : unsigned char {
   Ready,      // nudging
   NoLogs,     // there are no session logs for the day's runs (or no SD card)
   Saving,     // the line is saved, the day's logs are being timed again
+  SaveFailed, // the line is saved, but the runs could not be timed again (message says why)
 };
 
 // The buttons, left to right, for the BOOT button's highlight (-1: none)
 enum Button : int { BTN_EARLIER = 0, BTN_RESET = 1, BTN_LATER = 2, BTN_CANCEL = 3, BTN_SAVE = 4, BTN_COUNT = 5 };
+
+// Where the buttons are (DisplayAdjust.cpp draws them there): Earlier, Reset and Later on one row, Cancel and
+// Save below. buttonAt() is the touch: the Button at screen x, y, or -1.
+constexpr int ROW_A_Y = 176, ROW_A_H = 30, ROW_B_Y = 208, ROW_B_H = 28;
+inline int buttonAt(int x, int y) {
+  if (y >= ROW_A_Y - 2 && y < ROW_B_Y - 1) return x < 124 ? BTN_EARLIER : x < 196 ? BTN_RESET : BTN_LATER;
+  if (y >= ROW_B_Y - 1) return x < 160 ? BTN_CANCEL : BTN_SAVE;
+  return -1;
+}
 
 struct View {
   bool finish = true;  // Adjust finish (else Adjust start)

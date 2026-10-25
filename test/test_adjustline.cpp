@@ -428,6 +428,9 @@ static void testCapAndMissing() {
   scanLog(day, logText(c.log, sf, fin, 1), 1000);
   CHECK(day.runs().size() == MAX_RUNS, "the latest %d are kept: %d", (int)MAX_RUNS, (int)day.runs().size());
   CHECK(day.counted() == 24, "but all 24 were counted");
+  size_t kept = 0;
+  for (const RunData& r : day.runs()) kept += r.near.size();
+  CHECK(kept <= MAX_KEPT_FIXES && kept > 500, "memory is capped: %d fixes", (int)kept);
   CHECK(day.runs().front().number == 5 && day.runs().back().number == 24, "numbers 5 to 24: %d..%d", day.runs().front().number, day.runs().back().number);
 
   // No finish: nothing is timed

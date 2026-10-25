@@ -6,6 +6,7 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ### Added
 
+- Adjust start and Adjust finish on the device: from the Autocross hub, slide a course's start or finish along the way the cars go in 0.5 m steps (hold to repeat; BOOT: hold picks a button, press uses it) and see the day's runs re-timed live from their logs, drawn over a zoomed view of the paths. Save writes the line and re-times the course's logs; Cancel changes nothing. Standing starts say how they are timed. The buttons are greyed out, with the reason, until there is a finish, a run and an SD card.
 - The Wi-Fi page's track editor can nudge the start/finish, a stage's finish or a split in 0.5 m steps along the direction of travel (◀ ▶, with a reset), and shows each run's or lap's time now and with the moved line, timed again from the log live. Save and re-time work as before.
 - Autocross courses are events: a New course is kept with the day it was made and named "Oct 25 course", and stays out of the circuit list. The new Autocross hub (NEW TRACK, then Autocross) shows today's course, "Run 4 next", the best and last run and the day's run list, and starts runs or makes a new course while you're stopped at the start. Runs are numbered across the whole day, whatever happens between them, the first run's finish tap has a 5 second Undo, and a restart near today's course goes straight to timing, armed for the next run. Old "Course 2026-10-20" stages become courses by themselves.
 

@@ -23,6 +23,7 @@
 #include "Settings.h"
 #include "Storage.h"
 #include "Sectors.h"
+#include "AdjustLine.h"
 #include "TimingScreen.h"
 #include "UiTheme.h"
 #include "track_data.h"  // TRACK_NAME, TRACK_LOCATION, TRACK_LENGTH_M, SF_LAT, SF_LON, TRACK_PTS (lat, lon pairs)
@@ -744,8 +745,18 @@ int main(int argc, char** argv) {
     old.name = "Oct 20 course";
     d.drawAutocross(old, gps, -1, true);
     save(d, "45d_autocross_hub_older_course");
+    AutocrossView nofinish = few;  // the finish is set on the first run: until then Adjust finish waits
+    nofinish.adjustReason[1] = "set finish first";
+    d.drawAutocross(nofinish, gps, -1, true);
+    save(d, "45e_autocross_hub_no_finish");
+    AutocrossView busy = few;  // the runs are being timed again after a line was saved
+    busy.retiming = true;
+    busy.adjustReason[0] = busy.adjustReason[1] = "re-timing...";
+    d.drawAutocross(busy, gps, -1, true);
+    save(d, "45f_autocross_hub_retiming");
     AutocrossView none;
     none.gpsFix = true;
+    none.adjustReason[0] = none.adjustReason[1] = "needs a run";
     d.drawAutocross(none, gps, -1, true);
     save(d, "46_autocross_hub_no_course");
     none.gpsFix = false;
@@ -759,6 +770,102 @@ int main(int argc, char** argv) {
     setGps(gps, true, SF_LAT + 0.002, SF_LON, 23, 0);
     d.drawNewCourse(gps, false, 1, false);
     save(d, "47b_new_course_moving_boot");
+
+    // --- Adjust finish / Adjust start (AdjustLine.h): runs made up from straight passes at 80 km/h ---
+    {
+      using namespace adjust;
+      // A run past a line at the origin heading east, at a steady 80 km/h with a wander of `lateral` metres; the run
+      // took `runMs` to get there. Rolling: it began at the line `runMs` ago; standing: it moved off from 0.4 m behind it.
+      auto makeRun = [&](int number, Which w, double lateral, int64_t runMs, bool standing) {
+        RunData r;
+        r.number = number;
+        r.minMs = STAGE_MIN_RUN_MS;
+        const double v = 80 / 3.6;
+        const int64_t cross = 1000000 + number * 200000;  // GPS time of the crossing of the line being moved
+        for (int i = 0; i < 100; i++) {
+          linenudge::Fix f;
+          f.x = -40 + i * v * 0.05 + (standing ? number * 0.9 - 2 : 0);
+          f.y = lateral + 0.7 * sin(i * 0.11 + number);
+          f.ms = cross + (int64_t)((f.x - 0.0) / v * 1000);
+          f.kmh = 80;
+          f.joined = i > 0;
+          r.near.push_back(f);
+        }
+        if (w == Which::Finish) {
+          r.fixedMs = cross - runMs;  // the start crossing
+        } else if (!standing) {
+          r.fixedMs = cross + runMs;  // the finish crossing
+        } else {
+          r.hasStood = true;
+          r.stood.x = -0.4;
+          r.stood.y = 0;
+          r.stood.kmh = 0;
+          r.moveOffMs = cross - 1700;
+          r.fixedMs = r.moveOffMs + runMs;
+          // (the old time is the run's from moving off: the car's fixes begin after it)
+        }
+        return r;
+      };
+      auto line = [&](double heading) {
+        TrackPoint p = {45.0, -75.0, 10, (float)heading, HeadingFrom::Set};
+        return p;
+      };
+      std::vector<RunData> three;
+      three.push_back(makeRun(1, Which::Finish, 0.6, 53400, false));
+      three.push_back(makeRun(2, Which::Finish, -0.5, 52310, false));
+      three.push_back(makeRun(3, Which::Finish, 1.1, 53020, false));
+      Model fin;
+      fin.setup(Which::Finish, line(90), 45.0, -75.0, std::move(three));
+      fin.nudge(3);  // +1.5 m
+      View v;
+      fin.fillView(v);
+      d.drawAdjust(v, -1, true);
+      save(d, "49_adjust_finish_moved");
+      d.drawAdjust(v, BTN_LATER, false);
+      save(d, "49b_adjust_finish_boot");
+
+      Model nine;
+      std::vector<RunData> many;
+      const int64_t t9[] = {53400, 52310, 53020, 51980, 52840, 54210, 55020, 52500, 52390};
+      for (int i = 0; i < 9; i++) many.push_back(makeRun(i + 1, Which::Finish, (i % 4 - 1.5) * 0.7, t9[i], false));
+      nine.setup(Which::Finish, line(90), 45.0, -75.0, std::move(many));
+      nine.nudge(-4);
+      View v9;
+      nine.fillView(v9);
+      d.drawAdjust(v9, -1, true);
+      save(d, "49c_adjust_finish_nine_runs");
+
+      std::vector<RunData> st;
+      st.push_back(makeRun(1, Which::Start, 0.3, 53400, true));
+      st.push_back(makeRun(2, Which::Start, -0.4, 52310, true));
+      st.push_back(makeRun(3, Which::Start, 0.9, 53020, false));
+      Model start;
+      start.setup(Which::Start, line(90), 45.0, -75.0, std::move(st));
+      start.nudge(4);  // +2 m: ahead of the car, so the standing runs start at the line
+      View vs;
+      start.fillView(vs);
+      d.drawAdjust(vs, -1, true);
+      save(d, "50_adjust_start_standing_note");
+
+      View reading;
+      reading.finish = true;
+      reading.phase = Phase::Reading;
+      reading.done = 2;
+      reading.total = 4;
+      reading.message = "Log 2 of 4. Only the fixes near the line are kept.";
+      d.drawAdjust(reading, -1, true);
+      save(d, "51_adjust_reading_runs");
+      View saving = reading;
+      saving.phase = Phase::Saving;
+      saving.message = "The line is saved. Timing the day's sessions again.";
+      d.drawAdjust(saving, BTN_CANCEL, false);
+      save(d, "51b_adjust_retiming");
+      View none;
+      none.phase = Phase::NoLogs;
+      none.message = "No session logs for this course's day. Turn on full logging, with an SD card.";
+      d.drawAdjust(none, -1, true);
+      save(d, "51c_adjust_no_logs");
+    }
 
     // The timing screen waiting for run 4: armed at the start of a course, then the finish tap's Undo
     LapTimer stage;

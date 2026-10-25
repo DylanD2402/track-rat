@@ -26,6 +26,7 @@
 #include "TrackDatabase.h"
 #include "Debrief.h"
 #include "Courses.h"
+#include "AdjustView.h"
 
 struct RunningOverlay {
   // Shown for a few seconds after a lap or split
@@ -70,6 +71,9 @@ struct AutocrossView {
   std::vector<courses::Run> runs;
   int best = -1, last = -1;  // indexes into runs
   bool gpsFix = false;
+  bool retiming = false;  // the runs are being timed again after a line was moved (Adjust screen)
+  // Adjust start / Adjust finish: why that button is greyed out ("needs a run"), "" if it works
+  std::string adjustReason[2];
 };
 
 class DisplayManager {
@@ -137,8 +141,11 @@ public:
   void drawFreeRoamSummary(const FreeRoam& fr, uint32_t durationMs, const String& savedPath);
   void drawSetLine(const Track& track, const GPSHandler& gps, uint32_t holdMs);
   // The Autocross hub. highlight (BOOT button): 0 Start runs, 1 New course, 2 Adjust start, 3 Adjust finish,
-  // 4 Back; -1 none. Adjust start and Adjust finish are shown but not wired yet ("coming soon").
+  // 4 Back; -1 none. Adjust start and Adjust finish are greyed out, with the reason, when AutocrossView
+  // says so.
   void drawAutocross(const AutocrossView& v, const GPSHandler& gps, int highlight, bool touchOk);
+  // Adjust start / Adjust finish (DisplayAdjust.cpp). highlight: adjust::Button, -1 none.
+  void drawAdjust(const adjust::View& v, int highlight, bool touchOk);
   // New course: park at the start and press Set start here. ready: has a fix and is stopped.
   // highlight: 0 Back, 1 Set start here.
   void drawNewCourse(const GPSHandler& gps, bool ready, int highlight, bool touchOk);

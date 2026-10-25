@@ -48,9 +48,10 @@ using linenudge::NONE;
 
 enum class Which : uint8_t { Start, Finish };
 
-constexpr size_t MAX_RUNS = 20;             // runs kept (the latest): about 4 KB each
+constexpr size_t MAX_RUNS = 20;             // runs kept (the latest)
+constexpr size_t MAX_KEPT_FIXES = 2500;     // and no more fixes than this in all (32 bytes each: 80 KB)
+constexpr double NEAR_M = 40.0;             // fixes kept this near the line: its furthest move (15 m) and the view (18 m) fit
 constexpr double LIMIT_M = 15.0;            // the furthest a line can be moved either way
-constexpr double VIEW_HALF_M = 18.0;        // half the width of the zoomed view
 constexpr size_t MAX_SLICE_FIXES = 3000;    // per line per log (about 100 KB); more is dropped
 constexpr int64_t WINDOW_BEFORE_MS = 15000; // a run's fixes near its start line: this long before its first fix...
 constexpr int64_t WINDOW_AFTER_MS = 10000;  // ...to this long after
@@ -188,8 +189,8 @@ public:
     finL = s.hasFinish ? linenudge::lineAt(s.finish, refLat, refLon) : Line();
     startHw = gateHalf(s.start);
     finHw = gateHalf(s.finish);
-    sStart.begin(startL.x, startL.y);
-    sFin.begin(finL.x, finL.y);
+    sStart.begin(startL.x, startL.y, NEAR_M);
+    sFin.begin(finL.x, finL.y, NEAR_M);
     rdr = vbo::Reader();
     len = 0;
     overlong = false;
@@ -322,7 +323,13 @@ private:
     }
     r.near.shrink_to_fit();
     out_->push_back(std::move(r));
-    if (out_->size() > MAX_RUNS) out_->erase(out_->begin());  // the latest are kept
+    // The latest runs are kept, as many as fit
+    size_t total = 0;
+    for (const RunData& k : *out_) total += k.near.size();
+    while (out_->size() > 1 && (out_->size() > MAX_RUNS || total > MAX_KEPT_FIXES)) {
+      total -= out_->front().near.size();
+      out_->erase(out_->begin());
+    }
   }
 
   // Take the runs whose last needed fix has gone by, then forget fixes no run to come will want
