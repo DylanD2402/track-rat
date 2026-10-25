@@ -95,6 +95,8 @@ The board resets itself before and after uploading, so no buttons are needed. On
 
 `tools/serial_log.py` reads the log without resetting the board. Most serial tools reset it into download mode when they open the port, which leaves it stuck until RST is pressed. `--reset` restarts the board normally first, so the log covers startup. It also works where `pio device monitor` can't, such as an AI assistant's terminal.
 
+Plugged into a PC with nothing reading the port, the board keeps running and drops its log until something reads again: a print gives up after 1 ms (`Serial.setTxTimeoutMs(1)` in `setup()`). Before that was set, a print could wait for the PC indefinitely, freezing the main loop for minutes and dropping GPS fixes. The status line's `dropped=` count shows that kind of stall.
+
 ## Using it
 
 **At a track:** after the logo, once the GPS has a fix, the nearest track within 5 km is picked automatically. If you're already moving (20 km/h or more), the session starts at once. If you're parked, you get that track's Ready screen, and the session starts by itself when you drive off (20 km/h for 2 seconds). Until then **MENU** (or pressing BOOT) takes you to the main menu, so a track made at home doesn't trap you in a session. Timing begins the first time you cross the start/finish line; everything before that is the out lap.

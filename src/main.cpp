@@ -1630,9 +1630,16 @@ static void offerFirmwareUpdate() {
 }
 
 void setup() {
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+  Serial.setTxBufferSize(1024);  // (before begin) a burst of log lines fits while the PC catches up
+#endif
   Serial.begin(115200);
 #if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
-  Serial.setTxTimeoutMs(0);  // never block when no USB host is attached (car power)
+  // A USB host that isn't reading gets 1 ms, then the log is dropped until it reads again. With no host at all
+  // (car power) prints never wait. A PC with no serial monitor open, or a car's media USB port, has the board
+  // plugged in but never reads, and with 0 here the core's retry count wraps round: a print then waits until
+  // something reads, freezing the main loop (seen on the bench: over 2 minutes, 100+ GPS fixes dropped).
+  Serial.setTxTimeoutMs(1);
 #endif
   delay(300);
   DEBUG_PRINTLN("\n=== Track Rat - ES3C28P ===");
