@@ -480,6 +480,45 @@ Ranked by value for the effort. Each "needs" is beyond the parts Track Rat alrea
 
 Phase 8 starts after the 0.1 beta ships, so its README changes don't collide with 7.5.
 
+**Picked first (2026-10-25): 8.1 and 8.5.** They're built in two waves. In each wave the steps touch different files, so they run side by side.
+
+| Wave | Step | Built by | Touches |
+|---|---|---|---|
+| 1 | 8.1a The viewer: the Wi-Fi page reads local files, a sample session, and trackrat.me/analyze/ | Sonnet, medium | web/index.html, site/, installer.yml, tools/, test_web.js |
+| 1 | 8.5a Drivers and cars on the device | Sonnet, medium | firmware, its tests, the screen renders |
+| 2 | 8.1b New views: channel traces, friction circle, sector table, linked cursor | Sonnet, medium | the Compare tab of web/index.html |
+| 2 | 8.5b Drivers and cars on the Wi-Fi page | Sonnet, low | the Settings and Sessions tabs of web/index.html |
+
+#### 8.1 Analysis in the browser: the plan
+The Wi-Fi page already compares two laps: speed and gap against distance, and the map coloured by the faster lap. It also has a season view, all tested in test_web.js. So 8.1 grows that page rather than starting another, and the website uses the same page.
+
+- **8.1a The viewer.** The same web/index.html runs off the board too, in a viewer mode:
+  - **Opening files:** the page opens `.vbo` and `.json` files picked or dropped from your PC; nothing is uploaded. The Sessions and Compare tabs work on them, and the board-only tabs (Firmware, Device, Settings, uploads) are hidden.
+  - **The sample:** `tools/make_sample_session.py` makes a sample session: a simulated car at Calabogie from tracks.json's map, labelled as simulated.
+  - **The website:** installer.yml publishes the page at **trackrat.me/analyze/**, with its fonts and the sample, and the install page links to it.
+  - **On the board:** nothing changes there. Font links become relative so both places work.
+- **8.1b New views,** on the board and the website alike:
+  - traces of any channel the log has, against distance: RPM, throttle, temperatures, the OBDb car channels (brake pressure, steering), the IMU's g;
+  - a friction circle (lateral against longitudinal g) for each lap;
+  - a sector table from the summaries' `sectorsMs`;
+  - a cursor shared by the charts and the map.
+
+  The new maths lives in the page's tested sections.
+
+#### 8.5 Driver and car profiles: the plan
+- **8.5a On the device.**
+  - **The list:** up to 8 drivers and 8 cars, kept in their own module, not in the settings the Wi-Fi page mirrors. Each has a fixed id and a name; a car can also have a VIN.
+  - **On screen:** Settings gets Driver and Car rows. The Ready screen and the track list show "driver · car" once there's more than one of either.
+  - **PBs** are kept per driver and car. The first driver and first car keep today's `/tracks/<id>/` files, so existing PBs stay.
+  - **Session files:** summaries and `.vbo` comments name the driver and the car.
+  - **VIN:** a car whose VIN the Bluetooth adapter reports is picked by itself.
+  - **The Wi-Fi API:** `GET`/`POST /api/profiles`.
+- **8.5b On the Wi-Fi page:**
+  - add, rename and remove drivers and cars, and choose the current ones;
+  - the session list shows each session's driver and car.
+  
+  Filters in Compare can follow later.
+
 ## Not planned, and why
 
 - **Video recording on Track Rat.** No camera input or video encoder. Cameras and phones do it better, so Phase 6 helps them instead: Track Rat feeds its GPS into an Osmo Action's video, starts and stops it with each session, and feeds GPS and engine data to RaceChrono on a phone.
