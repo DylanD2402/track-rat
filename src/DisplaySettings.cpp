@@ -207,8 +207,8 @@ void DisplayManager::settingsPickPage(const SettingsScreenState& ui, bool touchO
     if (l.items[i].id == l.current) drawCheck(gfx, UI::CARD_X + UI::CARD_W - 24, cy, C_TEXT);
   }
   const bool cars = ui.item == SettingItem::Car;
-  wrappedCaption(cars ? "The car's best laps are kept apart. A change applies from the next session. Add, rename and VINs: Wi-Fi page."
-                      : "Each driver's best laps are kept apart. A change applies from the next session. Add and rename: Wi-Fi page.",
+  wrappedCaption(cars ? "Best laps are kept for each car. A change applies from the next session. Cars are added on the Wi-Fi page."
+                      : "Best laps are kept for each driver. A change applies from the next session. Drivers are added on the Wi-Fi page.",
                  UI::CARD_X + 14, ui.pickRowY(n) + 8, UI::CARD_W - 28, C_TEXT2, false);
 
   gfx->fillRect(0, 0, W, UI::CHOICE_TOP, C_BG);  // the names scroll under the top bar
