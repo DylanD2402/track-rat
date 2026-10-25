@@ -6,7 +6,7 @@ This applies to the track data in [`data/tracks.json`](data/tracks.json), which 
 
 The Canadian tracks in `data/tracks.json` are built from OpenStreetMap data. © OpenStreetMap contributors.
 
-It is available under the [Open Database Licence (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/). Details are at [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright).
+It is available under the [Open Database Licence (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/). Details are at [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright). The same credit is in the README, on the install page and at the bottom of the Wi-Fi page.
 
 - The database stays under the ODbL. If you share a changed copy of `tracks.json` (for example, a new file of tracks you've made), share it under the ODbL too, and credit OpenStreetMap.
 - The track names, locations and layout maps come from OpenStreetMap. The start/finish points are approximate. Check them before trusting lap times.

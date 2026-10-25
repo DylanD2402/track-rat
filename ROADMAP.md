@@ -417,7 +417,7 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
 - `docs/images/wiring.svg`: the BE-252Q on the board's UART connector (5 V, GND, TX, RX, either way round), plus the optional button (IO21) and LED bar (IO2).
 
 #### 7.4 Licences, credits and contributor files (Haiku, low)
-**Status: done** (2026-10-25, 4902274 and c0127a0), except the Wi-Fi page footer (see below).
+**Status: done** (2026-10-25, 4902274 and c0127a0; the Wi-Fi page footer followed once the OBDb work landed).
 - `THIRD_PARTY_LICENSES.md`: each library and its licence (from `.pio/libdeps/*/LICENSE`), the Arduino-ESP32 core, Inter (SIL OFL 1.1), DJI's GPS controller demo (MIT), and DJI's SDK terms.
 - `DATA_LICENSE.md` (at the root, since `data/` becomes the board's file system): the Canadian tracks come from OpenStreetMap, © OpenStreetMap contributors, under the ODbL. The same credit goes in the README, on the install page, and in the Wi-Fi page's footer. The footer waits until the uncommitted Wi-Fi page work from another session lands.
 - `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (the bug form asks for the firmware version from Settings, the hardware, and a log from `serial_log.py`), `.github/pull_request_template.md`.

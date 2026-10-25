@@ -97,6 +97,10 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_tempalert.cpp -o /tmp/ta && /tmp/ta
       - name: test_devicelink
         run: g++ -std=c++17 -Iinclude test/test_devicelink.cpp -o /tmp/dl && /tmp/dl
+      - name: test_carobd
+        run: g++ -std=c++17 -Iinclude test/test_carobd.cpp -o /tmp/car && /tmp/car
+      - name: test_obd_car
+        run: python3 test/test_obd_car.py
 
   firmware:
     name: Firmware build
