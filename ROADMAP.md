@@ -598,6 +598,8 @@ The Wi-Fi page already compares two laps: speed and gap against distance, and th
 - **Same edit on the Wi-Fi page:** the track editor gets the same nudge for courses.
 
 #### Steps and who builds them
+**Status: built** (2026-10-25): 9.2 436b328, 9.3a 4c9fbfe, 9.1 febf46e, 9.3b merged with them. Rendered and host-tested; not yet tried on the board.
+
 | Wave | Step | Built by | Touches |
 |---|---|---|---|
 | 1 | 9.2 Courses as events: `"kind": "course"` stages with an event date, kept out of the circuit list; the day's runs numbered across sessions and power-offs (from the day's summaries); the Autocross hub (today's course, run list, best and last, New course, Adjust start/finish buttons wired later); New course = "Set start here" while parked; finish tap with a 5 s Undo; boot near today's course armed for the next run | Sonnet, medium | TrackDatabase, a new Courses module, main.cpp, a new hub screen, SessionLog, tests, renders |
