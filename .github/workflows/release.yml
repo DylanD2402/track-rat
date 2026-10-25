@@ -1,0 +1,121 @@
+name: Release
+
+# A tag like v0.1.0-beta.1 builds the firmware, makes a GitHub Release and deploys the
+# web installer. "Run workflow" (workflow_dispatch) is a dry run: it builds and keeps
+# dist/ as an artifact, nothing is published.
+#
+# One-time setup: in the repo's Settings > Pages, set Source to "GitHub Actions".
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build release files
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      # Full history and tags, so `git describe` gives the version
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build dist/
+        run: python tools/make_release.py
+
+      - name: Version and release notes
+        id: ver
+        run: |
+          echo "version=$(git describe --always --dirty | sed 's/^v//')" >> "$GITHUB_OUTPUT"
+          python tools/make_release.py --notes "${GITHUB_REF_NAME}" > release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: |
+            dist/
+            release-notes.md
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+
+      - name: Release notes present?
+        id: notes
+        run: |
+          if [ -s release-notes.md ]; then echo "have=true" >> "$GITHUB_OUTPUT"; else echo "have=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: ${{ steps.notes.outputs.have == 'true' && 'release-notes.md' || '' }}
+          # No CHANGELOG section for this version: let GitHub write the notes
+          generate_release_notes: ${{ steps.notes.outputs.have != 'true' }}
+          files: |
+            dist/trackrat-*-full.bin
+            dist/trackrat.bin
+            dist/trackrat-*-littlefs.bin
+            dist/SHA256SUMS
+
+  pages:
+    name: Web installer
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+
+      # The installer serves the binaries itself: a browser can't fetch them from
+      # Release links (no CORS headers).
+      - name: Build the site folder
+        run: |
+          mkdir _site
+          cp site/index.html _site/
+          cp dist/bootloader.bin dist/partitions.bin dist/boot_app0.bin dist/firmware.bin dist/littlefs.bin dist/manifest.json _site/
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

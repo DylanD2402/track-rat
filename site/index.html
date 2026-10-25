@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install Track Rat</title>
+<meta name="description" content="Install the Track Rat GPS lap timer firmware from your browser.">
+<style>
+  :root {
+    --bg: #000; --fg: #fff; --dim: #9a9a9f; --panel: #151517; --line: #2a2a2d;
+    --green: #34C759; --red: #FF453A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 2rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 32px 0 8px; color: var(--green); }
+  p, li { color: #e6e6e8; }
+  .tag { color: var(--dim); margin: 0 0 24px; }
+  .version { color: var(--dim); font-size: .9rem; margin-top: 8px; }
+  a { color: var(--green); }
+  .install { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; text-align: center; }
+  .install p { margin: 8px 0 0; }
+  esp-web-install-button { --esp-tools-button-color: #34C759; --esp-tools-button-text-color: #000; }
+  esp-web-install-button button[slot="activate"] {
+    background: var(--green); color: #000; border: 0; border-radius: 8px;
+    font: inherit; font-weight: 600; padding: 12px 28px; cursor: pointer;
+  }
+  .warn { border: 1px solid var(--red); border-radius: 8px; padding: 12px 16px; margin: 24px 0 0; background: #1c0b0a; }
+  .warn strong { color: var(--red); }
+  .warn p { margin: 0; }
+  ol, ul { padding-left: 1.3em; }
+  li { margin: 4px 0; }
+  .nosupport { display: none; border: 1px solid var(--red); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: .85rem; }
+</style>
+<script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+</head>
+<body>
+<main>
+  <h1>Track Rat</h1>
+  <p class="tag">An open-source GPS lap timer you build yourself. It works offline, with no app and no subscription.</p>
+
+  <div class="install">
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate">Install</button>
+      <span slot="unsupported">
+        <div class="nosupport" style="display:block">
+          This browser can't talk to the board over USB. Open this page in Chrome or Edge on a computer.
+        </div>
+      </span>
+      <span slot="not-allowed">
+        This page needs a secure (https) connection to install. Open it from its normal web address.
+      </span>
+    </esp-web-install-button>
+    <p class="version" id="version">&nbsp;</p>
+  </div>
+
+  <div class="warn">
+    <p><strong>Installing erases the board's internal flash.</strong> Sessions and tracks saved there (a board with no SD card) are lost. The SD card is not touched. If you choose "erase" in the dialog, your settings are reset too.</p>
+  </div>
+
+  <h2>What you need</h2>
+  <ul>
+    <li>A Track Rat board (the LCDWiki ES3C28P).</li>
+    <li>Chrome or Edge on a computer. Phones, Firefox and Safari can't do this.</li>
+    <li>A USB-C cable that carries data. Some cables only charge.</li>
+  </ul>
+
+  <h2>Steps</h2>
+  <ol>
+    <li>Plug the board into your computer.</li>
+    <li>If the installer can't find it later, put the board in download mode: hold <b>BOOT</b>, tap <b>RST</b>, then let go of <b>BOOT</b>.</li>
+    <li>Press <b>Install</b>, pick the board's port in the list and follow the dialog. It takes a minute or two.</li>
+    <li>When it finishes, press <b>RST</b> if the screen stays dark.</li>
+  </ol>
+
+  <h2>Links</h2>
+  <ul>
+    <li><a href="https://github.com/DylanD2402/track-rat">Track Rat on GitHub</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat/releases">Release notes and downloads</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat/blob/main/docs/flashing.md">Flashing guide</a>, for esptool, SD card and Wi-Fi updates, and troubleshooting</li>
+  </ul>
+
+  <footer>Track data &copy; OpenStreetMap contributors (ODbL)</footer>
+</main>
+<script>
+  fetch("manifest.json", { cache: "no-cache" })
+    .then(function (r) { return r.json(); })
+    .then(function (m) { document.getElementById("version").textContent = "Version " + m.version; })
+    .catch(function () {});
+</script>
+</body>
+</html>
