@@ -64,6 +64,7 @@ inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(
 enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives,
                                    MinLap, Kart, CameraRec, Profile, Count,
                                    Engine, Camera,     // after Count: rows that open a screen of their own, not values
+                                   Driver, Car,        // rows that pick a driver or car (Profiles.h): not settings, so not on the Wi-Fi page's list
                                    Coolant,            // the row that opens the Coolant page, and its four values:
                                    CoolCold, CoolWarm, CoolHot, OilHot,
                                    PowerOff };         // the row that asks before switching off

@@ -865,8 +865,9 @@ static void testSettingsLayout() {
       lastKind = r;
       continue;
     }
-    // a screen of its own (Engine data), the Coolant page of four values, or Power off: after Count, not one setting
-    if (rw.kind == ST::RowKind::Open || rw.item == SettingItem::Coolant || rw.kind == ST::RowKind::PowerOff) {
+    // a screen of its own (Engine data), the Coolant page of four values, Power off, or a driver or car to pick: after Count, not one setting
+    if (rw.kind == ST::RowKind::Open || rw.item == SettingItem::Coolant || rw.kind == ST::RowKind::PowerOff ||
+        rw.kind == ST::RowKind::Pick) {
       EXPECT((int)rw.item > SETTING_ITEM_COUNT && ST::rowOfItem(rw.item) == r && strlen(ST::rowLabel(rw.item)) > 0, "row %d: a screen row", r);
       continue;
     }
@@ -920,10 +921,10 @@ static void testSettingsLayout() {
   // Footnotes: under the GPS section, under Power off (holding BOOT does it too), and the firmware version under Back
   int notes = 0;
   for (int i = 0; i < ST::SECTIONS; i++) notes += ST::section(i).foot != nullptr;
-  EXPECT(notes == 3 && ST::section(ST::sectionOf(rowOf(SettingItem::Gps))).foot &&
+  EXPECT(notes == 4 && ST::section(ST::sectionOf(rowOf(SettingItem::Gps))).foot &&
              ST::section(ST::sectionOf(rowOf(SettingItem::PowerOff))).foot &&
              strcmp(ST::section(ST::SECTIONS - 1).foot, ST::FIRMWARE_FOOT) == 0,
-         "three footnotes, under the GPS group, Power off and Back to menu (the firmware)");
+         "four footnotes, under Driver and car, the GPS group, Power off and Back to menu (the firmware)");
   {  // the end of the list scrolls far enough to show the firmware line under Back to menu
     ST end;
     end.begin(true);
@@ -1336,6 +1337,7 @@ static void testSettingsBoot() {
     SettingsData s = defaults();
     bool opened[SETTING_ITEM_COUNT] = {};
     bool coolantOpened = false, powerOffAsked = false;
+    int peoplePages = 0;
     for (int r = 0; r < ST::ROWS - 1; r++) {
       const ST::Row& rw = ST::row(st.highlight);
       EXPECT(st.highlight == r, "visiting row %d", r);
@@ -1347,6 +1349,11 @@ static void testSettingsBoot() {
       } else if (rw.kind == ST::RowKind::PowerOff) {
         powerOffAsked = st.handle(Key::BootLong, s) == Res::Nothing && st.page == ST::Page::PowerOff;
         EXPECT(st.handle(Key::BootShort, s) == Res::Nothing && st.page == ST::Page::List, "a press backs out of Power off");
+      } else if (rw.kind == ST::RowKind::Pick) {
+        st.handle(Key::BootLong, s);
+        peoplePages += st.page == ST::Page::Pick;
+        st.handle(Key::Hold, s);
+        EXPECT(st.page == ST::Page::List, "back from the Driver or Car page");
       } else if (rw.item == SettingItem::Coolant) {
         st.handle(Key::BootLong, s);
         coolantOpened = st.page == ST::Page::Coolant;
@@ -1363,6 +1370,7 @@ static void testSettingsBoot() {
     int pages = 0;
     for (int i = 0; i < SETTING_ITEM_COUNT; i++) pages += opened[i];
     EXPECT(pages == 11 && coolantOpened, "visited 12 pages (9 choices, brightness, time zone, coolant), got %d", pages + coolantOpened);
+    EXPECT(peoplePages == 2, "Driver and Car pages opened, got %d", peoplePages);
     EXPECT(powerOffAsked, "Power off asked first");
     EXPECT(s == defaults(), "a look round changes nothing");
     EXPECT(st.highlight == ST::ROWS - 1 && rowOnScreen(st, st.highlight) && st.scroll == st.maxScroll(), "ended on Back at the bottom");
@@ -1692,6 +1700,112 @@ static void testPowerOffPage() {
   printf("  power off: asks first; Cancel, the top bar or a BOOT press go back\n");
 }
 
+// --- the Driver and Car pages ---------------------------------------------------------
+
+static profiles::Book bookWith(int drivers, int cars) {
+  profiles::Book b;
+  for (int i = 2; i <= drivers; i++) {
+    char n[24];
+    snprintf(n, sizeof(n), "Driver %d", i);
+    b.add(profiles::Kind::Driver, n);
+  }
+  for (int i = 2; i <= cars; i++) {
+    char n[24];
+    snprintf(n, sizeof(n), "Car %d", i);
+    b.add(profiles::Kind::Car, n);
+  }
+  return b;
+}
+
+static void testPeoplePages() {
+  using profiles::Kind;
+  EXPECT(ST::row(0).item == SettingItem::Driver && ST::row(1).item == SettingItem::Car && ST::sectionOf(0) == 0 &&
+             ST::sectionOf(1) == 0 && ST::section(0).count == 2 && !strcmp(ST::section(0).title, "DRIVER AND CAR") &&
+             ST::row(0).kind == ST::RowKind::Pick && !strcmp(ST::rowLabel(SettingItem::Driver), "Driver") &&
+             !strcmp(ST::rowLabel(SettingItem::Car), "Car"),
+         "Driver and Car are the first section's rows");
+  EXPECT((int)SettingItem::Driver > SETTING_ITEM_COUNT && (int)SettingItem::Car > SETTING_ITEM_COUNT,
+         "they are not settings, so not on the Wi-Fi page's list");
+
+  {  // touch: open, the current name is ticked, a tap on another picks it
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    profiles::Book b = bookWith(3, 1);
+    b.select(Kind::Driver, 2);
+    st.setPeople(b);
+    EXPECT(tapRow(st, 0, s) == Res::Nothing && st.page == ST::Page::Pick && st.item == SettingItem::Driver, "the Driver row opens its page");
+    EXPECT(st.pickCount() == 3 && st.pickCurrentIndex() == 1 && st.choiceHl == 1, "three names, the second is current");
+    EXPECT(st.hitPick(midX(), st.pickRowY(2) + 3) == 2 && st.hitPick(midX(), st.pickRowY(0) + ST::ROW_H - 1) == 0, "names are hit");
+    EXPECT(st.hitPick(midX(), st.pickRowY(3) + 3) == -1, "under the last name is nothing");
+    EXPECT(st.tap(midX(), st.pickRowY(1) + 10, s) == Res::Nothing && st.page == ST::Page::List, "the current name: just back");
+    tapRow(st, 0, s);
+    EXPECT(st.tap(midX(), st.pickRowY(2) + 10, s) == Res::Pick && st.pickKind == Kind::Driver && st.pickId == 3, "another name is picked: id 3");
+    EXPECT(st.page == ST::Page::List && st.highlight == 0 && s == defaults(), "back on the list, no setting changed");
+    // The top bar and a hold go back without picking
+    tapRow(st, 0, s);
+    EXPECT(st.tap(100, 5, s) == Res::Nothing && st.page == ST::Page::List, "the top bar goes back");
+    tapRow(st, 0, s);
+    EXPECT(st.handle(Key::Hold, s) == Res::Nothing && st.page == ST::Page::List, "a hold goes back");
+  }
+  {  // the Car page lists the cars
+    ST st;
+    st.begin(true);
+    SettingsData s = defaults();
+    st.setPeople(bookWith(1, 2));
+    EXPECT(tapRow(st, 1, s) == Res::Nothing && st.page == ST::Page::Pick && st.item == SettingItem::Car && st.pickCount() == 2, "the Car page lists two");
+    EXPECT(st.tap(midX(), st.pickRowY(1) + 10, s) == Res::Pick && st.pickKind == Kind::Car && st.pickId == 2, "car 2 picked");
+  }
+  {  // eight names don't fit: the page scrolls, by drag and by BOOT
+    ST touch, boot;
+    touch.begin(true);
+    boot.begin(false);
+    SettingsData s = defaults();
+    const profiles::Book b = bookWith(8, 1);
+    touch.setPeople(b);
+    boot.setPeople(b);
+    tapRow(touch, 0, s);
+    EXPECT(touch.pickMaxScroll() > 0 && touch.pickScroll == 0, "eight names scroll (%d)", touch.pickMaxScroll());
+    touch.drag(-60);
+    EXPECT(touch.pickScroll == 60, "a drag scrolls the names (%d)", touch.pickScroll);
+    touch.drag(-100000);
+    EXPECT(touch.pickScroll == touch.pickMaxScroll(), "clamped at the end");
+    touch.dragEnd();
+    touch.drag(100000);
+    touch.dragEnd();
+    EXPECT(touch.pickScroll == 0, "and at the start");
+    touch.setPickScroll(touch.pickMaxScroll());
+    EXPECT(touch.hitPick(midX(), touch.pickRowY(7) + 5) == 7 && touch.pickRowY(7) + ST::ROW_H <= touch.viewBottom, "the last name is in view after scrolling");
+    EXPECT(touch.tap(midX(), touch.pickRowY(7) + 5, s) == Res::Pick && touch.pickId == 8, "the eighth is reachable");
+
+    // BOOT: press walks and wraps, the page follows, hold chooses
+    while (boot.highlight != 0) boot.handle(Key::BootShort, s);
+    EXPECT(boot.handle(Key::BootLong, s) == Res::Nothing && boot.page == ST::Page::Pick && boot.choiceHl == 0, "BOOT hold opens it on the current name");
+    bool ok = true;
+    for (int i = 1; i <= 16; i++) {
+      boot.handle(Key::BootShort, s);
+      const int y = boot.pickRowY(boot.choiceHl);
+      ok = ok && boot.choiceHl == i % 8 && y >= ST::CHOICE_TOP && y + ST::ROW_H <= boot.viewBottom;
+    }
+    EXPECT(ok, "press goes round the eight and keeps the name in view");
+    boot.handle(Key::BootShort, s);
+    boot.handle(Key::BootShort, s);  // at the third
+    EXPECT(boot.handle(Key::BootLong, s) == Res::Pick && boot.pickId == 3 && boot.page == ST::Page::List && boot.highlight == 0, "hold picks the highlighted name");
+    boot.handle(Key::BootLong, s);  // open again, on the current name (still driver 1: main applies the pick)
+    EXPECT(boot.choiceHl == 0 && boot.handle(Key::BootLong, s) == Res::Nothing && boot.page == ST::Page::List, "hold on the current name picks nothing");
+  }
+  {  // one of each: still a page, one name
+    ST st;
+    st.begin(false);
+    SettingsData s = defaults();
+    st.setPeople(profiles::Book());
+    st.handle(Key::BootLong, s);
+    EXPECT(st.page == ST::Page::Pick && st.pickCount() == 1 && st.pickMaxScroll() == 0, "one name, no scrolling");
+    EXPECT(st.handle(Key::BootShort, s) == Res::Nothing && st.choiceHl == 0, "press stays on it");
+  }
+  printf("  driver and car pages: tick, tap and BOOT choose, 8 names scroll\n");
+}
+
 int main() {
   printf("Settings tests\n");
   testDefaults();
@@ -1713,9 +1827,10 @@ int main() {
   testCoolantPage();
   testEngineScreen();
   testPowerOffPage();
+  testPeoplePages();
   testSetup();
   testEndToEnd();
-  printf("\n%d checks in 21 groups\n", checks);
+  printf("\n%d checks in 22 groups\n", checks);
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

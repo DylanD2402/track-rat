@@ -8,6 +8,7 @@
 #ifndef SETTINGS_FLOW_H
 #define SETTINGS_FLOW_H
 
+#include "Profiles.h"
 #include "SettingsData.h"
 
 // Touch: left / centre / right third, the top bar, a long hold. BOOT: short, long.
@@ -27,12 +28,15 @@ enum class Key { None, Left, Center, Right, Header, Hold, BootShort, BootLong };
 // values, each with its own - and +) press is "+" on the highlighted value and
 // hold moves to the next value, then back to the list after the last. The
 // Power off page asks first: Cancel and Power off, or BOOT hold to switch off
-// and press to go back.
+// and press to go back. Driver and Car (Profiles.h) open a page like a choice page,
+// but of names; it holds up to 8, so it scrolls like the list (drag or BOOT). The
+// state keeps a copy of the lists (setPeople) to know how many there are.
 struct SettingsScreenState {
   // Exit: back to the menu. Open: the screen of `item` (Engine data). PowerOff: switch off now (the page said yes)
-  enum class Result { Nothing, Changed, Exit, Open, PowerOff };
-  enum class Page : uint8_t { List, Choice, Brightness, TimeZone, Coolant, PowerOff };
-  enum class RowKind : uint8_t { Choice, Toggle, Level, Open, Back, PowerOff };  // Open: a screen of its own. PowerOff: asks first
+  // Pick: the driver or car in pickKind with id pickId was chosen (not the one already current)
+  enum class Result { Nothing, Changed, Exit, Open, PowerOff, Pick };
+  enum class Page : uint8_t { List, Choice, Brightness, TimeZone, Coolant, PowerOff, Pick };
+  enum class RowKind : uint8_t { Choice, Toggle, Level, Open, Back, PowerOff, Pick };  // Open: a screen of its own. PowerOff: asks first. Pick: a driver or car
 
   // --- layout ---------------------------------------------------------------
   static constexpr int SCREEN_W = 320, SCREEN_H = 240;
@@ -44,7 +48,7 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 20, SECTIONS = 6;
+  static constexpr int ROWS = 22, SECTIONS = 7;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
@@ -52,6 +56,7 @@ struct SettingsScreenState {
   static constexpr int BTN_Y = 156, BTN_H = 44, BTN_W = 145, MINUS_X = 10, PLUS_X = 165;
   // The Coolant page: a card of four rows from CHOICE_TOP, each with a small - and + on the right.
   // A touch anywhere in a row over a button's width counts.
+  static constexpr int PICK_NOTE_H = 40;  // room under the names for the note about the Wi-Fi page
   static constexpr int COOL_BTN_W = 54, COOL_BTN_H = 30, COOL_MINUS_X = 190, COOL_PLUS_X = 250;
 
   struct Row {
@@ -72,6 +77,10 @@ struct SettingsScreenState {
   int highlight = 0;                      // BOOT's row on the list
   int choiceHl = 0;                       // BOOT's option on a choice page
   bool showHighlight = false;             // draw the highlight (BOOT in use, or no touch)
+  profiles::Book people;                  // the drivers and cars (setPeople): what the Driver and Car pages list
+  int pickScroll = 0;                     // how far the Driver or Car page is scrolled up
+  profiles::Kind pickKind = profiles::Kind::Driver;  // with Result::Pick: which list,
+  int pickId = 0;                                    // and the id chosen
   int viewBottom = SCREEN_H;              // the list ends here; higher when the BOOT hint takes the bottom
 
   // Call on entering the screen. Without touch the highlight is shown from the start and the hint takes the bottom.
@@ -84,6 +93,7 @@ struct SettingsScreenState {
   // --- the rows -------------------------------------------------------------
   static const Row& row(int r) {
     static const Row rows[ROWS] = {
+        {SettingItem::Driver, RowKind::Pick},       {SettingItem::Car, RowKind::Pick},
         {SettingItem::Units, RowKind::Choice},      {SettingItem::Upside, RowKind::Toggle},
         {SettingItem::Brightness, RowKind::Level},  {SettingItem::Big, RowKind::Choice},
         {SettingItem::Compare, RowKind::Choice},    {SettingItem::Colours, RowKind::Choice},
@@ -99,12 +109,13 @@ struct SettingsScreenState {
   }
   static const Section& section(int i) {
     static const Section sections[SECTIONS] = {
-        {"DISPLAY", 0, 3, nullptr},
-        {"TIMING", 3, 6, nullptr},
-        {"GPS & BLUETOOTH", 9, 7, "GPS mode and Bluetooth profile are used from the next restart"},
-        {"RECORDING", 16, 2, nullptr},
-        {"POWER", 18, 1, "Or hold BOOT for 3 s on any screen"},
-        {nullptr, 19, 1, FIRMWARE_FOOT},  // DisplaySettings writes the version there
+        {"DRIVER AND CAR", 0, 2, "Add and rename them on the Wi-Fi page"},
+        {"DISPLAY", 2, 3, nullptr},
+        {"TIMING", 5, 6, nullptr},
+        {"GPS & BLUETOOTH", 11, 7, "GPS mode and Bluetooth profile are used from the next restart"},
+        {"RECORDING", 18, 2, nullptr},
+        {"POWER", 20, 1, "Or hold BOOT for 3 s on any screen"},
+        {nullptr, 21, 1, FIRMWARE_FOOT},  // DisplaySettings writes the version there
     };
     return sections[i];
   }
@@ -136,6 +147,8 @@ struct SettingsScreenState {
       case SettingItem::Kart: return "Kart everywhere";
       case SettingItem::Engine: return "Engine data";
       case SettingItem::Camera: return "Camera";
+      case SettingItem::Driver: return "Driver";
+      case SettingItem::Car: return "Car";
       case SettingItem::CameraRec: return "Camera recording";
       case SettingItem::Profile: return "Bluetooth profile";
       case SettingItem::Coolant: return "Coolant";
@@ -249,6 +262,31 @@ struct SettingsScreenState {
     return (y - CHOICE_TOP) / ROW_H;
   }
 
+  // --- the Driver and Car pages -------------------------------------------------
+  // Call with the current lists before handling input, and before drawing
+  void setPeople(const profiles::Book& b) {
+    people = b;
+    if (page == Page::Pick) setPickScroll(pickScroll);
+  }
+  const profiles::List& pickList() const { return item == SettingItem::Car ? people.cars : people.drivers; }
+  int pickCount() const { return pickList().count; }
+  int pickCurrentIndex() const {
+    const int i = pickList().indexOf(pickList().current);
+    return i < 0 ? 0 : i;
+  }
+  // The names are laid out like a choice page, but they scroll: up to 8 rows of ROW_H don't fit the screen
+  int pickRowY(int i) const { return CHOICE_TOP + i * ROW_H - pickScroll; }
+  int pickViewH() const { return viewBottom - CHOICE_TOP; }
+  int pickContentH() const { return pickCount() * ROW_H + PICK_NOTE_H; }
+  int pickMaxScroll() const { return pickContentH() > pickViewH() ? pickContentH() - pickViewH() : 0; }
+  void setPickScroll(int v) { pickScroll = v < 0 ? 0 : v > pickMaxScroll() ? pickMaxScroll() : v; }
+  // The name under a touch on the page, or -1
+  int hitPick(int x, int y) const {
+    if (x < CARD_X || x >= CARD_X + CARD_W || y < CHOICE_TOP || y >= viewBottom) return -1;
+    const int i = (y - CHOICE_TOP + pickScroll) / ROW_H;
+    return i < pickCount() ? i : -1;
+  }
+
   // --- levels (brightness, time zone) -------------------------------------------
   static bool inRect(int x, int y, int rx, int ry, int rw, int rh) { return x >= rx && x < rx + rw && y >= ry && y < ry + rh; }
   static bool onMinus(int x, int y) { return inRect(x, y, MINUS_X, BTN_Y, BTN_W, BTN_H); }
@@ -302,6 +340,10 @@ struct SettingsScreenState {
       const int i = hitChoice(x, y);
       return i < 0 ? Result::Nothing : choose(i, s);
     }
+    if (page == Page::Pick) {
+      const int i = hitPick(x, y);
+      return i < 0 ? Result::Nothing : choosePick(i);
+    }
     if (page == Page::Coolant) {
       int dir = 0;
       const int i = hitCoolant(x, y, dir);
@@ -325,14 +367,15 @@ struct SettingsScreenState {
     return Result::Nothing;
   }
 
-  // A finger is dragging the list: dy is how far it has moved since it touched down. The list follows it.
+  // A finger is dragging the list (or the Driver or Car page): dy is how far it has moved since it touched down. It follows.
   void drag(int dy) {
-    if (page != Page::List) return;
+    if (page != Page::List && page != Page::Pick) return;
     if (!dragging) {
       dragging = true;
-      dragBase = scroll;
+      dragBase = page == Page::Pick ? pickScroll : scroll;
     }
-    setScroll(dragBase - dy);
+    if (page == Page::Pick) setPickScroll(dragBase - dy);
+    else setScroll(dragBase - dy);
   }
   void dragEnd() { dragging = false; }
 
@@ -343,6 +386,15 @@ private:
   void closePage() {
     page = Page::List;
     choiceHl = 0;
+    pickScroll = 0;
+  }
+
+  // Scrolls the Driver or Car page just enough to show name i
+  void showPick(int i) {
+    const int top = i * ROW_H, bottom = top + ROW_H + (i == pickCount() - 1 ? PICK_NOTE_H : 0);
+    if (top < pickScroll) pickScroll = top;
+    if (bottom > pickScroll + pickViewH()) pickScroll = bottom - pickViewH();
+    setPickScroll(pickScroll);
   }
 
   // Scrolls just enough to show row r, with its caption if it is the first of its section
@@ -365,6 +417,12 @@ private:
       choiceHl = 0;
     }
     else if (it == SettingItem::PowerOff) page = Page::PowerOff;
+    else if (it == SettingItem::Driver || it == SettingItem::Car) {
+      page = Page::Pick;
+      pickScroll = 0;
+      choiceHl = pickCurrentIndex();
+      showPick(choiceHl);
+    }
     else {
       page = Page::Choice;
       choiceHl = choiceIndex(s, it);
@@ -401,6 +459,19 @@ private:
     return s == before ? Result::Nothing : Result::Changed;
   }
 
+  // Picks name i on the Driver or Car page and goes back to the list. Pick if it isn't the current one.
+  Result choosePick(int i) {
+    const profiles::List& l = pickList();
+    pickKind = item == SettingItem::Car ? profiles::Kind::Car : profiles::Kind::Driver;
+    pickId = l.items[i].id;
+    const bool changed = pickId != l.current;
+    page = Page::List;
+    pickScroll = 0;
+    highlight = rowOfItem(item);
+    showRow(highlight);
+    return changed ? Result::Pick : Result::Nothing;
+  }
+
   // - or + on a level page
   Result step(int dir, bool wrap, SettingsData& s) {
     SettingsData before = s;
@@ -417,6 +488,10 @@ private:
         return Result::Nothing;
       case Page::Choice:
         choiceHl = (choiceHl + 1) % choiceCount(item);
+        return Result::Nothing;
+      case Page::Pick:
+        choiceHl = (choiceHl + 1) % pickCount();
+        showPick(choiceHl);
         return Result::Nothing;
       case Page::Coolant: {
         SettingsData before = s;
@@ -436,6 +511,7 @@ private:
     switch (page) {
       case Page::List: return activate(highlight, s);
       case Page::Choice: return choose(choiceHl, s);
+      case Page::Pick: return choosePick(choiceHl);
       case Page::Coolant:
         if (choiceHl + 1 < settings::COOLANT_ROWS) choiceHl++;
         else closePage();
