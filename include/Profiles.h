@@ -24,7 +24,7 @@
 namespace profiles {
 
 constexpr int MAX_PER_LIST = 8;
-constexpr int NAME_MAX = 20;  // bytes, after trimming
+constexpr int NAME_LEN = 20;  // bytes, after trimming
 constexpr int VIN_LEN = 17;
 constexpr int MAX_ID = 255;
 
@@ -51,14 +51,14 @@ inline bool sameText(const char* a, const char* b) {  // equal, ignoring ASCII c
   return *a == *b;
 }
 
-// A name as it is kept: trimmed, 1 to NAME_MAX bytes, no control characters. False if it can't be.
+// A name as it is kept: trimmed, 1 to NAME_LEN bytes, no control characters. False if it can't be.
 inline bool cleanName(const char* in, char* out) {
   out[0] = 0;
   if (!in) return false;
   while (isSpace(*in)) in++;
   size_t n = strlen(in);
   while (n > 0 && isSpace(in[n - 1])) n--;
-  if (n == 0 || n > (size_t)NAME_MAX) return false;
+  if (n == 0 || n > (size_t)NAME_LEN) return false;
   for (size_t i = 0; i < n; i++)
     if ((uint8_t)in[i] < 0x20 || in[i] == 0x7F) return false;
   memcpy(out, in, n);
@@ -87,7 +87,7 @@ inline bool cleanVin(const char* in, char* out) {
 
 struct Entry {
   uint8_t id = 0;  // 0: not used
-  char name[NAME_MAX + 1] = "";
+  char name[NAME_LEN + 1] = "";
   char vin[VIN_LEN + 1] = "";  // cars only
 };
 
@@ -145,7 +145,7 @@ struct Book {
   // Adds one at the end. newId (if given) is the id it got.
   Err add(Kind k, const char* name, int* newId = nullptr) {
     List& l = list(k);
-    char n[NAME_MAX + 1];
+    char n[NAME_LEN + 1];
     if (!cleanName(name, n)) return Err::BadName;
     if (l.count >= MAX_PER_LIST || l.nextId > MAX_ID) return Err::Full;
     if (l.nameUsed(n, 0)) return Err::Duplicate;
@@ -161,7 +161,7 @@ struct Book {
     List& l = list(k);
     const int i = l.indexOf(id);
     if (i < 0) return Err::NotFound;
-    char n[NAME_MAX + 1];
+    char n[NAME_LEN + 1];
     if (!cleanName(name, n)) return Err::BadName;
     if (l.nameUsed(n, id)) return Err::Duplicate;
     memcpy(l.items[i].name, n, strlen(n) + 1);
@@ -223,9 +223,9 @@ struct Book {
       int n = 0;
       for (int i = 0; i < l.count && i < MAX_PER_LIST; i++) {
         Entry e = l.items[i];
-        e.name[NAME_MAX] = 0;
+        e.name[NAME_LEN] = 0;
         e.vin[VIN_LEN] = 0;
-        char name[NAME_MAX + 1], vin[VIN_LEN + 1] = "";
+        char name[NAME_LEN + 1], vin[VIN_LEN + 1] = "";
         if (e.id < 1 || !cleanName(e.name, name)) continue;
         if (k == Kind::Driver || !cleanVin(e.vin, vin)) vin[0] = 0;
         bool clash = false;

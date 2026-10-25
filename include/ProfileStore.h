@@ -45,8 +45,8 @@ void unlockSession();  // no session is running
 bool sessionLocked();
 struct Active {
   int driverId = 1, carId = 1;
-  char driver[profiles::NAME_MAX + 1] = "";
-  char car[profiles::NAME_MAX + 1] = "";
+  char driver[profiles::NAME_LEN + 1] = "";
+  char car[profiles::NAME_LEN + 1] = "";
 };
 Active active();
 // Where best laps are kept inside a track's folder: "" (the track's folder itself) or e.g. "d3-c2"
@@ -56,6 +56,7 @@ String pbFolder();
 // applyVin() makes the car that has this VIN the current one, unless a session is running
 // (the main loop, which calls it often: it does nothing unless there is a new VIN). True if the car changed.
 void noteVin(const char* vin);
+bool wantsVin();  // worth asking the car for its VIN: there are cars to tell apart
 void vinSeen(char* out, size_t n);  // the last VIN seen since boot, "" if none
 bool applyVin();
 

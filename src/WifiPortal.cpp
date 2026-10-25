@@ -13,6 +13,7 @@
 #include "FirmwareUpdate.h"
 #include "Logbook.h"
 #include "PortalLogic.h"
+#include "ProfileStore.h"
 #include "SessionLog.h"
 #include "Settings.h"
 #include "Storage.h"
@@ -142,6 +143,40 @@ static void onSettingsPost(AsyncWebServerRequest* req) {
   Settings::set(s);  // main.cpp's loop applies it (screen, backlight, Bluetooth)
   DEBUG_PRINTLN("Wi-Fi: settings changed from the page");
   sendSettings(req, 200, settings::needsRestart(before, s));
+}
+
+// ---------------------------------------------------------------------------
+// Drivers and cars (8.5): GET /api/profiles sends the lists, the current ones and the last VIN the
+// Bluetooth adapter reported; POST changes them: action (add, rename, remove, select, setVin), kind
+// (driver or car), id, name, vin and the code. Best laps are kept per driver and car (Profiles.h).
+// Whatever is current takes effect at the next session. Only the lists change here: the settings
+// (SettingsData.h) don't hold them.
+
+static void onProfilesPost(AsyncWebServerRequest* req) {
+  if (!codeOk(req)) return;
+  const String action = req->arg("action"), kindText = req->arg("kind");
+  if (kindText != "driver" && kindText != "car") {
+    req->send(400, "text/plain", "kind is driver or car");
+    return;
+  }
+  const profiles::Kind kind = kindText == "car" ? profiles::Kind::Car : profiles::Kind::Driver;
+  const int id = req->arg("id").toInt();  // (0, not an id, if it isn't a number)
+  profiles::Err err;
+  if (action == "add") err = Profiles::add(kind, req->arg("name").c_str());
+  else if (action == "rename") err = Profiles::rename(kind, id, req->arg("name").c_str());
+  else if (action == "remove") err = Profiles::remove(kind, id);
+  else if (action == "select") err = Profiles::select(kind, id);
+  else if (action == "setVin" && kind == profiles::Kind::Car) err = Profiles::setVin(id, req->arg("vin").c_str());
+  else {
+    req->send(400, "text/plain", "action is add, rename, remove, select or setVin (a car's)");
+    return;
+  }
+  if (err != profiles::Err::Ok) {
+    req->send(400, "text/plain", profiles::errText(err));
+    return;
+  }
+  DEBUG_PRINTF("Wi-Fi: %s %s from the page\n", kindText.c_str(), action.c_str());
+  req->send(200, "application/json", Profiles::apiJson());
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +777,8 @@ static void setupRoutes() {
   // The Settings tab
   s.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest* req) { sendSettings(req, 200, false); });
   s.on("/api/settings", HTTP_POST, onSettingsPost);
+  s.on("/api/profiles", HTTP_GET, [](AsyncWebServerRequest* req) { req->send(200, "application/json", Profiles::apiJson()); });
+  s.on("/api/profiles", HTTP_POST, onProfilesPost);
 
   s.onNotFound([](AsyncWebServerRequest* req) {
     if (redirectToPortal(req)) return;

@@ -7,6 +7,7 @@
 #include "CarProfiles.h"
 #include "Config.h"
 #include "DeviceLink.h"
+#include "ProfileStore.h"
 #include <Arduino.h>
 
 #if BLE_ENABLED && OBD_BLE_ENABLED
@@ -135,7 +136,8 @@ static bool connectTo(const char* addr, uint8_t type) {
   }
   xStreamBufferReset(rx);
   lastRxAt = 0;  // not connected for display until it has answered
-  elmc.setWantVin(nProfiles > 0);  // car profiles: read the VIN to choose one
+  // Read the VIN to choose an OBDb car profile on the card, or when there are cars to tell apart (Profiles.h)
+  elmc.setWantVin(nProfiles > 0 || Profiles::wantsVin());
   elmc.begin(millis());
   profileChosen = false;
   RaceBoxBle::resumeAdvertising();  // the phone can still find the RaceBox output
@@ -271,13 +273,16 @@ static void taskMain(void*) {
       if (elmc.poll(millis(), cmd, sizeof(cmd))) {
         if (!writeChr->writeValue((const uint8_t*)cmd, strlen(cmd), writeWithResponse)) DEBUG_PRINTLN("OBD: write failed");
       }
-      if (nProfiles && !profileChosen && elmc.vinDone()) {  // the car has said who it is (or that it won't)
+      if (!profileChosen && elmc.vinDone()) {  // the car has said who it is (or that it won't)
         profileChosen = true;
-        const int i = carobd::chooseProfile(profiles, nProfiles, elmc.vin());
-        if (i >= 0) elmc.setProfile(&profiles[i]);
-        // Only the start of the VIN (make, model, body): the rest identifies the car itself
-        DEBUG_PRINTF("OBD: VIN %.8s%s: %s%s\n", elmc.vin()[0] ? elmc.vin() : "(not given)", elmc.vin()[0] ? "..." : "",
-                     i >= 0 ? "car profile " : "no car profile for it", i >= 0 ? profiles[i].name : "");
+        Profiles::noteVin(elmc.vin());  // the driver's car with this VIN becomes the current one (main loop)
+        if (nProfiles) {
+          const int i = carobd::chooseProfile(profiles, nProfiles, elmc.vin());
+          if (i >= 0) elmc.setProfile(&profiles[i]);
+          // Only the start of the VIN (make, model, body): the rest identifies the car itself
+          DEBUG_PRINTF("OBD: VIN %.8s%s: %s%s\n", elmc.vin()[0] ? elmc.vin() : "(not given)", elmc.vin()[0] ? "..." : "",
+                       i >= 0 ? "car profile " : "no car profile for it", i >= 0 ? profiles[i].name : "");
+        }
       }
     }
 

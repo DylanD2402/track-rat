@@ -193,6 +193,14 @@ void noteVin(const char* vin) {
   portEXIT_CRITICAL(&lock);
 }
 
+bool wantsVin() {
+  const Book b = get();
+  if (b.cars.count > 1) return true;
+  for (int i = 0; i < b.cars.count; i++)
+    if (b.cars.items[i].vin[0]) return true;
+  return false;
+}
+
 void vinSeen(char* out, size_t n) {
   portENTER_CRITICAL(&lock);
   snprintf(out, n, "%s", seenVin);
