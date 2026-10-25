@@ -598,12 +598,14 @@ The Wi-Fi page already compares two laps: speed and gap against distance, and th
 - **Same edit on the Wi-Fi page:** the track editor gets the same nudge for courses.
 
 #### Steps and who builds them
-| Wave | Step | Built by |
-|---|---|---|
-| 0 | 9.0 Mock-ups: the four screens above, rendered on the PC from the real display code, for Dylan to approve before anything is wired | Sonnet, low |
-| 1 | 9.2 Courses as events: their own list, runs numbered across power-offs, the Autocross hub and run list, resume at boot | Sonnet, medium |
-| 2 | 9.3 Adjust start/finish on the device with live re-timing (and the same nudge on the Wi-Fi page) | Sonnet, medium |
-| 2 | 9.1 The new home screen with Next up, and the Track day screen | Sonnet, medium |
+| Wave | Step | Built by | Touches |
+|---|---|---|---|
+| 1 | 9.2 Courses as events: `"kind": "course"` stages with an event date, kept out of the circuit list; the day's runs numbered across sessions and power-offs (from the day's summaries); the Autocross hub (today's course, run list, best and last, New course, Adjust start/finish buttons wired later); New course = "Set start here" while parked; finish tap with a 5 s Undo; boot near today's course armed for the next run | Sonnet, medium | TrackDatabase, a new Courses module, main.cpp, a new hub screen, SessionLog, tests, renders |
+| 1 | 9.3a Line nudge maths and the Wi-Fi page: an Arduino-free LineNudge.h (shift a line along its heading, each run's crossing time from the fixes near it, with tests); in the Wi-Fi page's track editor, ◀ ▶ 0.5 m nudge buttons for the start, finish and splits with each run's re-timed time shown live, then Save and re-time as today | Sonnet, medium | include/LineNudge.h, its test, web/index.html (track editor), test_web.js |
+| 2 | 9.3b Adjust start/finish on the device: the screen sketched above. It loads the fixes near the line from each of the day's runs once, nudges with LineNudge.h, and Save stores the line and starts the existing re-time task for the course's logs | Sonnet, medium | a new screen, main.cpp, Courses |
+| 2 | 9.1 The new home screen with Next up (pure choice logic, tested) and the Track day screen (circuits only, + New circuit last); the NEW TRACK chooser goes | Sonnet, medium | the menu drawing and touch areas, main.cpp, the track list |
+
+The screens are rendered on the PC from the real display code (tools/render_screens.py) as each step lands. Dylan reviews them before anything is released.
 
 Existing courses ("Course 2026-10-20" stages in tracks.json) move into the course list by themselves. Nothing else changes for circuits, laps or PBs.
 
