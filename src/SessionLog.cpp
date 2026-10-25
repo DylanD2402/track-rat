@@ -319,7 +319,7 @@ static bool beginLog(const String& path, const vbo::Header& h) {
     withEngine.carNames.push_back(car->sigs[i].name);
     withEngine.carUnits.push_back(car->sigs[i].unit);
   }
-  if (carCount) withEngine.comments.push_back(std::string("Car: ") + car->name + " (car profile, from OBDb)");
+  if (carCount) withEngine.comments.push_back(std::string("Car data: ") + car->name + " (OBDb car profile)");  // not "Car:", which names the car (Profiles.h)
   std::string text = vbo::headerText(withEngine);
   if (!LogWriter::open(path, text.data(), text.size())) return false;
   logEngine = withEngine.engine;
