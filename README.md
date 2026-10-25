@@ -77,7 +77,7 @@ Version 0.1 is a beta. What's been tried on real hardware:
 
 | Tried on hardware? | What |
 |---|---|
-| Yes | Lap timing and logging on the ES3C28P with the BE-252Q; the Wi-Fi page; a Bluetooth OBD-II adapter (Veepeak OBDCheck BLE+); coolant on screen |
+| Yes | Installing from the browser; lap timing and logging on the ES3C28P with the BE-252Q; the Wi-Fi page; a Bluetooth OBD-II adapter (Veepeak OBDCheck BLE+); coolant on screen |
 | Not yet | The DJI Osmo Action remote, the RaceChrono DIY profile, the IMU, CAN |
 | Not yet confirmed | RaceBox Mini mode with phone apps, the LED bar and big button, the battery |
 
