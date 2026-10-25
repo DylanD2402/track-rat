@@ -49,7 +49,7 @@ Pins, wiring and the optional add-ons are in [docs/hardware.md](docs/hardware.md
 
 ## Install the firmware
 
-**[Install from your browser](https://dyland2402.github.io/track-rat/)**. You need Chrome or Edge and a USB-C data cable. It erases what's saved in the board's internal flash; the SD card is untouched.
+**[Install from your browser](https://trackrat.me/)**. You need Chrome or Edge and a USB-C data cable. It erases what's saved in the board's internal flash; the SD card is untouched.
 
 - Download a release and write it with esptool: [docs/flashing.md](docs/flashing.md#download-a-release-and-use-esptool).
 - Update from the SD card or the Wi-Fi page, no cable: [docs/flashing.md](docs/flashing.md#update-without-a-cable).

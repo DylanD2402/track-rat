@@ -445,7 +445,7 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
   - `development.md`: building, configuration, tests, layout, screens
 
 #### 7.6 Ship it (Opus and Dylan)
-**Status: released** (2026-10-25): [v0.1.0-beta.1](https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1), tagged at 780ef7d. Pages is on, the stale branches are deleted, and the installer is deployed by `installer.yml` (a tag can't deploy to github-pages, so it runs from main). The installer is served at trackrat.me/track-rat/ (the account's custom domain), which has no HTTPS certificate yet, and the installer needs HTTPS. Still to do: HTTPS on trackrat.me, then an install from the web page onto the board.
+**Status: released** (2026-10-25): [v0.1.0-beta.1](https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1), tagged at 780ef7d. Pages is on, the stale branches are deleted, and the installer is deployed by `installer.yml` (a tag can't deploy to github-pages, so it runs from main). The installer is at https://trackrat.me/: the track-rat repo's custom domain, moved from the personal Pages site, with HTTPS enforced. Still to do: an install from the web page onto the board.
 - Dylan, once: GitHub → Settings → Pages → Source: **GitHub Actions**, and the repo's About description, website and topics.
 - Tag `v0.1.0-beta.1` (annotated) and push it. Check the release, its files and the install page.
 - Dylan: install from the web page, check Settings shows `v0.1.0-beta.1`, and drive.

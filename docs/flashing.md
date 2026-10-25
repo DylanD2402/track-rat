@@ -6,7 +6,7 @@ Four ways to put the firmware on the board, from easiest to most hands-on.
 
 ## Install from your browser
 
-Go to **https://dyland2402.github.io/track-rat/** and press **Install**.
+Go to **[trackrat.me](https://trackrat.me/)** and press **Install**.
 
 - **You need:** Chrome or Edge on a computer (not a phone, not Firefox or Safari), and a USB-C cable that carries data.
 - **Download mode:** if the port list is empty, hold **BOOT**, tap **RST**, then let go of **BOOT**, and try again.
