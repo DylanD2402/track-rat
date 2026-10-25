@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- The Wi-Fi page's track editor can nudge the start/finish, a stage's finish or a split in 0.5 m steps along the direction of travel (◀ ▶, with a reset), and shows each run's or lap's time now and with the moved line, timed again from the log live. Save and re-time work as before.
+
 ## [0.1.0-beta.2] - 2026-10-25
 
 ### Added

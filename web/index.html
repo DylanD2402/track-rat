@@ -179,6 +179,18 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
         <button class="btn plain" data-mode="finish" id="edFinish" hidden>Set finish</button>
         <button class="btn plain" id="edLayout">New layout</button>
       </div>
+      <h2>Nudge a line</h2>
+      <p class="note">Tapping while driving puts a line a little late or early. Pick it, then slide it along the
+        direction of travel: 0.5 m is about 20 ms at 90 km/h. The runs below are timed again from their logs on every step.</p>
+      <select id="edSel" aria-label="Line to move"></select>
+      <div class="tools" id="edNudge">
+        <button class="btn plain" id="edBack">◀ 0.5 m earlier</button>
+        <button class="btn plain" id="edFwd">0.5 m later ▶</button>
+        <button class="btn plain" id="edNudgeReset">Reset</button>
+      </div>
+      <p id="edMoved" class="note"></p>
+      <div id="edRuns"></div>
+      <div class="tools"><button class="btn plain" id="edDay">Add the day's other runs</button></div>
       <h2>Corners</h2>
       <div id="edCorners"></div>
       <div class="tools"><button class="btn" id="edSave" disabled>Save lines</button></div>
@@ -838,6 +850,163 @@ function addLayout(db, id, name) {
   const added = trackList(db).filter((x) => x.venue === v);
   return added[added.length - 1].id;
 }
+
+// ---- nudging a line: the maths of include/LineNudge.h, repeated here ----
+// Moves a start, finish or split along its heading in small steps and times every run again
+// from the fixes near it. x, y are metres from a shared reference, ms is GPS time, kmh is speed.
+// null means "no crossing" / "no time" (NONE in the header). The limits are Config.h's.
+const NUDGE_STEP_M = 0.5, NEAR_LINE_M = 60, MAX_FIX_GAP_MS = 2000, MIN_CROSSING_KMH = 5;
+const STAGE_STILL_KMH = 1.5, STAGE_STOPPED_KMH = 3, STAGE_ARM_M = 25, STAGE_LIGHTS_M = 1;
+
+// line: {x, y, heading} with heading a number (degrees clockwise from north) or null. Moves it
+// `metres` along its heading (negative: earlier), or along fallbackDeg (the path's direction
+// there) when it has none. False, and the line unmoved, when there is no direction at all.
+function nudgeShift(line, metres, fallbackDeg) {
+  const h = typeof line.heading === "number" ? line.heading : fallbackDeg;
+  if (typeof h !== "number" || !isFinite(h)) return false;
+  line.x += metres * Math.sin(h * DEG);
+  line.y += metres * Math.cos(h * DEG);
+  return true;
+}
+// Metres of (x, y) along the line's heading from the line (negative: behind it)
+function alongM(line, x, y) {
+  if (typeof line.heading !== "number") return 0;
+  return (x - line.x) * Math.sin(line.heading * DEG) + (y - line.y) * Math.cos(line.heading * DEG);
+}
+// The fixes within radiusM of (cx, cy), and the one before and after each stretch of them.
+// joined: it follows the fix before it in the log, so a crossing may be found between them.
+function sliceNear(all, cx, cy, radiusM = NEAR_LINE_M) {
+  const near = all.map((f) => Math.hypot(f.x - cx, f.y - cy) <= radiusM);
+  const out = [];
+  let last = -2;
+  for (let i = 0; i < all.length; i++) {
+    if (!((i > 0 && near[i - 1]) || near[i] || (i + 1 < all.length && near[i + 1]))) continue;
+    out.push(Object.assign({}, all[i], {joined: last === i - 1}));
+    last = i;
+  }
+  return out;
+}
+// geo::crossesGate for the segment a->b (relative to the line): the fraction along it, or null
+function crossesGate(a, b, halfWidth) {
+  const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+  if (len2 < 1e-6) return null;
+  const u = -(a.x * dx + a.y * dy) / len2;
+  if (u < 0 || u >= 1) return null;
+  const cx = a.x + u * dx, cy = a.y + u * dy;
+  return cx * cx + cy * cy > halfWidth * halfWidth ? null : u;
+}
+// Every crossing of the line in a slice, in GPS ms, the way LapTimer finds them
+function crossingsMs(s, line, halfWidth, ignoreHeading = false) {
+  const out = [];
+  for (let i = 1; i < s.length; i++) {
+    if (!s[i].joined) continue;
+    const dt = s[i].ms - s[i - 1].ms;
+    if (dt <= 0 || dt > MAX_FIX_GAP_MS) continue;
+    if (s[i].kmh < MIN_CROSSING_KMH && s[i - 1].kmh < MIN_CROSSING_KMH) continue;
+    const a = {x: s[i - 1].x - line.x, y: s[i - 1].y - line.y}, b = {x: s[i].x - line.x, y: s[i].y - line.y};
+    const frac = crossesGate(a, b, halfWidth);
+    if (frac === null) continue;
+    if (!ignoreHeading && typeof line.heading === "number") {  // geo::travelsWith
+      const h = line.heading * DEG;
+      if (!((b.x - a.x) * Math.sin(h) + (b.y - a.y) * Math.cos(h) > 1e-6)) continue;
+    }
+    out.push(s[i - 1].ms + Math.floor(frac * dt + 0.5));
+  }
+  return out;
+}
+// The first crossing after afterMs (default: any), or null
+function crossingTimeMs(s, line, halfWidth, afterMs = null) {
+  for (const t of crossingsMs(s, line, halfWidth)) if (afterMs === null || t > afterMs) return t;
+  return null;
+}
+// The direction the path crosses the line, either way (the fallback for a line with no heading), or null
+function pathHeadingDeg(s, line, halfWidth) {
+  for (let i = 1; i < s.length; i++) {
+    if (!s[i].joined) continue;
+    const a = {x: s[i - 1].x - line.x, y: s[i - 1].y - line.y}, b = {x: s[i].x - line.x, y: s[i].y - line.y};
+    if (crossesGate(a, b, halfWidth) !== null) return (Math.atan2(b.x - a.x, b.y - a.y) / DEG + 360) % 360;
+  }
+  return null;
+}
+// Does a standing start still begin when the car moved off, with the start where it is now?
+// stood: the last fix slower than STAGE_STOPPED_KMH before the first movement.
+function standingStartHolds(stood, start) {
+  if (Math.hypot(stood.x - start.x, stood.y - start.y) > STAGE_ARM_M) return false;
+  return typeof start.heading !== "number" || alongM(start, stood.x, stood.y) >= -STAGE_LIGHTS_M;
+}
+// A run's time from its two crossings: null if either is missing or it is under minMs. A standing
+// start begins at moveOffMs (the last fix slower than STAGE_STILL_KMH), so the start line doesn't matter.
+function newRunMs(startMs, finishMs, standing = false, moveOffMs = null, minMs = 0) {
+  const from = standing ? moveOffMs : startMs;
+  if (from === null || finishMs === null) return null;
+  const run = finishMs - from;
+  return run > 0 && run >= minMs ? run : null;
+}
+
+// A log's fixes in metres from `ref`, with continuous time (past midnight keeps counting)
+function nudgeFixes(points, ref) {
+  let day = 0, prev = -Infinity;
+  return points.map((p) => {
+    if (p.ms < prev - 43200000) day += 86400000;
+    prev = p.ms;
+    const q = toLocal(p.lat, p.lon, ref.lat, ref.lon);
+    return {x: q.x, y: q.y, ms: p.ms + day, kmh: p.kmh, lap: p.lap};
+  });
+}
+// The lines of a track as the nudge sees them: {x, y, heading, hw} for the start/finish, the finish
+// (a stage) and each split
+function nudgeLines(t, ref) {
+  const hw = (pt) => pt.radius || (isKart(t) ? 8 : 15);
+  const one = (pt) => {
+    if (!pt || !(pt.lat || pt.lon)) return null;
+    const q = toLocal(pt.lat, pt.lon, ref.lat, ref.lon);
+    return {x: q.x, y: q.y, heading: typeof pt.heading === "number" ? pt.heading : null, hw: hw(pt)};
+  };
+  return {sf: one(t.obj.startFinish), fin: isStage(t) ? one(t.obj.finish) : null, splits: (t.obj.splits || []).map(one)};
+}
+// Every run of a log (each lap number) timed from its fixes with these lines: {lap, ms, splits}.
+// A run's own fixes, and two either side for the crossing just outside them. ms and the splits
+// are null where a line isn't crossed.
+function nudgeRuns(fixes, lines, stage, minMs = 0) {
+  const spans = new Map();
+  fixes.forEach((f, i) => {
+    if (f.lap > 0) { const s = spans.get(f.lap); if (s) s.i1 = i; else spans.set(f.lap, {lap: f.lap, i0: i, i1: i}); }
+  });
+  const out = [];
+  for (const {lap, i0, i1} of spans.values()) {
+    const win = fixes.slice(Math.max(0, i0 - 2), Math.min(fixes.length, i1 + 3));
+    const near = (l) => sliceNear(win, l.x, l.y);
+    let start = null, finish = null, standing = false, moveOff = null;
+    if (lines.sf) {
+      const c = crossingsMs(near(lines.sf), lines.sf, lines.sf.hw);
+      if (stage) {
+        start = c.length ? c[0] : null;
+        // From the last fix standing still, up to 3 s before the run's first fix (LapTimer's rule)
+        let still = -1, stoodAt = -1;
+        for (let j = i0; j >= 0 && fixes[i0].ms - fixes[j].ms <= 3000; j--) {
+          if (still < 0 && fixes[j].kmh < STAGE_STILL_KMH) still = j;
+          if (stoodAt < 0 && fixes[j].kmh < STAGE_STOPPED_KMH) stoodAt = j;
+        }
+        if (still >= 0 && stoodAt >= 0) {
+          moveOff = fixes[still].ms;
+          standing = standingStartHolds(fixes[stoodAt], lines.sf);
+        }
+      } else if (c.length >= 2) { start = c[0]; finish = c[c.length - 1]; }
+    }
+    if (stage && lines.fin) {
+      const c = crossingsMs(near(lines.fin), lines.fin, lines.fin.hw);
+      finish = c.length ? c[c.length - 1] : null;
+    }
+    const from = standing ? moveOff : start;
+    const splits = lines.splits.map((sp) => {
+      if (!sp || from === null) return null;
+      const t = crossingTimeMs(near(sp), sp, sp.hw, from);
+      return t === null || (finish !== null && t > finish) ? null : t - from;
+    });
+    out.push({lap, ms: newRunMs(start, finish, standing, moveOff, minMs), splits});
+  }
+  return out;
+}
 // ---- track editor (end) ----
 
 // ---- csv (begin: tested by test/test_web.js) ----
@@ -1174,7 +1343,8 @@ function gapText(ms) { return (ms > 0 ? "+" : ms < 0 ? "−" : "") + (Math.abs(m
 // ---- lap compare (end) ----
 
 // ---- track editor: the screen part ----
-const ed = {db: null, log: null, trackId: "", mode: "", ref: null, pts: [], lapPts: [], dirty: false, file: ""};
+const ed = {db: null, log: null, trackId: "", mode: "", ref: null, pts: [], lapPts: [], dirty: false, file: "",
+            logs: [], base: null, sel: "sf", moved: {}, orig: {}};
 
 function edMsg(text, bad) {
   $("edMsg").className = bad ? "err" : "note";
@@ -1203,6 +1373,7 @@ $("edLog").addEventListener("change", async () => {
     ed.db = db;
     ed.log = parseVbo(log);
     ed.file = name;
+    ed.logs = [{file: name, log: ed.log}];
   } catch (e) {
     edMsg("Couldn't read that session or tracks.json.", true);
     return;
@@ -1229,9 +1400,12 @@ function edSetUp() {
   const first = laps.length ? Math.min(...laps) : 0;
   ed.lapPts = first ? ed.pts.filter((p) => p.lap === first) : ed.pts;
   $("edFinish").hidden = !isStage(t);
+  for (const l of ed.logs) l.fixes = nudgeFixes(l.log.points, ed.ref);
+  edRebase(t);
   edMode("");
   edDraw();
   edSectors();
+  edLines();
   edMsg(`${ed.log.points.length} fixes, ${new Set(laps).size} laps.`);
 }
 
@@ -1349,12 +1523,138 @@ $("edMap").addEventListener("click", (e) => {
   edChanged();
 });
 
-function edChanged() {
+function edChanged(nudged) {
   ed.dirty = true;
   $("edSave").disabled = false;
+  if (nudged !== true) { ed.moved = {}; ed.orig = {}; }  // the lines changed some other way: count nudges from here
   edDraw();
   edSectors();
+  edLines();
 }
+
+// ---- nudging a line (the maths is above, in the tested section) ----
+// What the saved lines are: the runs' "now" times are timed with these
+function edRebase(t) {
+  const o = t.obj;
+  ed.base = JSON.parse(JSON.stringify({type: o.type, startFinish: o.startFinish, finish: o.finish, splits: o.splits}));
+  ed.moved = {};
+  ed.orig = {};
+}
+// The lines that can be nudged: [{key, name, pt}]
+function edNudgeable(t) {
+  const out = [];
+  if (t.obj.startFinish) out.push({key: "sf", name: isStage(t) ? "Start" : "Start/finish", pt: t.obj.startFinish});
+  if (isStage(t) && t.obj.finish) out.push({key: "fin", name: "Finish", pt: t.obj.finish});
+  (t.obj.splits || []).forEach((sp, i) => out.push({key: "s" + i, name: "Split " + (i + 1), pt: sp}));
+  return out;
+}
+// The selector, the readout and the table of runs
+function edLines() {
+  const t = findTrack(ed.db, ed.trackId);
+  if (!t) return;
+  const list = edNudgeable(t);
+  if (!list.some((l) => l.key === ed.sel)) ed.sel = list.length ? list[0].key : "";
+  $("edSel").innerHTML = list.map((l) => `<option value="${esc(l.key)}"${l.key === ed.sel ? " selected" : ""}>${esc(l.name)}</option>`).join("");
+  $("edSel").hidden = $("edNudge").hidden = !list.length;
+  const m = ed.moved[ed.sel] || 0;
+  $("edMoved").textContent = list.length ? (m ? `Moved ${m > 0 ? "+" : "−"}${Math.abs(m).toFixed(1)} m (${m > 0 ? "later" : "earlier"})` : "Not moved.") : "Set a start/finish first.";
+  edRuns(t, list);
+}
+function edClock(ms) { return ms === null || ms === undefined ? "—" : lapTimeText(ms); }
+function edRuns(t, list) {
+  const box = $("edRuns");
+  const sel = list.find((l) => l.key === ed.sel);
+  if (!sel || !ed.base) { box.innerHTML = ""; return; }
+  const stage = isStage(t);
+  const before = nudgeLines({obj: ed.base, venue: t.venue}, ed.ref), after = nudgeLines(t, ed.ref);
+  const split = /^s(\d+)$/.exec(sel.key);
+  const rows = [];
+  for (const l of ed.logs) {
+    if (!l.fixes) continue;
+    const a = nudgeRuns(l.fixes, before, stage), b = nudgeRuns(l.fixes, after, stage);
+    const label = ed.logs.length > 1 ? esc(l.file.replace(/\.vbo$/, "").replace(/^\d{8}_/, "")) + " " : "";
+    for (const r of b) {
+      const old = a.find((x) => x.lap === r.lap);
+      const was = old ? (split ? old.splits[+split[1]] : old.ms) : null;
+      const now = split ? r.splits[+split[1]] : r.ms;
+      const diff = was !== null && was !== undefined && now !== null && now !== undefined && now !== was
+        ? ` <span class="note">${now > was ? "+" : "−"}${(Math.abs(now - was) / 1000).toFixed(3)}</span>` : "";
+      rows.push(`<div class="row"><span class="time">${label}${stage ? "Run" : "Lap"} ${r.lap}</span><span>${edClock(was)} → <b>${edClock(now)}</b>${diff}</span></div>`);
+    }
+  }
+  box.innerHTML = rows.length
+    ? `<p class="note">${split ? sel.name + " time into each " + (stage ? "run" : "lap") : (stage ? "Run" : "Lap") + " times"}, with the saved lines → with the moved line:</p>` + rows.join("")
+    : `<p class="note">No timed runs in this log.</p>`;
+}
+// The direction a line with no heading is moved along: the path's, where it crosses
+function edFallback(line) {
+  for (const l of ed.logs) {
+    if (!l.fixes) continue;
+    const h = pathHeadingDeg(sliceNear(l.fixes, line.x, line.y), line, line.hw);
+    if (h !== null) return h;
+  }
+  return null;
+}
+function edNudge(metres) {
+  const t = findTrack(ed.db, ed.trackId);
+  const sel = t && edNudgeable(t).find((l) => l.key === ed.sel);
+  if (!sel) return;
+  const pt = sel.pt;
+  if (!ed.orig[sel.key]) ed.orig[sel.key] = {lat: pt.lat, lon: pt.lon};
+  const total = Math.round(((ed.moved[sel.key] || 0) + metres) * 100) / 100;
+  const o = ed.orig[sel.key];
+  const q = toLocal(o.lat, o.lon, ed.ref.lat, ed.ref.lon);
+  const line = {x: q.x, y: q.y, heading: typeof pt.heading === "number" ? pt.heading : null, hw: pt.radius || (isKart(t) ? 8 : 15)};
+  if (!nudgeShift(line, total, line.heading === null ? edFallback(line) : null)) {
+    delete ed.orig[sel.key];
+    edMsg("The path doesn't cross this line, so there is no direction to move it along. Move it onto the path first.", true);
+    return;
+  }
+  const p = fromLocal(line.x, line.y, ed.ref.lat, ed.ref.lon);
+  pt.lat = round7(p.lat);
+  pt.lon = round7(p.lon);
+  ed.moved[sel.key] = total;
+  if (sel.key === "sf" && Array.isArray(t.obj.sectors) && t.obj.sectors.length) {
+    delete t.obj.sectors;
+    edMsg("The corner sectors go with the old line: Track Rat makes them again from the next clean lap.");
+  }
+  edChanged(true);
+}
+$("edBack").addEventListener("click", () => edNudge(-NUDGE_STEP_M));
+$("edFwd").addEventListener("click", () => edNudge(NUDGE_STEP_M));
+$("edNudgeReset").addEventListener("click", () => {
+  const t = findTrack(ed.db, ed.trackId);
+  const sel = t && edNudgeable(t).find((l) => l.key === ed.sel), o = sel && ed.orig[sel.key];
+  if (!o) return;
+  sel.pt.lat = o.lat;
+  sel.pt.lon = o.lon;
+  delete ed.moved[sel.key];
+  delete ed.orig[sel.key];
+  edChanged(true);
+});
+$("edSel").addEventListener("change", () => { ed.sel = $("edSel").value; edLines(); });
+// Other runs of the same day at this track, to see the move on all of them
+$("edDay").addEventListener("click", async () => {
+  if (!ed.file) return;
+  edMsg("Loading the day's other runs…");
+  let files;
+  try { files = (await data.list()).files; } catch (e) { edMsg("Couldn't list the logs.", true); return; }
+  const day = ed.file.slice(0, 8);
+  const others = files.filter((f) => f.fs === "sd" && f.name.endsWith(".vbo") && f.name.startsWith(day) && !/_freeroam(_\d+)?\.vbo$/.test(f.name) &&
+                                     !ed.logs.some((l) => l.file === f.name)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 12);
+  let added = 0;
+  for (const f of others) {
+    try {
+      const log = parseVbo((await data.text({fs: "sd", name: f.name})) || "");
+      const tr = log.comments["Track"] || "";
+      if (!log.points.length || !(tr === ed.trackId || ed.trackId.startsWith(tr + "."))) continue;
+      ed.logs.push({file: f.name, log, fixes: nudgeFixes(log.points, ed.ref)});
+      added++;
+    } catch (e) { /* skip a log that won't read */ }
+  }
+  edMsg(added ? `Added ${added} more log${added > 1 ? "s" : ""} from the day.` : "No other logs at this track that day.");
+  edLines();
+});
 
 // Saved the way an uploaded tracks.json is: behind the code, then Track Rat restarts to load it
 $("edSave").addEventListener("click", async () => {
@@ -1366,7 +1666,7 @@ $("edSave").addEventListener("click", async () => {
   form.append("tracks", new Blob([JSON.stringify(ed.db, null, 2) + "\n"], {type: "application/json"}), "tracks.json");
   const r = uploadResult(await post("/api/tracks?code=" + encodeURIComponent(code), form));
   edMsg(r.ok ? r.text + " Turn Wi-Fi on again from its menu, then re-time." : r.text, !r.ok);
-  if (r.ok) ed.dirty = false;
+  if (r.ok) { ed.dirty = false; const t = findTrack(ed.db, ed.trackId); if (t) edRebase(t); edLines(); }
   else $("edSave").disabled = false;
 });
 

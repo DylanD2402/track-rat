@@ -54,7 +54,9 @@ if (!cm) {
 const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistance, compareLaps, fasterRuns, season, lapTimeText, gapText," +
                       " channelLabel, unitText, lapChannels, commonChannels, channelAt, channelSeries, ggPoints, sectorDurations, sectorTable, cursorAt, hasLaps, trackGroup};")();
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
-                        " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart};")();
+                        " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart," +
+                        " nudgeShift, sliceNear, crossingsMs, crossingTimeMs, pathHeadingDeg, standingStartHolds, newRunMs, nudgeFixes," +
+                        " nudgeLines, nudgeRuns, alongM};")();
 
 let failures = 0;
 function check(cond, msg) {
@@ -444,6 +446,151 @@ console.log("Wi-Fi page track editor tests");
   check(c.obj.startFinish.radius === 15, "a line's own width is kept");
 }
 
+
+// ---- nudging a line: the JavaScript repeats include/LineNudge.h, with test/test_linenudge.cpp's numbers ----
+console.log("Wi-Fi page line nudge tests");
+{
+  const T0 = 36000000;
+  // Fixes along a polyline at a steady speed, one every 50 ms, from `lead` metres in
+  const along = (way, kmh, lead = 0) => {
+    const out = [], step = kmh / 3.6 * 0.05;
+    let total = 0;
+    for (let i = 1; i < way.length; i++) total += Math.hypot(way[i][0] - way[i - 1][0], way[i][1] - way[i - 1][1]);
+    for (let d = lead, n = 0; d <= total + 1e-9; d += step, n++) {
+      let left = d;
+      for (let i = 1; i < way.length; i++) {
+        const len = Math.hypot(way[i][0] - way[i - 1][0], way[i][1] - way[i - 1][1]);
+        if (left <= len || i + 1 === way.length) {
+          const f = left / len;
+          out.push({x: way[i - 1][0] + f * (way[i][0] - way[i - 1][0]), y: way[i - 1][1] + f * (way[i][1] - way[i - 1][1]), kmh, lap: 0, joined: out.length > 0});
+          break;
+        }
+        left -= len;
+      }
+    }
+    return out.map((f, i) => Object.assign(f, {ms: T0 + i * 50}));
+  };
+  const line = (x, y, heading = null) => ({x, y, heading, hw: 10});
+  const shifted = (l, m) => { const c = Object.assign({}, l); ED.nudgeShift(c, m); return c; };
+  const near = (a, b, tol, msg) => check(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+  const within = (a, b, tol, msg) => check(a !== null && Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+
+  // Straight east at 90 km/h: start at x = 0, finish at x = 600, a 24 s run
+  const all = along([[-100.3, 0], [700, 0]], 90);
+  const start = line(0, 0, 90), fin = line(600, 0, 90);
+  const sa = ED.sliceNear(all, start.x, start.y), sb = ED.sliceNear(all, fin.x, fin.y);
+  check(sa.length < 120 && sa.length > 40 && sb.length < 120, `slices are small: ${sa.length}, ${sb.length} of ${all.length}`);
+  const t0 = ED.crossingTimeMs(sa, start, 10), t1 = ED.crossingTimeMs(sb, fin, 10);
+  within(ED.newRunMs(t0, t1), 24000, 1, "a 24 s run");
+  check(ED.crossingTimeMs(all, fin, 10) === t1, "a slice finds what the whole log does");
+  within(ED.newRunMs(t0, ED.crossingTimeMs(sb, shifted(fin, 0.5), 10)), 24020, 1, "finish +0.5 m adds 20 ms");
+  within(ED.newRunMs(t0, ED.crossingTimeMs(sb, shifted(fin, -1.5), 10)), 23940, 1, "finish -1.5 m takes 60 ms off");
+  within(ED.newRunMs(ED.crossingTimeMs(sa, shifted(start, 0.5), 10), t1), 23980, 1, "start +0.5 m takes 20 ms off");
+  check(ED.newRunMs(t0, t1, false, null, 30000) === null, "under the minimum");
+  check(ED.newRunMs(null, t1) === null && ED.newRunMs(t0, null) === null, "a missing crossing");
+
+  // A line moved past the end of the slice, and crossings between stretches that aren't joined
+  const s30 = ED.sliceNear(all, 600, 0, 30);
+  check(ED.crossingTimeMs(s30, shifted(fin, 100), 10) === null, "past the end of the slice");
+  check(ED.crossingTimeMs(s30, shifted(fin, -200), 10) === null, "before its start");
+  check(ED.crossingTimeMs(s30, shifted(fin, 20), 10) !== null, "inside it");
+  const two = [{x: -2, y: 0, ms: T0, kmh: 50, joined: false}, {x: 2, y: 0, ms: T0 + 50, kmh: 50, joined: false}];
+  check(ED.crossingTimeMs(two, line(0, 0), 10) === null, "not joined");
+  two[1].joined = true;
+  check(ED.crossingTimeMs(two, line(0, 0), 10) === T0 + 25, "joined: halfway");
+  two[1].ms = T0 + 2001;
+  check(ED.crossingTimeMs(two, line(0, 0), 10) === null, "a dropout");
+  two[1].ms = T0 + 50;
+  two[0].kmh = two[1].kmh = 1;
+  check(ED.crossingTimeMs(two, line(0, 0), 10) === null, "too slow to count");
+  const big = Array.from({length: 200}, (_, i) => ({x: i * 10, y: 0, ms: T0 + i * 50, kmh: 50}));
+  const sl = ED.sliceNear(big, 500, 0, 20);
+  check(sl.length === 7 && !sl[0].joined && sl[1].joined && sl[6].joined, "slice of " + sl.length + ", the first not joined");
+
+  // Headings: the right way only; none counts either way; shifting along any heading
+  const east = along([[-100.3, 0], [100, 0]], 90), west = along([[100.3, 0], [-100, 0]], 90);
+  check(ED.crossingTimeMs(east, start, 10) !== null && ED.crossingTimeMs(west, start, 10) === null, "the wrong way doesn't count");
+  check(ED.crossingTimeMs(west, line(0, 0), 10) !== null && ED.crossingTimeMs(east, line(0, 0), 10) !== null, "no heading: either way");
+  let n = line(10, 20, 0);
+  ED.nudgeShift(n, 2);
+  near(n.x, 10, 1e-9, "north keeps x"); near(n.y, 22, 1e-9, "north");
+  n = line(0, 0, 180);
+  ED.nudgeShift(n, 1);
+  near(n.y, -1, 1e-9, "south: 1 m on is 1 m south");
+  n = line(0, 0, 45);
+  ED.nudgeShift(n, -1);
+  near(n.x, -Math.sqrt(0.5), 1e-9, "earlier on a diagonal, x"); near(n.y, -Math.sqrt(0.5), 1e-9, "earlier on a diagonal, y");
+  near(ED.alongM(n, 5, 5), Math.hypot(5, 5) + 1, 1e-9, "metres along the heading");
+  const free = line(5, 5);
+  check(!ED.nudgeShift(free, 1) && free.x === 5 && free.y === 5, "no heading and no fallback: unmoved");
+  near(ED.pathHeadingDeg(east, line(0, 0), 10), 90, 0.01, "the path crosses heading east");
+  near(ED.pathHeadingDeg(west, line(0, 0), 10), 270, 0.01, "or west");
+  check(ED.pathHeadingDeg(east, line(0, 500), 10) === null, "no crossing, no direction");
+  const nh = line(0, 0);
+  check(ED.nudgeShift(nh, 0.5, 90) && Math.abs(nh.x - 0.5) < 1e-9 && nh.heading === null, "moved along the path's direction, still no heading");
+  check(ED.crossingTimeMs(west, nh, 10) !== null, "either way still");
+
+  // Standing start: the car stands 0.4 m behind the line for 2 s, then 4 m/s^2 up to 90 km/h
+  {
+    const path = [];
+    let x = -0.4, v = 0;
+    for (let i = 0; i < 40; i++) path.push({x, y: 0, kmh: 0});
+    while (x < 450) { v = Math.min(25, v + 0.2); x += v * 0.05; path.push({x, y: 0, kmh: v * 3.6}); }
+    const fx = path.map((f, i) => Object.assign(f, {ms: T0 + i * 50, lap: 0}));
+    let moveOff = null, stood = null;
+    for (let i = 0; i < fx.length && fx[i].kmh < 5; i++) {
+      if (fx[i].kmh < 1.5) moveOff = fx[i].ms;
+      if (fx[i].kmh < 3) stood = fx[i];
+    }
+    const st = line(0, 0, 90), fn = line(300, 0, 90);
+    const ssa = ED.sliceNear(fx, st.x, st.y), tFin = ED.crossingTimeMs(ED.sliceNear(fx, fn.x, fn.y), fn, 10);
+    for (const [dx, want, standing] of [[0, 15016, true], [-0.5, 15016, true], [0.5, 15016, true], [3, 13837, false]]) {
+      const s = shifted(st, dx), holds = ED.standingStartHolds(stood, s);
+      check(holds === standing, `start ${dx} m: standing start ${holds}`);
+      within(ED.newRunMs(ED.crossingTimeMs(ssa, s, 10), tFin, holds, moveOff), want, 1, `start ${dx} m, as LapTimer`);
+    }
+    check(ED.standingStartHolds(stood, line(0, 0)) && !ED.standingStartHolds(stood, line(50, 0, 90)), "no heading holds; too far doesn't");
+
+    // The same through the page's run finder, from a log with the run's fixes numbered as lap 1
+    const logged = fx.map((f, i) => Object.assign({}, f, {lap: f.kmh >= 5 && f.x < 300.5 ? 1 : 0}));
+    const lines = (dx) => ({sf: shifted(st, dx), fin: fn, splits: [line(150, 0, 90)]});
+    const r0 = ED.nudgeRuns(logged, lines(0), true), r3 = ED.nudgeRuns(logged, lines(3), true), r1 = ED.nudgeRuns(logged, lines(-0.5), true);
+    check(r0.length === 1 && r0[0].lap === 1, "one run");
+    within(r0[0].ms, 15016, 1, "the run, standing start");
+    within(r1[0].ms, 15016, 1, "start 0.5 m earlier: the same");
+    within(r3[0].ms, 13837, 1, "start 3 m on: from the line");
+    check(r0[0].splits[0] > 5000 && r0[0].splits[0] < r0[0].ms, "a split inside the run: " + r0[0].splits[0]);
+  }
+
+  // Laps: a 1000 m loop at 90 km/h (40 s), three times round
+  {
+    const loop = [[-100, 0], [300, 0], [300, 100], [-100, 100], [-100, 0]], way = loop.slice();
+    for (let i = 1; i < 3; i++) way.push(...loop.slice(1));
+    way.push([100, 0]);
+    const fx = along(way, 90, 0.3), sf = line(0, 0, 90), slice = ED.sliceNear(fx, 0, 0);
+    check(slice.length < fx.length / 4, `only the passes near the line: ${slice.length} of ${fx.length}`);
+    const c0 = ED.crossingsMs(slice, sf, 10), c1 = ED.crossingsMs(slice, shifted(sf, 0.5), 10);
+    check(c0.length === 4 && c1.length === 4, "four crossings, three laps");
+    within(c1[0] - c0[0], 20, 1, "the first crossing 20 ms later");
+    within(c1[1] - c0[1], 20, 1, "the second too");
+    within(ED.newRunMs(c0[0], c0[1]), 40000, 1, "a 40 s lap");
+    within(ED.newRunMs(c1[0], c1[1]), 40000, 1, "the same with the line moved: both ends change");
+
+    // The page's lap finder, with lap numbers as the device logs them (lap n runs between crossings)
+    const logged = fx.map((f, i) => Object.assign({}, f, {lap: f.ms < c0[0] ? 0 : f.ms < c0[1] ? 1 : f.ms < c0[2] ? 2 : f.ms < c0[3] ? 3 : 0}));
+    const runs = ED.nudgeRuns(logged, {sf, fin: null, splits: []}, false);
+    check(runs.length === 3, "three laps");
+    check(runs.every((r) => r.ms !== null && Math.abs(r.ms - 40000) <= 1), "each 40 s: " + runs.map((r) => r.ms));
+  }
+
+  // From a track: the page's lines in metres from a reference
+  {
+    const t = ED.findTrack({tracks: [{id: "c", name: "C", type: "stage", startFinish: {lat: 45.001, lon: -75, heading: 90},
+                                      finish: {lat: 45.002, lon: -75, radius: 5, heading: 0}, splits: [{lat: 45.0015, lon: -75}]}]}, "c");
+    const l = ED.nudgeLines(t, {lat: 45, lon: -75});
+    near(l.sf.y, 111.195, 0.01, "start in metres"); check(l.sf.hw === 15 && l.fin.hw === 5 && l.splits[0].heading === null, "widths, no heading");
+  }
+}
 
 // ---- lap comparison ----
 console.log("Wi-Fi page lap comparison tests");

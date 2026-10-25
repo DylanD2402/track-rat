@@ -225,6 +225,12 @@ g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_settings.cpp src/LapTimer.cpp 
 g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_stage.cpp src/LapTimer.cpp src/VboFormat.cpp src/SessionReplay.cpp -o /tmp/stg && /tmp/stg
 ```
 
+`test/test_linenudge.cpp` checks nudging a timing line (`include/LineNudge.h`): on a straight path at 90 km/h moving the finish 0.5 m adds 20 ms, a line moved past the end of the slice of fixes kept near it has no crossing, a line with a heading counts crossings only the right way and one without moves along the path's direction, a standing start's time doesn't change when the start moves (unless the line moves more than a metre ahead of the car, when the run starts at the line), laps change at both ends, and every time agrees with `LapTimer` fed the same fixes. `test/test_web.js` repeats the same paths and numbers against the Wi-Fi page's JavaScript copy of the maths:
+
+```bash
+g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_linenudge.cpp src/LapTimer.cpp -o /tmp/ln && /tmp/ln
+```
+
 `test/test_fetch_tracks.py` checks `tools/fetch_canada_tracks.py`'s karting marks, from a saved OpenStreetMap result (no download): a karting venue and one with only kart raceways are kart tracks, a car circuit with a kart track beside it isn't, and a kart track already in `tracks.json` gets the mark:
 
 ```bash
