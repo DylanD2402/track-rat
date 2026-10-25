@@ -2,6 +2,8 @@
 
 What to build next. It's based on what this hardware can and can't do, how people use lap timers at real events, and what the commercial timers (AiM, Garmin, VBOX, Apex Pro, RaceBox) and phone apps (RaceChrono, Harry's) get right and wrong.
 
+**Now (2026-10-25):** Phases 1 to 6 are built. Next is [Phase 7](#phase-7-the-01-beta-a-release-anyone-can-use), the 0.1 beta release, then the [Phase 8](#phase-8-candidates-for-02-researched-2026-10-25) candidates.
+
 **The idea in one line:** plug it in and drive. Track Rat records everything, times what it can, and lets you fix anything afterwards, so nothing ever needs setting up before you go out.
 
 ## The short version
@@ -367,6 +369,111 @@ Asked for on 2026-10-20.
 - **Cars differ.** Some report throttle only as pedal position (PIDs 0x45 or 0x49), and older non-CAN cars manage only a few readings a second.
 - **Engine data lags** reality by about one Bluetooth round trip (50–100 ms). The timestamps take that into account.
 
+### Phase 7: The 0.1 beta, a release anyone can use
+
+The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys the parts, wires them, installs the firmware from a web page and drives, with no PlatformIO. The first release is **v0.1.0-beta.1**.
+
+| | Today | 0.1 beta |
+|---|---|---|
+| Installing | PlatformIO, `pio run -t upload` and `-t uploadfs` | A web page with an **Install** button (Chrome or Edge, USB cable). PlatformIO stays for developers |
+| Version | A git commit (`8f1b27f`) | `v0.1.0-beta.1` in Settings and on the Wi-Fi page, tagged, with release notes |
+| Downloads | None | Every release: a full image, `trackrat.bin` for SD card and Wi-Fi updates, the file-system image, checksums |
+| README | 1,120 lines, starting with GPS internals | One screen: what it is, screenshots, buy, wire, install, drive, what's been tried. The detail moves to `docs/` |
+| Licences | MIT for the code | Third-party licences listed, OpenStreetMap credit for the track data (ODbL), the Inter font's licence |
+| Contributing | Nothing | CONTRIBUTING, issue forms that ask for the firmware version, a PR template |
+
+**How it's built:** from Phase 7 on, each step is a self-contained brief built by a cheaper agent in its own git worktree: Sonnet at medium effort for code, Haiku at low effort for docs and images. Opus writes the briefs, reviews each diff, runs the firmware build and host tests, and merges. No agent flashes the board.
+
+#### 7.1 Release pipeline and web installer (Sonnet, medium)
+- `tools/make_release.py` builds the firmware and file system, then merges one full image with esptool, into `dist/`:
+  - Offsets: bootloader `0x0`, partitions `0x8000`, boot_app0 `0xe000`, app `0x10000`, LittleFS `0xc90000`. QIO, 80 MHz, 16 MB.
+  - Files: `trackrat-<version>-full.bin`, `trackrat.bin` (the app alone, for the SD card and the Wi-Fi page), `trackrat-<version>-littlefs.bin`, `SHA256SUMS`, and the installer's `manifest.json`.
+  - The same script runs on a PC and in CI.
+- `.github/workflows/release.yml`, on an annotated tag `v*`:
+  - checks out with full history so `git describe` sees the tag;
+  - runs the script;
+  - creates the GitHub Release, marked pre-release when the tag has `-beta` or `-rc`, with that version's CHANGELOG section as the notes;
+  - attaches the files and deploys the installer to GitHub Pages.
+- `site/` (GitHub Pages): an install page using a pinned ESP Web Tools.
+  - It shows the Install button, what you need, and how to get into download mode (hold BOOT, tap RST).
+  - It warns that installing erases sessions saved in the board's internal flash; the SD card is untouched.
+  - It serves the binaries itself: a browser can't load them from GitHub Release links (no CORS headers; WLED mirrors its binaries for the same reason).
+- `ci.yml`: `fetch-depth: 0`, so CI builds show the version too.
+- `docs/flashing.md`: install from the browser, esptool with a downloaded release, SD card and Wi-Fi updates, building from source.
+
+#### 7.2 Screenshots and images (Sonnet, low)
+- `tools/readme_images.py` renders the screens and writes three things:
+  - a chosen dozen at 2x to `docs/images/screens/`;
+  - `docs/images/gallery.png`, a grid;
+  - `docs/images/social-preview.png`, 1280×640 for GitHub's link preview.
+- Make the mock data agree with itself. The track list shows a PB of 1:42.345 while the best lap is 2:42.377.
+- Optional: `docs/images/demo.gif`, a Bench Test lap on the timing and map screens.
+- Dylan: one photo of Track Rat on the dash for the top of the README.
+
+#### 7.3 Wiring diagram (Haiku, low)
+- `docs/images/wiring.svg`: the BE-252Q on the board's UART connector (5 V, GND, TX, RX, either way round), plus the optional button (IO21) and LED bar (IO2).
+
+#### 7.4 Licences, credits and contributor files (Haiku, low)
+- `THIRD_PARTY_LICENSES.md`: each library and its licence (from `.pio/libdeps/*/LICENSE`), the Arduino-ESP32 core, Inter (SIL OFL 1.1), DJI's GPS controller demo (MIT), and DJI's SDK terms.
+- `data/DATA_LICENSE.md`: `tracks.json` comes from OpenStreetMap, © OpenStreetMap contributors, under the ODbL. The same credit goes in the README and the Wi-Fi page's footer.
+- `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (the bug form asks for the firmware version from Settings, the hardware, and a log from `serial_log.py`), `.github/pull_request_template.md`.
+- `CHANGELOG.md` (Keep a Changelog): the 0.1.0-beta.1 entry, grouped by area, with what hasn't been tried on hardware yet (DJI camera, RaceChrono DIY profile, IMU, CAN).
+
+#### 7.5 A one-screen README and docs/ (Sonnet, medium; after 7.1 to 7.4)
+- The new README top, in order:
+  - name and one line: an open-source GPS lap timer you build for about $50; offline, no app, no subscription;
+  - badges: CI, latest release, licence, beta;
+  - the photo or the gallery;
+  - eight bullets on what it does;
+  - **Build one:** parts with rough prices, and the wiring diagram;
+  - **Install:** the installer first, then download or build from source;
+  - **First drive:** five steps;
+  - **Works with:** Circuit Tools, RaceRender, RaceChrono, Harry's LapTimer, TrackAddict, the DJI Osmo Action, Bluetooth OBD-II adapters;
+  - **How accurate:** 20 Hz, crossings timed between fixes, about ±0.01–0.03 s per lap with open sky;
+  - **Status:** beta, with a table of what's been tried on hardware;
+  - links to the docs, the licence and the credits.
+- Everything else moves to `docs/` with its wording unchanged, and every internal link keeps working:
+  - `user-guide.md`
+  - `hardware.md`, including the optional add-ons
+  - `phone-and-video.md`
+  - `flashing.md`
+  - `development.md`: building, configuration, tests, layout, screens
+
+#### 7.6 Ship it (Opus and Dylan)
+- Dylan, once: GitHub → Settings → Pages → Source: **GitHub Actions**, and the repo's About description, website and topics.
+- Tag `v0.1.0-beta.1` (annotated) and push it. Check the release, its files and the install page.
+- Dylan: install from the web page, check Settings shows `v0.1.0-beta.1`, and drive.
+- Delete the stale `claude/deep-dive-cleanup` and `claude/inter-ui-refresh` branches on GitHub (with Dylan's OK).
+
+**Order:** 7.1 to 7.4 together (they touch different files), then 7.5, then 7.6.
+
+### Phase 8: Candidates for 0.2 (researched 2026-10-25)
+
+Ranked by value for the effort. Each "needs" is beyond the parts Track Rat already uses.
+
+| # | Feature | Why | Needs | Size | Built by |
+|---|---|---|---|---|---|
+| 1 | **Analysis in the browser:** speed and delta against distance, two laps on the map, sectors, a friction circle. On the Wi-Fi page and on the project website, which opens a `.vbo` from your PC without uploading it | Review at the track with no PC software. The website also lets anyone try Track Rat on sample sessions | Nothing | L | Sonnet, medium (2–3 briefs) |
+| 2 | **Tracks worldwide** from OpenStreetMap: the Canada fetch generalised to any country (US, UK, Europe, Australia), maps simplified to fit | Auto-detection everywhere, not just Canada. Commercial timers advertise 1,000–4,000 tracks | Nothing | M | Sonnet, medium |
+| 3 | **Drag-race tree** in Performance: staging, ambers or a pro tree, reaction time, 60 ft, red light | Turns Performance into a drag-strip tool | Nothing | M | Sonnet, medium |
+| 4 | **Beeps:** a lap beep (higher when faster), PB chime, overheat alarm, the drag tree. From a piezo buzzer on a spare pin; the board's own speaker (ES8311 and FM8002E, pins known) is too quiet in a car | Eyes stay on the track | A buzzer, ~$2 | S | Sonnet, low |
+| 5 | **Driver and car profiles:** sessions and PBs per driver and per car | A shared car or a club unit | Nothing | S | Sonnet, low |
+| 6 | **Someone else's reference lap:** load a friend's or a coach's `.vbo` on the Wi-Fi page and drive against it | The quickest way to find time | Nothing | M | Sonnet, medium |
+| 7 | **Conditions quick-picks:** dry, damp or wet; tyres; temperature; saved with the session | Days become comparable | Nothing | S | Haiku, low |
+| 8 | **Share learned tracks:** export and import a track file on the Wi-Fi page | Tracks stop being stuck on one unit | Nothing | S | Sonnet, low |
+| 9 | **Heart rate** from a Bluetooth chest strap (standard service 0x180D), logged and in the overlay | Karting and endurance drivers use it | A strap | S | Sonnet, low |
+| 10 | **GoPro HERO9 and later:** recording starts and stops with the sessions over Bluetooth (Open GoPro), like the DJI camera | Most track-day cameras are GoPros | A GoPro to test | M | Sonnet, medium |
+| 11 | **Tyre pressures and temperatures** from Bluetooth valve-cap sensors. Formats differ by brand: buy a set, record its broadcasts, then decode | Pressures matter for every session | Sensors, ~$20–30 | M | Sonnet, medium |
+| 12 | **A Bluetooth button on the wheel** for the SYNC flash, a note, or ending the session | No reaching for the screen | A clicker, ~$5 (bonding varies) | S–M | Sonnet, low |
+| 13 | **Update the Wi-Fi page and track list without a PC:** the Wi-Fi page and the SD card also take the file-system image | Today only the app updates that way | Nothing | S | Sonnet, low |
+
+**Looked at, not worth it:**
+- **A dual-band GPS swap.** No small dual-band module manages 20 Hz (the u-blox F10 and Quectel LC29H top out at 10 Hz), and the BE-252Q's 20 Hz already matters more for timing.
+- **Voice over Bluetooth LE Audio.** The ESP32-S3 doesn't support it.
+- **A live view for the crew.** Wi-Fi won't reach the pits.
+
+Phase 8 starts after the 0.1 beta ships, so its README changes don't collide with 7.5.
+
 ## Not planned, and why
 
 - **Video recording on Track Rat.** No camera input or video encoder. Cameras and phones do it better, so Phase 6 helps them instead: Track Rat feeds its GPS into an Osmo Action's video, starts and stops it with each session, and feeds GPS and engine data to RaceChrono on a phone.
@@ -392,7 +499,6 @@ Two habits that will pay off:
 ## Smaller ideas for later
 
 - A stint timer for endurance racing, with a warning before the maximum stint time.
-- Several drivers sharing one unit, each with their own PBs.
 - A shareable image of a session (map, best lap, date) from the Wi-Fi page.
 - Satellite imagery in the track editor when the phone has internet.
 
@@ -441,3 +547,17 @@ Phase 6:
 - [Telemetry Overlay for DJI Action](https://goprotelemetryextractor.com/tools-for-dji-action): GPS only with the remote; $199 one-time
 - [RaceRender 3 features](https://racerender.com/RR3/Features.html): VBO and CSV; editions and limits
 - [RaceChrono Pro on the App Store](https://apps.apple.com/us/app/racechrono-pro/id1129429340): phone video with data overlays, external GPS, linking external camera video
+
+Phases 7 and 8:
+
+- [ESP Web Tools](https://esphome.github.io/esp-web-tools/): install from the browser; the manifest, ESP32-S3 parts, CORS for files on another host
+- [GitHub community: release assets send no CORS headers](https://github.com/orgs/community/discussions/45446), and [WLED's installer](https://install.wled.me), which mirrors its binaries for that reason
+- [esptool: merge-bin and the v5 migration](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/migration-guide.html)
+- [Semantic Versioning](https://semver.org) and [Keep a Changelog](https://keepachangelog.com)
+- [OpenStreetMap attribution guidelines](https://osmfoundation.org/wiki/Licence/Attribution_Guidelines) and [copyright](https://www.openstreetmap.org/copyright): "© OpenStreetMap contributors", ODbL share-alike for the track list
+- [LCDWiki ES3C28P](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display): ES8311 codec and FM8002E amplifier, I2S on IO4–IO8, amplifier enable on IO1, native USB, download mode
+- [u-blox MAX-F10S datasheet](https://mouser.com/datasheet/2/1025/MAX_F10S_DataSheet_UBXDOC_963802114_12732-3502504.pdf) and [Quectel LC29H specification](https://quectel.com/content/uploads/sites/3/2022/06/Quectel_LC29H_GNSS_Specification_V1.2.pdf): dual-band modules top out at 10 Hz
+- [Open GoPro](https://gopro.github.io/OpenGoPro/): Bluetooth control for HERO9 and later
+- [andi38/TPMS](https://github.com/andi38/TPMS): one valve-cap TPMS family's broadcast format; others differ
+- [DovesLapTimer](https://github.com/TheAngryRaven/DovesLapTimer): an open-source Arduino GPS lap timer, for comparison
+- [Garmin Catalyst](https://www.garmin.com/en-AU/blog/?p=4181) and [MyChron 6](https://www.aimshop.com/blogs/lap-timers/mychron-6-lap-timer-the-ultimate-kart-racing-upgrade): what commercial timers lead with
