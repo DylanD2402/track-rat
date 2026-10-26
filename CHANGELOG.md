@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- `tools/fetch_world_tracks.py` builds the world track set (Phase 10) from OpenStreetMap, country by country, as 2-degree tiles (`<lat>/<lon>.json`) plus `index.json`: English names with the local name kept, kart/dirt/drag rules as in the Canada tool, layouts for venues with several circuits, and an estimated start/finish (marked `"estimated": true`) for circuits with a mapped pit lane. Raw Overpass answers are cached, with retries and backoff. The code shared with the Canada tool is now `tools/osm_tracks.py`; the Canada tool works as before.
+
 ## [0.1.1-beta.1] - 2026-10-26
 
 Clean-up and hardening after a full code review ([docs/code-review-0.1.1.md](https://github.com/DylanD2402/track-rat/blob/main/docs/code-review-0.1.1.md)). Install both the firmware and the file system: the Wi-Fi page changed. Firmware older than this is refused by the Wi-Fi page and the SD card; use the web installer or USB for those.
