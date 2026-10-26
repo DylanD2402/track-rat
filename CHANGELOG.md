@@ -7,11 +7,11 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 ### Added
 
 - World tracks from the SD card: tiles at `/world/<lat>/<lon>.json` (2 degree squares, the format of `tracks.json`) are read at the first GPS fix and when you move into another tile, with the next tile too when within about 10 km of an edge. A world track that `tracks.json` also has, or within 1 km of one of your tracks, is hidden. Changing one (start/finish, map, corner sectors) copies it into `tracks.json` first. A start/finish marked `"estimated": true` is timed like any other, and the Ready screen and track list say "Start/finish estimated: check it after a lap" until you set the line. With no card or no `/world` folder nothing changes.
+- `tools/fetch_world_tracks.py` builds the world track set (Phase 10) from OpenStreetMap, country by country, as 2-degree tiles (`<lat>/<lon>.json`) plus `index.json`: English names with the local name kept, kart/dirt/drag rules as in the Canada tool, layouts for venues with several circuits, and an estimated start/finish (marked `"estimated": true`) for circuits with a mapped pit lane. Raw Overpass answers are cached, with retries and backoff. The code shared with the Canada tool is now `tools/osm_tracks.py`; the Canada tool works as before.
 
 ### Fixed
 
 - Accented letters (track names like Autodrome La Chaudière, driver and car names) no longer drop out on the display: letters the fonts cannot draw are shown as plain ones (é as e, ß as ss), and curly quotes as straight ones.
-- `tools/fetch_world_tracks.py` builds the world track set (Phase 10) from OpenStreetMap, country by country, as 2-degree tiles (`<lat>/<lon>.json`) plus `index.json`: English names with the local name kept, kart/dirt/drag rules as in the Canada tool, layouts for venues with several circuits, and an estimated start/finish (marked `"estimated": true`) for circuits with a mapped pit lane. Raw Overpass answers are cached, with retries and backoff. The code shared with the Canada tool is now `tools/osm_tracks.py`; the Canada tool works as before.
 
 ## [0.1.1-beta.1] - 2026-10-26
 
