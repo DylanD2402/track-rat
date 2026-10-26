@@ -889,6 +889,41 @@ static void testSplitBeforeIgnoredLine() {
   printf("  split before a line crossed too soon: just the split\n");
 }
 
+// A car that leaves the reference (pit lane, out lap) and rejoins it: the whole-lap search runs at most once a
+// second, so the live diff is back within about a second, and at the right place on the lap.
+static void testRejoinReference() {
+  LapTimer lt;
+  lt.begin({SF_LAT, SF_LON, 15}, {});
+  const double v = 30.0, dt = 0.05;  // 20 Hz
+  double angle = -0.2, t = 0, rejoinedAt = -1, wrong = 0;
+  bool away = false, wasAway = false;
+  double awayStart = 0;
+  int32_t atAway = 0;
+  while (lt.lapCount() < 2 && t < 200000) {
+    const bool lap2 = lt.lapCount() == 1;
+    const double d = angle - 2 * M_PI;  // radians into lap 2
+    away = lap2 && d > 1.0 && d < 1.55;  // 100 m outside the line for a few seconds
+    if (away && !wasAway) awayStart = t;
+    double lat, lon;
+    const double r = away ? R + 100.0 : R;
+    lat = SF_LAT + r * sin(angle) / 111194.93;
+    lon = SF_LON + (r * cos(angle) - R) / (111194.93 * cos(SF_LAT * geo::DEG2RAD));
+    lt.onFix(lat, lon, v * 3.6f, (uint32_t)t, (uint32_t)t);
+    if (away) atAway = lt.liveDeltaMs();
+    if (wasAway && !away) rejoinedAt = t;
+    if (!away && rejoinedAt >= 0 && t - rejoinedAt <= 1200 && lt.liveDeltaMs() != NO_DELTA && wrong == 0) {
+      wrong = t - rejoinedAt + 1;  // ms to the first diff after rejoining
+      CHECK(labs(lt.liveDeltaMs()) < 150, "diff after rejoining: %d ms", lt.liveDeltaMs());
+    }
+    wasAway = away;
+    angle += v * dt / R;
+    t += dt * 1000;
+  }
+  CHECK(awayStart > 0 && atAway == NO_DELTA, "no diff while off the reference");
+  CHECK(wrong > 0, "the diff came back within 1.2 s of rejoining");
+  printf("  rejoining the reference after leaving it: diff back after %.0f ms\n", wrong - 1);
+}
+
 int main() {
   printf("LapTimer tests\n");
   testConstantSpeed(10, 3600000);
@@ -912,6 +947,7 @@ int main() {
   testSplitAfterLapOneStart();
   testSeveralCrossingsOneSegment();
   testSplitBeforeIgnoredLine();
+  testRejoinReference();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

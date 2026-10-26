@@ -105,7 +105,7 @@ int main() {
     Filter fl;
     CHECK(!fl.due(ID_RPM, 0), "nothing before the app's filter");
     const uint8_t allowAll[] = {1, 0x00, 0x64};  // every 100 ms
-    CHECK(fl.apply(allowAll, 3) && fl.heardFromApp(), "allow all");
+    CHECK(fl.apply(allowAll, 3), "allow all");
     CHECK(fl.due(ID_RPM, 1000) && !fl.due(ID_RPM, 1050) && fl.due(ID_RPM, 1100), "at its interval");
     CHECK(fl.due(ID_COOLANT, 1050), "each ID on its own clock");
     const uint8_t deny[] = {0};
@@ -123,7 +123,7 @@ int main() {
       fl.apply(c, 7);
     }
     fl.reset();
-    CHECK(!fl.heardFromApp() && !fl.due(ID_COOLANT, 9000), "reset when the app goes");
+    CHECK(!fl.due(ID_COOLANT, 9000), "reset when the app goes");
   }
 
   if (failures) {

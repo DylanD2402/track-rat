@@ -159,7 +159,6 @@ public:
   int bestLapIndex() const { return bestIndex; }  // the best clean lap
   uint32_t averageLapMs() const;  // of the untagged laps; 0 if there are none
   size_t untaggedLapCount() const;
-  uint8_t currentLapTags() const { return running ? lapTags : 0; }  // so far (pit and suspect only)
   float sessionMaxSpeedKmh() const { return sessionMaxSpeed; }
 
   // The engine's temperatures at the next fix (call just before onFix), for the
@@ -176,7 +175,6 @@ public:
   }
   float sessionCoolantMaxC() const { return sessionCoolantMax; }  // NO_TEMP: never read
   float sessionOilMaxC() const { return sessionOilMax; }
-  float currentLapCoolantMaxC() const { return running ? lapCoolantMax : NO_TEMP; }
 
   // Live gap to the reference lap at the same point on track (+ = slower).
   // NO_DELTA before there is one, or when off its line.
@@ -228,6 +226,9 @@ private:
   bool matchedStored = false;  // the last match was against storedTrace
   const std::vector<TracePt>& activeTrace() const;
   size_t matchIdx = 0;
+  static const int32_t FULL_SEARCH_MS = 1000;  // the whole-lap search, when off the reference
+  int32_t fullSearchAt = 0;                      // lap time of the last one
+  bool fullSearchValid = false;
   int32_t liveDelta = NO_DELTA;
 
   TrackPoint sf = {0, 0, 0};

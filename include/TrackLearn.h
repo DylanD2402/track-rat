@@ -148,7 +148,7 @@ private:
     if (!longEnough(B, now) || !longEnough(A, B)) return false;
     const float lap1 = B.dist - A.dist, lap2 = now.dist - B.dist;
     if (fabsf(lap1 - lap2) > LEARN_SAME_LOOP * (lap1 > lap2 ? lap1 : lap2)) return false;  // different loops
-    if (retraced(passes[1].i, passes[0].i)) return false;
+    if (retracedCached(passes[1].i, passes[0].i)) return false;
     if (out) {
       geo::fromLocal(A.x, A.y, refLat, refLon, out->lat, out->lon);
       out->headingDeg = A.heading;
@@ -164,6 +164,22 @@ private:
   static bool longEnough(const Pt& from, const Pt& to) {
     return to.t - from.t >= LEARN_MIN_LOOP_MS && to.dist - from.dist >= LEARN_MIN_LOOP_M;
   }
+
+  // retraced() for the same two passes as the last "yes": every new point near them asks again, and the answer
+  // doesn't change (a pass is the points within PASS_GAP_MS), so the search runs once per pass pair. Only a "yes"
+  // is kept: a "no" ends the search, as the loop is found.
+  bool retracedCached(size_t from, size_t to) const {
+    const uint32_t tf = pts[from].t, tt = pts[to].t;
+    if (retracedYes && samePass(tf, retracedFromT) && samePass(tt, retracedToT)) return true;
+    if (!retraced(from, to)) return false;
+    retracedYes = true;
+    retracedFromT = tf;
+    retracedToT = tt;
+    return true;
+  }
+  static bool samePass(uint32_t a, uint32_t b) { return (a > b ? a - b : b - a) < PASS_GAP_MS; }
+  mutable bool retracedYes = false;
+  mutable uint32_t retracedFromT = 0, retracedToT = 0;
 
   // Out along a road and back the same way (a hill climb and the drive down,
   // runs up and down a strip) passes each point twice, but it isn't a track:

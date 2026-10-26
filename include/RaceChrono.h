@@ -180,7 +180,6 @@ public:
       }
     return false;
   }
-  bool heardFromApp() const { return heard; }
   void reset() { *this = Filter(); }  // the app disconnected
 
 private:

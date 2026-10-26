@@ -12,6 +12,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 - The LED and speaker features, which were never wired or planned for the board: the WS2812 LED delta bar (`LED_BAR_*`), the board's own LED showing the delta (`BOARD_LED_*`), the shift light (`SHIFT_LIGHT_*`), the LED part of the overheat warning (the full-screen red and yellow card stays), voice notes (`VOICE_NOTES_ENABLED`) and the planned beeps. The big button stays. Old saved settings still load.
 
+### Fixed
+
+- GPS and timing speed-ups: the fix queue holds 256 fixes (12 s at 20 Hz, in PSRAM) instead of 64, so a long stall no longer drops the oldest ones; the GPS pins and baud rate are remembered and tried first, and each listen ends at the first valid data, so start-up finds the GPS sooner; off the reference lap (pit lane, out lap) the whole-lap search runs once a second, not on every fix; the loop finder repeats its out-and-back check once per pass; the I2C bus gives up after 5 ms instead of 50 ms when it's stuck. Lap times are unchanged.
+
 ## [0.1.0-beta.3] - 2026-10-25
 
 ### Added
