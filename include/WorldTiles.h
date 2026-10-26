@@ -79,6 +79,25 @@ inline bool needReload(const std::vector<Tile>& loaded, double lat, double lon) 
   return false;
 }
 
+// Distance in metres for ranking, from the flat-earth approximation (one cos, no haversine: the board's doubles
+// are slow). Good to a fraction of a percent over the hundreds of km a tile spans.
+inline double approxDistM(double lat1, double lon1, double lat2, double lon2) {
+  const double dLat = (lat2 - lat1) * geo::DEG2RAD;
+  double dLon = lon2 - lon1;
+  if (dLon > 180.0) dLon -= 360.0;
+  if (dLon < -180.0) dLon += 360.0;
+  dLon *= geo::DEG2RAD * cos((lat1 + lat2) * 0.5 * geo::DEG2RAD);
+  return geo::EARTH_RADIUS_M * sqrt(dLat * dLat + dLon * dLon);
+}
+
+// Index of the largest distance (-1 if none): the world track to drop when more are held than there is room for
+inline int farthest(const std::vector<double>& dist) {
+  int best = -1;
+  for (size_t i = 0; i < dist.size(); i++)
+    if (best < 0 || dist[i] > dist[best]) best = (int)i;
+  return best;
+}
+
 // Somewhere that belongs to one of the user's tracks (its centre, and its start/finish if it has one)
 struct Spot {
   double lat, lon;

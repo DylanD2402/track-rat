@@ -356,8 +356,13 @@ struct WorldEntry {
   size_t extraBytes = 0;
 };
 
-// At most this many world tracks are held at once (each is a few hundred bytes of heap)
-static const size_t MAX_WORLD_TRACKS = 1000;
+// At most this many world tracks are held at once, the nearest to where they were read. Each Track's Strings are
+// small allocations, which land in the internal heap that Bluetooth and Wi-Fi need: about 8 Strings and vectors
+// (id, venueId, name, location, country, layout name, event, the point lists) at roughly 16-32 bytes each plus the
+// Track itself, so an estimated 350-450 bytes of internal heap per world track, 70-90 KB for 200.
+static const size_t MAX_WORLD_TRACKS = 200;
+// The tracks are read again after moving this far, so "nearest" stays near
+static const double WORLD_REFRESH_M = 40000.0;
 
 // Reads a tile a piece at a time (jsontext::ElementSplitter), so a big file is never held whole and one track
 // is parsed at once. `use` gets each track's text and says whether to go on. False if the tile isn't on the card.
@@ -449,10 +454,13 @@ int TrackDatabase::indexOfId(const String& id) const {
 }
 
 bool TrackDatabase::refreshWorld(double lat, double lon) {
-  if (!worldtiles::needReload(worldTiles, lat, lon)) return false;
+  const bool movedFar = !worldTiles.empty() && worldtiles::approxDistM(lat, lon, worldLat, worldLon) > WORLD_REFRESH_M;
+  if (!movedFar && !worldtiles::needReload(worldTiles, lat, lon)) return false;
   const std::vector<worldtiles::Tile> want = worldtiles::tilesNear(lat, lon);
   if (want.empty()) return false;
   const uint32_t startMs = millis();
+  worldLat = lat;
+  worldLon = lon;
   worldTiles = want;  // tried, even if a tile has no file: not tried again until the position leaves them
 
   // What tracks.json (the user's own tracks) hides. Courses are parking-lot events: they hide nothing nearby.
@@ -481,15 +489,12 @@ bool TrackDatabase::refreshWorld(double lat, double lon) {
     }
 
   std::vector<Track> fresh;
+  std::vector<double> freshDist;  // of each, from here: the farthest are dropped when there are too many
   size_t hiddenCount = 0;
   bool full = false, anyTile = false;
   std::vector<Track> entry;
   for (const worldtiles::Tile& tile : want) {
     anyTile |= streamTile(tile, [&](std::string& text) {
-      if (kept + fresh.size() >= MAX_WORLD_TRACKS) {
-        full = true;
-        return false;
-      }
       std::unique_ptr<PsramJsonDocument> doc;
       JsonObject o = parseEntry(text, doc);
       if (o.isNull()) return true;
@@ -503,11 +508,22 @@ bool TrackDatabase::refreshWorld(double lat, double lon) {
         return true;
       }
       have.insert(first.venueId.c_str());
+      const double d = worldtiles::approxDistM(lat, lon, first.centerLat, first.centerLon);
       for (Track& t : entry) {
         t.world = true;
         t.tileLat = tile.lat0;
         t.tileLon = tile.lon0;
         fresh.push_back(std::move(t));
+        freshDist.push_back(d);
+      }
+      while (kept + fresh.size() > MAX_WORLD_TRACKS && !fresh.empty()) {  // over: the farthest venue goes
+        full = true;
+        const String gone = fresh[worldtiles::farthest(freshDist)].venueId;
+        for (size_t i = fresh.size(); i-- > 0;)
+          if (fresh[i].venueId == gone) {
+            fresh.erase(fresh.begin() + i);
+            freshDist.erase(freshDist.begin() + i);
+          }
       }
       return true;
     });
@@ -524,7 +540,7 @@ bool TrackDatabase::refreshWorld(double lat, double lon) {
   if (anyTile || removed)
     DEBUG_PRINTF("World: %d tile(s) for %.3f, %.3f: %u track(s) added, %u hidden by tracks.json%s, %u removed (%lu ms)\n",
                  (int)want.size(), lat, lon, (unsigned)added, (unsigned)hiddenCount,
-                 full ? ", list full" : "", (unsigned)removed, (unsigned long)(millis() - startMs));
+                 full ? ", nearest only" : "", (unsigned)removed, (unsigned long)(millis() - startMs));
   return added || removed;
 }
 

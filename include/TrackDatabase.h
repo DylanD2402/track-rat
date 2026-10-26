@@ -173,6 +173,7 @@ private:
   // World tracks: the tiles tried for the last position (even those with no file), and what a world track's
   // edit has to copy into tracks.json
   std::vector<worldtiles::Tile> worldTiles;
+  double worldLat = 0, worldLon = 0;  // where they were read for
   bool readWorldMaps(const std::vector<int>& indices, double refLat, double refLon, std::vector<layout::Lines>& out);
   bool readWorldEntry(const Track& t, WorldEntry& out);
   void adoptWorldVenue(const String& venueId);  // its entry is in tracks.json now: not world any more

@@ -316,7 +316,7 @@ With no card or no `/world` folder, nothing changes.
 
 - **Your tracks win.** A world track is hidden when `tracks.json` has the same id, or one of your tracks (its centre or its start/finish) is within 1 km of it. So your corrected copy of a track replaces the world one.
 - **Changing a world track copies it.** Setting or moving its start/finish, saving its map or corner sectors writes the whole track into `tracks.json` first, then the change. From then on it is your track and the world one is hidden.
-- **Very busy tiles:** at most 1000 world tracks are held at once.
+- **Very busy tiles:** at most the 200 world tracks nearest to you are held at once, and they are read again after you drive 40 km.
 - **Estimated start/finish.** OpenStreetMap doesn't record where the line is, so world tracks with a pit lane carry a guess, a point on the main straight beside it, marked `"estimated": true`. Timing uses it like any other line, but the track list and the Ready screen say "Start/finish estimated: check it after a lap". Look at the first lap, and tap "Set line" at the real line if it is off. Once you set the line, the copy in `tracks.json` no longer says estimated. A track with no pit lane has no line at all and asks you to tap it, as before.
 - **Names:** the English name when OpenStreetMap has one. A name in letters the screen can't draw is shown in plain letters.
 

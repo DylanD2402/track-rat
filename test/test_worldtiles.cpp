@@ -112,6 +112,24 @@ int main() {
   }
   CHECK(shown == 1, "one fixture track left after merging (%d)", shown);
 
+  // Nearest-N: the flat-earth distance agrees with haversine, and the farthest is the one to drop
+  const double hav = geo::distanceM(45.0, -77.0, 45.5, -76.2), apx = approxDistM(45.0, -77.0, 45.5, -76.2);
+  CHECK(fabs(hav - apx) / hav < 0.003, "approx %.0f m vs haversine %.0f m", apx, hav);
+  CHECK(approxDistM(10.0, 179.9, 10.0, -179.9) < 25000.0, "across the date line is near");
+  CHECK(approxDistM(45.0, -77.0, 45.0, -77.0) == 0.0, "same place");
+  CHECK(farthest({}) == -1, "none: -1");
+  CHECK(farthest({5.0, 90.0, 12.0}) == 1, "the farthest of three");
+  {  // 300 tracks on a line, keep the nearest 200 the way refreshWorld does
+    std::vector<double> d;
+    for (int i = 0; i < 300; i++) {
+      d.push_back(approxDistM(45.0, -77.0, 45.0 + ((i * 37) % 300) * 0.001, -77.0));
+      while (d.size() > 200) d.erase(d.begin() + farthest(d));
+    }
+    double worst = 0;
+    for (double x : d) worst = std::max(worst, x);
+    CHECK(d.size() == 200 && worst < 0.2 * 111195.0, "200 kept, all within 22 km (%zu, %.0f)", d.size(), worst);
+  }
+
   if (failures) {
     printf("%d failure(s)\n", failures);
     return 1;
