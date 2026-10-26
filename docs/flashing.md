@@ -6,7 +6,7 @@ Four ways to put the firmware on the board, from easiest to most hands-on.
 
 ## Install from your browser
 
-Go to **[trackrat.me/install](https://trackrat.me/install/)** and press **Install**.
+Go to **[trackrat.ca/install](https://trackrat.ca/install/)** and press **Install**.
 
 - **You need:** Chrome or Edge on a computer (not a phone, not Firefox or Safari), and a USB-C cable that carries data.
 - **Download mode:** if the port list is empty, hold **BOOT**, tap **RST**, then let go of **BOOT**, and try again.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Makes the sample session for the viewer at https://trackrat.me/analyze/.
+Makes the sample session for the viewer at https://trackrat.ca/analyze/.
 
 A simulated car drives Calabogie: an out-lap, three timed laps (one clearly slower) and an
 in-lap, around the map in data/tracks.json. It writes, to site/samples/:

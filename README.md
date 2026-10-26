@@ -1,14 +1,16 @@
-# Track Rat
+<p align="center"><img src="docs/images/brand/logo.png" alt="Track Rat" width="420"></p>
+
+<h1 align="center">Track Rat</h1>
 
 An open-source GPS lap timer you build for about $50. Offline, no app, no subscription.
 
-[![CI](https://github.com/DylanD2402/track-rat/actions/workflows/ci.yml/badge.svg)](https://github.com/DylanD2402/track-rat/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/DylanD2402/track-rat?include_prereleases&sort=semver)](https://github.com/DylanD2402/track-rat/releases) [![Licence](https://img.shields.io/github/license/DylanD2402/track-rat)](LICENSE) ![Status: beta](https://img.shields.io/badge/status-beta-orange)
+[![CI](https://github.com/DylanD2402/track-rat/actions/workflows/ci.yml/badge.svg)](https://github.com/DylanD2402/track-rat/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/DylanD2402/track-rat?include_prereleases&sort=semver)](https://github.com/DylanD2402/track-rat/releases) [![Licence](https://img.shields.io/github/license/DylanD2402/track-rat)](LICENSE) ![Status: beta](https://img.shields.io/badge/status-beta-26B7FF)
 
 ![Track Rat: timing, map and pit debrief screens](docs/images/social-preview.png)
 
 These screenshots are the real display code, rendered on a PC by `tools/render_screens.py`.
 
-More at [trackrat.me](https://trackrat.me/). Try the analysis on a sample session at [trackrat.me/analyze](https://trackrat.me/analyze/).
+Homepage: **[trackrat.ca](https://trackrat.ca/)**. Try the analysis on a sample session at [trackrat.ca/analyze](https://trackrat.ca/analyze/).
 
 ## What it does
 
@@ -51,7 +53,7 @@ Pins, wiring and the optional add-ons are in [docs/hardware.md](docs/hardware.md
 
 ## Install the firmware
 
-**[Install from your browser](https://trackrat.me/install/)**. You need Chrome or Edge and a USB-C data cable. It erases what's saved in the board's internal flash; the SD card is untouched.
+**[Install from your browser](https://trackrat.ca/install/)**. You need Chrome or Edge and a USB-C data cable. It erases what's saved in the board's internal flash; the SD card is untouched.
 
 - Download a release and write it with esptool: [docs/flashing.md](docs/flashing.md#download-a-release-and-use-esptool).
 - Update from the SD card or the Wi-Fi page, no cable: [docs/flashing.md](docs/flashing.md#update-without-a-cable).

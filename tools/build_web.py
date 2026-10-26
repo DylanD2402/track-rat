@@ -7,6 +7,7 @@ PlatformIO pre-build script (extra_scripts in platformio.ini).
 - Copies the page's fonts (web/fonts/*.woff2, Inter, already compressed)
   to data/web/fonts/. The phone has no internet on Track Rat's network, so
   the page can't load fonts from anywhere else.
+- Copies the page's logo (web/logo.png) to data/web/logo.png.
 - Builds Version.cpp with TRACKRAT_VERSION set from `git describe`, shown
   on the page's Device tab. Only that one file is rebuilt when it changes.
 
@@ -58,6 +59,16 @@ def copy_fonts():
             print(f"build_web: fonts/{name} copied")
 
 
+def copy_logo():
+    src, out = os.path.join(ROOT, "web", "logo.png"), os.path.join(ROOT, "data", "web", "logo.png")
+    if not os.path.exists(src):
+        return
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    if not os.path.exists(out) or open(src, "rb").read() != open(out, "rb").read():
+        shutil.copyfile(src, out)
+        print("build_web: logo.png copied")
+
+
 def git_version():
     try:
         out = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT, capture_output=True,
@@ -69,6 +80,7 @@ def git_version():
 
 gzip_web()
 copy_fonts()
+copy_logo()
 
 if env is not None:
     version = git_version()

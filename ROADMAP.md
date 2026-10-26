@@ -445,7 +445,7 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
   - `development.md`: building, configuration, tests, layout, screens
 
 #### 7.6 Ship it (Opus and Dylan)
-**Status: released** (2026-10-25): [v0.1.0-beta.1](https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1), tagged at 780ef7d. Pages is on, the stale branches are deleted, and the installer is deployed by `installer.yml` (a tag can't deploy to github-pages, so it runs from main). The installer is at https://trackrat.me/: the track-rat repo's custom domain, moved from the personal Pages site, with HTTPS enforced. Dylan installed it from the web page onto the board on 2026-10-25, and it worked. Phase 7 is done.
+**Status: released** (2026-10-25): [v0.1.0-beta.1](https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1), tagged at 780ef7d. Pages is on, the stale branches are deleted, and the installer is deployed by `installer.yml` (a tag can't deploy to github-pages, so it runs from main). The installer is at https://trackrat.ca/: the track-rat repo's custom domain, with HTTPS enforced. Dylan installed it from the web page onto the board on 2026-10-25, and it worked. Phase 7 is done.
 - Dylan, once: GitHub → Settings → Pages → Source: **GitHub Actions**, and the repo's About description, website and topics.
 - Tag `v0.1.0-beta.1` (annotated) and push it. Check the release, its files and the install page.
 - Dylan: install from the web page, check Settings shows `v0.1.0-beta.1`, and drive.
@@ -484,19 +484,19 @@ Phase 8 starts after the 0.1 beta ships, so its README changes don't collide wit
 
 | Wave | Step | Built by | Touches |
 |---|---|---|---|
-| 1 | 8.1a The viewer: the Wi-Fi page reads local files, a sample session, and trackrat.me/analyze/ | Sonnet, medium | web/index.html, site/, installer.yml, tools/, test_web.js |
+| 1 | 8.1a The viewer: the Wi-Fi page reads local files, a sample session, and trackrat.ca/analyze/ | Sonnet, medium | web/index.html, site/, installer.yml, tools/, test_web.js |
 | 1 | 8.5a Drivers and cars on the device | Sonnet, medium | firmware, its tests, the screen renders |
 | 2 | 8.1b New views: channel traces, friction circle, sector table, linked cursor | Sonnet, medium | the Compare tab of web/index.html |
 | 2 | 8.5b Drivers and cars on the Wi-Fi page | Sonnet, low | the Settings and Sessions tabs of web/index.html |
 
 #### 8.1 Analysis in the browser: the plan
-**Status: done** (2026-10-25): 8.1a 4c05845 (the viewer, live at https://trackrat.me/analyze/), 8.1b 060e549 (channel traces, friction circle, sector table, shared cursor). Tried in a browser with the sample session; not yet on the board's own page.
+**Status: done** (2026-10-25): 8.1a 4c05845 (the viewer, live at https://trackrat.ca/analyze/), 8.1b 060e549 (channel traces, friction circle, sector table, shared cursor). Tried in a browser with the sample session; not yet on the board's own page.
 The Wi-Fi page already compares two laps: speed and gap against distance, and the map coloured by the faster lap. It also has a season view, all tested in test_web.js. So 8.1 grows that page rather than starting another, and the website uses the same page.
 
 - **8.1a The viewer.** The same web/index.html runs off the board too, in a viewer mode:
   - **Opening files:** the page opens `.vbo` and `.json` files picked or dropped from your PC; nothing is uploaded. The Sessions and Compare tabs work on them, and the board-only tabs (Firmware, Device, Settings, uploads) are hidden.
   - **The sample:** `tools/make_sample_session.py` makes a sample session: a simulated car at Calabogie from tracks.json's map, labelled as simulated.
-  - **The website:** installer.yml publishes the page at **trackrat.me/analyze/**, with its fonts and the sample, and the install page links to it.
+  - **The website:** installer.yml publishes the page at **trackrat.ca/analyze/**, with its fonts and the sample, and the install page links to it.
   - **On the board:** nothing changes there. Font links become relative so both places work.
 - **8.1b New views,** on the board and the website alike:
   - traces of any channel the log has, against distance: RPM, throttle, temperatures, the OBDb car channels (brake pressure, steering), the IMU's g;

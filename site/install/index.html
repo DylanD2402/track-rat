@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Install Track Rat</title>
 <meta name="description" content="Install the Track Rat GPS lap timer firmware from your browser.">
+<link rel="icon" type="image/png" href="../favicon.png">
 <style>
   :root {
     --bg: #000; --fg: #fff; --dim: #9a9a9f; --panel: #151517; --line: #2a2a2d;
-    --green: #34C759; --red: #FF453A;
+    --brand: #26B7FF; --red: #FF453A;
   }
   * { box-sizing: border-box; }
   body {
@@ -17,16 +18,16 @@
   }
   main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
   h1 { font-size: 2rem; margin: 0 0 4px; }
-  h2 { font-size: 1.1rem; margin: 32px 0 8px; color: var(--green); }
+  h2 { font-size: 1.1rem; margin: 32px 0 8px; color: var(--brand); }
   p, li { color: #e6e6e8; }
   .tag { color: var(--dim); margin: 0 0 24px; }
   .version { color: var(--dim); font-size: .9rem; margin-top: 8px; }
-  a { color: var(--green); }
+  a { color: var(--brand); }
   .install { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; text-align: center; }
   .install p { margin: 8px 0 0; }
-  esp-web-install-button { --esp-tools-button-color: #34C759; --esp-tools-button-text-color: #000; }
+  esp-web-install-button { --esp-tools-button-color: #26B7FF; --esp-tools-button-text-color: #000; }
   esp-web-install-button button[slot="activate"] {
-    background: var(--green); color: #000; border: 0; border-radius: 8px;
+    background: var(--brand); color: #000; border: 0; border-radius: 8px;
     font: inherit; font-weight: 600; padding: 12px 28px; cursor: pointer;
   }
   .warn { border: 1px solid var(--red); border-radius: 8px; padding: 12px 16px; margin: 24px 0 0; background: #1c0b0a; }
@@ -38,12 +39,13 @@
   .nav { position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,.92); border-bottom: 1px solid var(--line); }
   .nav-in { max-width: 960px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; flex-wrap: wrap; }
   .brand { color: var(--fg); font-weight: 700; text-decoration: none; }
-  .brand span { color: var(--green); }
+  .brand { display: flex; align-items: center; }
+  .brand img { display: block; height: 26px; width: auto; }
   .nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
   .nav li { margin: 0; }
   .nav ul a { display: block; padding: 8px 12px; border-radius: 8px; color: #e6e6e8; text-decoration: none; font-size: .95rem; }
-  .nav ul a:hover { background: var(--panel); color: var(--green); }
-  .nav ul a[aria-current] { color: var(--green); }
+  .nav ul a:hover { background: var(--panel); color: var(--brand); }
+  .nav ul a[aria-current] { color: var(--brand); }
   .menu-btn { display: none; background: none; border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
   @media (max-width: 720px) {
     .menu-btn { display: block; }
@@ -56,7 +58,7 @@
 </head>
 <body>
 <header class="nav"><div class="nav-in">
-  <a class="brand" href="../">Track <span>Rat</span></a>
+  <a class="brand" href="../"><img src="../assets/logo.png" alt="Track Rat" width="120" height="25"></a>
   <button class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu">Menu</button>
   <ul id="menu">
     <li><a href="../">Home</a></li>

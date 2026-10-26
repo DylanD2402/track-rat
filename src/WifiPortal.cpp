@@ -670,6 +670,9 @@ static void setupRoutes() {
   // only change with a new page, so phones may keep them.
   s.serveStatic("/fonts/", LittleFS, "/web/fonts/").setCacheControl("max-age=86400");
 
+  // The page's logo, copied from web/logo.png by tools/build_web.py
+  s.serveStatic("/logo.png", LittleFS, "/web/logo.png").setCacheControl("max-age=86400");
+
   s.on("/api/info", HTTP_GET, sendInfo);
 
   // Sent a piece at a time (see SessionList). The reply holds the list, so its

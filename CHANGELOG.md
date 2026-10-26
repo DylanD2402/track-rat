@@ -12,20 +12,21 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ### Changed
 
+- The website moved to trackrat.ca, with the new logo and blue accent
 - The menu is now a home screen that leads with what's next. A big **Next up** card picks itself and does the most likely thing in one tap: today's autocross course within 5 km (with "Run 4 next"), else a circuit within 5 km (with its PB), else Drive (Free Roam). Below it are four tiles, **Track day**, **Autocross**, **Drag** and **Drive**, then Wi-Fi and Settings. BOOT goes through them in that order. The circuits list is now Track day, with **+ New circuit** after the last track, and the NEW TRACK screen is gone: a new circuit starts there and a new course in the Autocross hub.
 
 ## [0.1.0-beta.2] - 2026-10-25
 
 ### Added
 
-- trackrat.me: a homepage with menus, the firmware installer at /install/, and the analyser at /analyze/, which opens your session files in any browser (nothing is uploaded), with a simulated sample session.
+- trackrat.ca: a homepage with menus, the firmware installer at /install/, and the analyser at /analyze/, which opens your session files in any browser (nothing is uploaded), with a simulated sample session.
 - Drivers and cars on the device: up to 8 of each, chosen in Settings, with best laps kept for each pair, their names in the session files and on the Ready screen, the car picked by its VIN, and `/api/profiles` for the Wi-Fi page.
 - Drivers and cars on the Wi-Fi page: add, rename, remove and choose them and set a car's VIN from the Settings tab, and see each session's driver and car in the session list.
-- The Wi-Fi page and trackrat.me/analyze Compare tab show RPM, throttle, temperatures, g and car channels against distance, a friction circle, a corner sector table, and a shared cursor across the charts and the map.
+- The Wi-Fi page and trackrat.ca/analyze Compare tab show RPM, throttle, temperatures, g and car channels against distance, a friction circle, a corner sector table, and a shared cursor across the charts and the map.
 
 ### Fixed
 
-- Compare (on the Wi-Fi page and trackrat.me/analyze) now opens Free Roam drives, stages and performance runs: a log with no laps is offered as one "Whole drive", and Free Roam drives have their own group in the track list.
+- Compare (on the Wi-Fi page and trackrat.ca/analyze) now opens Free Roam drives, stages and performance runs: a log with no laps is offered as one "Whole drive", and Free Roam drives have their own group in the track list.
 
 ## [0.1.0-beta.1] - 2026-10-25
 

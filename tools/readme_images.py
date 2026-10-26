@@ -105,11 +105,15 @@ def main():
     W, H = 1280, 640
     s = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(s)
-    title, sub = "Track Rat", "Open-source GPS lap timer \u00b7 offline \u00b7 no app \u00b7 no subscription"
-    ft, fs = font(BOLD, 76), font(REG, 30)
-    for text, f, y, col in ((title, ft, 40, (255, 255, 255)), (sub, fs, 140, (170, 170, 170))):
-        tw = d.textlength(text, font=f)
-        d.text(((W - tw) / 2, y), text, font=f, fill=col)
+    sub = "Open-source GPS lap timer \u00b7 offline \u00b7 no app \u00b7 no subscription"
+    fs = font(REG, 30)
+    # the logo (docs/images/brand/logo.png, blue on transparent), centred at the top
+    logo = Image.open(os.path.join(OUT, "brand", "logo.png")).convert("RGBA")
+    lw = 440
+    logo = logo.resize((lw, round(lw * logo.height / logo.width)), Image.LANCZOS)
+    s.paste(logo, ((W - lw) // 2, 36), logo)
+    tw = d.textlength(sub, font=fs)
+    d.text(((W - tw) / 2, 150), sub, font=fs, fill=(170, 170, 170))
     sw, sh, sgap = 360, 270, 40
     total = 3 * sw + 2 * sgap
     x0, y0 = (W - total) // 2, 270

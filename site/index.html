@@ -7,23 +7,25 @@
 <meta name="description" content="An open-source GPS lap timer you build for about $50. Offline, no app, no subscription.">
 <meta property="og:title" content="Track Rat">
 <meta property="og:description" content="An open-source GPS lap timer you build for about $50.">
-<meta property="og:image" content="https://trackrat.me/assets/social-preview.png">
+<meta property="og:image" content="https://trackrat.ca/assets/social-preview.png">
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
-  :root { --bg: #000; --fg: #fff; --dim: #9a9a9f; --panel: #151517; --line: #2a2a2d; --green: #34C759; }
+  :root { --bg: #000; --fg: #fff; --dim: #9a9a9f; --panel: #151517; --line: #2a2a2d; --brand: #26B7FF; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
     font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  a { color: var(--green); }
+  a { color: var(--brand); }
   .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
   .nav { position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,.92); border-bottom: 1px solid var(--line); }
   .nav-in { max-width: 960px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; flex-wrap: wrap; }
   .brand { color: var(--fg); font-weight: 700; text-decoration: none; }
-  .brand span { color: var(--green); }
+  .brand { display: flex; align-items: center; }
+  .brand img { display: block; height: 26px; width: auto; }
   .nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
   .nav li { margin: 0; }
   .nav ul a { display: block; padding: 8px 12px; border-radius: 8px; color: #e6e6e8; text-decoration: none; font-size: .95rem; }
-  .nav ul a:hover { background: var(--panel); color: var(--green); }
-  .nav ul a[aria-current] { color: var(--green); }
+  .nav ul a:hover { background: var(--panel); color: var(--brand); }
+  .nav ul a[aria-current] { color: var(--brand); }
   .menu-btn { display: none; background: none; border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
   @media (max-width: 720px) {
     .menu-btn { display: block; }
@@ -31,18 +33,18 @@
     .nav ul.open { display: flex; }
   }
   .hero { padding: 48px 0 24px; text-align: center; }
-  h1 { font-size: clamp(2.2rem, 7vw, 3.4rem); margin: 0 0 8px; line-height: 1.1; }
-  h1 span { color: var(--green); }
+  h1 { margin: 0 0 20px; line-height: 0; }
+  h1 .logo { width: 100%; max-width: 420px; height: auto; border: 0; border-radius: 0; }
   .pitch { color: #e6e6e8; font-size: 1.15rem; max-width: 34em; margin: 0 auto 24px; }
-  .hero img { width: 100%; max-width: 860px; height: auto; border-radius: 14px; border: 1px solid var(--line); }
+  .hero > img { width: 100%; max-width: 860px; height: auto; border-radius: 14px; border: 1px solid var(--line); }
   .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 32px; }
-  .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; font-weight: 600; text-decoration: none; border: 1px solid var(--green); color: var(--green); }
-  .btn.primary { background: var(--green); color: #000; }
+  .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; font-weight: 600; text-decoration: none; border: 1px solid var(--brand); color: var(--brand); }
+  .btn.primary { background: var(--brand); color: #000; }
   h2 { font-size: 1.4rem; margin: 48px 0 16px; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
   .card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; color: var(--fg); text-decoration: none; }
-  .card:hover { border-color: var(--green); }
-  .card h3 { margin: 0 0 6px; font-size: 1.1rem; color: var(--green); }
+  .card:hover { border-color: var(--brand); }
+  .card h3 { margin: 0 0 6px; font-size: 1.1rem; color: var(--brand); }
   .card p { margin: 0; color: #cfcfd2; font-size: .95rem; }
   .list { padding-left: 1.3em; }
   .list li { margin: 6px 0; color: #e6e6e8; }
@@ -52,7 +54,7 @@
 </head>
 <body>
 <header class="nav"><div class="nav-in">
-  <a class="brand" href="./">Track <span>Rat</span></a>
+  <a class="brand" href="./"><img src="assets/logo.png" alt="Track Rat" width="120" height="25"></a>
   <button class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu">Menu</button>
   <ul id="menu">
     <li><a href="./" aria-current="page">Home</a></li>
@@ -65,13 +67,13 @@
 </div></header>
 <main class="wrap">
   <section class="hero">
-    <h1>Track <span>Rat</span></h1>
+    <h1><img class="logo" src="assets/logo.png" alt="Track Rat" width="600" height="124"></h1>
     <p class="pitch">An open-source GPS lap timer you build for about $50. Offline, no app, no subscription.</p>
     <div class="btns">
       <a class="btn primary" href="install/">Install the firmware</a>
       <a class="btn" href="analyze/">Try a sample session</a>
     </div>
-    <img src="assets/social-preview.png" alt="Track Rat timing, map and pit debrief screens" width="1280" height="640">
+    <img src="assets/screens.png" alt="Track Rat timing, map and pit debrief screens" width="1200" height="300">
   </section>
 
   <h2>Get started</h2>
