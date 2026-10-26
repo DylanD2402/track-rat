@@ -8,6 +8,8 @@
 #include "LocalTime.h"
 #include "Settings.h"
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
+#include <Preferences.h>
 
 static HardwareSerial& gpsSerial = Serial1;
 
@@ -31,6 +33,16 @@ void GPSHandler::wake() {
 void GPSHandler::begin() {
   // A GPS just woken from standby takes a moment to start talking (setup() has usually taken longer already)
   while (wokeAt && millis() - wokeAt < GPS_WAKE_MS) delay(5);
+  if (fixQueue == fixQueueFallback) {  // (begin() runs once, with the queue empty)
+    GpsFix* big = (GpsFix*)heap_caps_malloc(FIX_QUEUE_LEN * sizeof(GpsFix), MALLOC_CAP_SPIRAM);
+    if (big) {
+      fixQueue = big;
+      queueCap = FIX_QUEUE_LEN;
+      queueHead = queueCount = 0;
+    } else {
+      DEBUG_PRINTF("GPS: no PSRAM for the fix queue - keeping %d fixes\n", FIX_QUEUE_FALLBACK);
+    }
+  }
   gpsSerial.setRxBufferSize(GPS_RX_BUFFER_BYTES);  // rides out SD writes etc. without losing data
   // NAV-PVT silent for 3 fix intervals (at least 1 s) while NMEA arrives = the GPS restarted
   systems = settings::gpsSystems(Settings::get().gpsMode);  // the GPS mode setting, for this whole run
@@ -75,13 +87,13 @@ void GPSHandler::setSimulated(bool on, SimMode mode) {
                                 : mode == SimMode::Launch ? "BENCH TEST - simulated launches" : "BENCH TEST - simulated car");
 }
 
-// Count bytes arriving on a pin in `ms` milliseconds. Bytes arrive (even if
+// Count bytes arriving on a pin for up to `ms` milliseconds, stopping at `enough`. Bytes arrive (even if
 // garbled) at any baud rate, so this finds which pin the GPS TX is wired to.
-static size_t bytesOnPin(int rx, int tx, uint32_t baud, uint32_t ms) {
+static size_t bytesOnPin(int rx, int tx, uint32_t baud, uint32_t ms, size_t enough) {
   gpsSerial.begin(baud, SERIAL_8N1, rx, tx);
   size_t n = 0;
   uint32_t start = millis();
-  while (millis() - start < ms) {
+  while (millis() - start < ms && n < enough) {
     while (gpsSerial.available()) {
       gpsSerial.read();
       n++;
@@ -92,38 +104,76 @@ static size_t bytesOnPin(int rx, int tx, uint32_t baud, uint32_t ms) {
   return n;
 }
 
+// Listen on a pin pair at one baud rate for up to maxMs and say whether valid NMEA or UBX frames arrive,
+// stopping at the second one. A GPS back at its power-up default sends one NMEA burst a second, so a window
+// over 1 s always holds a burst.
+bool GPSHandler::probe(int rx, int tx, uint32_t baud, uint32_t maxMs) {
+  gpsSerial.begin(baud, SERIAL_8N1, rx, tx);
+  TinyGPSPlus probeNmea;
+  UbxParser ubxProbe;
+  uint32_t start = millis();
+  while (millis() - start < maxMs && probeNmea.passedChecksum() < 2 && ubxProbe.framesOk() < 2) {
+    while (gpsSerial.available()) {
+      uint8_t c = gpsSerial.read();
+      probeNmea.encode(c);
+      ubxProbe.feed(c);
+    }
+    delay(5);
+  }
+  gpsSerial.end();
+  const bool nmea = probeNmea.passedChecksum() >= 2;
+  if (!nmea && ubxProbe.framesOk() < 2) return false;
+  rxPin = rx;
+  txPin = tx;
+  baudRate = baud;
+  DEBUG_PRINTF("GPS: detected %s at %lu baud (GPS TX -> GPIO %d, GPS RX -> GPIO %d)\n", nmea ? "NMEA" : "UBX",
+               (unsigned long)baud, rxPin, txPin);
+  return true;
+}
+
+// The pins and baud rate that worked, so the next start-up tries them first. Written only when they change.
+void GPSHandler::rememberPins() {
+  Preferences p;
+  if (!p.begin("gps", false)) return;
+  if (p.getInt("rx", -1) != rxPin || p.getInt("tx", -1) != txPin || p.getUInt("baud", 0) != baudRate) {
+    p.putInt("rx", rxPin);
+    p.putInt("tx", txPin);
+    p.putUInt("baud", baudRate);
+  }
+  p.end();
+}
+
 // Find the pins (the GPS can be on the UART connector or the expansion
 // header, either way round) and then the baud rate. Valid NMEA or UBX
 // frames confirm the baud rate: after the ESP32 resets, a u-blox GPS that
 // stayed powered is still sending NAV-PVT with NMEA turned off.
+// The pins and baud rate of the last run are tried first, and every listen ends at the first valid data.
 bool GPSHandler::detect() {
   const int pairs[][2] = GPS_PIN_PAIRS;
+  {
+    Preferences p;
+    int rx = -1, tx = -1;
+    uint32_t baud = 0;
+    if (p.begin("gps", true)) {
+      rx = p.getInt("rx", -1);
+      tx = p.getInt("tx", -1);
+      baud = p.getUInt("baud", 0);
+      p.end();
+    }
+    bool known = false;  // only pins this build lists
+    for (const auto& pr : pairs) known |= pr[0] == rx && pr[1] == tx;
+    if (known && baud >= 1200 && probe(rx, tx, baud, 1500)) return true;  // already saved: nothing to write
+    if (known) DEBUG_PRINTLN("GPS: not on the remembered pins - searching");
+  }
   for (const auto& pr : pairs) {
-    size_t n = bytesOnPin(pr[0], pr[1], GPS_DEFAULT_BAUD, 1100);  // > 1 s, the slowest NMEA rate
+    size_t n = bytesOnPin(pr[0], pr[1], GPS_DEFAULT_BAUD, 1100, 8);  // > 1 s, the slowest NMEA rate
     DEBUG_PRINTF("GPS: RX=GPIO %d: %u bytes\n", pr[0], (unsigned)n);
     if (n < 8) continue;
 
     const uint32_t bauds[] = {GPS_DEFAULT_BAUD, 38400, 9600, 57600, 230400};
     for (uint32_t b : bauds) {
-      gpsSerial.begin(b, SERIAL_8N1, pr[0], pr[1]);
-      TinyGPSPlus probe;
-      UbxParser ubxProbe;
-      uint32_t start = millis();
-      while (millis() - start < 1500 && probe.passedChecksum() < 2 && ubxProbe.framesOk() < 2) {
-        while (gpsSerial.available()) {
-          uint8_t c = gpsSerial.read();
-          probe.encode(c);
-          ubxProbe.feed(c);
-        }
-        delay(5);
-      }
-      gpsSerial.end();
-      if (probe.passedChecksum() >= 2 || ubxProbe.framesOk() >= 2) {
-        rxPin = pr[0];
-        txPin = pr[1];
-        baudRate = b;
-        DEBUG_PRINTF("GPS: detected %s at %lu baud (GPS TX -> GPIO %d, GPS RX -> GPIO %d)\n",
-                     probe.passedChecksum() >= 2 ? "NMEA" : "UBX", (unsigned long)b, rxPin, txPin);
+      if (probe(pr[0], pr[1], b, 1500)) {
+        rememberPins();
         return true;
       }
     }
@@ -464,19 +514,19 @@ void GPSHandler::countFixForRate(uint32_t now) {
 // Fixes are queued so none are lost if the main loop is briefly busy
 // (drawing, writing to the SD card): every one reaches the lap timer.
 void GPSHandler::queueFix(const GpsFix& f) {
-  if (queueCount == FIX_QUEUE_LEN) {  // full: drop the oldest
-    queueHead = (queueHead + 1) % FIX_QUEUE_LEN;
+  if (queueCount == queueCap) {  // full: drop the oldest
+    queueHead = (queueHead + 1) % queueCap;
     queueCount--;
     droppedFixes++;
   }
-  fixQueue[(queueHead + queueCount) % FIX_QUEUE_LEN] = f;
+  fixQueue[(queueHead + queueCount) % queueCap] = f;
   queueCount++;
 }
 
 bool GPSHandler::takeFix(GpsFix& out) {
   if (queueCount == 0) return false;
   out = fixQueue[queueHead];
-  queueHead = (queueHead + 1) % FIX_QUEUE_LEN;
+  queueHead = (queueHead + 1) % queueCap;
   queueCount--;
   return true;
 }

@@ -18,12 +18,13 @@ void InputManager::begin() {
 
   pinMode(TOUCH_RST, OUTPUT);
   digitalWrite(TOUCH_RST, LOW);
-  delay(10);
+  delay(10);  // the touch chip's reset pulse and its start-up time (about 300 ms) are its datasheet minimums: left as they are
   digitalWrite(TOUCH_RST, HIGH);
   delay(300);
   pinMode(TOUCH_INT, INPUT);
 
   Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
+  Wire.setTimeOut(5);  // ms: a stuck bus costs 5 ms per poll, not the default 50 (touch and IMU share it)
   Wire.beginTransmission(TOUCH_I2C_ADDR);
   touchOk = (Wire.endTransmission() == 0);
   DEBUG_PRINTF("Input: touch controller %s\n", touchOk ? "found" : "NOT found (use BOOT button)");

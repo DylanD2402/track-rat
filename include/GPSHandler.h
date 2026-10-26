@@ -66,8 +66,12 @@ private:
   TinyGPSPlus gps;
   uint32_t baudRate = 0;
   GpsFix last = {};
-  static const int FIX_QUEUE_LEN = 64;  // 3 s at 20 Hz
-  GpsFix fixQueue[FIX_QUEUE_LEN];
+  // 256 fixes (12 s at 20 Hz, more than the UART buffer holds) in PSRAM; 64 here in internal RAM if that fails
+  static const int FIX_QUEUE_FALLBACK = 64;
+  static const int FIX_QUEUE_LEN = 256;
+  GpsFix fixQueueFallback[FIX_QUEUE_FALLBACK];
+  GpsFix* fixQueue = fixQueueFallback;
+  int queueCap = FIX_QUEUE_FALLBACK;
   int queueHead = 0, queueCount = 0;
   uint32_t droppedFixes = 0;
   void queueFix(const GpsFix& f);
@@ -84,6 +88,8 @@ private:
   float rateHz = 0;
 
   bool detect();
+  bool probe(int rx, int tx, uint32_t baud, uint32_t maxMs);
+  void rememberPins();
   int rxPin = -1, txPin = -1;
   uint32_t wokeAt = 0;            // millis() of wake(), 0 if it wasn't called
   // UBX-NAV-AOPSTATUS answers, while standby() waits for AssistNow Autonomous to be idle
