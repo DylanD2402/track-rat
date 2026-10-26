@@ -43,7 +43,7 @@ Prices are approximate. AliExpress or Amazon will have all of it.
 | Beitian BE-252Q GPS | u-blox M10, 20 fixes a second | US$15-25 |
 | microSD card | Sessions and logs (optional but worth having) | varies |
 | USB-C cable, or car USB power | Power, and flashing | varies |
-| LED bar and big button (optional) | Delta at a glance, start and stop without the touchscreen | varies |
+| Big button (optional) | Start and stop without the touchscreen | varies |
 | Bluetooth OBD-II adapter (optional), such as the Veepeak OBDCheck BLE+ | Engine data | about US$30 |
 | IMU, CAN transceiver (optional) | Cornering g, wired engine data | varies |
 
@@ -83,7 +83,7 @@ Version 0.1 is a beta. What's been tried on real hardware:
 |---|---|
 | Yes | Installing from the browser; lap timing and logging on the ES3C28P with the BE-252Q; the Wi-Fi page; a Bluetooth OBD-II adapter (Veepeak OBDCheck BLE+); coolant on screen |
 | Not yet | The DJI Osmo Action remote, the RaceChrono DIY profile, the IMU, CAN |
-| Not yet confirmed | RaceBox Mini mode with phone apps, the LED bar and big button, the battery |
+| Not yet confirmed | RaceBox Mini mode with phone apps, the big button, the battery |
 
 See the [changelog](CHANGELOG.md).
 

@@ -63,11 +63,11 @@ While timing, the screen is built to be read in one glance, top to bottom:
 - **The sector strip** along the bottom: one block per corner sector, filled in as you finish each one. **Purple:** your best ever there. **Green:** your best of the day. **Yellow:** slower. Before a track has corner sectors, the last lap is shown there instead.
 - **Split time:** for 5 s after each split, the split time and its gap to your best lap's split, over the strip.
 
-Colour is never the only signal: the diff's `+` or `−` is drawn large, and the trend bar's direction says the same thing. For red-green colour blindness, the **Delta colours** [setting](#settings) swaps green and red for blue and orange, on the screen and on the LED bar.
+Colour is never the only signal: the diff's `+` or `−` is drawn large, and the trend bar's direction says the same thing. For red-green colour blindness, the **Delta colours** [setting](#settings) swaps green and red for blue and orange.
 
 The **live diff** is how far ahead (`−`) or behind (`+`) the reference lap you are right now, at the same point on track. It appears once there is a reference lap (see Compare with below).
 
-At the line, **the whole screen flashes** the lap time and its gap to the reference for 4 s: purple for a new personal best (PB) at that track, green (blue) for a new best of the day, grey for any other lap. The LED bar flashes the same colour.
+At the line, **the whole screen flashes** the lap time and its gap to the reference for 4 s: purple for a new personal best (PB) at that track, green (blue) for a new best of the day, grey for any other lap.
 
 A tap switches between the timing and map views, moving or not. The "keep holding to end" bar only appears once a press lasts longer than a tap.
 
@@ -177,7 +177,7 @@ The choices a driver makes live in **Settings**, not in the code. Change them on
 | Session length | Off (default), 20, 25 or 30 min | With a length, the timing screens' header counts down the time left in the session instead of counting up |
 | Min lap time | Auto (default), 10 s, 15 s, 30 s | Line crossings sooner than this after the last are ignored (GPS jitter at the line). Auto is 20 s, or 10 s at a kart track. Used from the next session |
 | Kart everywhere | Off (default), on | On: every track is timed as a kart track (8 m lines where `tracks.json` gives no width, the kart minimum lap). Off: only tracks marked `"kind": "kart"`. **Applied at the next restart** |
-| Delta colours | Green / red (default), blue / orange | Ahead and behind on the timing screen and the LED bar, and the best-of-the-day colour. Blue and orange read better with red-green colour blindness |
+| Delta colours | Green / red (default), blue / orange | Ahead and behind on the timing screen, and the best-of-the-day colour. Blue and orange read better with red-green colour blindness |
 | GPS mode | 20 Hz, GPS + Galileo (default); 10 Hz, all systems | 10 Hz uses all four satellite systems: more satellites, half the rate. **Applied at the next restart** |
 | Bluetooth | On (default), off | The RaceBox output for phone apps. Off stops it at once |
 | Bluetooth profile | RaceBox Mini (default), RaceChrono | What the phone sees, one at a time: a RaceBox Mini (most apps), or a RaceChrono DIY device with GPS and engine data. See [RaceChrono with engine data](phone-and-video.md#racechrono-with-engine-data). **Applied at the next restart** |
@@ -328,7 +328,7 @@ Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit
 
 - **Waking:** touch the screen or press BOOT. From backlight-off, the press only turns the screen on. From deep sleep, the board restarts as if just powered on, so it finds the GPS again (out of standby).
 - **Saving:** a session in progress is saved before sleeping, the same as ending it.
-- **Current asleep:** the GPS stays powered while the board sleeps (on battery its 5 V pin is live), so it goes into standby. Before, it kept tracking at about 20 mA, enough to empty a 3000 mAh battery in a week or two. What's left is the board's own draw (the regulator, the battery divider, the screen, the SD card, the RGB LED): not measured yet. A multimeter in series with the battery, USB unplugged, would say.
+- **Current asleep:** the GPS stays powered while the board sleeps (on battery its 5 V pin is live), so it goes into standby. Before, it kept tracking at about 20 mA, enough to empty a 3000 mAh battery in a week or two. What's left is the board's own draw (the regulator, the battery divider, the screen, the SD card): not measured yet. A multimeter in series with the battery, USB unplugged, would say.
 - **Turning it off:** set `AUTO_SLEEP_ENABLED` to `0` in `include/Config.h`.
 
 ## Wi-Fi page
@@ -405,8 +405,6 @@ Keep a note with each session: tyre pressures, the weather, setup changes, what 
 3. To delete a note, clear it and save.
 
 The note is saved next to the session as `<date>_<time>_<track id>_note.json` (`{"note": "..."}`), on the SD card or in flash, wherever the session is. When you download the session's `.vbo` from the page, the note is in its `[comments]` as `Note: ...` lines, so Circuit Tools shows it too. The file on the card is not changed, so a `.vbo` copied straight off the card has no note.
-
-**Voice notes** (hold on the debrief to record 30 s with the board's microphone) aren't built yet: the microphone's codec (ES8311) has to be brought up on a board first. `VOICE_NOTES_ENABLED` in `Config.h` stays 0 until then.
 
 ### Changing the page
 

@@ -2,7 +2,7 @@
  * Host-side tests for the engine's temperatures on screen (include/TempAlert.h):
  * the coolant tag's colour bands, degrees F, and when the full-screen
  * overheat card shows (rising through the limit, hysteresis, the 60 s repeat,
- * stale data, the oil limit, a tap, the LED flash).
+ * stale data, the oil limit, a tap, the flashing).
  *
  *   g++ -std=c++17 -Iinclude test/test_tempalert.cpp -o /tmp/ta && /tmp/ta
  */
@@ -109,7 +109,7 @@ static void testCard() {
     CHECK(!a.update(500, true, 111, false, 0, l) && !a.showing(500), "not straight back");
     CHECK(a.update(TEMP_REPEAT_MS, true, 111, false, 0, l), "a minute on, still hot: again");
   }
-  {  // The card and the LED bar flash red then yellow in TEMP_ALERT_FLASH_MS halves while it shows
+  {  // The card flashes red then yellow in TEMP_ALERT_FLASH_MS halves while it shows
     Alert a;
     a.update(1000, true, 111, false, 0, l);
     CHECK(a.redPhase(1000) && a.redPhase(1000 + TEMP_ALERT_FLASH_MS - 1) && !a.redPhase(1000 + TEMP_ALERT_FLASH_MS) &&

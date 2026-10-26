@@ -33,69 +33,41 @@ The BE-252Q is built on a u-blox M10. At boot Track Rat asks it for 20 fixes a s
 
 Everything else (display, touch, SD) is built into the board. The pins are set in `include/Config.h` and `platformio.ini`.
 
-An optional big button and LED delta bar can go on IO21 and IO2: see [Big button and LED bar](#big-button-and-led-bar).
+An optional big button can go on IO21: see [Big button](#big-button).
 
-## Big button and LED bar
+## Big button
 
-Two optional add-ons on the expansion header. Both are off the screen, so they work with gloves and in sun. Neither is needed; the timer works the same without them.
+An optional add-on on the expansion header. It's off the screen, so it works with gloves and in sun. It isn't needed; the timer works the same without it.
 
 ### Parts
 
 | Part | Notes |
 |---|---|
 | Push button | Momentary, normally open. A 25-30 mm panel-mount arcade button is good with gloves |
-| WS2812B LED strip | 10 LEDs by default (8-12 works). Any 5 V "NeoPixel" type strip |
-| 330-470 ohm resistor | In series with the strip's data line |
 | 1 kohm resistor | In series with the button |
 | 100 nF capacitor | Across the button (optional) |
-| 470-1000 uF capacitor | Across the strip's 5 V and GND, close to the strip |
-| 74AHCT125 or 74HCT245 | Optional 3.3 V to 5 V level shifter for the strip's data line |
 
 ### Wiring
 
 | Add-on | Connect | Pin |
 |---|---|---|
 | Button | one side to IO21, the other to GND | IO21 |
-| LED bar data | strip DIN to IO2 | IO2 |
-| LED bar power | strip 5 V to a 5 V supply, strip GND to the board's GND | |
 
 - **Button:** no external pull-up is needed; the board's internal one is used. Put the 1 kohm resistor in series with the button. IO21 is also a GPS pin, and the board briefly drives it at start-up while it looks for the GPS, so the resistor stops a button held down at that moment from shorting the pin. The 100 nF across the button smooths contact bounce, but isn't required, as the firmware debounces too.
-- **LED bar power:** the strip needs 5 V, not 3.3 V. Each LED draws up to 60 mA at full white. The default brightness (`LED_BAR_BRIGHTNESS` 64 of 255) keeps 10 LEDs under about 200 mA. Power the strip from a 5 V supply that isn't the board's 3.3 V pin, and join its GND to the board's GND. Check your board's header pinout for a 5 V pin before using it for the strip.
-- **LED bar data:** the board's 3.3 V output is a little under what a WS2812B strictly wants (0.7 x 5 V = 3.5 V), but it normally works on a short wire. If the strip flickers or shows random colours, use the level shifter. Keep the data wire short, and put the 330-470 ohm resistor right at the strip's DIN end.
-- **Strip capacitor:** the 470-1000 uF capacitor stops the switch-on surge from upsetting the strip. Connect it before powering up, and always connect GND before 5 V.
-- **Mounting:** DIN is the end of the strip with the arrow pointing away from it. Mount it so the first LED is at the left (from the driver's seat). If "ahead" grows to the left on your strip, set `LED_BAR_REVERSED` to `1`.
-- **Board LED:** the board's own RGB LED (IO42) needs no wiring.
 
 ### Button
 
 The button does what BOOT does: a short press is "next / switch view" and a hold of 1 s is "select / start / end the session". See the BOOT column in the table under "Using it". Unlike BOOT, its hold acts as soon as it reaches 1 s, while still held, and it never switches the unit off.
 
-### LED bar
-
-The bar lights up while a lap is running and the best lap's delta is known. The middle of the strip is zero:
-
-- **Ahead of your best lap:** green LEDs grow to the right from the middle.
-- **Behind your best lap:** red LEDs grow to the left from the middle.
-- **How many:** the whole side is lit at 1 s ahead or behind (`LED_BAR_FULL_SCALE_MS`), with at least one LED once you're more than 0.02 s out. A bigger gap clamps at a full side.
-- **On the pace** (within 0.02 s): a dim green marker in the middle.
-- **New best lap:** the whole bar flashes purple for about 2 s.
-- **Each split:** a short white blink (0.2 s).
-- **Timing but no delta yet** (before your first lap is done, or off the best lap's line): a dim amber marker in the middle.
-- **Not timing** (menus, summaries, no GPS fix): off.
-
-The board's own LED shows the same colour (green ahead, red behind, brighter for a bigger gap, purple and white for the same events), so you can test the logic without any strip. It's easiest to see with the bench test.
-
-The LEDs are updated 40 times a second, twice the GPS rate. The strip is driven by the ESP32-S3's RMT peripheral, which sends the colours by itself, so the main loop doesn't wait for it. With no strip fitted, nothing happens and nothing breaks.
-
 ### If the GPS is on IO14/IO21
 
-The GPS can be plugged into the expansion header instead of the UART connector (see Wiring above). It then uses IO21, so the button can't be used, and the log says so:
+The GPS can be plugged into the expansion header instead of the UART connector. It then uses IO21, so the button can't be used, and the log says so:
 
 ```
 Input: big button disabled - the GPS is on IO21
 ```
 
-The same check covers every add-on pin: any add-on on a pin the GPS ended up on stays off. The LED bar on IO2 and the board LED are unaffected by a GPS on IO14/IO21.
+The same check covers every add-on pin: any add-on on a pin the GPS ended up on stays off.
 
 ### Add-on options
 
@@ -104,20 +76,13 @@ These are set in `include/Config.h`.
 | Option | Default | What it does |
 |---|---|---|
 | `EXT_BUTTON_ENABLED`, `EXT_BUTTON_PIN` | 1, 21 | The big button |
-| `LED_BAR_ENABLED`, `LED_BAR_PIN` | 1, 2 | The LED strip |
-| `LED_BAR_COUNT` | 10 | LEDs on the strip (2 to 64) |
-| `LED_BAR_BRIGHTNESS` | 64 | 0-255. Turn it up in sun, down for less current |
-| `LED_BAR_REVERSED` | 0 | 1 = flip left and right |
-| `LED_BAR_FULL_SCALE_MS` | 1000 | Delta that lights a whole side of the bar |
-| `BOARD_LED_ENABLED`, `BOARD_LED_PIN`, `BOARD_LED_BRIGHTNESS` | 1, 42, 40 | The board's own LED |
 | `IMU_ENABLED` | 1 | Look for an IMU on the I2C header at boot (see below). Harmless with none fitted |
 | `CAN_ENABLED`, `CAN_TX_PIN`, `CAN_RX_PIN` | 0, 3, 14 | OBD-II over CAN (see below). Off by default |
 | `CAN_BITRATE_KBPS` | 500 | The car's CAN speed: 500 for most cars since 2008, some use 250 |
-| `SHIFT_LIGHT_START_RPM`, `SHIFT_LIGHT_RPM` | 5500, 6800 | Where the shift light starts filling, and where it flashes to shift. 0 = no shift light |
 
 ### CAN / OBD-II (optional, untested on hardware)
 
-**Not yet tried on a board or a car: no transceiver has been fitted.** The OBD-II requests and replies, the polling and the shift light are tested on a PC; the CAN driver is the ESP32-S3's own (TWAI).
+**Not yet tried on a board or a car: no transceiver has been fitted.** The OBD-II requests and replies, and the polling are tested on a PC; the CAN driver is the ESP32-S3's own (TWAI).
 
 An SN65HVD230 CAN transceiver board (3.3 V) on IO3 (its TX/D pin) and IO14 (its RX/R pin), 3.3 V and GND, wired to the car's OBD-II socket: CAN high to pin 6, CAN low to pin 14, ground to pin 5. Set `CAN_ENABLED 1` in `Config.h` and rebuild. It's **off by default** because IO14 is also one of the GPS pins on the expansion header: with the GPS found there, CAN stays off. The serial log says when the engine answers.
 
@@ -125,7 +90,6 @@ An SN65HVD230 CAN transceiver board (3.3 V) on IO3 (its TX/D pin) and IO14 (its 
 - **In the log:** every `.vbo` gets five more channels, **RPM**, **Throttle position**, **Coolant temperature**, **Intake temperature** and **Oil temperature** (0 when the engine hasn't said in the last second, 3 seconds for the temperatures; CAN doesn't ask for the intake, so it stays 0, and so does oil on cars without it). Circuit Tools shows them like any other channel. Logs from before oil temperature have the first four.
 - **Oil temperature:** asked for once a second as well, for cars that report it (PID 0x5C). A car that doesn't answer it three times running isn't asked again.
 - **Coolant in the top bar:** the coolant temperature, coloured by Settings → Coolant, and a full-screen warning when it's too hot: see [Engine temperatures](#engine-temperatures-coolant-and-oil).
-- **Shift light:** from `SHIFT_LIGHT_START_RPM` the LED bar fills left to right, green, then yellow, then red; at `SHIFT_LIGHT_RPM` the whole bar flashes blue. Below the start it shows the delta as usual. The board's own LED keeps the delta. Set both for your engine.
 - It only asks: it never writes to the car or clears codes. With the ignition off nothing answers, and Track Rat carries on without it.
 
 ### Bluetooth OBD-II adapter
@@ -140,7 +104,7 @@ The same engine data as CAN, with nothing to wire: a **Bluetooth LE** OBD-II ada
 - **What it reads:** engine speed, throttle, coolant, intake air and oil temperature, whichever the car supports (it asks the car first). Oil temperature (PID 0x5C) is only on some cars. Cars that only report the pedal give that as the throttle. Engine speed is asked for most, then throttle; the temperatures once a second. Cheap adapters manage 6–15 requests a second; with the two speed-ups below an ELM327 reaches 20–40 on a CAN car, so engine speed about 10 Hz and throttle about 7 at 20 a second. Each value is stamped at the middle of its request.
 - **Speed-ups, tried once per connection:** the "one reply" digit (`010C1`: the adapter answers as soon as the engine has, instead of waiting out its timeout) and engine speed and throttle in one request (`010C11`). Clones that answer `?` simply go without.
 - **The Engine data screen** shows the adapter, what it's doing (setting up, finding the car, reading the engine, or no answer from the car with the ignition off), the car's protocol, requests a second, and each channel's rate.
-- **Same as CAN from there:** the `.vbo` gets the five engine channels from the moment an adapter has been chosen, and the shift light and the coolant temperature work the same. With both fitted, CAN wins.
+- **Same as CAN from there:** the `.vbo` gets the five engine channels from the moment an adapter has been chosen, and the coolant temperature works the same. With both fitted, CAN wins.
 - **Alongside the phone:** the RaceBox output keeps advertising and working while the adapter is connected. Up to four Bluetooth connections at once (the phone, the adapter, and room for the camera).
 - Like CAN, it only asks: it never writes to the car or clears codes. `OBD_BLE_ENABLED 0` in `Config.h` leaves it out.
 
@@ -186,7 +150,7 @@ A minute of driving settles it: the Engine data screen shows which answer. What'
 With engine data (CAN or a Bluetooth adapter), Track Rat keeps an eye on the engine's temperatures for you:
 
 - **In the top bar:** the coolant temperature, such as **92°**, in place of the blue **OBD** tag, as soon as the engine has sent one. It's **blue** while the engine is cold (below *Cold below*, 70 °C), plain grey when warm, **yellow** from *Warm at* (100 °C) and **red, blinking slowly** from *Hot at* (110 °C). If the engine stops sending it for 3 seconds, the tag goes back to **OBD**. In °F with Speed units in mph.
-- **The overheat warning:** when the coolant reaches *Hot at*, or the oil reaches *Oil hot at* (130 °C), the whole screen flashes red and yellow for 10 seconds with **COOLANT TOO HOT**, the temperature (e.g. **112°**) in big figures and *Ease off and let it cool* (**OIL TOO HOT** for oil), on any screen, and the LED bar flashes red and yellow with it. A tap or a press closes it early. Then the screen comes back with the blinking red tag. It shows again only once the temperature has dropped 3 °C below the limit and come back up, or a minute later if it's still too hot. The limits are in **Settings → Coolant** and on the Wi-Fi page.
+- **The overheat warning:** when the coolant reaches *Hot at*, or the oil reaches *Oil hot at* (130 °C), the whole screen flashes red and yellow for 10 seconds with **COOLANT TOO HOT**, the temperature (e.g. **112°**) in big figures and *Ease off and let it cool* (**OIL TOO HOT** for oil), on any screen. A tap or a press closes it early. Then the screen comes back with the blinking red tag. It shows again only once the temperature has dropped 3 °C below the limit and come back up, or a minute later if it's still too hot. The limits are in **Settings → Coolant** and on the Wi-Fi page.
 - **After the session:** the summary and the pit debrief show the hottest the coolant got, **Coolant max 104°** (and the oil's), in the same colours. The debrief's laps page has each lap's hottest coolant beside its time. The summary file has them as `coolantMaxC` (and `oilMaxC`), for the session and in each lap, in °C; only when the engine sent them. A session recovered from its log, or re-timed, gets them again from the log's temperature channels.
 
 `COOLANT_COLD_C`, `COOLANT_WARM_C`, `COOLANT_WARN_C` and `OIL_HOT_C` in `Config.h` are only a new board's defaults; `TEMP_ALERT_MS`, `TEMP_REARM_DROP_C` and `TEMP_REPEAT_MS` set the warning's 10 s, 3 °C and one minute.

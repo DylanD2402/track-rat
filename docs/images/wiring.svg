@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="900" height="520" font-family="Inter, 'Segoe UI', Arial, sans-serif">
-  <title>Track Rat wiring: GPS on the UART connector, optional button and LED bar on the expansion header</title>
-  <rect x="0" y="0" width="900" height="520" rx="16" fill="#ffffff" stroke="#d0d7de"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 440" width="900" height="440" font-family="Inter, 'Segoe UI', Arial, sans-serif">
+  <title>Track Rat wiring: GPS on the UART connector, optional button on the expansion header</title>
+  <rect x="0" y="0" width="900" height="440" rx="16" fill="#ffffff" stroke="#d0d7de"/>
 
   <text x="30" y="34" font-size="22" font-weight="700" fill="#1a1a1a">Track Rat wiring</text>
 
   <!-- ES3C28P board -->
-  <rect x="30" y="56" width="330" height="344" rx="14" fill="#f3f6fa" stroke="#333" stroke-width="2"/>
+  <rect x="30" y="56" width="330" height="290" rx="14" fill="#f3f6fa" stroke="#333" stroke-width="2"/>
   <text x="46" y="84" font-size="16" font-weight="700" fill="#1a1a1a">ES3C28P (ESP32-S3, 2.8″ touch)</text>
 
   <text x="46" y="112" font-size="14" fill="#444">UART connector (GPS)</text>
@@ -20,13 +20,9 @@
 
   <text x="46" y="252" font-size="14" fill="#444">Expansion header</text>
   <text x="60" y="282" font-size="14" fill="#1a1a1a">IO21</text>
-  <text x="60" y="308" font-size="14" fill="#1a1a1a">IO2</text>
-  <text x="60" y="334" font-size="14" fill="#1a1a1a">5V</text>
-  <text x="60" y="360" font-size="14" fill="#1a1a1a">GND</text>
+  <text x="60" y="308" font-size="14" fill="#1a1a1a">GND</text>
   <circle cx="360" cy="278" r="4" fill="#2e7d32"/>
-  <circle cx="360" cy="304" r="4" fill="#2e7d32"/>
-  <circle cx="360" cy="330" r="4" fill="#c62828"/>
-  <circle cx="360" cy="356" r="4" fill="#111"/>
+  <circle cx="360" cy="304" r="4" fill="#111"/>
 
   <!-- BE-252Q GPS -->
   <rect x="560" y="56" width="300" height="196" rx="14" fill="#f3f6fa" stroke="#333" stroke-width="2"/>
@@ -49,9 +45,9 @@
   <text x="460" y="232" text-anchor="middle" font-size="14" font-style="italic" fill="#1a1a1a">either way round works:</text>
   <text x="460" y="248" text-anchor="middle" font-size="14" font-style="italic" fill="#1a1a1a">Track Rat finds it</text>
 
-  <!-- Optional add-ons -->
-  <rect x="400" y="262" width="470" height="222" rx="14" fill="none" stroke="#555" stroke-width="2" stroke-dasharray="8 6"/>
-  <text x="856" y="474" text-anchor="end" font-size="16" font-weight="700" fill="#1a1a1a">Optional</text>
+  <!-- Optional add-on -->
+  <rect x="400" y="262" width="470" height="110" rx="14" fill="none" stroke="#555" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="856" y="362" text-anchor="end" font-size="16" font-weight="700" fill="#1a1a1a">Optional</text>
 
   <!-- Big button: IO21 to button to GND -->
   <line x1="360" y1="278" x2="690" y2="278" stroke="#2e7d32" stroke-width="3"/>
@@ -61,29 +57,16 @@
   <rect x="800" y="266" width="56" height="24" rx="12" fill="#111"/>
   <text x="828" y="283" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">GND</text>
 
-  <!-- LED bar: IO2 to DIN, 5V, GND -->
-  <line x1="360" y1="304" x2="500" y2="304" stroke="#2e7d32" stroke-width="3"/>
-  <line x1="360" y1="330" x2="500" y2="330" stroke="#c62828" stroke-width="3"/>
-  <line x1="360" y1="356" x2="500" y2="356" stroke="#111" stroke-width="3"/>
-  <rect x="500" y="292" width="180" height="76" rx="8" fill="#ffffff" stroke="#333" stroke-width="2"/>
-  <text x="512" y="308" font-size="14" fill="#1a1a1a">DIN</text>
-  <text x="512" y="334" font-size="14" fill="#1a1a1a">5V</text>
-  <text x="512" y="360" font-size="14" fill="#1a1a1a">GND</text>
-  <text x="610" y="318" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a">WS2812B LED bar</text>
-
   <!-- Notes -->
-  <text x="416" y="392" font-size="14" fill="#222">Button: 1 kΩ resistor in series, 100 nF across it (optional)</text>
-  <text x="416" y="410" font-size="14" fill="#222">LED bar: 330–470 Ω resistor in series at DIN, near the strip</text>
-  <text x="416" y="428" font-size="14" fill="#222">Strip 5 V from a 5 V supply, not the board's 3.3 V pin</text>
-  <text x="416" y="446" font-size="14" fill="#222">470–1000 µF across the strip's 5 V and GND</text>
+  <text x="416" y="324" font-size="14" fill="#222">1 kΩ resistor in series, 100 nF across it (optional)</text>
 
   <!-- Legend -->
-  <line x1="40" y1="507" x2="64" y2="507" stroke="#c62828" stroke-width="3"/>
-  <text x="72" y="512" font-size="14" fill="#1a1a1a">5V</text>
-  <line x1="130" y1="507" x2="154" y2="507" stroke="#111" stroke-width="3"/>
-  <text x="162" y="512" font-size="14" fill="#1a1a1a">GND</text>
-  <line x1="230" y1="507" x2="254" y2="507" stroke="#1565c0" stroke-width="3"/>
-  <text x="262" y="512" font-size="14" fill="#1a1a1a">GPS data (UART)</text>
-  <line x1="430" y1="507" x2="454" y2="507" stroke="#2e7d32" stroke-width="3"/>
-  <text x="462" y="512" font-size="14" fill="#1a1a1a">Button and LED data</text>
+  <line x1="40" y1="427" x2="64" y2="427" stroke="#c62828" stroke-width="3"/>
+  <text x="72" y="432" font-size="14" fill="#1a1a1a">5V</text>
+  <line x1="130" y1="427" x2="154" y2="427" stroke="#111" stroke-width="3"/>
+  <text x="162" y="432" font-size="14" fill="#1a1a1a">GND</text>
+  <line x1="230" y1="427" x2="254" y2="427" stroke="#1565c0" stroke-width="3"/>
+  <text x="262" y="432" font-size="14" fill="#1a1a1a">GPS data (UART)</text>
+  <line x1="430" y1="427" x2="454" y2="427" stroke="#2e7d32" stroke-width="3"/>
+  <text x="462" y="432" font-size="14" fill="#1a1a1a">Button</text>
 </svg>

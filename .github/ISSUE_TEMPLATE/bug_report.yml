@@ -35,7 +35,6 @@ body:
       description: Tick each one you have fitted and using. Leave the rest blank.
       options:
         - label: microSD card
-        - label: LED delta bar
         - label: Big button
         - label: IMU
         - label: CAN / OBD-II transceiver

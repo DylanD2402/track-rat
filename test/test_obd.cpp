@@ -1,7 +1,7 @@
 /**
  * Host-side tests for OBD-II over CAN (Obd.h): the requests, reading the
  * engine's replies (and ignoring everything else on the bus), the polling
- * schedule, values going stale, and the shift light. The hardware itself is
+ * schedule, values going stale. The hardware itself is
  * untested: no CAN transceiver has been fitted yet.
  *
  *   g++ -std=c++17 -Iinclude test/test_obd.cpp -o /tmp/obd && /tmp/obd
@@ -148,28 +148,6 @@ int main() {
     const uint8_t oilReply[8] = {0x03, 0x41, PID_OIL, 0x82, 0x55, 0x55, 0x55, 0x55};
     CHECK(parse(0x7E8, oilReply, 8, ov, 3000) == PID_OIL && fabsf(ov.oilC - 90) < 0.01f && ov.oilKnown(3500) && !ov.coolantKnown(3500),
           "oil temperature read: %.1f", ov.oilC);
-  }
-
-  // Shift light
-  {
-    Rgb bar[10];
-    CHECK(!shiftLights(4000, 5500, 6800, 0, bar, 10), "below the start: the delta shows");
-    CHECK(shiftLights(5500, 5500, 6800, 0, bar, 10), "on at the start");
-    int lit = 0;
-    for (const Rgb& c : bar) lit += c != Rgb{0, 0, 0};
-    CHECK(lit == 1 && bar[0] == SHIFT_GREEN, "one green at the start: %d", lit);
-    shiftLights(6700, 5500, 6800, 0, bar, 10);
-    lit = 0;
-    for (const Rgb& c : bar) lit += c != Rgb{0, 0, 0};
-    CHECK(lit == 10 && bar[0] == SHIFT_GREEN && bar[6] == SHIFT_YELLOW && bar[9] == SHIFT_RED, "nearly full: %d", lit);
-    shiftLights(6150, 5500, 6800, 0, bar, 10);
-    lit = 0;
-    for (const Rgb& c : bar) lit += c != Rgb{0, 0, 0};
-    CHECK(lit == 6, "half way: %d", lit);
-    CHECK(shiftLights(7000, 5500, 6800, 0, bar, 10) && bar[0] == SHIFT_FLASH && bar[9] == SHIFT_FLASH, "shift: all blue");
-    shiftLights(7000, 5500, 6800, SHIFT_FLASH_MS / 2, bar, 10);
-    CHECK(bar[0] == (Rgb{0, 0, 0}), "flashing");
-    CHECK(!shiftLights(6000, 6000, 6000, 0, bar, 10), "a bad range is off");
   }
 
   if (failures) {

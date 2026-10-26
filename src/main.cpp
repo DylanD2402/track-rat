@@ -40,7 +40,6 @@
 #include "ObdBle.h"
 #include "Imu.h"
 #include "InputManager.h"
-#include "LedBar.h"
 #include "LocalTime.h"
 #include "LapTimer.h"
 #include "LogWriter.h"
@@ -886,7 +885,6 @@ static void commitFinishLap() {
   saveMapFromLap();
   overlay.lapIsPb = saveBestLaps(*lap, overlay.lapIsDayBest);
   makeSectors(*lap);
-  LedBar::onBestLap(overlay.lapIsPb);
 }
 
 // Undo: the finish is gone again, and the first run is still being timed.
@@ -1124,7 +1122,6 @@ static void onLapEvent(const LapEvent& ev) {
           saveMapFromLap();
           overlay.lapIsPb = saveBestLaps(*lap, overlay.lapIsDayBest);
           makeSectors(*lap);
-          LedBar::onBestLap(overlay.lapIsPb);
         }
       }
       updateSectorBests();  // with this lap's sectors in
@@ -1143,7 +1140,6 @@ static void onLapEvent(const LapEvent& ev) {
       overlay.splitMs = ev.timeMs;
       overlay.deltaMs = ev.deltaMs;
       splitOverlayUntil = now + 5000;
-      LedBar::onSplit();
       break;
 
     default:
@@ -1409,7 +1405,6 @@ static void applySettings() {
     setenv("TZ", tz, 1);
     tzset();
   }
-  LedBar::setBlueOrange(s.deltaColours == DeltaColours::BlueOrange);
   lastRender = 0;
 }
 
@@ -1971,11 +1966,10 @@ static bool noteActivity(uint32_t now) {
   return true;
 }
 
-// The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the LEDs and
-// the screen off, then deep sleep until the screen is touched or BOOT is pressed.
+// The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the
+// screen off, then deep sleep until the screen is touched or BOOT is pressed.
 [[noreturn]] static void sleepNow(bool switchingOff) {
   gps.standby();
-  LedBar::off();
   display.powerDown();
   Power::deepSleep(switchingOff);
 }
@@ -2110,8 +2104,7 @@ void setup() {
 
   display.drawBoot("Detecting GPS...");
   gps.begin();
-  input.beginExtButton(gps.rxPinUsed(), gps.txPinUsed());  // big button and LEDs sit on header pins the GPS may use
-  LedBar::begin(gps.rxPinUsed(), gps.txPinUsed());
+  input.beginExtButton(gps.rxPinUsed(), gps.txPinUsed());  // the big button sits on a header pin the GPS may use
   CanObd::begin(gps.rxPinUsed(), gps.txPinUsed());  // (off unless CAN_ENABLED, and if the GPS is on its pins)
   applySettings();  // touch the right way up, Bluetooth if it's on, the time zone for file names
   ObdBle::begin();  // (nothing until an adapter has been chosen in Settings > Engine data)
@@ -2285,9 +2278,7 @@ void loop() {
     lastRender = 0;  // draw the list where it ended
   }
 
-  bool timing = state == AppState::Running && !settingLine && !pitWatch.parked() && lapTimer.lapRunning();
-  int32_t liveDelta = lapTimer.liveDeltaMs();
-  {  // The engine's temperatures against Settings > Coolant: the overheat warning, and the LED bar flashing red with it
+  {  // The engine's temperatures against Settings > Coolant: the overheat warning
     float coolC = 0, oilC = 0;
     const bool coolKnown = EngineData::coolant(now, coolC), oilKnown = EngineData::oil(now, oilC);
     const bool wasShowing = tempAlert.showing(now);
@@ -2298,10 +2289,7 @@ void loop() {
     } else if (wasShowing && !tempAlert.showing(now)) {
       lastRender = 0;  // back to the screen it covered
     }
-    LedBar::setOverheat(tempAlert.showing(now), tempAlert.redPhase(now));
   }
-  LedBar::setRpm(EngineData::values().rpmKnown(now), EngineData::values().rpm);
-  LedBar::update(timing, gps.hasFix() && liveDelta != NO_DELTA, liveDelta);
 
   autoPickTrack();
   WifiPortal::loop(gps);

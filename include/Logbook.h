@@ -7,9 +7,6 @@
  * extension. The session list shows it, and a .vbo downloaded with a note
  * carries it in its [comments], so Circuit Tools shows it too.
  *
- * Voice notes (the board's microphone, an ES8311 codec) need bringing up on
- * the hardware first: VOICE_NOTES_ENABLED in Config.h stays 0 until then.
- *
  * No Arduino dependencies: tested in test/test_logbook.cpp.
  */
 

@@ -5,7 +5,7 @@
  * connects to an ELM327 adapter plugged into the car (Veepeak OBDCheck BLE+,
  * OBDLink CX, vLink...) and asks for RPM, throttle, coolant and intake
  * temperature (Elm327.h). The values go where the CAN path's go (EngineData.h):
- * the log, the shift light and the coolant warning.
+ * the log and the coolant warning.
  *
  * Settings > Engine data > Find adapter scans for OBD_SCAN_S seconds and
  * lists what it finds; the one tapped is remembered (in flash) and Track Rat

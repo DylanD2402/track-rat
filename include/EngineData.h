@@ -2,7 +2,7 @@
  * Track Rat - the engine's figures, from whichever way in is fitted
  *
  * OBD-II over CAN (CanObd.h, 5.2) or a Bluetooth LE adapter (ObdBle.h, 6.1):
- * the log's engine channels, the shift light and the coolant tag read
+ * the log's engine channels and the coolant tag read
  * them here, so they don't care which. CAN wins when both are there.
  */
 
