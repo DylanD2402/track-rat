@@ -64,15 +64,16 @@ static void gearIcon(TFT_eSPI* g, int cx, int cy, uint16_t c, uint16_t hole) {
 
 void DisplayManager::drawHome(const nextup::Choice& next, int highlight, const GPSHandler& gps, bool touchOk) {
   beginFrame();
-  header("Menu", &gps);
+  header("", &gps);
+  brandMark(8, (HEADER_H - BRAND_MARK_H) / 2 - 1);
 
   // --- Next up: one tap does the most likely thing ---
   const bool waiting = next.kind == nextup::Kind::NoFix;
   const int cx = 6, cw = W - 12, cy = home::CARD_Y, ch = home::CARD_H;
   const bool cardHl = highlight == home::NextUp;
   if (cardHl) {  // BOOT: a ring round the card
-    gfx->drawRoundRect(cx - 3, cy - 3, cw + 6, ch + 6, CORNER + 3, C_GREEN);
-    gfx->drawRoundRect(cx - 2, cy - 2, cw + 4, ch + 4, CORNER + 2, C_GREEN);
+    gfx->drawRoundRect(cx - 3, cy - 3, cw + 6, ch + 6, CORNER + 3, C_BRAND);
+    gfx->drawRoundRect(cx - 2, cy - 2, cw + 4, ch + 4, CORNER + 2, C_BRAND);
   }
   const uint16_t cardBg = waiting ? C_SURFACE : C_TEXT;
   const uint16_t ink = waiting ? C_YELLOW : C_BG;                  // the title
@@ -103,7 +104,7 @@ void DisplayManager::drawHome(const nextup::Choice& next, int highlight, const G
     const bool hl = highlight == home::TrackDay + i;
     const bool needsFix = i == 3 && !gps.hasFix();  // Drive is Free Roam, which needs a fix
     gfx->fillRoundRect(x, ty, w, th, CORNER + 2, hl ? C_RAISED : C_SURFACE);
-    if (hl) gfx->drawRoundRect(x, ty, w, th, CORNER + 2, C_TEXT);
+    if (hl) gfx->drawRoundRect(x, ty, w, th, CORNER + 2, C_BRAND);
     tileIcon(gfx, tiles[i].icon, mid, ty + 24, needsFix ? C_TEXT3 : C_TEXT);
     text(tiles[i].title, mid, ty + 53, Font::Body, needsFix ? C_TEXT2 : C_TEXT, MC_DATUM);
   }
@@ -141,7 +142,7 @@ void DisplayManager::drawTrackDayExtra(bool back, int index, int count, const GP
   }
 
   const bool fix = gps.hasFix();
-  centered("+ New circuit", HEADER_H + 10, Font::Title, C_GREEN);
+  centered("+ New circuit", HEADER_H + 10, Font::Title, C_BRAND);
   centered("A track that isn't in the list", HEADER_H + 42, Font::Body, C_TEXT2);
 
   const int sy = 96, sh = 76;

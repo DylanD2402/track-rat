@@ -87,7 +87,7 @@ void DisplayManager::drawAutocross(const AutocrossView& v, const GPSHandler& gps
   const bool canMake = v.gpsFix;
   auto btn = [&](int x, int y, int w, int h, const char* label, bool enabled, bool primary, bool hl) {
     gfx->fillRoundRect(x, y, w, h, CORNER, enabled && primary ? C_TEXT : hl ? C_RAISED : C_SURFACE);
-    if (hl) gfx->drawRoundRect(x, y, w, h, CORNER, C_TEXT);
+    if (hl) gfx->drawRoundRect(x, y, w, h, CORNER, C_BRAND);
     const Font f = textWidth(label, Font::Button) <= w - 8 ? Font::Button : Font::Body;  // too wide for the button font
     text(fit(label, f, w - 8), x + w / 2, y + h / 2 + 1, f, !enabled ? C_TEXT3 : primary ? C_BG : C_TEXT, MC_DATUM);
   };
@@ -98,7 +98,7 @@ void DisplayManager::drawAutocross(const AutocrossView& v, const GPSHandler& gps
     const int x = i * third + 5, w = third - 10;
     const bool ok = v.adjustReason[i].empty();
     gfx->fillRoundRect(x, rowY2, w, rowH2, CORNER, highlight == 2 + i ? C_RAISED : C_SURFACE);
-    if (highlight == 2 + i) gfx->drawRoundRect(x, rowY2, w, rowH2, CORNER, C_TEXT);
+    if (highlight == 2 + i) gfx->drawRoundRect(x, rowY2, w, rowH2, CORNER, C_BRAND);
     if (ok) {
       text(adjustNames[i], x + w / 2, rowY2 + rowH2 / 2 + 1, Font::Body, C_TEXT, MC_DATUM);
     } else {  // greyed out, and why
@@ -132,10 +132,10 @@ void DisplayManager::drawNewCourse(const GPSHandler& gps, bool ready, int highli
 
   const int third = W / 3, by = FOOTER_Y, bh = FOOTER_H;
   gfx->fillRoundRect(5, by, third - 10, bh, CORNER, highlight == 0 ? C_RAISED : C_SURFACE);
-  if (highlight == 0) gfx->drawRoundRect(5, by, third - 10, bh, CORNER, C_TEXT);
+  if (highlight == 0) gfx->drawRoundRect(5, by, third - 10, bh, CORNER, C_BRAND);
   text("Back", 5 + (third - 10) / 2, by + bh / 2 + 1, Font::Button, C_TEXT, MC_DATUM);
   gfx->fillRoundRect(third + 5, by, 2 * third - 10, bh, CORNER, ready ? C_TEXT : highlight == 1 ? C_RAISED : C_SURFACE);
-  if (highlight == 1) gfx->drawRoundRect(third + 5, by, 2 * third - 10, bh, CORNER, C_TEXT);
+  if (highlight == 1) gfx->drawRoundRect(third + 5, by, 2 * third - 10, bh, CORNER, C_BRAND);
   text("Set start here", third + 5 + (2 * third - 10) / 2, by + bh / 2 + 1, Font::Button, ready ? C_BG : C_TEXT3, MC_DATUM);
   endFrame();
 }

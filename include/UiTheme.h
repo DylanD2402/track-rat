@@ -34,7 +34,8 @@ constexpr uint16_t C_GREEN = rgb(48, 209, 88);    // ahead, best, fix, ready
 constexpr uint16_t C_RED = rgb(255, 69, 58);      // behind, no fix, error
 constexpr uint16_t C_YELLOW = rgb(255, 214, 10);  // waiting, warning, bench test
 constexpr uint16_t C_ORANGE = rgb(255, 159, 10);  // go, ending a session
-constexpr uint16_t C_BLUE = rgb(10, 132, 255);    // Wi-Fi and Bluetooth
+constexpr uint16_t C_BLUE = rgb(10, 132, 255);    // cold (the coolant band, delta colours)
+constexpr uint16_t C_BRAND = rgb(0x26, 0xB7, 0xFF);  // the Track Rat blue: accents, selection, Wi-Fi, BT/OBD/CAM; text on it is black
 constexpr uint16_t C_PURPLE = rgb(191, 90, 242);  // reserved for personal bests
 constexpr uint16_t C_TRACK = rgb(200, 200, 204);  // the track line on maps
 
