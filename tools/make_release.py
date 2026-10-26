@@ -154,6 +154,7 @@ def main():
     args = ap.parse_args()
 
     if args.notes:
+        sys.stdout.reconfigure(encoding="utf-8")  # the notes have ◀ and ·, which a Windows console can't encode
         sys.stdout.write(changelog_notes(args.notes))
         return
 
