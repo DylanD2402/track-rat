@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/brand/logo.png" alt="Track Rat" width="420"></p>
+<p align="center"><img src="docs/images/brand/logo-full.png" alt="Track Rat" width="560"></p>
 
 <h1 align="center">Track Rat</h1>
 
