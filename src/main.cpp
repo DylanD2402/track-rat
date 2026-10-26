@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include "AdjustLoad.h"
 #include "AutoStart.h"
+#include "AutocrossLayout.h"
 #include "BestLapStore.h"
 #include "ProfileStore.h"
 #include "Config.h"
@@ -795,7 +796,7 @@ static void adjustPress(int button) {
 static void adjustInput(InputEvent ev) {
   const bool tap = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
   if (!adjustReady()) {  // reading, nothing to adjust, or saving: only a way back
-    if (ev == InputEvent::TapHeader || ev == InputEvent::BootShort || ev == InputEvent::BootLong || (tap && input.lastTapY() >= 190))
+    if (ev == InputEvent::TapHeader || ev == InputEvent::BootShort || ev == InputEvent::BootLong || (tap && input.lastTapY() >= adjust::ROW_B_Y - 1))
       enterState(AppState::Autocross);
     return;
   }
@@ -1645,11 +1646,10 @@ static void handleInput(InputEvent ev) {
 
     case AppState::Autocross: {  // Start runs and New course on the top row; Adjust start, Adjust finish and Back below
       const bool canStart = hubCourse >= 0, canMake = gps.hasFix();
-      const bool topRow = input.lastTapY() < 192;
       int choice = -1;  // 0 Start runs, 1 New course, 2 Adjust start, 3 Adjust finish, 4 Back
       if (ev == InputEvent::TapHeader || ev == InputEvent::Hold) choice = 4;
-      else if (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter) choice = topRow ? (input.lastTapY() >= 150 ? 0 : -1) : ev == InputEvent::TapLeft ? 2 : 3;
-      else if (ev == InputEvent::TapRight) choice = topRow ? (input.lastTapY() >= 150 ? 1 : -1) : 4;
+      else if (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight)
+        choice = autocross_layout::buttonAt(input.lastTapX(), input.lastTapY());  // the rectangles the screen draws (AutocrossLayout.h)
       else if (ev == InputEvent::BootShort) {  // the buttons that work
         for (int step = 1; step <= 5; step++) {
           const int next = (autocrossHighlight + step) % 5;

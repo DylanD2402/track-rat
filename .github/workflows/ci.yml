@@ -111,6 +111,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_carobd.cpp -o /tmp/car && /tmp/car
       - name: test_obd_car
         run: python3 test/test_obd_car.py
+      - name: test_autocross_layout
+        run: g++ -std=c++17 -Iinclude test/test_autocross_layout.cpp -o /tmp/acl && /tmp/acl
 
   firmware:
     name: Firmware build

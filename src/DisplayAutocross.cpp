@@ -6,6 +6,7 @@
  */
 
 #include "DisplayManager.h"
+#include "AutocrossLayout.h"
 #include "Config.h"
 #include "Settings.h"
 #include "UiTheme.h"
@@ -82,7 +83,7 @@ void DisplayManager::drawAutocross(const AutocrossView& v, const GPSHandler& gps
   }
 
   // --- buttons: Start runs and New course, then Adjust start, Adjust finish and Back ---
-  const int rowY1 = 152, rowH1 = 36, rowY2 = 194, rowH2 = 40, third = W / 3;
+  namespace al = autocross_layout;  // the same rectangles main.cpp hit-tests
   const bool canStart = v.haveCourse;
   const bool canMake = v.gpsFix;
   auto btn = [&](int x, int y, int w, int h, const char* label, bool enabled, bool primary, bool hl) {
@@ -91,11 +92,13 @@ void DisplayManager::drawAutocross(const AutocrossView& v, const GPSHandler& gps
     const Font f = textWidth(label, Font::Button) <= w - 8 ? Font::Button : Font::Body;  // too wide for the button font
     text(fit(label, f, w - 8), x + w / 2, y + h / 2 + 1, f, !enabled ? C_TEXT3 : primary ? C_BG : C_TEXT, MC_DATUM);
   };
-  btn(5, rowY1, 2 * third - 10, rowH1, "Start runs", canStart, true, highlight == 0);
-  btn(2 * third + 5, rowY1, third - 10, rowH1, "New course", canMake, false, highlight == 1);
+  const al::Rect rStart = al::button(al::START_RUNS), rNew = al::button(al::NEW_COURSE);
+  btn(rStart.x, rStart.y, rStart.w, rStart.h, "Start runs", canStart, true, highlight == 0);
+  btn(rNew.x, rNew.y, rNew.w, rNew.h, "New course", canMake, false, highlight == 1);
   const char* adjustNames[2] = {"Adjust start", "Adjust finish"};
   for (int i = 0; i < 2; i++) {
-    const int x = i * third + 5, w = third - 10;
+    const al::Rect r = al::button(al::ADJUST_START + i);
+    const int x = r.x, w = r.w, rowY2 = r.y, rowH2 = r.h;
     const bool ok = v.adjustReason[i].empty();
     gfx->fillRoundRect(x, rowY2, w, rowH2, CORNER, highlight == 2 + i ? C_RAISED : C_SURFACE);
     if (highlight == 2 + i) gfx->drawRoundRect(x, rowY2, w, rowH2, CORNER, C_BRAND);
@@ -106,7 +109,8 @@ void DisplayManager::drawAutocross(const AutocrossView& v, const GPSHandler& gps
       text(fit(v.adjustReason[i].c_str(), Font::Caption, w - 6), x + w / 2, rowY2 + 29, Font::Caption, C_TEXT3, MC_DATUM);
     }
   }
-  btn(2 * third + 5, rowY2, third - 10, rowH2, "Back", true, false, highlight == 4);
+  const al::Rect rBack = al::button(al::BACK);
+  btn(rBack.x, rBack.y, rBack.w, rBack.h, "Back", true, false, highlight == 4);
   endFrame();
 }
 
