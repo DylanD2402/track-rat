@@ -83,10 +83,13 @@ bool logging();
 uint32_t fixesLogged();  // in the current (or last) log
 
 // At boot: any session whose log has no finished summary (the power went
-// off mid-session) gets its summary rebuilt from the log. Returns at once:
-// a task on core 0 replays the logs (about 6 s per hour of log) using a copy
-// of the tracks' lines taken now. This boot's sessions never share a file
-// name with a log being recovered, and are left alone by it.
+// off mid-session) gets its summary rebuilt from the log. Only the sessions
+// named in /sessions/.open are looked at (OpenMarker.h); the first boot after
+// an upgrade, and the one after a marker that couldn't be written, check every
+// log instead. Returns at once: a task on core 0 replays the logs (about 6 s
+// per hour of log) using a copy of the tracks' lines taken now. This boot's
+// sessions never share a file name with a log being recovered, and are left
+// alone by it.
 void recoverUnfinished(const TrackDatabase& tracks);
 bool recovering();  // the recovery task is still running
 

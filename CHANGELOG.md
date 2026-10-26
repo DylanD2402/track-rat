@@ -4,9 +4,15 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-### Changed
+### Fixed
 
-- Storage code tidied for 0.1.1 (see the entries below as they land).
+- Listing the sessions folder no longer slows down as it fills: the Autocross run list, Adjust start/finish, boot recovery and re-timing read the folder one entry at a time with FatFs instead of opening every file by path (which made it slower with every file), and take at most about 8 ms of a loop pass.
+- Boot recovery only looks at the session that was open when the power went off (named in `/sessions/.open`) instead of re-checking every log on the card at every boot. The first boot after this update still checks them all once.
+- Saving a summary (camera and sync marks) reads the old file once, not twice.
+- Starting a session and checking the layout no longer parse all of tracks.json: every track's map is kept in memory when the file is loaded or saved.
+- Small JSON documents are built in PSRAM, leaving internal memory to Bluetooth and Wi-Fi.
+- Best-lap, stats, summary and tracks.json saves share one write-then-rename routine and the same recovery of a save cut short by a power cut; the best-lap file is only replaced once the new copy is whole and checked, and a half-written copy is never taken as the file.
+- Lap time and delta text is written once (`TimeFormat.h`) with a test.
 
 ### Removed
 

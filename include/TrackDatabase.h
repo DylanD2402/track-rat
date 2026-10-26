@@ -32,6 +32,7 @@
 #include <ArduinoJson.h>
 #include <FS.h>
 #include <functional>
+#include <memory>
 #include <vector>
 #include "GeoMath.h"
 #include "LayoutMatch.h"
@@ -141,6 +142,13 @@ public:
   bool saveMaps();  // maps and sectors made on the device
 
 private:
+  // Every track's map points, copied out of tracks.json when it is loaded or saved (MapStore.h), so loadMap and
+  // readMaps don't parse the whole file. Defined in TrackDatabase.cpp.
+  struct MapCache;
+  std::shared_ptr<MapCache> mapCache;
+  bool mapsFromCache(const Track& t, double refLat, double refLon, layout::Lines& out);
+  void rebuildMapCache(JsonArray arr, size_t fileBytes);
+
   std::vector<Track> tracks;
   const char* sourceName = "none";
   fs::FS* fileFs = nullptr;  // where tracks.json was loaded from (nullptr = built-in list)

@@ -113,6 +113,10 @@ jobs:
         run: python3 test/test_obd_car.py
       - name: test_timeformat
         run: g++ -std=c++17 -Iinclude test/test_timeformat.cpp -o /tmp/tf && /tmp/tf
+      - name: test_openmarker
+        run: g++ -std=c++17 -Iinclude test/test_openmarker.cpp -o /tmp/om && /tmp/om
+      - name: test_mapstore
+        run: g++ -std=c++17 -Iinclude test/test_mapstore.cpp -o /tmp/ms && /tmp/ms
 
   firmware:
     name: Firmware build

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include "Config.h"
+#include "PsramAlloc.h"
 #include "Storage.h"
 
 namespace CourseRuns {
@@ -18,11 +19,11 @@ static Step step = Step::Done;
 static String wantId, wantEvent, skip;
 static bool stale = true;
 static courses::Day runs;
-static File dir;
+static Storage::DirLister dir;
 static std::vector<std::string> files;  // matching summaries (full paths)
 static size_t readPos = 0;
 
-static const int LIST_PER_POLL = 6;  // directory entries a call looks at (each is opened: about 2 ms on the card)
+static const uint32_t LIST_BUDGET_MS = 8;  // most of one loop pass given to the folder listing
 
 const courses::Day& day() { return runs; }
 bool ready() { return step == Step::Done; }
@@ -31,7 +32,7 @@ void markStale() { stale = true; }
 void setSkip(const String& path) { skip = path; }
 
 void start(const String& trackId, const String& event, const String& skipPath) {
-  if (dir) dir.close();
+  dir.close();
   wantId = trackId;
   wantEvent = event;
   skip = skipPath;
@@ -44,9 +45,7 @@ void start(const String& trackId, const String& event, const String& skipPath) {
     step = Step::Done;
     return;
   }
-  dir = fs->open(SESSION_DIR);
-  if (!dir || !dir.isDirectory()) {
-    if (dir) dir.close();
+  if (!dir.open(*fs, SESSION_DIR)) {
     step = Step::Done;
     return;
   }
@@ -64,7 +63,7 @@ static void readSummary(fs::FS& fs, const std::string& path) {
   StaticJsonDocument<96> filter;
   filter["laps"][0]["timeMs"] = true;
   filter["laps"][0]["tags"] = true;
-  DynamicJsonDocument doc(12288);
+  PsramJsonDocument doc(12288);
   const DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
   f.close();
   if (err && err != DeserializationError::NoMemory) return;  // a summary cut off: use what was read
@@ -79,27 +78,21 @@ static void readSummary(fs::FS& fs, const std::string& path) {
 
 void poll() {
   if (step == Step::Listing) {
-    for (int n = 0; n < LIST_PER_POLL; n++) {
-      File e = dir.openNextFile();
-      if (!e) {
-        dir.close();
+    const uint32_t t0 = millis();
+    Storage::DirLister::Entry e;
+    do {
+      if (!dir.next(e)) {
         // The names sort by their time stamp: runs go in the order they were driven
         files = courses::daySummaries(files, wantId.c_str(), wantEvent.c_str());
         readPos = 0;
         step = Step::Reading;
         return;
       }
-      if (!e.isDirectory()) {
-        const std::string name = String(e.name()).c_str();
-        const size_t slash = name.rfind('/');
-        const std::string base = slash == std::string::npos ? name : name.substr(slash + 1);
-        if (courses::summaryFor(base, wantId.c_str(), wantEvent.c_str())) {
-          const std::string path = std::string(SESSION_DIR) + "/" + base;
-          if (!skip.length() || skip != path.c_str()) files.push_back(path);
-        }
+      if (!e.isDir && courses::summaryFor(e.name, wantId.c_str(), wantEvent.c_str())) {
+        const std::string path = std::string(SESSION_DIR) + "/" + e.name;
+        if (!skip.length() || skip != path.c_str()) files.push_back(path);
       }
-      e.close();
-    }
+    } while (millis() - t0 < LIST_BUDGET_MS);
   } else if (step == Step::Reading) {
     fs::FS* fs = Storage::sessionFS();
     if (fs && readPos < files.size()) {

@@ -21,4 +21,25 @@ size_t writeJsonFile(fs::FS& fs, const String& path, const JsonDocument& doc, bo
 // of pretty-printed, and still easy to edit by hand.
 size_t writeJsonFileByLine(fs::FS& fs, const String& path, const JsonDocument& doc);
 
+// --- The one way to save a file safely ----------------------------------------
+//
+// Write "<path>.tmp" completely and close it, then replaceFile(). FAT can't
+// rename over an existing file, so the old one is removed first: a power cut
+// between the two leaves no `path`, but a whole `.tmp`, which
+// finishLeftoverSave() moves into place the next time the file is read. A cut
+// while the .tmp is still being written leaves the old file alone.
+
+// Does the file at path hold a whole thing (not cut off)? For finishLeftoverSave.
+typedef bool (*FileCheck)(fs::FS& fs, const String& path);
+
+// A complete, closed tmp becomes path. LittleFS replaces in one step; on FAT the old file is removed first.
+bool replaceFile(fs::FS& fs, const String& tmp, const String& path);
+// data to path.tmp, then replaceFile. False (the old file untouched) if any of it didn't reach the card.
+bool writeFileSafe(fs::FS& fs, const String& path, const uint8_t* data, size_t len);
+// Call before reading path: if it's missing and src (default path.tmp) is whole by `whole`, rename it into
+// place. True if path exists afterwards. An existing path is never touched.
+bool finishLeftoverSave(fs::FS& fs, const String& path, FileCheck whole = nullptr, const String& src = String());
+// The syntax of a whole JSON file checks out (keeps nothing in memory)
+bool jsonFileWhole(fs::FS& fs, const String& path);
+
 #endif  // JSON_FILE_H
