@@ -305,6 +305,21 @@ Then copy `data/tracks.json` to the SD card.
 
 > **The pre-loaded track coordinates are approximate.** Check the start/finish point of any track you drive (satellite view in Google Maps works well) before trusting its lap times.
 
+### World tracks from the SD card
+
+For tracks outside `tracks.json`, Track Rat reads world track files from the SD card. They come in 2 degree squares ("tiles"), and each is a file named for its south-west corner, `/world/<lat>/<lon>.json`, in whole degrees that are even numbers, and negative south and west (`/world/44/-78.json`, `/world/-34/150.json`). Each file is `{"tracks": [...]}` in the same format as `tracks.json`.
+
+1. Copy the `world` folder (or just the tiles for where you drive) to the root of the SD card, so the files are at `/world/44/-78.json` and so on.
+2. Put the card in and switch on. At the first GPS fix Track Rat reads the tile it is in, and the next one over when you are within about 10 km of an edge. The tracks join the Track day list and are found like any other. It reads another tile only after you move into one, never while timing.
+
+With no card or no `/world` folder, nothing changes.
+
+- **Your tracks win.** A world track is hidden when `tracks.json` has the same id, or one of your tracks (its centre or its start/finish) is within 1 km of it. So your corrected copy of a track replaces the world one.
+- **Changing a world track copies it.** Setting or moving its start/finish, saving its map or corner sectors writes the whole track into `tracks.json` first, then the change. From then on it is your track and the world one is hidden.
+- **Very busy tiles:** at most 1000 world tracks are held at once.
+- **Estimated start/finish.** OpenStreetMap doesn't record where the line is, so world tracks with a pit lane carry a guess, a point on the main straight beside it, marked `"estimated": true`. Timing uses it like any other line, but the track list and the Ready screen say "Start/finish estimated: check it after a lap". Look at the first lap, and tap "Set line" at the real line if it is off. Once you set the line, the copy in `tracks.json` no longer says estimated. A track with no pit lane has no line at all and asks you to tap it, as before.
+- **Names:** the English name when OpenStreetMap has one. A name in letters the screen can't draw is shown in plain letters.
+
 ## Battery, power off and sleep
 
 Plug a 3.7 V LiPo into the board's battery socket (1.25 mm, 2 pins) and the unit keeps running when the car's USB power goes off. The board charges it from USB.

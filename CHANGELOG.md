@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- World tracks from the SD card: tiles at `/world/<lat>/<lon>.json` (2 degree squares, the format of `tracks.json`) are read at the first GPS fix and when you move into another tile, with the next tile too when within about 10 km of an edge. A world track that `tracks.json` also has, or within 1 km of one of your tracks, is hidden. Changing one (start/finish, map, corner sectors) copies it into `tracks.json` first. A start/finish marked `"estimated": true` is timed like any other, and the Ready screen and track list say "Start/finish estimated: check it after a lap" until you set the line. With no card or no `/world` folder nothing changes.
+
 ## [0.1.1-beta.1] - 2026-10-26
 
 Clean-up and hardening after a full code review ([docs/code-review-0.1.1.md](https://github.com/DylanD2402/track-rat/blob/main/docs/code-review-0.1.1.md)). Install both the firmware and the file system: the Wi-Fi page changed. Firmware older than this is refused by the Wi-Fi page and the SD card; use the web installer or USB for those.

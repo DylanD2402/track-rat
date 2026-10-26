@@ -14,7 +14,9 @@
 #include "Storage.h"
 #include <LittleFS.h>
 #include <SD_MMC.h>
+#include <algorithm>
 #include <memory>
+#include <set>
 #include "esp_heap_caps.h"
 
 // True if the file parses as JSON and has a "tracks" array. The filter keeps nothing (the array comes out empty), but
@@ -61,6 +63,7 @@ void TrackDatabase::begin() {
   if (Storage::sdMounted()) restoreTracksFile(SD_MMC, "SD");
   if (Storage::flashMounted()) restoreTracksFile(LittleFS, "flash");
   oldCoursesSeen = false;
+  worldTiles.clear();  // the world tracks come with the first GPS position (refreshWorld)
   if ((Storage::sdMounted() && loadFrom(SD_MMC, "SD")) || (Storage::flashMounted() && loadFrom(LittleFS, "flash"))) {
     if (oldCoursesSeen) migrateCourses();
     return;
@@ -105,6 +108,7 @@ static void readLayout(JsonObject src, Track& track) {
   const float gate = settings::defaultGateM(track.kart);
   readPoint(src["startFinish"], track.startFinish, gate);
   track.hasStartFinish = track.startFinish.lat != 0.0 || track.startFinish.lon != 0.0;
+  track.estimated = track.hasStartFinish && (src["startFinish"]["estimated"] | false);
   if (strcmp(src["type"] | "", "stage") == 0) track.stage = true;  // (or the venue's "type")
   if (track.stage) {
     readPoint(src["finish"], track.finish, gate);
@@ -343,6 +347,187 @@ static void readMapLines(JsonObject src, double refLat, double refLon, layout::L
   }
 }
 
+// --- World tiles (WorldTiles.h) -------------------------------------------------
+
+// A world track's entry as its tile has it, and the room tracks.json needs for a copy of it
+struct WorldEntry {
+  String venueId;
+  std::string text;
+  size_t extraBytes = 0;
+};
+
+// At most this many world tracks are held at once (each is a few hundred bytes of heap)
+static const size_t MAX_WORLD_TRACKS = 1000;
+
+// Reads a tile a piece at a time (jsontext::ElementSplitter), so a big file is never held whole and one track
+// is parsed at once. `use` gets each track's text and says whether to go on. False if the tile isn't on the card.
+static bool streamTile(const worldtiles::Tile& tile, const std::function<bool(std::string&)>& use) {
+  if (!Storage::sdMounted()) return false;
+  File f = SD_MMC.open(worldtiles::tilePath(tile).c_str(), "r");
+  if (!f || f.isDirectory()) return false;
+  const size_t chunk = 2048;
+  std::unique_ptr<uint8_t[]> buf(new uint8_t[chunk]);
+  jsontext::ElementSplitter split;
+  bool go = true;
+  while (go && !split.done()) {
+    const size_t n = f.read(buf.get(), chunk);
+    if (!n) break;
+    for (size_t i = 0; go && i < n; i++)
+      if (split.feed((char)buf[i])) go = use(split.element());
+  }
+  f.close();
+  return true;
+}
+
+// Parses a track's text in place (the text changes: it is the document's strings). Null if it isn't an object.
+static JsonObject parseEntry(std::string& text, std::unique_ptr<PsramJsonDocument>& doc) {
+  doc.reset(new PsramJsonDocument(JSON_ARRAY_SIZE(jsontext::countValues(text.data(), text.size())) + 64));
+  if (deserializeJson(*doc, &text[0], text.size())) return JsonObject();
+  return doc->as<JsonObject>();
+}
+
+// Finds one world track's entry in its tile: found(entry, its text before parsing)
+static bool findInTile(const worldtiles::Tile& tile, const String& venueId,
+                       const std::function<void(JsonObject, const std::string&)>& found) {
+  const std::string quoted = std::string("\"") + venueId.c_str() + "\"";
+  bool ok = false;
+  streamTile(tile, [&](std::string& text) {
+    if (text.find(quoted) == std::string::npos) return true;  // (cheap test before parsing)
+    const std::string original = text;
+    std::unique_ptr<PsramJsonDocument> doc;
+    JsonObject o = parseEntry(text, doc);
+    if (o.isNull() || venueId != (o["id"] | "")) return true;
+    found(o, original);
+    ok = true;
+    return false;
+  });
+  return ok;
+}
+
+// The entry for a venue copied into tracks.json (what a change to a world track starts from). Parsing links the
+// entry's strings to w.text, which has to stay as it is until the file is written.
+static JsonObject copyWorldEntry(JsonArray arr, WorldEntry& w) {
+  std::unique_ptr<PsramJsonDocument> doc;
+  JsonObject src = parseEntry(w.text, doc);
+  JsonObject o = arr.createNestedObject();
+  if (!src.isNull()) o.set(src);
+  return o;
+}
+
+bool TrackDatabase::readWorldEntry(const Track& t, WorldEntry& out) {
+  out.venueId = t.venueId;
+  return findInTile({t.tileLat, t.tileLon}, t.venueId, [&](JsonObject, const std::string& original) {
+    out.text = original;
+    out.extraBytes = JSON_ARRAY_SIZE(jsontext::countValues(original.data(), original.size())) + original.size() + 64;
+  });
+}
+
+// Maps of world tracks among `indices` (the others are left alone), from their tiles
+bool TrackDatabase::readWorldMaps(const std::vector<int>& indices, double refLat, double refLon,
+                                  std::vector<layout::Lines>& out) {
+  bool all = true;
+  for (size_t k = 0; k < indices.size(); k++) {
+    const Track* t = get(indices[k]);
+    if (!t || !t->world) continue;
+    all &= findInTile({t->tileLat, t->tileLon}, t->venueId, [&](JsonObject entry, const std::string&) {
+      JsonObject o = t->layoutIndex < 0 ? entry : entry["layouts"][t->layoutIndex].as<JsonObject>();
+      if (!o.isNull()) readMapLines(o, refLat, refLon, out[k]);
+    });
+  }
+  return all;
+}
+
+void TrackDatabase::adoptWorldVenue(const String& venueId) {
+  for (Track& t : tracks)
+    if (t.world && t.venueId == venueId) t.world = false;
+}
+
+int TrackDatabase::indexOfId(const String& id) const {
+  for (size_t i = 0; i < tracks.size(); i++)
+    if (tracks[i].id == id) return (int)i;
+  return -1;
+}
+
+bool TrackDatabase::refreshWorld(double lat, double lon) {
+  if (!worldtiles::needReload(worldTiles, lat, lon)) return false;
+  const std::vector<worldtiles::Tile> want = worldtiles::tilesNear(lat, lon);
+  if (want.empty()) return false;
+  const uint32_t startMs = millis();
+  worldTiles = want;  // tried, even if a tile has no file: not tried again until the position leaves them
+
+  // What tracks.json (the user's own tracks) hides. Courses are parking-lot events: they hide nothing nearby.
+  std::vector<std::string> ownIds;
+  std::vector<worldtiles::Spot> spots;
+  for (const Track& t : tracks) {
+    if (t.world || t.bench) continue;
+    ownIds.push_back(t.venueId.c_str());
+    if (t.course) continue;
+    spots.push_back({t.centerLat, t.centerLon});
+    if (t.hasStartFinish) spots.push_back({t.startFinish.lat, t.startFinish.lon});
+  }
+
+  // The old world tracks go, except any with a map or sectors made on the device and not yet saved
+  std::set<std::string> have;
+  const size_t before = tracks.size();
+  tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
+                              [](const Track& t) { return t.world && !t.mapUnsaved && !t.sectorsUnsaved; }),
+               tracks.end());
+  const size_t removed = before - tracks.size();
+  size_t kept = 0;
+  for (const Track& t : tracks)
+    if (t.world) {
+      have.insert(t.venueId.c_str());
+      kept++;
+    }
+
+  std::vector<Track> fresh;
+  size_t hiddenCount = 0;
+  bool full = false, anyTile = false;
+  std::vector<Track> entry;
+  for (const worldtiles::Tile& tile : want) {
+    anyTile |= streamTile(tile, [&](std::string& text) {
+      if (kept + fresh.size() >= MAX_WORLD_TRACKS) {
+        full = true;
+        return false;
+      }
+      std::unique_ptr<PsramJsonDocument> doc;
+      JsonObject o = parseEntry(text, doc);
+      if (o.isNull()) return true;
+      entry.clear();
+      readEntry(o, entry);
+      if (entry.empty()) return true;
+      const Track& first = entry[0];
+      if ((first.centerLat == 0.0 && first.centerLon == 0.0) || have.count(first.venueId.c_str())) return true;
+      if (worldtiles::hidden(first.venueId.c_str(), first.centerLat, first.centerLon, ownIds, spots)) {
+        hiddenCount++;
+        return true;
+      }
+      have.insert(first.venueId.c_str());
+      for (Track& t : entry) {
+        t.world = true;
+        t.tileLat = tile.lat0;
+        t.tileLon = tile.lon0;
+        fresh.push_back(std::move(t));
+      }
+      return true;
+    });
+  }
+  oldCoursesSeen = false;  // (a world track is never an old course to rewrite in tracks.json)
+
+  const size_t added = fresh.size();
+  if (added) {  // after the other tracks, before the bench track
+    const bool bench = !tracks.empty() && tracks.back().bench;
+    tracks.reserve(tracks.size() + added);
+    tracks.insert(tracks.begin() + (tracks.size() - (bench ? 1 : 0)), std::make_move_iterator(fresh.begin()),
+                  std::make_move_iterator(fresh.end()));
+  }
+  if (anyTile || removed)
+    DEBUG_PRINTF("World: %d tile(s) for %.3f, %.3f: %u track(s) added, %u hidden by tracks.json%s, %u removed (%lu ms)\n",
+                 (int)want.size(), lat, lon, (unsigned)added, (unsigned)hiddenCount,
+                 full ? ", list full" : "", (unsigned)removed, (unsigned long)(millis() - startMs));
+  return added || removed;
+}
+
 // --- The map cache -------------------------------------------------------------
 
 
@@ -400,11 +585,15 @@ void TrackDatabase::loadMap(int index) {
       tracks[i].map.shrink_to_fit();
     }
   Track* t = index >= 0 && index < (int)tracks.size() ? &tracks[index] : nullptr;
-  if (!t || t->bench || !t->hasMap || (!fileFs && !t->mapUnsaved)) return;
+  if (!t || t->bench || !t->hasMap || (!fileFs && !t->mapUnsaved && !t->world)) return;
 
   layout::Lines map;
   if (t->mapUnsaved) {  // not in tracks.json yet
     map.swap(t->map);
+  } else if (t->world) {  // from its tile, not tracks.json (and not in the map cache)
+    std::vector<layout::Lines> maps(1);
+    readWorldMaps({index}, t->refLat(), t->refLon(), maps);
+    map.swap(maps[0]);
   } else {
     if (!mapsFromCache(*t, t->refLat(), t->refLon(), map)) {
       readFile([&](JsonArray arr) {
@@ -479,7 +668,8 @@ std::vector<int> TrackDatabase::layoutCandidates(int index, double maxDistanceM)
   if (!cur || cur->bench) return out;
   for (int i = 0; i < (int)tracks.size(); i++) {
     const Track& t = tracks[i];
-    if (i == index || t.bench || !t.hasMap || !t.hasStartFinish) continue;
+    // (a world track's map is in its tile: reading it would stall the lap, and its line is only an estimate)
+    if (i == index || t.bench || t.world || !t.hasMap || !t.hasStartFinish) continue;
     if (geo::distanceM(cur->refLat(), cur->refLon(), t.refLat(), t.refLon()) <= maxDistanceM) out.push_back(i);
   }
   return out;
@@ -488,22 +678,30 @@ std::vector<int> TrackDatabase::layoutCandidates(int index, double maxDistanceM)
 bool TrackDatabase::readMaps(const std::vector<int>& indices, double refLat, double refLon,
                              std::vector<layout::Lines>& out) {
   out.assign(indices.size(), layout::Lines());
-  if (fileFs && mapCache) {
-    bool served = true;
+  bool anyOwn = false;
+  for (int i : indices) {
+    const Track* t = get(i);
+    anyOwn |= t && !t->world;
+  }
+  bool ok = true;
+  if (anyOwn) {  // tracks.json's: from the cache, else the file
+    bool served = fileFs && mapCache;
     for (size_t k = 0; k < indices.size() && served; k++) {
       const Track* t = get(indices[k]);
-      served = !t || mapsFromCache(*t, refLat, refLon, out[k]);
+      served = !t || t->world || mapsFromCache(*t, refLat, refLon, out[k]);
     }
-    if (served) return true;
-    out.assign(indices.size(), layout::Lines());
+    if (!served) {
+      for (size_t k = 0; k < indices.size(); k++) out[k].clear();
+      ok = readFile([&](JsonArray arr) {
+        for (size_t k = 0; k < indices.size(); k++) {
+          const Track* t = get(indices[k]);
+          JsonObject o = t && !t->world ? findLayout(arr, *t) : JsonObject();
+          if (!o.isNull()) readMapLines(o, refLat, refLon, out[k]);
+        }
+      });
+    }
   }
-  return readFile([&](JsonArray arr) {
-    for (size_t k = 0; k < indices.size(); k++) {
-      const Track* t = get(indices[k]);
-      JsonObject o = t ? findLayout(arr, *t) : JsonObject();
-      if (!o.isNull()) readMapLines(o, refLat, refLon, out[k]);
-    }
-  });
+  return readWorldMaps(indices, refLat, refLon, out) && ok;
 }
 
 // --- writing ----------------------------------------------------------------
@@ -515,8 +713,12 @@ fs::FS* TrackDatabase::writableFs() {
   return nullptr;
 }
 
+// New tracks go after tracks.json's, ahead of the world ones and the bench track, so the indices of tracks.json's
+// don't move when the world tracks are replaced
 int TrackDatabase::insertIndex() const {
-  return (!tracks.empty() && tracks.back().bench) ? tracks.size() - 1 : tracks.size();
+  for (size_t i = 0; i < tracks.size(); i++)
+    if (tracks[i].world || tracks[i].bench) return (int)i;
+  return (int)tracks.size();
 }
 
 static void writePoint(JsonObject o, const TrackPoint& p) {
@@ -546,12 +748,21 @@ static void writeTrack(JsonObject o, const Track& t) {
   if (t.stage && t.hasFinish && t.layoutIndex < 0) writePoint(o.createNestedObject("finish"), t.finish);
 }
 
-// Like findLayout, but adds the entry or layout if it isn't in the file.
-static JsonObject findOrAddLayout(JsonArray arr, const Track& t) {
+// Like findLayout, but adds the entry or layout if it isn't in the file. A world track's whole entry is copied
+// from `world` (read before, readWorldEntry); the first change to it is what puts it in tracks.json.
+static JsonObject findOrAddLayout(JsonArray arr, const Track& t, std::vector<WorldEntry>* world = nullptr) {
   JsonObject o = findById(arr, t.venueId);
   if (o.isNull()) {
-    o = arr.createNestedObject();
-    writeTrack(o, t);
+    WorldEntry* w = nullptr;
+    if (t.world && world)
+      for (WorldEntry& e : *world)
+        if (e.venueId == t.venueId && !e.text.empty()) w = &e;
+    if (w) {
+      o = copyWorldEntry(arr, *w);
+    } else {
+      o = arr.createNestedObject();
+      writeTrack(o, t);
+    }
   }
   if (t.layoutIndex < 0) return o;
   JsonArray layouts = o["layouts"].isNull() ? o.createNestedArray("layouts") : o["layouts"].as<JsonArray>();
@@ -596,7 +807,7 @@ bool TrackDatabase::editFile(size_t extraBytes, std::function<bool(JsonArray)> c
     PsramJsonDocument doc(16384 + tracks.size() * 512 + extraBytes);
     JsonArray arr = doc.createNestedArray("tracks");
     for (const Track& t : tracks)
-      if (!t.bench) writeTrack(arr.createNestedObject(), t);
+      if (!t.bench && !t.world) writeTrack(arr.createNestedObject(), t);  // (world tracks are in their tiles)
     edit(doc);
   }
 
@@ -677,12 +888,16 @@ bool TrackDatabase::setFinish(int index, double lat, double lon, float headingDe
   t.hasFinish = true;
   DEBUG_PRINTF("Tracks: finish for '%s' set to %.7f, %.7f, direction %s\n", t.displayName().c_str(), lat, lon,
                headingDeg >= 0 ? String(headingDeg, 0).c_str() : "none");
-  return editFile(1024, [&](JsonArray arr) {
-    JsonObject o = findOrAddLayout(arr, t);
+  std::vector<WorldEntry> world(1);  // a world track is copied into tracks.json with this change
+  if (t.world) readWorldEntry(t, world[0]);
+  const bool ok = editFile(1024 + world[0].extraBytes, [&](JsonArray arr) {
+    JsonObject o = findOrAddLayout(arr, t, &world);
     o["type"] = "stage";
     writePoint(o.createNestedObject("finish"), t.finish);
     return true;
   });
+  if (ok && t.world) adoptWorldVenue(t.venueId);
+  return ok;
 }
 
 bool TrackDatabase::clearFinish(int index) {
@@ -731,6 +946,7 @@ bool TrackDatabase::setStartFinish(int index, double lat, double lon, float head
     t.sectorsUnsaved = !t.bench;
   }
   t.hasStartFinish = true;
+  t.estimated = false;  // driven or tapped now (or moved in Adjust): no longer a guess
   if (t.centerLat == 0.0 && t.centerLon == 0.0) {
     t.centerLat = lat;
     t.centerLon = lon;
@@ -739,9 +955,11 @@ bool TrackDatabase::setStartFinish(int index, double lat, double lon, float head
                headingDeg >= 0 ? String(headingDeg, 0).c_str() : "none");
   if (t.bench) return true;
 
-  bool ok = editFile(1024, [&](JsonArray arr) {
-    JsonObject o = findOrAddLayout(arr, t);
-    writePoint(o.createNestedObject("startFinish"), t.startFinish);
+  std::vector<WorldEntry> world(1);  // a world track is copied into tracks.json with this change
+  if (t.world) readWorldEntry(t, world[0]);
+  bool ok = editFile(1024 + world[0].extraBytes, [&](JsonArray arr) {
+    JsonObject o = findOrAddLayout(arr, t, &world);
+    writePoint(o.createNestedObject("startFinish"), t.startFinish);  // (replaces the whole line: no "estimated")
     JsonObject venue = findById(arr, t.venueId);
     if (venue["center"].isNull()) {
       venue["center"]["lat"] = serialized(String(t.centerLat, 7));
@@ -749,6 +967,7 @@ bool TrackDatabase::setStartFinish(int index, double lat, double lon, float head
     }
     return true;
   });
+  if (ok && t.world) adoptWorldVenue(t.venueId);
   if (t.hasMap && t.map.empty()) {  // not loaded: read it, relative to the start/finish now
     loadMap(index);
     return ok;
@@ -796,16 +1015,30 @@ bool TrackDatabase::saveMaps() {
   }
   if (!points && !gates) return true;
 
+  // World tracks among them are copied into tracks.json first (their whole entries, once per venue)
+  std::vector<WorldEntry> world;
+  size_t worldBytes = 0;
+  for (const Track& t : tracks) {
+    if (!t.world || !(t.mapUnsaved || t.sectorsUnsaved)) continue;
+    bool seen = false;
+    for (const WorldEntry& e : world) seen |= e.venueId == t.venueId;
+    WorldEntry w;
+    if (!seen && readWorldEntry(t, w)) {
+      worldBytes += w.extraBytes;
+      world.push_back(std::move(w));
+    }
+  }
+
   // Each point: three slots ([lat,lon] and its two numbers) and two copied ~11-character numbers.
   // Each gate: an object of four members and three copied numbers.
-  bool ok = editFile(points * (JSON_ARRAY_SIZE(3) + 24) + gates * (JSON_OBJECT_SIZE(4) + 48) + 1024, [&](JsonArray arr) {
+  bool ok = editFile(points * (JSON_ARRAY_SIZE(3) + 24) + gates * (JSON_OBJECT_SIZE(4) + 48) + 1024 + worldBytes, [&](JsonArray arr) {
     for (const Track& t : tracks) {
       if (t.sectorsUnsaved) {
-        JsonArray s = findOrAddLayout(arr, t).createNestedArray("sectors");  // replaces any there
+        JsonArray s = findOrAddLayout(arr, t, &world).createNestedArray("sectors");  // replaces any there
         for (const TrackPoint& g : t.sectors) writePoint(s.createNestedObject(), g);
       }
       if (!t.mapUnsaved) continue;
-      JsonObject o = findOrAddLayout(arr, t);
+      JsonObject o = findOrAddLayout(arr, t, &world);
       JsonArray m = o.createNestedArray("map");  // replaces any existing map
       for (const std::vector<geo::XYf>& line : t.map) {
         JsonArray l = m.createNestedArray();
@@ -820,6 +1053,8 @@ bool TrackDatabase::saveMaps() {
     }
     return true;
   });
+  if (ok)  // those world tracks are tracks.json's now
+    for (const WorldEntry& e : world) adoptWorldVenue(e.venueId);
   for (Track& t : tracks) {
     if (t.mapUnsaved) {
       DEBUG_PRINTF("Tracks: map for '%s' %s\n", t.displayName().c_str(), ok ? "saved" : "NOT saved");

@@ -1898,6 +1898,24 @@ static void render() {
   }
 }
 
+// The world tracks from the SD card's /world tiles (WorldTiles.h) for where we are: read at the first fix and
+// again after moving into another tile, only on the screens before a session (reading a tile takes a moment,
+// and the lap timer runs on this loop). With no card or no /world folder it does nothing.
+static void refreshWorldTracks() {
+  if (!gps.hasFix()) return;
+  if (state != AppState::GpsWait && state != AppState::Menu && state != AppState::TrackSelect) return;
+  const String keepId = trackDB.get(selectedIndex) ? selectedTrack().id : String("");
+  const GpsFix& f = gps.lastFix();
+  if (!trackDB.refreshWorld(f.lat, f.lon)) return;
+  // World tracks' indices changed: what is kept by index is worked out again
+  pbCache.clear();
+  listOrder.clear();  // (the Track day list is made again on entering it)
+  nextUpAt = 0;
+  const int again = keepId.length() ? trackDB.indexOfId(keepId) : -1;
+  selectedIndex = again >= 0 ? again : 0;
+  if (state == AppState::TrackSelect) sortTrackList(selectedIndex);
+}
+
 // Once the GPS has a fix: a track within range is picked. If the car is
 // already moving the session starts on it straight away; if it's parked, the
 // track's Ready screen waits for the car to drive off (so the menu is one
@@ -2159,6 +2177,7 @@ void setup() {
   gps.update();
   state = AppState::GpsWait;
   if (!Settings::get().setupDone) enterState(AppState::Setup);  // first boot: which way up, km/h or mph
+  refreshWorldTracks();  // (the same screens as autoPickTrack: the world tracks near here come first)
   autoPickTrack();  // (waits for the setup questions: it only acts on the GPS wait and menu screens)
   if (state == AppState::GpsWait) enterState(AppState::GpsWait);
   sleepTimer.begin(millis());
@@ -2341,6 +2360,7 @@ void loop() {
   }
 
   if (summaryDirty && (int32_t)(now - summarySaveAt) >= 0) flushSummary();  // the last lap's, now it is over
+  refreshWorldTracks();
   autoPickTrack();
   WifiPortal::loop(gps);
   if (WifiPortal::takeCodeChanged()) lastRender = 0;  // a change used the code: show the new one now

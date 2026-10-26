@@ -25,7 +25,7 @@ constexpr double KEEP_EDGE_M = 15000.0;  // ...and kept until we're this far fro
 constexpr double HIDE_RADIUS_M = 1000.0;  // a world track this close to one of the user's is hidden
 
 struct Tile {
-  int lat0 = 0, lon0 = 0;
+  int lat0, lon0;  // (no initialisers: the firmware builds as C++11, where that stops {a, b} working)
   bool operator==(const Tile& o) const { return lat0 == o.lat0 && lon0 == o.lon0; }
 };
 
@@ -89,8 +89,11 @@ struct Spot {
 inline bool hidden(const std::string& id, double lat, double lon, const std::vector<std::string>& ownIds,
                    const std::vector<Spot>& ownSpots, double radiusM = HIDE_RADIUS_M) {
   if (std::find(ownIds.begin(), ownIds.end(), id) != ownIds.end()) return true;
+  // (a latitude gap that is already too big skips the trigonometry: the board's doubles are slow, and this runs
+  // for every world track against every track of the user's)
+  const double maxDLat = radiusM / (geo::EARTH_RADIUS_M * geo::DEG2RAD) * 1.01;
   for (const Spot& s : ownSpots)
-    if (geo::distanceM(lat, lon, s.lat, s.lon) <= radiusM) return true;
+    if (fabs(lat - s.lat) <= maxDLat && geo::distanceM(lat, lon, s.lat, s.lon) <= radiusM) return true;
   return false;
 }
 

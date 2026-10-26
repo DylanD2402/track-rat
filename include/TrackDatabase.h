@@ -23,6 +23,11 @@
  * LapTimer::setStage. An autocross course (Courses.h) is a stage with "kind":
  * "course" and "event": "YYYYMMDD", the day it was made, named "Oct 25 course".
  * Courses are left out of the circuit list; the Autocross hub finds them.
+ *
+ * World tracks (WorldTiles.h): tracks from the SD card's /world/<lat>/<lon>.json tiles, loaded for where the
+ * GPS is (refreshWorld). They are kept after the tracks.json ones and flagged `world`; a world track that
+ * tracks.json also has (same id, or a track of the user's within 1 km) is left out. Anything that would change
+ * one first copies its whole entry into tracks.json, and from then on it is a tracks.json track.
  */
 
 #ifndef TRACK_DATABASE_H
@@ -36,6 +41,7 @@
 #include <vector>
 #include "GeoMath.h"
 #include "LayoutMatch.h"
+#include "WorldTiles.h"
 
 struct Track {
   String id;       // unique per layout: the venue id, or "<venue id>.<layout id>"
@@ -74,11 +80,19 @@ struct Track {
   // An autocross course (Courses.h): a stage made for one event day. event is "YYYYMMDD", "" if not known.
   bool course = false;
   String event;
+  // From a world tile (read-only, not in tracks.json). Changing it copies it into tracks.json first.
+  bool world = false;
+  int tileLat = 0, tileLon = 0;  // its tile's corner (world only)
+  // The start/finish was worked out from the map (the pit lane), not driven or tapped: tracks.json says
+  // "estimated": true. Timing uses it as it is; the screens say so, and the first tap or Adjust replaces it.
+  bool estimated = false;
 
   double refLat() const { return hasStartFinish ? startFinish.lat : centerLat; }
   double refLon() const { return hasStartFinish ? startFinish.lon : centerLon; }
   String displayName() const { return layoutName.length() ? name + " - " + layoutName : name; }
 };
+
+struct WorldEntry;  // a world track's entry text, for copying into tracks.json (TrackDatabase.cpp)
 
 class TrackDatabase {
 public:
@@ -93,6 +107,13 @@ public:
   // Courses are left out unless includeCourses (they are found by the Autocross hub, not as circuits).
   int findNearest(double lat, double lon, double maxDistanceM, double* distanceOut = nullptr,
                   bool includeCourses = false) const;
+
+  // The world tiles for this position (the one it is in, and a neighbour when near its edge) are read from the
+  // SD card, and the world tracks in the list replaced by theirs. Cheap when nothing changed, so it can be called
+  // every loop; reading a tile takes a moment, so call it only when nothing is being timed. Track indices of
+  // tracks.json tracks stay put; a world track's may change, so look it up by id afterwards. True if the list changed.
+  bool refreshWorld(double lat, double lon);
+  int indexOfId(const String& id) const;  // -1 if there is no track with this id
 
   // In-memory only (the bench track). Kept last in the list.
   void add(const Track& track) { tracks.push_back(track); }
@@ -148,6 +169,13 @@ private:
   std::shared_ptr<MapCache> mapCache;
   bool mapsFromCache(const Track& t, double refLat, double refLon, layout::Lines& out);
   void rebuildMapCache(JsonArray arr, size_t fileBytes);
+
+  // World tracks: the tiles tried for the last position (even those with no file), and what a world track's
+  // edit has to copy into tracks.json
+  std::vector<worldtiles::Tile> worldTiles;
+  bool readWorldMaps(const std::vector<int>& indices, double refLat, double refLon, std::vector<layout::Lines>& out);
+  bool readWorldEntry(const Track& t, WorldEntry& out);
+  void adoptWorldVenue(const String& venueId);  // its entry is in tracks.json now: not world any more
 
   std::vector<Track> tracks;
   const char* sourceName = "none";
