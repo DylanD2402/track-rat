@@ -62,13 +62,13 @@ static void gearIcon(TFT_eSPI* g, int cx, int cy, uint16_t c, uint16_t hole) {
   g->fillCircle(cx, cy, 3, hole);
 }
 
-void DisplayManager::drawHome(const nextup::Choice& next, int highlight, const GPSHandler& gps, bool touchOk) {
+void DisplayManager::drawHome(const nextcard::Choice& next, int highlight, const GPSHandler& gps, bool touchOk) {
   beginFrame();
   header("", &gps);
   brandMark(8, (HEADER_H - BRAND_MARK_H) / 2 - 1);
 
   // --- Next up: one tap does the most likely thing ---
-  const bool waiting = next.kind == nextup::Kind::NoFix;
+  const bool waiting = next.kind == nextcard::Kind::NoFix;
   const int cx = 6, cw = W - 12, cy = home::CARD_Y, ch = home::CARD_H;
   const bool cardHl = highlight == home::NextUp;
   if (cardHl) {  // BOOT: a ring round the card

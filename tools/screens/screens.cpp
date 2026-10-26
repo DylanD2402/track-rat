@@ -199,7 +199,7 @@ int main(int argc, char** argv) {
   d.drawGpsWait(gps, 131, "SD", true, true);
   save(d, "03_gps_status");
   {  // the home screen (9.1): each kind of Next up card, then BOOT navigation
-    nextup::Inputs in;
+    nextcard::Inputs in;
     in.fix = true;
     in.today = "20261025";
     in.circuitIndex = 3;
@@ -207,35 +207,35 @@ int main(int argc, char** argv) {
     in.circuitName = "Calabogie";
     in.layoutName = "Full";
     in.pbMs = 163611;
-    d.drawHome(nextup::choose(in), -1, gps, true);
+    d.drawHome(nextcard::choose(in), -1, gps, true);
     save(d, "04_home_circuit");
-    nextup::Inputs course = in;
+    nextcard::Inputs course = in;
     course.courseIndex = 7;
     course.courseDistM = 120;
     course.courseEvent = "20261025";
     course.courseName = "Oct 25 course";
     course.runNext = 4;
     course.bestRunMs = 52310;
-    d.drawHome(nextup::choose(course), -1, gps, true);
+    d.drawHome(nextcard::choose(course), -1, gps, true);
     save(d, "04b_home_course");
-    nextup::Inputs drive;
+    nextcard::Inputs drive;
     drive.fix = true;
     drive.today = "20261025";
-    d.drawHome(nextup::choose(drive), -1, gps, true);
+    d.drawHome(nextcard::choose(drive), -1, gps, true);
     save(d, "04c_home_drive");
     setGps(gps, false, 0, 0, 0, 0);
-    nextup::Inputs nofix = in;
+    nextcard::Inputs nofix = in;
     nofix.fix = false;
-    d.drawHome(nextup::choose(nofix), -1, gps, true);
+    d.drawHome(nextcard::choose(nofix), -1, gps, true);
     save(d, "04d_home_no_fix");
-    d.drawHome(nextup::choose(nofix), home::Settings, gps, false);  // BOOT navigation, no fix
+    d.drawHome(nextcard::choose(nofix), home::Settings, gps, false);  // BOOT navigation, no fix
     save(d, "05_home_boot_nofix");
     setGps(gps, true, SF_LAT + 0.0004, SF_LON, 0, 0);
-    d.drawHome(nextup::choose(in), home::NextUp, gps, false);
+    d.drawHome(nextcard::choose(in), home::NextUp, gps, false);
     save(d, "05b_home_boot_next_up");
-    d.drawHome(nextup::choose(in), home::Autocross, gps, false);
+    d.drawHome(nextcard::choose(in), home::Autocross, gps, false);
     save(d, "05c_home_boot_tile");
-    d.drawHome(nextup::choose(in), home::Wifi, gps, false);
+    d.drawHome(nextcard::choose(in), home::Wifi, gps, false);
     save(d, "05d_home_boot_wifi");
   }
   setGps(gps, true, SF_LAT + 0.02, SF_LON, 0, 0);

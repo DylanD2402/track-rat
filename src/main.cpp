@@ -107,7 +107,7 @@ static bool listSorted = false;  // ordered by distance (false: no GPS fix when 
 static int menuHighlight = 0;  // the home screen's BOOT place (home::Item)
 // The Track day list also holds two entries that are not a track: + New circuit, and (no touch screen) Back
 static const int ENTRY_NEW_CIRCUIT = -2, ENTRY_BACK = -3;
-static nextup::Choice nextUp;     // the home screen's Next up card
+static nextcard::Choice nextUp;     // the home screen's Next up card
 static uint32_t nextUpAt = 0;     // millis() it was worked out; 0: out of date
 static bool autoPickDone = false;
 static bool noTrackNearby = false;
@@ -1302,7 +1302,7 @@ static void replayFixes() {
 // Works out the home screen's Next up card: today's autocross course nearby, else a circuit within 5 km,
 // else Drive (NextUp.h). The day's runs come from the card a few at a time (CourseRuns.h).
 static void refreshNextUp() {
-  nextup::Inputs in;
+  nextcard::Inputs in;
   in.fix = gps.hasFix();
   if (in.fix) {
     const GpsFix& f = gps.lastFix();
@@ -1336,7 +1336,7 @@ static void refreshNextUp() {
       in.pbMs = pb;
     }
   }
-  nextUp = nextup::choose(in);
+  nextUp = nextcard::choose(in);
   nextUpAt = millis() | 1;
 }
 
@@ -1344,18 +1344,18 @@ static void refreshNextUp() {
 static void startNextUp() {
   refreshNextUp();
   switch (nextUp.kind) {
-    case nextup::Kind::Course:  // timing runs on it, armed at the start (as at boot)
+    case nextcard::Kind::Course:  // timing runs on it, armed at the start (as at boot)
       selectedIndex = nextUp.index;
       enterState(AppState::Running);
       break;
-    case nextup::Kind::Circuit:
+    case nextcard::Kind::Circuit:
       selectedIndex = nextUp.index;
       enterState(selectedTrack().stage ? AppState::Running : AppState::TrackConfirm);
       break;
-    case nextup::Kind::Drive:
+    case nextcard::Kind::Drive:
       enterState(AppState::FreeRoam);
       break;
-    case nextup::Kind::NoFix:
+    case nextcard::Kind::NoFix:
       enterState(AppState::GpsStatus);
       break;
   }

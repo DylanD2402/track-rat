@@ -6,7 +6,7 @@
 #include "NextUp.h"
 #include "check.h"
 
-using namespace nextup;
+using namespace nextcard;
 
 // A fix, with a course made today 800 m away and a circuit 1.2 km away
 static Inputs base() {

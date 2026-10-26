@@ -23,7 +23,8 @@
 #include <string>
 #include "Courses.h"
 
-namespace nextup {
+// Not "nextup": glibc's math.h declares a function nextup(), so GCC on Linux rejects that namespace
+namespace nextcard {
 
 constexpr double NEAR_M = 5000.0;  // "nearby": the same distance as the boot auto-pick
 
@@ -109,6 +110,6 @@ inline Choice choose(const Inputs& in) {
   return c;
 }
 
-}  // namespace nextup
+}  // namespace nextcard
 
 #endif  // NEXT_UP_H

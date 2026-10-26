@@ -141,7 +141,7 @@ public:
   void drawDebrief(const Track& track, const LapTimer& timer, const DebriefView& d, int page);
   // The home screen (DisplayHome.cpp; places in HomeLayout.h): the Next up card, four tiles, Wi-Fi and Settings.
   // highlight is for BOOT-button navigation (home::Item, -1 none).
-  void drawHome(const nextup::Choice& next, int highlight, const GPSHandler& gps, bool touchOk);
+  void drawHome(const nextcard::Choice& next, int highlight, const GPSHandler& gps, bool touchOk);
   // The Track day list's two entries that are not a track: "+ New circuit" (back false) and, for a unit
   // with no touch screen, "Back" (back true). index of count is the place in the list.
   void drawTrackDayExtra(bool back, int index, int count, const GPSHandler& gps, bool touchOk);
