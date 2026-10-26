@@ -73,7 +73,8 @@ jobs:
           # the sample sessions, which go under analyze/ below
           cp -r site/. _site/
           rm -rf _site/samples
-          mkdir -p _site/assets
+          mkdir -p _site/assets _site/fonts
+          cp web/fonts/*.woff2 web/fonts/OFL.txt _site/fonts/
           cp docs/images/social-preview.png _site/assets/
           # The Wi-Fi page as a viewer (it opens session files from your computer): its fonts and logo, the
           # sample session and the track list beside it

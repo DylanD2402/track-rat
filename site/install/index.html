@@ -7,47 +7,50 @@
 <meta name="description" content="Install the Track Rat GPS lap timer firmware from your browser.">
 <link rel="icon" type="image/png" href="../favicon.png">
 <style>
+  @font-face { font-family: "Inter"; font-weight: 400; font-display: swap; src: url(/fonts/inter-regular.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 500; font-display: swap; src: url(/fonts/inter-medium.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 600; font-display: swap; src: url(/fonts/inter-semibold.woff2) format("woff2"); }
   :root {
-    --bg: #000; --fg: #fff; --dim: #9a9a9f; --panel: #151517; --line: #2a2a2d;
+    --bg: #000; --fg: #fff; --dim: #98989f; --panel: #1c1c1e; --raised: #2c2c2e; --line: #38383a; --text2: #98989f; --text3: #636366;
     --brand: #26B7FF; --red: #FF453A;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
-    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 500 16px/1.55 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
   .fulllogo { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 0 16px; border: 0; border-radius: 0; }
-  h1 { font-size: 2rem; margin: 0 0 4px; }
-  h2 { font-size: 1.1rem; margin: 32px 0 8px; color: var(--brand); }
-  p, li { color: #e6e6e8; }
+  h1 { font-size: 2rem; font-weight: 600; letter-spacing: -.01em; margin: 0 0 4px; }
+  h2 { text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; font-weight: 600; color: var(--text2); margin: 32px 0 10px; }
+  p, li { color: #fff; }
   .tag { color: var(--dim); margin: 0 0 24px; }
   .version { color: var(--dim); font-size: .9rem; margin-top: 8px; }
   a { color: var(--brand); }
-  .install { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; text-align: center; }
+  .install { background: var(--panel); border: 0; border-radius: 14px; padding: 20px; text-align: center; }
   .install p { margin: 8px 0 0; }
-  esp-web-install-button { --esp-tools-button-color: #26B7FF; --esp-tools-button-text-color: #000; }
+  esp-web-install-button { --esp-tools-button-color: #fff; --esp-tools-button-text-color: #000; }
   esp-web-install-button button[slot="activate"] {
-    background: var(--brand); color: #000; border: 0; border-radius: 8px;
-    font: inherit; font-weight: 600; padding: 12px 28px; cursor: pointer;
+    background: #fff; color: #000; border: 0; border-radius: 12px;
+    font: inherit; font-weight: 600; padding: 14px 32px; cursor: pointer;
   }
-  .warn { border: 1px solid var(--red); border-radius: 8px; padding: 12px 16px; margin: 24px 0 0; background: #1c0b0a; }
+  .warn { border: 1px solid var(--red); border-radius: 10px; padding: 12px 16px; margin: 24px 0 0; background: #1c0b0a; }
   .warn strong { color: var(--red); }
   .warn p { margin: 0; }
   ol, ul { padding-left: 1.3em; }
   li { margin: 4px 0; }
-  .nosupport { display: none; border: 1px solid var(--red); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+  .nosupport { display: none; border: 1px solid var(--red); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; }
   .nav { position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,.92); border-bottom: 1px solid var(--line); }
   .nav-in { max-width: 960px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; flex-wrap: wrap; }
-  .brand { color: var(--fg); font-weight: 700; text-decoration: none; }
+  .brand { color: var(--fg); font-weight: 600; text-decoration: none; }
   .brand { display: flex; align-items: center; }
   .brand img { display: block; height: 26px; width: auto; }
   .nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
   .nav li { margin: 0; }
-  .nav ul a { display: block; padding: 8px 12px; border-radius: 8px; color: #e6e6e8; text-decoration: none; font-size: .95rem; }
-  .nav ul a:hover { background: var(--panel); color: var(--brand); }
+  .nav ul a { display: block; padding: 8px 12px; border-radius: 10px; color: #fff; text-decoration: none; font-size: .95rem; }
+  .nav ul a:hover { background: var(--raised); color: var(--brand); }
   .nav ul a[aria-current] { color: var(--brand); }
-  .menu-btn { display: none; background: none; border: 1px solid var(--line); color: var(--fg); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  .menu-btn { display: none; background: var(--panel); border: 0; color: var(--fg); border-radius: 10px; padding: 6px 12px; font: inherit; cursor: pointer; }
   @media (max-width: 720px) {
     .menu-btn { display: block; }
     .nav ul { display: none; flex-direction: column; width: 100%; padding-bottom: 8px; }
