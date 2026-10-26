@@ -237,7 +237,6 @@ private:
   void beginFrame();
   void endFrame();
   void header(const String& title, const GPSHandler* gps, uint16_t titleColor = 0xFFFF);
-  void gpsBadge(const GPSHandler& gps);
   struct MapPath {
     const uint8_t* base;  // points start with float x, y (metres)
     size_t n;

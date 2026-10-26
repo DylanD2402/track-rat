@@ -4,12 +4,12 @@
  * Board: LCDWiki ES3C28P (ESP32-S3 N16R8, 2.8" ILI9341V touch display, SD slot)
  * GPS:   Beitian BE-252Q (UART connector or expansion header, found at boot)
  *
- * Flow: logo -> GPS fix -> a track within 5 km? already moving: start a session
- *       on it (timing begins at the start/finish line); parked: its Ready
- *       screen, which starts the session when the car drives off (Menu is
- *       one button away) : home screen (Next up, Track day, Autocross, Drag, Drive). Tracks
- *       without a start/finish line get one by tapping the screen while
- *       crossing it.
+ * Flow: logo -> GPS fix -> a track within 5 km? Already moving: a session starts
+ *       on it (timing begins at the start/finish line). Parked: its Ready
+ *       screen, which starts the session when the car drives off (the Menu is
+ *       one button away). No track nearby: the home screen (Next up, Track
+ *       day, Autocross, Drag, Drive). Tracks without a start/finish line get
+ *       one by tapping the screen while crossing it.
  *
  * Sessions run themselves (AutoStart.h): parked for a minute shows the
  * summary; driving off within 10 minutes carries on, later it's the next
@@ -721,7 +721,6 @@ static void enterState(AppState next) {
   lastRender = 0;  // redraw now
 }
 
-// The driver tapped while crossing the start/finish line: save it and start lap 1.
 // Track day, then + New circuit: created here, start/finish marked on the first pass.
 static void createNewTrack() {
   if (!gps.hasFix()) return enterState(AppState::Menu);
@@ -751,8 +750,8 @@ static void createNewCourse() {
 }
 
 // --- Adjust start / Adjust finish (AdjustLine.h, AdjustLoad.h): the Autocross hub's course, its line moved in
-// 0.5 m steps with the day's runs re-timed live. BOOT: hold picks the button (Later, Earlier, Reset, Cancel, Save),
-// press uses it. Touch: tap, or hold an arrow to repeat. Save writes the line to tracks.json and times the
+// 0.5 m steps with the day's runs re-timed live. BOOT: hold picks the button (Later, Cancel, Save, Earlier, Reset,
+// round again), press uses it. Touch: tap, or hold an arrow to repeat. Save writes the line to tracks.json and times the
 // course's logs again (SessionLog::retime, as the Wi-Fi page's Re-time does).
 static uint32_t adjustRepeatAt = 0;
 static const uint32_t ADJUST_REPEAT_DELAY_MS = 400;  // held this long, an arrow repeats
@@ -925,6 +924,7 @@ static void undoFinish() {
   DEBUG_PRINTLN("Finish taken back - the run goes on");
 }
 
+// The driver tapped while crossing the start/finish line: save it and start lap 1.
 static void markStartFinish() {
   if (!gps.hasFix()) {
     DEBUG_PRINTLN("Start/finish: no GPS fix - not set");
