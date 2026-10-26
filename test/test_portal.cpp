@@ -231,25 +231,134 @@ int main() {
 
   // Upload code shown on the screen
   UploadCode code;
-  CHECK(!code.matches("0000") && !code.check("0000"), "no code before Wi-Fi starts");
+  CHECK(!code.matches("0000") && !code.check("0000", 0, 1), "no code before Wi-Fi starts");
   code.reset(1234567);  // -> 4567
   CHECK(code.value() == 4567, "value %d", code.value());
-  CHECK(code.matches("4567") && code.check("4567"), "right code");
-  CHECK(code.check("4567"), "right code again (second upload)");
+  CHECK(code.matches("4567") && code.check("4567", 0, 1), "right code");
+  CHECK(code.check("4567", 0, 1) && code.value() == 4567, "checking doesn't use the code up");
   code.reset(42);
-  CHECK(code.value() == 42 && code.check("0042"), "leading zeros");
+  CHECK(code.value() == 42 && code.check("0042", 0, 1), "leading zeros");
   CHECK(!code.matches("42") && !code.matches("00042") && !code.matches("004a") && !code.matches("") &&
             !code.matches(nullptr) && !code.matches(" 042"),
         "only exactly 4 digits");
+
+  // One use: after a change goes through the code is a new one, and the old one is wrong
+  code.reset(1111);
+  code.spend(2222);
+  CHECK(code.value() == 2222 && !code.matches("1111") && code.matches("2222"), "spend: new code %d", code.value());
+  code.spend(2222);  // the draw is the same number: still a different code
+  CHECK(code.value() != 2222 && code.value() == 2223, "spend never repeats the code: %d", code.value());
+  code.spend(9999 + 1);  // 10000 % 10000
+  CHECK(code.value() == 0, "draw wraps to 4 digits: %d", code.value());
+  CHECK(!code.check("2222", 0, 5), "a spent code is refused (and counted)");
+
+  // Lockout: 5 wrong codes, then everything is refused for 30 s
+  const uint32_t T = 100000;
   code.reset(9999);
-  for (int i = 0; i < UploadCode::MAX_TRIES - 1; i++) CHECK(!code.check("1111"), "wrong %d", i);
-  CHECK(!code.locked() && code.check("9999"), "still open after %d wrong", UploadCode::MAX_TRIES - 1);
-  CHECK(!code.check("1111") && code.locked(), "locked after %d wrong", UploadCode::MAX_TRIES);
-  CHECK(!code.check("9999"), "right code refused once locked");
-  CHECK(code.matches("9999"), "matches() still tells the reply which message to give");
+  for (int i = 0; i < UploadCode::MAX_TRIES - 1; i++) CHECK(!code.check("1111", T, 7), "wrong %d", i);
+  CHECK(!code.locked(T) && code.check("9999", T, 7), "still open after %d wrong", UploadCode::MAX_TRIES - 1);
+  for (int i = 0; i < UploadCode::MAX_TRIES - 1; i++) code.check("1111", T, 7);
+  CHECK(!code.locked(T) && code.value() == 9999, "four wrong after a right code: still open, code unchanged");
+  CHECK(!code.check("1111", T, 7) && code.locked(T), "locked after %d wrong", UploadCode::MAX_TRIES);
+  CHECK(code.value() == 7, "a new code is drawn at the lockout: %d", code.value());
+  CHECK(!code.check("0007", T + 1, 8), "right code refused while locked");
+  CHECK(code.matches("0007"), "matches() still tells the reply which message to give");
+  CHECK(code.waitMs(T) == 30000 && code.waitMs(T + 10000) == 20000, "wait %u", (unsigned)code.waitMs(T));
+  CHECK(code.locked(T + 29999) && !code.locked(T + 30000), "30 s, then it's open");
+  CHECK(code.waitMs(T + 30000) == 0, "nothing to wait for");
+  CHECK(code.value() == 7, "refused tries during the lockout didn't draw codes");
+
+  // Doubling: each lockout twice the last (after a right code the next is 30 s again)
+  CHECK(!code.check("1111", T + 30000, 11) && !code.locked(T + 30000), "tries start over after the wait");
+  uint32_t t = T + 30000;
+  const uint32_t waits[] = {60000, 120000, 240000, 480000, 480000, 480000};
+  for (uint32_t ms : waits) {
+    for (int i = 0; i < UploadCode::MAX_TRIES; i++) code.check("1111", t, 3 + i);
+    CHECK(code.locked(t) && code.waitMs(t) == ms, "lockout %u ms, was %u", (unsigned)ms, (unsigned)code.waitMs(t));
+    t += ms;
+    CHECK(!code.locked(t), "open again after %u ms", (unsigned)ms);
+  }
+  // A correct code resets the doubling
+  code.reset(5000);
+  for (int i = 0; i < UploadCode::MAX_TRIES; i++) code.check("1111", t, 5000 + i);  // 30 s
+  t += 30000;
+  for (int i = 0; i < UploadCode::MAX_TRIES; i++) code.check("1111", t, 6000 + i);  // 60 s
+  CHECK(code.waitMs(t) == 60000, "second lockout %u", (unsigned)code.waitMs(t));
+  t += 60000;
+  char right[8];
+  snprintf(right, sizeof(right), "%04d", code.value());
+  CHECK(code.check(right, t, 1), "right code after the second lockout");
+  for (int i = 0; i < UploadCode::MAX_TRIES; i++) code.check("0000", t, 8000 + i);
+  CHECK(code.waitMs(t) == 30000, "a right code started the lockouts from 30 s again: %u", (unsigned)code.waitMs(t));
+
+  // Rotation: each lockout draws from what it's given, so what was guessed before is no use
+  code.reset(1234);
+  for (int i = 0; i < UploadCode::MAX_TRIES; i++) code.check("0000", 0, 4321);
+  CHECK(code.value() == 4321, "lockout drew %d", code.value());
+
+  // millis() wrapping round after 49 days
+  code.reset(321);
+  const uint32_t nearEnd = 0xFFFFFFFFu - 10000;
+  for (int i = 0; i < UploadCode::MAX_TRIES; i++) code.check("1111", nearEnd, 99);
+  CHECK(code.locked(nearEnd) && code.locked(0) && code.waitMs(0) == 19999 && !code.locked(20000),
+        "lockout across the wrap: %u left at 0", (unsigned)code.waitMs(0));
+
   code.reset(5);
-  CHECK(!code.locked() && code.check("0005"), "new code when Wi-Fi turns on again unlocks");
-  printf("  upload code: ok\n");
+  CHECK(!code.locked(0) && code.check("0005", 0, 1), "new code when Wi-Fi turns on again unlocks");
+
+  // The words for a lockout
+  char msg[120];
+  lockText(30000, msg, sizeof(msg));
+  CHECK(strstr(msg, "Wait 30 s,") && strstr(msg, "new code on Track Rat's screen"), "30 s text: %s", msg);
+  lockText(29001, msg, sizeof(msg));
+  CHECK(strstr(msg, "Wait 30 s,"), "rounds up: %s", msg);
+  lockText(1, msg, sizeof(msg));
+  CHECK(strstr(msg, "Wait 1 s,"), "at least a second: %s", msg);
+  lockText(120000, msg, sizeof(msg));
+  CHECK(strstr(msg, "Wait 2 min,"), "minutes: %s", msg);
+  lockText(480000, msg, sizeof(msg));
+  CHECK(strstr(msg, "Wait 8 min,"), "8 minutes: %s", msg);
+  printf("  upload code: one use, lockout 30 s doubling to 8 min, new code at each lockout, millis wrap\n");
+
+  // POSTs refused before the body is read
+  const char* IP = "192.168.4.1";
+  const size_t SLOT = 6553600;
+  CHECK(isPortalOrigin("http://192.168.4.1", IP) && isPortalOrigin("http://192.168.4.1:80", IP), "own origin");
+  CHECK(!isPortalOrigin("http://evil.example", IP) && !isPortalOrigin("https://192.168.4.1", IP) &&
+            !isPortalOrigin("http://192.168.4.1.evil.example", IP) && !isPortalOrigin("http://192.168.4.10", IP) &&
+            !isPortalOrigin("http://192.168.4.1:8080", IP) && !isPortalOrigin("null", IP) && !isPortalOrigin("", IP),
+        "other origins");
+  CHECK(postRefusal("/api/settings", 50, false, nullptr, IP, SLOT) == 0, "no Origin: left to the code");
+  CHECK(postRefusal("/api/settings", 50, false, "http://192.168.4.1", IP, SLOT) == 0, "own page");
+  CHECK(postRefusal("/api/settings", 50, false, "http://example.com", IP, SLOT) == 403, "other site");
+  CHECK(postRefusal("/api/settings", 50, false, "null", IP, SLOT) == 403, "Origin: null");
+  CHECK(postRefusal("/api/restart", 0, false, "http://example.com", IP, SLOT) == 403, "restart from another site");
+  CHECK(postRefusal("/api/settings", FORM_MAX_BYTES, false, nullptr, IP, SLOT) == 0, "form at the limit");
+  CHECK(postRefusal("/api/settings", FORM_MAX_BYTES + 1, false, nullptr, IP, SLOT) == 413, "form over the limit");
+  CHECK(postRefusal("/api/note", 3000, false, nullptr, IP, SLOT) == 0, "a 1000-byte note, escaped, fits");
+  CHECK(postRefusal("/api/tracks", TRACKS_MAX_BYTES + 100, false, nullptr, IP, SLOT) == 0, "tracks.json of 2 MB, with its wrapping");
+  CHECK(postRefusal("/api/tracks", TRACKS_MAX_BYTES + MULTIPART_SLACK + 1, false, nullptr, IP, SLOT) == 413, "tracks.json over 2 MB");
+  CHECK(postRefusal("/api/firmware", SLOT, false, nullptr, IP, SLOT) == 0, "slot-sized firmware");
+  CHECK(postRefusal("/api/firmware", SLOT + MULTIPART_SLACK + 1, false, nullptr, IP, SLOT) == 413, "firmware over the slot");
+  CHECK(postRefusal("/api/firmware", 100, true, nullptr, IP, SLOT) == 411, "chunked bodies aren't read");
+  CHECK(postRefusal("/api/tracks", TRACKS_MAX_BYTES * 4, false, "http://example.com", IP, SLOT) == 403, "Origin first");
+  CHECK(postRefusal("/anything", 100000, false, nullptr, IP, SLOT) == 413, "unknown URL gets the small limit");
+  printf("  POST rules: other origins 403, chunked 411, over the limit 413 (tracks 2 MB, firmware the slot, others 4 KB)\n");
+
+  CHECK(roomFor(3 * 1024 * 1024, TRACKS_MAX_BYTES) && !roomFor(2 * 1024 * 1024, TRACKS_MAX_BYTES) &&
+            !roomFor(0, 1) && roomFor(100000, 1000) && !roomFor(65536, 1),
+        "room for an upload");
+
+  // Downloads at once
+  DownloadGate dl;
+  CHECK(dl.enter() && dl.enter() && !dl.enter() && dl.count() == 2, "third download refused");
+  dl.leave();
+  CHECK(dl.enter() && !dl.enter(), "a finished download frees a place");
+  dl.leave();
+  dl.leave();
+  dl.leave();  // more leaves than enters: harmless
+  CHECK(dl.count() == 0 && dl.enter(), "back to none");
+  printf("  downloads: two at once\n");
 
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;

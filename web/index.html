@@ -322,7 +322,7 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
 
 <section id="settings" class="board-only">
   <p class="note">The same settings as on Track Rat's Settings screen. Changes take effect at once and are kept.
-    The first change asks for the upload code on Track Rat's screen.</p>
+    Each change asks for the code on Track Rat's screen, and the screen shows a new code after it.</p>
   <div class="card" id="profilesCard"><p class="note">Loading…</p></div>
   <p id="profilesMsg" class="note"></p>
   <div class="card" id="settingsForm"><p class="note">Loading…</p></div>
@@ -394,6 +394,31 @@ function localFiles(opened) {
 }
 // ---- viewer (end) ----
 
+// ---- downloads: two at a time (begin: tested by test/test_web.js) ----
+// Track Rat sends at most two files at once and answers a third with 503, so the logger isn't kept waiting
+// for the card. The page asks for no more than two itself, and tries a 503 again a little later.
+function makeQueue(max) {
+  let running = 0;
+  const waiting = [];
+  const next = () => { if (running < max && waiting.length) { running++; waiting.shift()(); } };
+  return (task) => new Promise((resolve, reject) => {
+    waiting.push(() => task().then(resolve, reject).finally(() => { running--; next(); }));
+    next();
+  });
+}
+const downloadQueue = makeQueue(2);
+// fetchIt: fetch(url) or a stand-in; wait: milliseconds before trying a 503 again
+function fetchFile(url, fetchIt = (u) => fetch(u), wait = 600, tries = 8) {
+  return downloadQueue(async () => {
+    for (let i = 1; ; i++) {
+      const r = await fetchIt(url);
+      if (r.status !== 503 || i >= tries) return r;
+      await new Promise((done) => setTimeout(done, wait));
+    }
+  });
+}
+// ---- downloads (end) ----
+
 // ---- the data: every read of the Sessions and Compare tabs goes through data ----
 // On the board, its own web server. In the viewer, the files opened from the computer, in memory.
 const VIEWER = isViewerMode(location);
@@ -409,12 +434,13 @@ const data = {
   // A file's text by its {fs, name}, or null if it isn't there
   async text(f) {
     if (VIEWER) { const o = local.get(f.name); return o ? o.text() : null; }
-    const r = await fetch("/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name));
+    const url = "/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name);
+    const r = await fetchFile(url);
     return r.ok ? r.text() : null;
   },
   // The track list: parsed tracks.json, or null (the viewer reads one opened or the one beside the page)
   async tracks() {
-    if (!VIEWER) return (await fetch("/tracks.json")).json();
+    if (!VIEWER) return (await fetchFile("/tracks.json")).json();
     try {
       const opened = localFiles([...local.values()]).tracks;
       if (opened) return JSON.parse(await opened.text());
@@ -663,18 +689,35 @@ $("sessionList").addEventListener("click", async (e) => {
   }
 });
 
-// ---- uploads need the 4-digit code on Track Rat's Wi-Fi screen ----
-let uploadCode = "";
-function askCode(what) {
-  const c = prompt(`${what}\n\nType the 4-digit upload code shown on Track Rat's screen:`, uploadCode);
-  if (c === null) return null;
-  uploadCode = c.trim();
-  return uploadCode;
+// ---- upload code (begin: tested by test/test_web.js) ----
+// Every change needs the 4-digit code on Track Rat's Wi-Fi screen. The network is open, so a code works
+// once: after a change goes through Track Rat shows a new one. Five wrong codes lock changes for a while.
+// last: the code typed last time. It is kept only if it may still work (the change it was for didn't go
+// through, say a setting out of range). usedUp: the change went through, so the screen has a new code.
+function codePromptText(what, usedUp) {
+  return (usedUp ? "That code is used up. Enter the new code on Track Rat's screen.\n\n" : "") +
+         `${what}\n\nType the 4-digit code shown on Track Rat's screen:`;
 }
+// What a change's reply (its HTTP status) means for the code
+function codeAfterReply(state, status) {
+  if (status === 200) { state.last = ""; state.usedUp = true; }          // done: that code is spent
+  else if (status === 403) { state.last = ""; state.usedUp = false; }    // wrong or locked: the reply says which
+}
+const codeState = {last: "", usedUp: false};
+// null if cancelled
+function askCode(what) {
+  const c = prompt(codePromptText(what, codeState.usedUp), codeState.last);
+  if (c === null) return null;
+  codeState.last = c.trim();
+  codeState.usedUp = false;
+  return codeState.last;
+}
+// Pass every change's reply through this
 function uploadResult(r) {
-  if (r.status === 403) uploadCode = "";  // wrong code: ask again next time
+  codeAfterReply(codeState, r.status);
   return r;
 }
+// ---- upload code (end) ----
 
 // ---- tracks ----
 let tracksBody = null;
@@ -684,6 +727,7 @@ $("tracksFile").addEventListener("change", async () => {
   $("tracksSend").disabled = true;
   if (!file) return;
   try {
+    if (file.size > 2 * 1024 * 1024) throw new Error("it is over 2 MB, the most Track Rat takes");
     const json = JSON.parse(await file.text());
     if (!Array.isArray(json.tracks)) throw new Error("no \"tracks\" list in it");
     tracksBody = file;
@@ -2071,6 +2115,7 @@ const FW_MESSAGES = {
   badMagic: "not a firmware image",
   wrongChip: "firmware is for a different chip",
   notAnApp: "not the app image (use firmware.bin)",
+  notTrackRat: "not Track Rat firmware",
 };
 // Returns null if the file is an ESP32-S3 app image, otherwise why it was refused.
 function checkFirmware(head, fileSize, slotSize = MAX_FIRMWARE) {
@@ -2080,6 +2125,11 @@ function checkFirmware(head, fileSize, slotSize = MAX_FIRMWARE) {
   if ((head[12] | (head[13] << 8)) !== 0x0009) return FW_MESSAGES.wrongChip;  // ESP32-S3
   const appDesc = (head[32] | (head[33] << 8) | (head[34] << 16) | (head[35] << 24)) >>> 0;
   if (appDesc !== 0xABCD5432) return FW_MESSAGES.notAnApp;  // a bootloader has no app descriptor
+  // esp_app_desc_t.project_name (32 bytes at 80): exactly "trackrat", then zeros
+  const name = "trackrat";
+  for (let i = 0; i < 32; i++) {
+    if (head[80 + i] !== (i < name.length ? name.charCodeAt(i) : 0)) return FW_MESSAGES.notTrackRat;
+  }
   return null;
 }
 // ---- firmware check (end) ----
@@ -2312,7 +2362,7 @@ async function loadProfiles() {
 }
 
 async function changeProfiles(action, kind, f) {
-  const code = uploadCode || askCode("Change the drivers and cars?");
+  const code = askCode("Change the drivers and cars?");
   if (code === null) return;
   const r = uploadResult(await post("/api/profiles", profileBody(action, kind, f, code)));
   if (!r.ok) { profilesMsg(r.text || "Couldn't save that.", true); return; }
@@ -2388,7 +2438,7 @@ async function loadSettings() {
 }
 
 async function changeSetting(name, value) {
-  const code = uploadCode || askCode("Change Track Rat's settings?");
+  const code = askCode("Change this setting?");
   if (code === null) { renderSettings(); return; }
   const r = uploadResult(await post("/api/settings", settingBody(name, value, code)));
   const msg = $("settingsMsg");
@@ -2421,8 +2471,9 @@ $("settingsForm").addEventListener("input", (e) => {
 });
 
 async function restart() {
-  if (!confirm("Restart Track Rat? It comes back with Wi-Fi off.")) return;
-  const r = await post("/api/restart", "");
+  const code = askCode("Restart Track Rat? It comes back with Wi-Fi off.");
+  if (code === null) return;
+  const r = uploadResult(await post("/api/restart", new URLSearchParams({code})));
   $("restartMsg").textContent = r.ok ? "Restarting." : r.text;
 }
 $("restart").addEventListener("click", restart);

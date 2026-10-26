@@ -29,6 +29,20 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 - The Autocross hub's buttons are touched where they are drawn: one shared set of rectangles replaces hit zones that were 2 px off. The Adjust screen's Back button while reading or saving uses its drawn row too.
 - The user guide listed the Adjust screen's BOOT order wrongly (it goes Later, Cancel, Save, Earlier, Reset). Stale comments and the code layout list in the development guide are corrected.
 
+### Security
+
+The Wi-Fi network stays open (no password), so the page is hardened instead.
+
+- The 4-digit code works once. After every change that goes through (a setting, a driver or car, a note, a track edit, a `tracks.json` upload, a re-time, a firmware install, a restart), Track Rat draws a new code and shows it on the Wi-Fi screen at once, so a code someone saw on the network is already spent. The page forgets the code and asks for the new one ("That code is used up").
+- Five wrong codes no longer lock changes until Wi-Fi is turned off: they lock for 30 s, doubling each time up to 8 minutes, and start over after a right code. A new code is drawn at each lockout, so guesses don't add up. The reply says how long to wait.
+- Restart needs the code. A POST with an `Origin` that isn't the board's own page is refused (403), as is a chunked one (411).
+- A firmware upload (and the SD card update) must be Track Rat's: the app's `project_name` has to be `trackrat` (set after the link by `tools/set_app_name.py`, since the prebuilt Arduino libraries say `arduino-lib-builder`). A new firmware is rolled back by the bootloader if it restarts before it has run for 30 s.
+- A `tracks.json` upload is cut off at 2 MB (413), needs room on the card or in flash, and is checked as a whole file with a `tracks` list before it replaces the old one.
+- Request bodies are refused by `Content-Length` before they are read: 2 MB for `tracks.json`, the app slot for firmware, 4 KB for everything else (413).
+- At most two session downloads at once; a third gets 503, and the page waits and tries again.
+- The page's replies carry `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and a `Content-Security-Policy` that allows only the page's own files, fonts and API.
+- `/api/info` no longer includes the car's position. Reads stay open to anyone on the network.
+
 ## [0.1.0-beta.3] - 2026-10-25
 
 ### Added

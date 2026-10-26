@@ -23,6 +23,7 @@
 #include <Arduino.h>
 #include <sys/time.h>
 #include "AdjustLoad.h"
+#include "AppRollback.h"
 #include "AutoStart.h"
 #include "AutocrossLayout.h"
 #include "BestLapStore.h"
@@ -1988,7 +1989,12 @@ static bool noteActivity(uint32_t now) {
 
 // The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the
 // screen off, then deep sleep until the screen is touched or BOOT is pressed.
+// Overrides the Arduino core's: it would call a new firmware good before setup() even starts, and then a bad one
+// could never be rolled back. loop() says so after HEALTHY_AFTER_MS (see AppRollback.h).
+extern "C" bool verifyRollbackLater() { return true; }
+
 [[noreturn]] static void sleepNow(bool switchingOff) {
+  approllback::markGood();  // switching off or sleeping is not a crash
   gps.standby();
   display.powerDown();
   Power::deepSleep(switchingOff);
@@ -2079,6 +2085,7 @@ static void offerFirmwareUpdate() {
   }
 
   DEBUG_PRINTLN("Firmware: installing");
+  approllback::markGood();  // Update refuses to start while this app is still waiting to be trusted
   const char* error = FirmwareUpdate::install(offer, drawInstallProgress);
   if (error) {
     DEBUG_PRINTF("Firmware: install failed: %s\n", error);
@@ -2088,6 +2095,7 @@ static void offerFirmwareUpdate() {
   }
   display.drawMessage("UPDATE INSTALLED", "Restarting…", "", ui::C_GREEN);
   delay(1500);
+  approllback::markGood();  // (this app, which is leaving on purpose; the new one starts pending)
   ESP.restart();
 }
 
@@ -2335,6 +2343,14 @@ void loop() {
   if (summaryDirty && (int32_t)(now - summarySaveAt) >= 0) flushSummary();  // the last lap's, now it is over
   autoPickTrack();
   WifiPortal::loop(gps);
+  if (WifiPortal::takeCodeChanged()) lastRender = 0;  // a change used the code: show the new one now
+  {  // A new firmware that has run this long is trusted: it won't be rolled back
+    static bool trusted = false;
+    if (!trusted && now >= approllback::HEALTHY_AFTER_MS) {
+      trusted = true;
+      approllback::markGood();
+    }
+  }
   {  // A re-time finished: the PBs it may have rewritten are read from the card again
     static bool wasRetiming = false;
     const bool retiming = SessionLog::retiming();
