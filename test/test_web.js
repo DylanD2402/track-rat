@@ -1068,6 +1068,34 @@ console.log("Sample session tests");
   }
 }
 
+// Settings are collected and saved together: one prompt, one POST
+{
+  const S = new Function(sm[1] + "\nreturn {setPending, pendingNeedsRestart, pendingBody};")();
+  const now = {units: "kmh", brightness: 70, gpsMode: "20hz", bluetooth: true};
+  const pend = {};
+  S.setPending(pend, "units", "mph", now);
+  S.setPending(pend, "brightness", 40, now);
+  S.setPending(pend, "bluetooth", false, now);
+  check(Object.keys(pend).length === 3 && !S.pendingNeedsRestart(pend), "three changes marked, none needs a restart");
+  S.setPending(pend, "units", "kmh", now);
+  check(!("units" in pend) && Object.keys(pend).length === 2, "setting it back drops the change");
+  S.setPending(pend, "brightness", 55, now);
+  check(pend.brightness === 55, "a second change to one setting replaces the first");
+  const body = S.pendingBody(pend, "0042", false);
+  check(body.get("brightness") === "55" && body.get("bluetooth") === "false" && body.get("code") === "0042" &&
+        !body.has("restart") && [...body.keys()].length === 3, "one form for all of them: " + body);
+  S.setPending(pend, "gpsMode", "10hz", now);
+  check(S.pendingNeedsRestart(pend), "a GPS mode change offers Save and restart");
+  const rb = S.pendingBody(pend, "0042", true);
+  check(rb.get("restart") === "1" && rb.get("gpsMode") === "10hz" && rb.get("code") === "0042", "restart=1 with the same code: " + rb);
+  // The page prompts once and posts once however many changes are pending
+  const saveFn = html.match(/async function saveSettings\(restart\) \{[\s\S]*?\n\}\n/);
+  check(saveFn && (saveFn[0].match(/askCode\(/g) || []).length === 1 && (saveFn[0].match(/post\(/g) || []).length === 1,
+        "saveSettings asks once and posts once");
+  check(/function changeSetting\(name, value\) \{[^}]*\}/.test(html) && !/function changeSetting[\s\S]{0,300}post\(/.test(html),
+        "changing a setting only marks it");
+}
+
 // The upload code: used once, so the page forgets it after a change and says so when it asks again
 {
   const um = html.match(/\/\/ ---- upload code \(begin[^\n]*\n([\s\S]*?)\/\/ ---- upload code \(end\)/);

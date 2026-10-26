@@ -79,6 +79,9 @@ input[type=file] { max-width: 100%; margin: 8px 0 12px; font: inherit; font-size
 .set { padding: 12px 0; border-top: 1px solid var(--line); }
 .set:first-child { border-top: 0; padding-top: 2px; }
 .set .name { font-weight: 600; margin-bottom: 8px; }
+.set.changed { border-left: 3px solid var(--brand); padding-left: 9px; }
+.set.changed .name::after { content: " (changed)"; font-weight: 400; color: var(--dim); }
+.savebar { position: sticky; bottom: 8px; border: 1px solid var(--brand); }
 .seg { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 10px; background: var(--chip); }
 .seg button { flex: 1 1 auto; border: 0; border-radius: 8px; background: none; color: var(--dim); font: inherit;
               font-size: 14px; font-weight: 500; padding: 8px 6px; min-height: 36px; }
@@ -321,11 +324,19 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
 </section>
 
 <section id="settings" class="board-only">
-  <p class="note">The same settings as on Track Rat's Settings screen. Changes take effect at once and are kept.
-    Each change asks for the code on Track Rat's screen, and the screen shows a new code after it.</p>
+  <p class="note">The same settings as on Track Rat's Settings screen. Pick your changes, then tap Save changes.
+    One code from Track Rat's screen saves them all, and the screen shows a new code after.</p>
   <div class="card" id="profilesCard"><p class="note">Loading…</p></div>
   <p id="profilesMsg" class="note"></p>
   <div class="card" id="settingsForm"><p class="note">Loading…</p></div>
+  <div class="card savebar" id="settingsBar" hidden>
+    <p id="settingsBarText" class="note"></p>
+    <div class="row">
+      <button class="btn" id="settingsSave">Save changes</button>
+      <button class="btn" id="settingsRestartSave" hidden>Save and restart</button>
+      <button class="btn plain" id="settingsUndo">Undo</button>
+    </div>
+  </div>
   <p id="settingsMsg" class="note"></p>
 </section>
 
@@ -2259,6 +2270,25 @@ function speedText(kmh, units) {
 function settingBody(name, value, code) {
   return new URLSearchParams({[name]: String(value), code: String(code)});  // sent as a form, which the device reads
 }
+// Changes are collected and saved together, with one code. pending: {name: value} not saved yet; now: the
+// settings Track Rat has. Setting a value back to what Track Rat has drops it from pending.
+function setPending(pending, name, value, now) {
+  if (String(now[name]) === String(value)) delete pending[name];
+  else pending[name] = value;
+}
+// These take effect after a restart (include/SettingsData.h needsRestart)
+const RESTART_SETTINGS = ["gpsMode", "kartEverywhere", "bleProfile"];
+function pendingNeedsRestart(pending) {
+  return RESTART_SETTINGS.some((name) => name in pending);
+}
+// One form for every pending setting (restart: restart after saving, with the same code)
+function pendingBody(pending, code, restart) {
+  const b = new URLSearchParams();
+  for (const name of Object.keys(pending)) b.set(name, String(pending[name]));
+  b.set("code", String(code));
+  if (restart) b.set("restart", "1");
+  return b;
+}
 // ---- settings (end) ----
 
 // ---- drivers and cars (begin: tested by test/test_web.js) ----
@@ -2406,12 +2436,13 @@ $("profilesCard").addEventListener("keydown", (e) => {
 });
 
 let settingsNow = null;
+let settingsPending = {};  // changed here, not saved yet
 function renderSettings() {
-  const s = settingsNow;
+  const s = Object.assign({}, settingsNow, settingsPending);
   let html = "";
   for (const f of SETTINGS) {
     if (f.shown && !f.shown(s)) continue;
-    html += `<div class="set"><div class="name">${esc(f.label)}</div>`;
+    html += `<div class="set${f.name in settingsPending ? " changed" : ""}"><div class="name">${esc(f.label)}</div>`;
     if (f.range) {
       const [lo, hi, step] = f.range;
       html += `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${s[f.name]}" data-set="${f.name}"${f.temp ? " data-temp" : ""}>` +
@@ -2427,9 +2458,14 @@ function renderSettings() {
   html += `<div class="set"><div class="name">Time zone</div><div>${esc(tzText(s.tzMin))}</div>` +
           `<p class="note" style="margin:6px 0 0">Set from this phone each time the page opens. File names use it.</p></div>`;
   $("settingsForm").innerHTML = html;
+  const n = Object.keys(settingsPending).length;
+  $("settingsBar").hidden = !n;
+  $("settingsRestartSave").hidden = !pendingNeedsRestart(settingsPending);
+  $("settingsBarText").textContent = `Not saved yet: ${n} change${n === 1 ? "" : "s"}. Leaving this page drops them.`;
 }
 
 async function loadSettings() {
+  settingsPending = {};
   try { settingsNow = await (await fetch("/api/settings")).json(); } catch (e) {
     $("settingsForm").innerHTML = `<p class="err">Couldn't read the settings.</p>`;
     return;
@@ -2437,25 +2473,39 @@ async function loadSettings() {
   renderSettings();
 }
 
-async function changeSetting(name, value) {
-  const code = askCode("Change this setting?");
-  if (code === null) { renderSettings(); return; }
-  const r = uploadResult(await post("/api/settings", settingBody(name, value, code)));
+// A change is only marked here; Save sends all of them in one request with one code
+function changeSetting(name, value) {
+  if (!settingsNow) return;
+  setPending(settingsPending, name, value, settingsNow);
+  $("settingsMsg").textContent = "";
+  renderSettings();
+}
+
+// restart: save, then restart, in the same request
+async function saveSettings(restart) {
+  if (!Object.keys(settingsPending).length) return;
+  const code = askCode(restart ? "Save these changes and restart Track Rat?" : "Save these changes?");
+  if (code === null) return;
+  const r = uploadResult(await post("/api/settings", pendingBody(settingsPending, code, restart)));
   const msg = $("settingsMsg");
-  if (!r.ok) {
+  if (!r.ok) {  // none were saved: they stay marked
     msg.className = "err";
     msg.textContent = r.text;
-    renderSettings();  // back to what the device has
     return;
   }
   settingsNow = JSON.parse(r.text);
+  settingsPending = {};
   renderSettings();
   msg.className = "note";
-  msg.innerHTML = settingsNow.restartNeeded
-    ? `Saved. That change is used from the next restart. <button class="btn plain" id="settingsRestart">Restart now</button>`
-    : "Saved.";
-  if (settingsNow.restartNeeded) $("settingsRestart").addEventListener("click", restart);
+  msg.innerHTML = restart ? "Saved. Restarting. It comes back with Wi-Fi off."
+    : settingsNow.restartNeeded
+      ? `Saved. Some changes are used from the next restart. <button class="btn plain" id="settingsRestart">Restart now</button>`
+      : "Saved.";
+  if (!restart && settingsNow.restartNeeded) $("settingsRestart").addEventListener("click", restart_);
 }
+$("settingsSave").addEventListener("click", () => saveSettings(false));
+$("settingsRestartSave").addEventListener("click", () => saveSettings(true));
+$("settingsUndo").addEventListener("click", () => { settingsPending = {}; $("settingsMsg").textContent = ""; renderSettings(); });
 
 $("settingsForm").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-set]");
@@ -2477,6 +2527,7 @@ async function restart() {
   $("restartMsg").textContent = r.ok ? "Restarting." : r.text;
 }
 $("restart").addEventListener("click", restart);
+const restart_ = restart;  // (the Settings tab's Restart now, the same one-request restart)
 
 // ---- the viewer: opening files from the computer ----
 function openMsg(text, bad) {

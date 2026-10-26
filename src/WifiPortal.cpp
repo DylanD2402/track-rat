@@ -158,13 +158,20 @@ static void sendSettings(AsyncWebServerRequest* req, int code, bool restartNeede
   req->send(code, "application/json", out);
 }
 
+// Every setting in the POST is applied, or none: they go into a copy that is only saved if all of them were good.
+// restart=1 restarts after the save, with the same code ("Save and restart").
 static void onSettingsPost(AsyncWebServerRequest* req) {
   if (!codeOk(req)) return;
+  const bool restart = req->arg("restart") == "1";
+  if (restart && fwSlot.busy()) {
+    req->send(409, "text/plain", "A firmware update is running");
+    return;
+  }
   const SettingsData before = Settings::get();
   SettingsData s = before;
   for (size_t i = 0; i < req->params(); i++) {
     const AsyncWebParameter* p = req->getParam(i);
-    if (p->name() == "code") continue;
+    if (p->name() == "code" || p->name() == "restart") continue;
     if (!settings::setField(s, p->name().c_str(), p->value().c_str())) {
       req->send(400, "text/plain", "Can't set " + p->name() + " to \"" + p->value() + "\"");
       return;
@@ -172,7 +179,8 @@ static void onSettingsPost(AsyncWebServerRequest* req) {
   }
   Settings::set(s);  // main.cpp's loop applies it (screen, backlight, Bluetooth)
   DEBUG_PRINTLN("Wi-Fi: settings changed from the page");
-  sendSettings(req, 200, settings::needsRestart(before, s));
+  sendSettings(req, 200, !restart && settings::needsRestart(before, s));
+  if (restart) rebootAt = millis() + 1000;
   spendCode();
 }
 
