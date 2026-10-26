@@ -25,7 +25,7 @@ Timings in the efficiency part are estimates from reading the code, not measurem
 
 | ID | Finding | Fix | Size | Status |
 |---|---|---|---|---|
-| S1 | **The Wi-Fi network has no password.** The 4-digit code travels in clear text and stays valid all session, so someone nearby can capture it and upload firmware or tracks. | A WPA2 password on the network, or a code that changes after each use. | S/M | 0.1.1, decision pending |
+| S1 | **The Wi-Fi network has no password.** The 4-digit code travels in clear text and stays valid all session, so someone nearby can capture it and upload firmware or tracks. | A WPA2 password on the network, or a code that changes after each use. | S/M | 0.1.1: the network stays open; each code works once |
 | S2 | **Five wrong codes lock the page until restart, for everyone.** Anyone on the network can lock the owner out. | A temporary lockout per address: 30 s, doubling each time. | S | 0.1.1 |
 | S3 | **Uploaded firmware isn't checked to be Track Rat's,** and a bad image can't roll back. | Check that the image's project name is `trackrat`. Use rollback if the Arduino bootloader supports it, and mark the app good after a healthy boot. | S/M | 0.1.1 |
 | S4 | **Restart and set-time need no code,** and requests from other sites aren't refused. | Require the code for restart. Refuse a POST whose `Origin` isn't the board. | S | 0.1.1 |
@@ -44,20 +44,20 @@ Timings in the efficiency part are estimates from reading the code, not measurem
 
 | ID | Finding | Cost (estimated) | Fix | Size | Status |
 |---|---|---|---|---|---|
-| E1 | **Folder listings open every entry by path,** which is O(n²) on FAT. Affects `CourseRuns`, `AdjustLoad`, boot recovery and re-timing. The Wi-Fi page already avoids it with `f_readdir`. | About 85 ms per loop pass at 500 files, and 340 ms at 2000 files, for 7 s to 2 min | `Storage::listDir` built on `f_readdir`, with a time budget per pass instead of 6 entries | M | 0.1.1 |
-| E2 | **Boot recovery re-checks every session on every boot.** | About 3 searches per file: minutes at 2000 files. Holds the card the whole time. | A marker for the open session, so recovery only looks at that one | S/M | 0.1.1 |
-| E3 | **The summary is rewritten on the timing loop after every lap.** The old file is parsed twice (camera marks, then sync marks). | 60–150 ms, up to 500 ms with a big folder, just after the line | Parse once. Save about a second later, outside the lap event. | M | 0.1.1 |
-| E4 | **`tracks.json` is fully parsed at session start and for each layout check.** One check comes right after the first lap. | 100–250 ms each | Keep every track's map in PSRAM (about 90 KB). Parse the file only to write it. | M | 0.1.1 |
-| E5 | **The fix queue holds 64 fixes (3.2 s)** and drops the oldest, the ones most likely to hold a crossing. | Lost fixes after a long stall | 256 entries in PSRAM | S | 0.1.1 |
-| E6 | **The main loop never yields.** | About 20–30 mA wasted | Sleep 1 ms when nothing is waiting | S | 0.1.1 |
-| E7 | **Every screen pays for a full frame:** clear, compare and push 150 KB, about 25–45 ms of every 100 ms, even on menus. | Battery and frame time | Redraw menus and other still screens only on input or change, at most twice a second. Dirty rectangles and DMA later. | S (M later) | 0.1.1, part |
-| E8 | **Small JSON documents use internal RAM,** the pool Bluetooth and Wi-Fi need. | Fragmentation | A PSRAM allocator for ArduinoJson | S | 0.1.1 |
-| E9 | **Start-up probes the GPS for about 3 s,** most of it hidden by the splash. | Slower boot when the splash is skipped | Remember the GPS pins and baud rate, and try them first | S | 0.1.1 |
-| E10 | **Off the line, every fix searches the whole reference lap.** | 1–10 ms per fix in the pit lane | Do the full search at most once a second | S | 0.1.1 |
-| E11 | **`LoopFinder::retraced` repeats its search for each new point near a pass.** | 5–20 ms | Remember a "no" for that pass | S | 0.1.1 |
+| E1 | **Folder listings open every entry by path,** which is O(n²) on FAT. Affects `CourseRuns`, `AdjustLoad`, boot recovery and re-timing. The Wi-Fi page already avoids it with `f_readdir`. | About 85 ms per loop pass at 500 files, and 340 ms at 2000 files, for 7 s to 2 min | `Storage::listDir` built on `f_readdir`, with a time budget per pass instead of 6 entries | M | Fixed |
+| E2 | **Boot recovery re-checks every session on every boot.** | About 3 searches per file: minutes at 2000 files. Holds the card the whole time. | A marker for the open session, so recovery only looks at that one | S/M | Fixed |
+| E3 | **The summary is rewritten on the timing loop after every lap.** The old file is parsed twice (camera marks, then sync marks). | 60–150 ms, up to 500 ms with a big folder, just after the line | Parse once. Save about a second later, outside the lap event. | M | Fixed |
+| E4 | **`tracks.json` is fully parsed at session start and for each layout check.** One check comes right after the first lap. | 100–250 ms each | Keep every track's map in PSRAM (about 90 KB). Parse the file only to write it. | M | Fixed |
+| E5 | **The fix queue holds 64 fixes (3.2 s)** and drops the oldest, the ones most likely to hold a crossing. | Lost fixes after a long stall | 256 entries in PSRAM | S | Fixed |
+| E6 | **The main loop never yields.** | About 20–30 mA wasted | Sleep 1 ms when nothing is waiting | S | Fixed |
+| E7 | **Every screen pays for a full frame:** clear, compare and push 150 KB, about 25–45 ms of every 100 ms, even on menus. | Battery and frame time | Redraw menus and other still screens only on input or change, at most twice a second. Dirty rectangles and DMA later. | S (M later) | Fixed, part (still screens redraw every 350 ms) |
+| E8 | **Small JSON documents use internal RAM,** the pool Bluetooth and Wi-Fi need. | Fragmentation | A PSRAM allocator for ArduinoJson | S | Fixed |
+| E9 | **Start-up probes the GPS for about 3 s,** most of it hidden by the splash. | Slower boot when the splash is skipped | Remember the GPS pins and baud rate, and try them first | S | Fixed (remembered pins, early exit) |
+| E10 | **Off the line, every fix searches the whole reference lap.** | 1–10 ms per fix in the pit lane | Do the full search at most once a second | S | Fixed |
+| E11 | **`LoopFinder::retraced` repeats its search for each new point near a pass.** | 5–20 ms | Remember a "no" for that pass | S | Fixed |
 | E12 | **Fixes read together after a stall share one arrival time,** so the on-screen lap clock can start late. | Display only | Time each fix from GPS time | S | Later |
-| E13 | **The I2C bus waits 50 ms when it's stuck,** on every IMU and touch poll. | Stalls if the bus wedges | `Wire.setTimeOut(5)` | S | 0.1.1 |
-| E14 | **Switching cars mid-session writes flash,** which can overrun the GPS UART. | A lost fix | Apply a new VIN's profile when the session ends | S | 0.1.1 |
+| E13 | **The I2C bus waits 50 ms when it's stuck,** on every IMU and touch poll. | Stalls if the bus wedges | `Wire.setTimeOut(5)` | S | Fixed |
+| E14 | **Switching cars mid-session writes flash,** which can overrun the GPS UART. | A lost fix | Apply a new VIN's profile when the session ends | S | Already safe (applied between sessions); now also waits until the car is slow |
 | E15 | **Saving a long drive without an SD card needs up to 1.6 MB in one block.** | The drive isn't saved if the allocation fails | Write it in a stream | S | Later |
 | E16 | **A removed card isn't noticed.** Each failing call may wait out a timeout. | Unverified | Notice and stop using the card | S | Later |
 
@@ -65,11 +65,11 @@ Timings in the efficiency part are estimates from reading the code, not measurem
 
 | ID | Finding | Fix | Size | Status |
 |---|---|---|---|---|
-| C1 | **Stale text.** The user guide lists the Adjust screen's BOOT order wrongly (it's Later, Cancel, Save, Earlier, Reset). Also: the header comment of main.cpp, a misplaced comment, and the code layout list in development.md. | Correct them | S | 0.1.1 |
-| C2 | **The Autocross hit zones are off by 2 pixels from the drawn rows.** main.cpp tests y ≥ 150/190/192; the screen draws rows at 152 and 194. | `AutocrossLayout.h`, shared by both, with a test | S | 0.1.1 |
-| C3 | **Lap time formatting is written twice** (SessionLog and the screen renderer) | `TimeFormat.h`, with a test | S | 0.1.1 |
-| C4 | **Atomic saves are written five ways,** and `BestLapStore` removes the old file *before* renaming the new one, so a power cut there loses the best lap. | One `SafeFile` helper (write, rename, recover), used everywhere | M | 0.1.1 |
-| C5 | **Dead code:** `currentLapTags`, `currentLapCoolantMaxC`, `gpsBadge`, `cardBottom`, `lastCommand`, `heardFromApp` | Remove | S | 0.1.1 |
+| C1 | **Stale text.** The user guide lists the Adjust screen's BOOT order wrongly (it's Later, Cancel, Save, Earlier, Reset). Also: the header comment of main.cpp, a misplaced comment, and the code layout list in development.md. | Correct them | S | Fixed |
+| C2 | **The Autocross hit zones are off by 2 pixels from the drawn rows.** main.cpp tests y ≥ 150/190/192; the screen draws rows at 152 and 194. | `AutocrossLayout.h`, shared by both, with a test | S | Fixed |
+| C3 | **Lap time formatting is written twice** (SessionLog and the screen renderer) | `TimeFormat.h`, with a test | S | Fixed |
+| C4 | **Atomic saves are written five ways,** and `BestLapStore` removes the old file *before* renaming the new one, so a power cut there loses the best lap. | One `SafeFile` helper (write, rename, recover), used everywhere | M | Fixed |
+| C5 | **Dead code:** `currentLapTags`, `currentLapCoolantMaxC`, `gpsBadge`, `cardBottom`, `lastCommand`, `heardFromApp` | Remove | S | Fixed (`cardBottom` stays: the settings tests use it) |
 | C6 | **Test helpers are copied** across 8 test files (start/finish constants, circle points, metres per degree). | `test/geo_helpers.h` and one golden `.vbo` | M | Later |
 | C7 | **About 10 button-drawing lambdas** across the screens | `DisplayManager::button` | M | Later |
 | C8 | **BOOT navigation is handled per screen,** and Adjust's order is the reverse of the others. | A `BootNav` helper and one convention | M | Later |
@@ -78,7 +78,7 @@ Timings in the efficiency part are estimates from reading the code, not measurem
 | C11 | **Three VBO readers** (C++, JavaScript, Python) | One golden file all three are tested against | M | Later |
 | C12 | **Settings are listed by hand in four places** | A table describing each setting | L | Later |
 | C13 | **The CAN code (`CAN_ENABLED`) and the NMEA fallback** may not earn their keep | Decide: keep and label experimental, or remove | S | Later |
-| C14 | **The test list is in both ci.yml and development.md,** and the screen renderer isn't built in CI. | One list; build the renderer in CI | S | 0.1.1 (the renderer) |
+| C14 | **The test list is in both ci.yml and development.md,** and the screen renderer isn't built in CI. | One list; build the renderer in CI | S | Fixed (the renderer) |
 
 ## How 0.1.1 is built
 

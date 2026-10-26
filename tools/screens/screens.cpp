@@ -27,6 +27,7 @@
 #include "Sectors.h"
 #include "AdjustLine.h"
 #include "TimingScreen.h"
+#include "TimeFormat.h"
 #include "UiTheme.h"
 #include "track_data.h"  // TRACK_NAME, TRACK_LOCATION, TRACK_LENGTH_M, SF_LAT, SF_LON, TRACK_PTS (lat, lon pairs)
 
@@ -64,18 +65,13 @@ SettingsData Settings::get() { return mockSettings; }
 
 // As in SessionLog.cpp
 String formatLapTime(uint32_t ms, int decimals) {
-  uint32_t minutes = ms / 60000, seconds = (ms / 1000) % 60, frac = ms % 1000;
-  char buf[20];
-  if (decimals <= 0) snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)minutes, (unsigned long)seconds);
-  else if (decimals == 1) snprintf(buf, sizeof(buf), "%lu:%02lu.%01lu", (unsigned long)minutes, (unsigned long)seconds, (unsigned long)(frac / 100));
-  else snprintf(buf, sizeof(buf), "%lu:%02lu.%03lu", (unsigned long)minutes, (unsigned long)seconds, (unsigned long)frac);
+  char buf[24];
+  timefmt::lapTime(buf, sizeof(buf), ms, decimals);
   return String(buf);
 }
 String formatDelta(int32_t ms) {
-  if (ms == NO_DELTA) return String("--");
   char buf[16];
-  uint32_t a = ms < 0 ? -ms : ms;
-  snprintf(buf, sizeof(buf), "%c%lu.%03lu", ms < 0 ? '-' : '+', (unsigned long)(a / 1000), (unsigned long)(a % 1000));
+  timefmt::delta(buf, sizeof(buf), ms);
   return String(buf);
 }
 
