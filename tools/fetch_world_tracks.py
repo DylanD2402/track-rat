@@ -135,14 +135,48 @@ def pick_name(tags, kart, location, country):
     return name, (local if local and local != name else None)
 
 
-def location_of(tags, country):
-    """Town and region from the venue's own tags (no geocoder: it'd be 10,000 requests), else the country."""
+PLACE_RADIUS_M = 20000
+
+
+class Places:
+    """The cities and towns of a country's Overpass answer, to name the nearest one to a track."""
+
+    def __init__(self, doc=None):
+        self.grid = {}
+        for el in (doc or {}).get("elements", []):
+            tags = el.get("tags", {})
+            c = el.get("center") or ({"lat": el["lat"], "lon": el["lon"]} if "lat" in el else None)
+            name = latin_tag(tags, "name:en", "int_name", "name")
+            if c and name and tags.get("place") in ("city", "town"):
+                self.grid.setdefault((math.floor(c["lat"] * 4), math.floor(c["lon"] * 4)), []).append((c["lat"], c["lon"], name))
+
+    def nearest(self, lat, lon):
+        best = None
+        gy, gx = math.floor(lat * 4), math.floor(lon * 4)
+        for dy in range(-2, 3):
+            for dx in range(-3, 4):
+                for p in self.grid.get((gy + dy, gx + dx), ()):
+                    d = dist_m([lat, lon], p)
+                    if d <= PLACE_RADIUS_M and (best is None or d < best[0]):
+                        best = (d, p[2])
+        return best[1] if best else ""
+
+
+def is_place(el):
+    t = el.get("tags", {})
+    return "place" in t and "leisure" not in t and "highway" not in t
+
+
+def location_of(tags, country, near=""):
+    """Town and region from the venue's own tags, else the nearest city or town within 20 km (from the
+    same Overpass request: no geocoder, which would be 10,000 requests), else the country."""
     city = latin_tag(tags, "addr:city:en", "addr:city", "is_in:city", "addr:town", "addr:village")
     region = latin_tag(tags, "addr:state:en", "addr:state", "addr:province", "is_in:state", "is_in:province")
     if not city and not region:
         isin = [p.strip() for p in (tags.get("is_in") or "").split(",") if p.strip()]
         if isin and has_latin(isin[0]):
             city = isin[0]
+    city = city or near
     parts = [p for p in (city, region) if p]
     return ", ".join(parts) if parts else country
 
@@ -171,6 +205,17 @@ def _components(ways):
     for i in range(n):
         groups.setdefault(find(i), []).append(ways[i])
     return list(groups.values())
+
+
+def _centre_len(comp):
+    pts = [p for w in comp for p in w["pts"]]
+    return ([sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)],
+            sum(line_len_m(w["pts"]) for w in comp))
+
+
+def _same_circuit(a, b):
+    (ca, la), (cb, lb) = _centre_len(a), _centre_len(b)
+    return dist_m(ca, cb) < 60 and abs(la - lb) <= 0.25 * max(la, lb)
 
 
 def _way_ref(w):
@@ -212,7 +257,7 @@ def _track_id(venue):
     return f"osm-w{_way_ref(main)}"
 
 
-def make_track(venue, country, country_code=""):
+def make_track(venue, country, places=None):
     t = venue["tags"]
     center = venue["center"]
     racing = [w for w in venue["ways"] if not is_pit_tags(w["tags"])]
@@ -220,7 +265,7 @@ def make_track(venue, country, country_code=""):
     kart = is_kart(t) or (bool(venue["ways"]) and all(is_kart(w["tags"]) for w in venue["ways"])
                           and "motor" not in t.get("sport", ""))
     gate = KART_GATE_M if kart else GATE_M
-    location = location_of(t, country)
+    location = location_of(t, country, places.nearest(*center) if places else "")
     name, local = pick_name(t, kart, location, country)
     entry = {
         "id": _track_id(venue),
@@ -237,6 +282,11 @@ def make_track(venue, country, country_code=""):
 
     comps = _components(racing) if racing else []
     comps.sort(key=lambda c: -sum(line_len_m(w["pts"]) for w in c))
+    kept = []  # the same circuit drawn twice (same place, about the same length) is one layout
+    for c in comps:
+        if not any(_same_circuit(c, k) for k in kept):
+            kept.append(c)
+    comps = kept
     if len(comps) > 1:
         comps = [c for c in comps if sum(line_len_m(w["pts"]) for w in c) >= MIN_LAYOUT_M] or comps[:1]
     if len(comps) > 1:
@@ -271,6 +321,8 @@ def build_world_tracks(doc, cc, include_dirt=False, include_drag=False, karting=
     """All the tracks of one country's Overpass answer, as tile-ready entries."""
     country = COUNTRIES.get(cc, cc)
     loose = []
+    places = Places(doc)
+    doc = {"elements": [el for el in doc.get("elements", []) if not is_place(el)]}
     venues = group_venues(doc, include_dirt, include_drag, karting, name_of=venue_name_key, loose_unnamed=loose)
     # Unnamed raceways with no venue: a circuit each, if long enough
     for comp in _components(loose):
@@ -283,7 +335,7 @@ def build_world_tracks(doc, cc, include_dirt=False, include_drag=False, karting=
     for v in venues:
         if not any(not is_pit_tags(w["tags"]) for w in v["ways"]) and not v["refs"]:
             continue
-        t = make_track(v, country, cc)
+        t = make_track(v, country, places)
         if t["id"] not in tracks:
             tracks[t["id"]] = t
     return list(tracks.values())
@@ -397,7 +449,7 @@ def main():
         path = os.path.join(args.cache, f"{cc}.json")
         print(f"[{n}/{len(codes)}] {cc} {COUNTRIES[cc]}")
         try:
-            doc, cached = cached_fetch(path, country_query(cc, 900), refresh=args.refresh, offline=args.from_cache)
+            doc, cached = cached_fetch(path, country_query(cc, 900, places=True), refresh=args.refresh, offline=args.from_cache)
         except OverpassError as e:
             print(f"  skipped: {e}", file=sys.stderr)
             continue

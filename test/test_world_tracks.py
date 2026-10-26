@@ -155,6 +155,18 @@ assert all(l["map"] for l in t8["layouts"]) and t8["length"] == t8["layouts"][0]
 # a short connector is not a layout of its own
 d9 = {"elements": [venue("way", 52, LAT0, LON0, name="One Track"), way(1, rect), way(2, [at(1000, 0), at(1000, -60)])]}
 assert "layouts" not in w.build_world_tracks(d9, "GB")[0]
+# the same circuit drawn twice is one layout, not two
+d9b = {"elements": [venue("way", 53, LAT0, LON0, name="Twice"), way(1, rect), way(2, rect)]}
+assert "layouts" not in w.build_world_tracks(d9b, "GB")[0]
+# the nearest city or town within 20 km names the location; villages and far towns don't
+d9c = {"elements": [venue("way", 54, LAT0, LON0, name="Near Town"), way(1, rect),
+                    {"type": "node", "id": 1, "lat": LAT0 + 0.05, "lon": LON0, "tags": {"place": "town", "name": "Closer"}},
+                    {"type": "node", "id": 2, "lat": LAT0 + 0.15, "lon": LON0, "tags": {"place": "city", "name": "Farther"}},
+                    {"type": "node", "id": 3, "lat": LAT0 + 0.01, "lon": LON0, "tags": {"place": "village", "name": "Hamlet"}},
+                    {"type": "node", "id": 4, "lat": LAT0 + 0.45, "lon": LON0, "tags": {"place": "city", "name": "Out of range"}}]}
+t9c = w.build_world_tracks(d9c, "GB")
+assert len(t9c) == 1 and t9c[0]["location"] == "Closer", t9c
+assert "place" in o.country_query("GB", places=True) and "place" not in o.country_query("GB")
 # unnamed raceways with no venue: a long one is a track, a short one isn't
 d10 = {"elements": [way(61, oval(20.0, 20.0, 200, 100)), way(62, [at(0, 0), at(0, 50)])]}
 t10 = w.build_world_tracks(d10, "ZZ")

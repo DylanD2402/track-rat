@@ -68,8 +68,10 @@ def _is_minor_pit(tags):
     return any(w in n for w in ("support", "paddock", "service", "kart")) or is_kart(tags)
 
 
-def country_query(cc, timeout=300):
-    """The Overpass query for a country's venues and raceway ways (ISO 3166-1 alpha-2 code)."""
+def country_query(cc, timeout=300, places=False):
+    """The Overpass query for a country's venues and raceway ways (ISO 3166-1 alpha-2 code).
+    With places, the country's cities and towns come too (to name where a track is)."""
+    town = '\nnode["place"~"^(city|town)$"]["name"](area.ca);\nout center tags qt;' if places else ""
     return f"""[out:json][timeout:{timeout}];
 area["ISO3166-1"="{cc}"][admin_level=2]->.ca;
 (
@@ -78,7 +80,7 @@ area["ISO3166-1"="{cc}"][admin_level=2]->.ca;
 )->.venues;
 .venues out center tags;
 way["highway"="raceway"](area.ca);
-out geom tags;"""
+out geom tags;{town}"""
 
 
 # --- Overpass ---------------------------------------------------------------------
