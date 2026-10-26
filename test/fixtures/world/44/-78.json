@@ -1,0 +1,5 @@
+{"tracks": [
+{"id": "osm-w1001", "name": "Test Raceway", "localName": "Piste d'essai", "location": "Ontario", "country": "CA", "length": 2400, "center": {"lat": 44.0500000, "lon": -77.0000000}, "startFinish": {"lat": 44.0501000, "lon": -77.0002000, "radius": 12, "heading": 90.0, "estimated": true}, "map": [[[44.0500, -77.0000], [44.0510, -77.0010], [44.0520, -77.0000], [44.0510, -76.9990]]], "pit": []},
+{"id": "osm-w1002", "name": "Near Mine Kart", "kind": "kart", "center": {"lat": 44.2000000, "lon": -76.5000000}, "map": [[[44.2000, -76.5000], [44.2005, -76.5005], [44.2000, -76.5010]]]},
+{"id": "osm-w1003", "name": "Same Id As Mine", "center": {"lat": 44.9000000, "lon": -77.1000000}}
+]}

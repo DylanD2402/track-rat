@@ -1,0 +1,3 @@
+{"tracks": [
+{"id": "osm-w3001", "name": "Southern Circuit", "center": {"lat": -33.8000000, "lon": 151.2000000}, "startFinish": {"lat": -33.8000500, "lon": 151.2000000, "radius": 12, "heading": 180.0, "estimated": true}}
+]}
