@@ -79,6 +79,9 @@ input[type=file] { max-width: 100%; margin: 8px 0 12px; font: inherit; font-size
 .set { padding: 12px 0; border-top: 1px solid var(--line); }
 .set:first-child { border-top: 0; padding-top: 2px; }
 .set .name { font-weight: 600; margin-bottom: 8px; }
+.set.changed { border-left: 3px solid var(--brand); padding-left: 9px; }
+.set.changed .name::after { content: " (changed)"; font-weight: 400; color: var(--dim); }
+.savebar { position: sticky; bottom: 8px; border: 1px solid var(--brand); }
 .seg { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: 10px; background: var(--chip); }
 .seg button { flex: 1 1 auto; border: 0; border-radius: 8px; background: none; color: var(--dim); font: inherit;
               font-size: 14px; font-weight: 500; padding: 8px 6px; min-height: 36px; }
@@ -321,11 +324,19 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
 </section>
 
 <section id="settings" class="board-only">
-  <p class="note">The same settings as on Track Rat's Settings screen. Changes take effect at once and are kept.
-    The first change asks for the upload code on Track Rat's screen.</p>
+  <p class="note">The same settings as on Track Rat's Settings screen. Pick your changes, then tap Save changes.
+    One code from Track Rat's screen saves them all, and the screen shows a new code after.</p>
   <div class="card" id="profilesCard"><p class="note">Loading…</p></div>
   <p id="profilesMsg" class="note"></p>
   <div class="card" id="settingsForm"><p class="note">Loading…</p></div>
+  <div class="card savebar" id="settingsBar" hidden>
+    <p id="settingsBarText" class="note"></p>
+    <div class="row">
+      <button class="btn" id="settingsSave">Save changes</button>
+      <button class="btn" id="settingsRestartSave" hidden>Save and restart</button>
+      <button class="btn plain" id="settingsUndo">Undo</button>
+    </div>
+  </div>
   <p id="settingsMsg" class="note"></p>
 </section>
 
@@ -394,6 +405,31 @@ function localFiles(opened) {
 }
 // ---- viewer (end) ----
 
+// ---- downloads: two at a time (begin: tested by test/test_web.js) ----
+// Track Rat sends at most two files at once and answers a third with 503, so the logger isn't kept waiting
+// for the card. The page asks for no more than two itself, and tries a 503 again a little later.
+function makeQueue(max) {
+  let running = 0;
+  const waiting = [];
+  const next = () => { if (running < max && waiting.length) { running++; waiting.shift()(); } };
+  return (task) => new Promise((resolve, reject) => {
+    waiting.push(() => task().then(resolve, reject).finally(() => { running--; next(); }));
+    next();
+  });
+}
+const downloadQueue = makeQueue(2);
+// fetchIt: fetch(url) or a stand-in; wait: milliseconds before trying a 503 again
+function fetchFile(url, fetchIt = (u) => fetch(u), wait = 600, tries = 8) {
+  return downloadQueue(async () => {
+    for (let i = 1; ; i++) {
+      const r = await fetchIt(url);
+      if (r.status !== 503 || i >= tries) return r;
+      await new Promise((done) => setTimeout(done, wait));
+    }
+  });
+}
+// ---- downloads (end) ----
+
 // ---- the data: every read of the Sessions and Compare tabs goes through data ----
 // On the board, its own web server. In the viewer, the files opened from the computer, in memory.
 const VIEWER = isViewerMode(location);
@@ -409,12 +445,13 @@ const data = {
   // A file's text by its {fs, name}, or null if it isn't there
   async text(f) {
     if (VIEWER) { const o = local.get(f.name); return o ? o.text() : null; }
-    const r = await fetch("/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name));
+    const url = "/dl?fs=" + encodeURIComponent(f.fs) + "&f=" + encodeURIComponent(f.name);
+    const r = await fetchFile(url);
     return r.ok ? r.text() : null;
   },
   // The track list: parsed tracks.json, or null (the viewer reads one opened or the one beside the page)
   async tracks() {
-    if (!VIEWER) return (await fetch("/tracks.json")).json();
+    if (!VIEWER) return (await fetchFile("/tracks.json")).json();
     try {
       const opened = localFiles([...local.values()]).tracks;
       if (opened) return JSON.parse(await opened.text());
@@ -663,18 +700,35 @@ $("sessionList").addEventListener("click", async (e) => {
   }
 });
 
-// ---- uploads need the 4-digit code on Track Rat's Wi-Fi screen ----
-let uploadCode = "";
-function askCode(what) {
-  const c = prompt(`${what}\n\nType the 4-digit upload code shown on Track Rat's screen:`, uploadCode);
-  if (c === null) return null;
-  uploadCode = c.trim();
-  return uploadCode;
+// ---- upload code (begin: tested by test/test_web.js) ----
+// Every change needs the 4-digit code on Track Rat's Wi-Fi screen. The network is open, so a code works
+// once: after a change goes through Track Rat shows a new one. Five wrong codes lock changes for a while.
+// last: the code typed last time. It is kept only if it may still work (the change it was for didn't go
+// through, say a setting out of range). usedUp: the change went through, so the screen has a new code.
+function codePromptText(what, usedUp) {
+  return (usedUp ? "That code is used up. Enter the new code on Track Rat's screen.\n\n" : "") +
+         `${what}\n\nType the 4-digit code shown on Track Rat's screen:`;
 }
+// What a change's reply (its HTTP status) means for the code
+function codeAfterReply(state, status) {
+  if (status === 200) { state.last = ""; state.usedUp = true; }          // done: that code is spent
+  else if (status === 403) { state.last = ""; state.usedUp = false; }    // wrong or locked: the reply says which
+}
+const codeState = {last: "", usedUp: false};
+// null if cancelled
+function askCode(what) {
+  const c = prompt(codePromptText(what, codeState.usedUp), codeState.last);
+  if (c === null) return null;
+  codeState.last = c.trim();
+  codeState.usedUp = false;
+  return codeState.last;
+}
+// Pass every change's reply through this
 function uploadResult(r) {
-  if (r.status === 403) uploadCode = "";  // wrong code: ask again next time
+  codeAfterReply(codeState, r.status);
   return r;
 }
+// ---- upload code (end) ----
 
 // ---- tracks ----
 let tracksBody = null;
@@ -684,6 +738,7 @@ $("tracksFile").addEventListener("change", async () => {
   $("tracksSend").disabled = true;
   if (!file) return;
   try {
+    if (file.size > 2 * 1024 * 1024) throw new Error("it is over 2 MB, the most Track Rat takes");
     const json = JSON.parse(await file.text());
     if (!Array.isArray(json.tracks)) throw new Error("no \"tracks\" list in it");
     tracksBody = file;
@@ -2071,6 +2126,7 @@ const FW_MESSAGES = {
   badMagic: "not a firmware image",
   wrongChip: "firmware is for a different chip",
   notAnApp: "not the app image (use firmware.bin)",
+  notTrackRat: "not Track Rat firmware",
 };
 // Returns null if the file is an ESP32-S3 app image, otherwise why it was refused.
 function checkFirmware(head, fileSize, slotSize = MAX_FIRMWARE) {
@@ -2080,6 +2136,11 @@ function checkFirmware(head, fileSize, slotSize = MAX_FIRMWARE) {
   if ((head[12] | (head[13] << 8)) !== 0x0009) return FW_MESSAGES.wrongChip;  // ESP32-S3
   const appDesc = (head[32] | (head[33] << 8) | (head[34] << 16) | (head[35] << 24)) >>> 0;
   if (appDesc !== 0xABCD5432) return FW_MESSAGES.notAnApp;  // a bootloader has no app descriptor
+  // esp_app_desc_t.project_name (32 bytes at 80): exactly "trackrat", then zeros
+  const name = "trackrat";
+  for (let i = 0; i < 32; i++) {
+    if (head[80 + i] !== (i < name.length ? name.charCodeAt(i) : 0)) return FW_MESSAGES.notTrackRat;
+  }
   return null;
 }
 // ---- firmware check (end) ----
@@ -2209,6 +2270,25 @@ function speedText(kmh, units) {
 function settingBody(name, value, code) {
   return new URLSearchParams({[name]: String(value), code: String(code)});  // sent as a form, which the device reads
 }
+// Changes are collected and saved together, with one code. pending: {name: value} not saved yet; now: the
+// settings Track Rat has. Setting a value back to what Track Rat has drops it from pending.
+function setPending(pending, name, value, now) {
+  if (String(now[name]) === String(value)) delete pending[name];
+  else pending[name] = value;
+}
+// These take effect after a restart (include/SettingsData.h needsRestart)
+const RESTART_SETTINGS = ["gpsMode", "kartEverywhere", "bleProfile"];
+function pendingNeedsRestart(pending) {
+  return RESTART_SETTINGS.some((name) => name in pending);
+}
+// One form for every pending setting (restart: restart after saving, with the same code)
+function pendingBody(pending, code, restart) {
+  const b = new URLSearchParams();
+  for (const name of Object.keys(pending)) b.set(name, String(pending[name]));
+  b.set("code", String(code));
+  if (restart) b.set("restart", "1");
+  return b;
+}
 // ---- settings (end) ----
 
 // ---- drivers and cars (begin: tested by test/test_web.js) ----
@@ -2312,7 +2392,7 @@ async function loadProfiles() {
 }
 
 async function changeProfiles(action, kind, f) {
-  const code = uploadCode || askCode("Change the drivers and cars?");
+  const code = askCode("Change the drivers and cars?");
   if (code === null) return;
   const r = uploadResult(await post("/api/profiles", profileBody(action, kind, f, code)));
   if (!r.ok) { profilesMsg(r.text || "Couldn't save that.", true); return; }
@@ -2356,12 +2436,13 @@ $("profilesCard").addEventListener("keydown", (e) => {
 });
 
 let settingsNow = null;
+let settingsPending = {};  // changed here, not saved yet
 function renderSettings() {
-  const s = settingsNow;
+  const s = Object.assign({}, settingsNow, settingsPending);
   let html = "";
   for (const f of SETTINGS) {
     if (f.shown && !f.shown(s)) continue;
-    html += `<div class="set"><div class="name">${esc(f.label)}</div>`;
+    html += `<div class="set${f.name in settingsPending ? " changed" : ""}"><div class="name">${esc(f.label)}</div>`;
     if (f.range) {
       const [lo, hi, step] = f.range;
       html += `<input type="range" min="${lo}" max="${hi}" step="${step}" value="${s[f.name]}" data-set="${f.name}"${f.temp ? " data-temp" : ""}>` +
@@ -2377,9 +2458,14 @@ function renderSettings() {
   html += `<div class="set"><div class="name">Time zone</div><div>${esc(tzText(s.tzMin))}</div>` +
           `<p class="note" style="margin:6px 0 0">Set from this phone each time the page opens. File names use it.</p></div>`;
   $("settingsForm").innerHTML = html;
+  const n = Object.keys(settingsPending).length;
+  $("settingsBar").hidden = !n;
+  $("settingsRestartSave").hidden = !pendingNeedsRestart(settingsPending);
+  $("settingsBarText").textContent = `Not saved yet: ${n} change${n === 1 ? "" : "s"}. Leaving this page drops them.`;
 }
 
 async function loadSettings() {
+  settingsPending = {};
   try { settingsNow = await (await fetch("/api/settings")).json(); } catch (e) {
     $("settingsForm").innerHTML = `<p class="err">Couldn't read the settings.</p>`;
     return;
@@ -2387,25 +2473,39 @@ async function loadSettings() {
   renderSettings();
 }
 
-async function changeSetting(name, value) {
-  const code = uploadCode || askCode("Change Track Rat's settings?");
-  if (code === null) { renderSettings(); return; }
-  const r = uploadResult(await post("/api/settings", settingBody(name, value, code)));
+// A change is only marked here; Save sends all of them in one request with one code
+function changeSetting(name, value) {
+  if (!settingsNow) return;
+  setPending(settingsPending, name, value, settingsNow);
+  $("settingsMsg").textContent = "";
+  renderSettings();
+}
+
+// restart: save, then restart, in the same request
+async function saveSettings(restart) {
+  if (!Object.keys(settingsPending).length) return;
+  const code = askCode(restart ? "Save these changes and restart Track Rat?" : "Save these changes?");
+  if (code === null) return;
+  const r = uploadResult(await post("/api/settings", pendingBody(settingsPending, code, restart)));
   const msg = $("settingsMsg");
-  if (!r.ok) {
+  if (!r.ok) {  // none were saved: they stay marked
     msg.className = "err";
     msg.textContent = r.text;
-    renderSettings();  // back to what the device has
     return;
   }
   settingsNow = JSON.parse(r.text);
+  settingsPending = {};
   renderSettings();
   msg.className = "note";
-  msg.innerHTML = settingsNow.restartNeeded
-    ? `Saved. That change is used from the next restart. <button class="btn plain" id="settingsRestart">Restart now</button>`
-    : "Saved.";
-  if (settingsNow.restartNeeded) $("settingsRestart").addEventListener("click", restart);
+  msg.innerHTML = restart ? "Saved. Restarting. It comes back with Wi-Fi off."
+    : settingsNow.restartNeeded
+      ? `Saved. Some changes are used from the next restart. <button class="btn plain" id="settingsRestart">Restart now</button>`
+      : "Saved.";
+  if (!restart && settingsNow.restartNeeded) $("settingsRestart").addEventListener("click", restart_);
 }
+$("settingsSave").addEventListener("click", () => saveSettings(false));
+$("settingsRestartSave").addEventListener("click", () => saveSettings(true));
+$("settingsUndo").addEventListener("click", () => { settingsPending = {}; $("settingsMsg").textContent = ""; renderSettings(); });
 
 $("settingsForm").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-set]");
@@ -2421,11 +2521,13 @@ $("settingsForm").addEventListener("input", (e) => {
 });
 
 async function restart() {
-  if (!confirm("Restart Track Rat? It comes back with Wi-Fi off.")) return;
-  const r = await post("/api/restart", "");
+  const code = askCode("Restart Track Rat? It comes back with Wi-Fi off.");
+  if (code === null) return;
+  const r = uploadResult(await post("/api/restart", new URLSearchParams({code})));
   $("restartMsg").textContent = r.ok ? "Restarting." : r.text;
 }
 $("restart").addEventListener("click", restart);
+const restart_ = restart;  // (the Settings tab's Restart now, the same one-request restart)
 
 // ---- the viewer: opening files from the computer ----
 function openMsg(text, bad) {

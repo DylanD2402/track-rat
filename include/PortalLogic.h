@@ -179,19 +179,38 @@ inline bool looksLikeJsonObject(const uint8_t* data, size_t len) {
   return false;
 }
 
-// The 4-digit code shown on Track Rat's screen, needed to install firmware
-// or replace tracks.json, so only someone looking at the screen can. After
-// MAX_TRIES wrong codes, uploads stay locked until Wi-Fi is turned on again.
+// The 4-digit code shown on Track Rat's screen, needed for every change from
+// the page (settings, notes, tracks, firmware, restart...), so only someone
+// who can see the screen can make one.
+//
+// The network is open, so a code that someone nearby sniffed must not stay good:
+//  - It is good for one change. spend() draws a new one once a change has gone
+//    through, and a check that only looks (matches()) doesn't use it up.
+//  - After MAX_TRIES wrong codes, every code is refused for a while: 30 s, then
+//    twice as long each time (up to 8 minutes), back to 30 s after a correct
+//    code. A new code is drawn at each lockout, so guesses don't add up.
+// Times are millis() from the caller, so this is tested on a PC.
 class UploadCode {
 public:
   static const int MAX_TRIES = 5;
+  static const uint32_t FIRST_LOCK_MS = 30UL * 1000;
+  static const uint32_t MAX_LOCK_MS = 8UL * 60 * 1000;
 
   void reset(uint32_t random) {
-    code = random % 10000;
+    draw(random);
     wrong = 0;
+    strikes = 0;
+    lockedOut = false;
   }
   int value() const { return code; }
-  bool locked() const { return wrong >= MAX_TRIES; }
+
+  // A new code, because the last one was used for a change. A correct code also
+  // forgives earlier wrong ones, which check() already did.
+  void spend(uint32_t random) { draw(random); }
+
+  bool locked(uint32_t now) const { return lockedOut && (int32_t)(until - now) > 0; }
+  // How long until codes are accepted again (0 if they are)
+  uint32_t waitMs(uint32_t now) const { return locked(now) ? until - now : 0; }
 
   // given: exactly 4 digits, e.g. "0042". Doesn't count tries.
   bool matches(const char* given) const {
@@ -204,17 +223,110 @@ public:
     return v == code;
   }
 
-  // An upload asking to start: counts wrong codes, refuses everything once locked.
-  bool check(const char* given) {
-    if (locked()) return false;
-    if (matches(given)) return true;
-    wrong++;
+  // A change asking to start: counts wrong codes, refuses everything during a lockout.
+  // random: for the new code a lockout draws.
+  bool check(const char* given, uint32_t now, uint32_t random) {
+    if (locked(now)) return false;
+    if (lockedOut) {  // it has run out: a fresh set of tries
+      lockedOut = false;
+      wrong = 0;
+    }
+    if (matches(given)) {
+      wrong = 0;
+      strikes = 0;
+      return true;
+    }
+    if (++wrong >= MAX_TRIES) {
+      uint32_t ms = FIRST_LOCK_MS;
+      for (int i = 0; i < strikes && ms < MAX_LOCK_MS; i++) ms *= 2;
+      if (ms > MAX_LOCK_MS) ms = MAX_LOCK_MS;
+      if (strikes < 30) strikes++;
+      until = now + ms;
+      lockedOut = true;
+      draw(random);
+    }
     return false;
   }
 
 private:
+  // Never the same code twice in a row, so "a new code" is always true
+  void draw(uint32_t random) {
+    int next = random % 10000;
+    if (next == code) next = (next + 1) % 10000;
+    code = next;
+  }
+
   int code = -1;  // no code until reset(): nothing matches
   int wrong = 0;
+  int strikes = 0;  // lockouts since the last correct code
+  bool lockedOut = false;
+  uint32_t until = 0;
+};
+
+// "Too many wrong codes. Wait 30 s, ..." for a lockout with `ms` left. Long waits are given in minutes.
+inline void lockText(uint32_t ms, char* buf, size_t len) {
+  uint32_t s = (ms + 999) / 1000;
+  if (s < 1) s = 1;
+  if (s >= 120) snprintf(buf, len, "Too many wrong codes. Wait %lu min, then enter the new code on Track Rat's screen.", (unsigned long)((s + 59) / 60));
+  else snprintf(buf, len, "Too many wrong codes. Wait %lu s, then enter the new code on Track Rat's screen.", (unsigned long)s);
+}
+
+// --- What a POST may be before its body is read -------------------------------
+//
+// The page is on http://192.168.4.1 and sends this as its Origin. Another web page open
+// on the phone could post to the board too, so a POST that names any other origin is refused.
+// A request with no Origin (not from a browser) is left to the code.
+inline bool isPortalOrigin(const char* origin, const char* ip) {
+  static const char scheme[] = "http://";
+  if (strncmp(origin, scheme, sizeof(scheme) - 1) != 0) return false;
+  return isPortalHost(origin + sizeof(scheme) - 1, ip);
+}
+
+static const size_t TRACKS_MAX_BYTES = 2 * 1024 * 1024;  // a tracks.json upload
+static const size_t FORM_MAX_BYTES = 4096;                // every other POST (a note is up to 1000 bytes, +30% escaped)
+static const size_t MULTIPART_SLACK = 1024;               // a file's body is a little more than the file
+
+// The most a POST to `url` may be in Content-Length, before reading any of it.
+// firmwareMax: the app slot.
+inline size_t bodyLimit(const char* url, size_t firmwareMax) {
+  if (strcmp(url, "/api/tracks") == 0) return TRACKS_MAX_BYTES + MULTIPART_SLACK;
+  if (strcmp(url, "/api/firmware") == 0) return firmwareMax + MULTIPART_SLACK;
+  return FORM_MAX_BYTES;
+}
+
+// Is there room for an upload of `bytes` on a card or flash with `freeBytes` free? The new file sits next to the old
+// one until it replaces it, and the file system needs a little for itself.
+inline bool roomFor(uint64_t freeBytes, uint64_t bytes) {
+  static const uint64_t MARGIN = 64 * 1024;
+  return freeBytes >= bytes + MARGIN;
+}
+
+// 0 to let a POST go on to its handler, else the status to refuse it with: 403 from another
+// site, 411 with no length (chunked bodies aren't read), 413 too big. origin: null if there was none.
+inline int postRefusal(const char* url, size_t contentLength, bool chunked, const char* origin, const char* ip,
+                       size_t firmwareMax) {
+  if (origin && !isPortalOrigin(origin, ip)) return 403;
+  if (chunked) return 411;
+  if (contentLength > bodyLimit(url, firmwareMax)) return 413;
+  return 0;
+}
+
+// Session downloads at once: more would keep the logger waiting for the card.
+class DownloadGate {
+public:
+  static const int MAX_AT_ONCE = 2;
+  bool enter() {
+    if (active >= MAX_AT_ONCE) return false;
+    active++;
+    return true;
+  }
+  void leave() {
+    if (active > 0) active--;
+  }
+  int count() const { return active; }
+
+private:
+  int active = 0;
 };
 
 // One upload of each kind at a time. The request that sent the first piece

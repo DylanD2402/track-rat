@@ -40,9 +40,12 @@ int updateProgress();
 bool busy();
 bool restarting();
 
-// Code to type on the phone before installing firmware or replacing
-// tracks.json, so only someone who can see the screen can. New each time.
+// Code to type on the phone before any change (settings, notes, tracks, firmware,
+// restart...), so only someone who can see the screen can. Good for one change:
+// a new one is drawn after each, and after a lockout from too many wrong codes.
 int uploadCodeValue();
+// True once after the code has changed, so main.cpp draws the Wi-Fi screen again at once.
+bool takeCodeChanged();
 
 // The phone's time zone, minutes east of UTC (0 until a phone has sent one).
 // Session files are named in this local time.

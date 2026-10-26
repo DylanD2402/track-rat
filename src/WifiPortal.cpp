@@ -11,6 +11,7 @@
 #include "WifiPortal.h"
 #include "Config.h"
 #include "FirmwareUpdate.h"
+#include "JsonFile.h"
 #include "Logbook.h"
 #include "PortalLogic.h"
 #include "ProfileStore.h"
@@ -26,8 +27,8 @@
 #include <WiFi.h>
 #include <memory>
 #include <mutex>
-#include "ff.h"
-#include "diskio_sdmmc.h"  // after ff.h, whose BYTE it uses
+#include "esp_task_wdt.h"
+#include "AppRollback.h"
 
 #include "Version.h"
 
@@ -49,7 +50,6 @@ struct GpsSnapshot {
   bool data, fix, simulated, ubx;
   uint8_t sats;
   float hdop, rateHz, speedKmh;
-  double lat, lon;
   int rxPin;
   uint32_t baud;
 };
@@ -57,8 +57,12 @@ static GpsSnapshot gpsSnap = {};
 static portMUX_TYPE snapLock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t lastSnap = 0;
 
-// Firmware and tracks.json uploads need the code shown on the screen
+// Every change from the page needs the code shown on the screen, and uses it up (see UploadCode)
 static portal::UploadCode uploadCode;
+static volatile bool codeChanged = false;  // the screen shows the code: draw it again
+
+// Session downloads running (the logger shares the card)
+static portal::DownloadGate downloads;
 
 // Firmware upload: one at a time (fwSlot holds the request sending it)
 static portal::UploadSlot fwSlot;
@@ -79,6 +83,7 @@ static File tracksFile;
 static fs::FS* tracksFs = nullptr;
 static bool tracksOk = false;
 static String tracksError;
+static int tracksStatus = 400;  // what the reply says if it wasn't saved
 
 // ---------------------------------------------------------------------------
 // Time zone from the phone. The page sends it every time it loads; it is
@@ -95,13 +100,42 @@ static void saveTimeZoneOffset(int minutesEastOfUtc) {
   DEBUG_PRINTF("Wi-Fi: time zone set to UTC%+d min\n", Settings::get().utcOffsetMin);
 }
 
-// Changes from the page need the 4-digit code on Track Rat's screen. False
-// (and the reply sent) when the code is wrong.
+// Changes from the page need the 4-digit code on Track Rat's screen, and a change that went through
+// uses it up: the network is open, so a code someone nearby saw is no use to them. Five wrong codes
+// lock changes for a while (UploadCode), and a new code is drawn.
+
+// Does this code open a change? Counts it if it's wrong.
+static bool checkCode(const String& given) {
+  const int before = uploadCode.value();
+  const bool ok = uploadCode.check(given.c_str(), millis(), esp_random());
+  if (uploadCode.value() != before) codeChanged = true;  // a lockout drew a new one
+  return ok;
+}
+
+// The change went through: the code is spent, the screen shows the next one
+static void spendCode() {
+  uploadCode.spend(esp_random());
+  codeChanged = true;
+}
+
+// The reply for a code that didn't open a change
+static void sendCodeRefused(AsyncWebServerRequest* req) {
+  const uint32_t wait = uploadCode.waitMs(millis());
+  if (!wait) {
+    req->send(403, "text/plain", "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
+    return;
+  }
+  char msg[120];
+  portal::lockText(wait, msg, sizeof(msg));
+  AsyncWebServerResponse* res = req->beginResponse(403, "text/plain", msg);
+  res->addHeader("Retry-After", String((wait + 999) / 1000));
+  req->send(res);
+}
+
+// False (and the reply sent) when the code is wrong or changes are locked.
 static bool codeOk(AsyncWebServerRequest* req) {
-  if (uploadCode.check(req->arg("code").c_str())) return true;
-  req->send(403, "text/plain",
-            uploadCode.locked() ? "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code."
-                                : "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
+  if (checkCode(req->arg("code"))) return true;
+  sendCodeRefused(req);
   return false;
 }
 
@@ -124,13 +158,20 @@ static void sendSettings(AsyncWebServerRequest* req, int code, bool restartNeede
   req->send(code, "application/json", out);
 }
 
+// Every setting in the POST is applied, or none: they go into a copy that is only saved if all of them were good.
+// restart=1 restarts after the save, with the same code ("Save and restart").
 static void onSettingsPost(AsyncWebServerRequest* req) {
   if (!codeOk(req)) return;
+  const bool restart = req->arg("restart") == "1";
+  if (restart && fwSlot.busy()) {
+    req->send(409, "text/plain", "A firmware update is running");
+    return;
+  }
   const SettingsData before = Settings::get();
   SettingsData s = before;
   for (size_t i = 0; i < req->params(); i++) {
     const AsyncWebParameter* p = req->getParam(i);
-    if (p->name() == "code") continue;
+    if (p->name() == "code" || p->name() == "restart") continue;
     if (!settings::setField(s, p->name().c_str(), p->value().c_str())) {
       req->send(400, "text/plain", "Can't set " + p->name() + " to \"" + p->value() + "\"");
       return;
@@ -138,7 +179,9 @@ static void onSettingsPost(AsyncWebServerRequest* req) {
   }
   Settings::set(s);  // main.cpp's loop applies it (screen, backlight, Bluetooth)
   DEBUG_PRINTLN("Wi-Fi: settings changed from the page");
-  sendSettings(req, 200, settings::needsRestart(before, s));
+  sendSettings(req, 200, !restart && settings::needsRestart(before, s));
+  if (restart) rebootAt = millis() + 1000;
+  spendCode();
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +216,7 @@ static void onProfilesPost(AsyncWebServerRequest* req) {
   }
   DEBUG_PRINTF("Wi-Fi: %s %s from the page\n", kindText.c_str(), action.c_str());
   req->send(200, "application/json", Profiles::apiJson());
+  spendCode();
 }
 
 // ---------------------------------------------------------------------------
@@ -222,32 +266,15 @@ static const StorageSpace& storageSpace() {
 // After a season the card can hold thousands of files. The list is sent a few
 // entries at a time as the phone takes them, since handlers run in the
 // AsyncTCP task: it has a 5 s watchdog, and the log writer (also core 0, lower
-// priority) waits while it works. The card's folder is read with FatFs, which
-// gives each entry's name and size in one pass. File::openNextFile() opens
-// each entry by its path, and on FAT every open searches the folder from the
-// start, so a big folder took minutes.
-//
-// Flash keeps openNextFile(): LittleFS's folder listing has no sizes, but
-// finding a file there reads internal flash with no card commands, and the
-// 3.4 MB partition holds a few hundred files at most. The card falls back to
-// it if FatFs can't be used.
-//
-// FatFs locks the volume for each call (FF_FS_REENTRANT), as it does for the
-// VFS's own readdir, so the loop and the log writer can write meanwhile: a
-// file made or renamed during the listing may or may not show.
+// priority) waits while it works. The folder is read with Storage::DirLister,
+// which gives each entry's name and size in one pass and carries on from where
+// the last call stopped (see Storage.h for why the card needs that).
 
 static const int LIST_READS_PER_CALL = 32;  // a buffer's worth: a few ms of card reads
-
-// SD_MMC keeps the card it mounted to itself (protected). Naming the member
-// through a derived class is allowed when taking its address.
-struct SdMmcCard : fs::SDMMCFS {
-  static sdmmc_card_t* of(fs::SDMMCFS& sd) { return sd.*(&SdMmcCard::_card); }
-};
 
 class SessionList {
 public:
   explicit SessionList(int tzMin) : tz(tzMin) {}
-  ~SessionList() { closeDir(); }
 
   size_t fill(uint8_t* buf, size_t maxLen) {
     return json.fill(buf, maxLen, LIST_READS_PER_CALL, [this]() { next(); });
@@ -256,56 +283,22 @@ public:
 private:
   enum { ON_SD, ON_FLASH, DONE };
 
-  // FatFs's drive for the card: the one SD_MMC registered it under
-  bool openFat() {
-    sdmmc_card_t* card = SdMmcCard::of(SD_MMC);
-    BYTE drive = card ? ff_diskio_get_pdrv_card(card) : 0xFF;
-    if (drive >= FF_VOLUMES) {
-      DEBUG_PRINTLN("Wi-Fi: card's FatFs drive not found, listing sessions the slow way");
-      return false;
-    }
-    char path[16];
-    snprintf(path, sizeof(path), "%u:%s", (unsigned)drive, SESSION_DIR);
-    return f_opendir(&fatDir, path) == FR_OK;
-  }
-
   bool openDir() {
-    fat = false;
-    if (stage == ON_SD) {
-      if (!Storage::sdMounted()) return false;
-      fat = openFat();
-      if (!fat) dir = SD_MMC.open(SESSION_DIR);
-    } else {
-      if (!Storage::flashMounted()) return false;
-      dir = LittleFS.open(SESSION_DIR);
-    }
-    dirOpen = fat || (dir && dir.isDirectory());
-    return dirOpen;
-  }
-
-  void closeDir() {
-    if (dirOpen && fat) f_closedir(&fatDir);
-    dir.close();
-    dirOpen = fat = false;
+    fs::FS* fs = nullptr;
+    if (stage == ON_SD && Storage::sdMounted()) fs = &SD_MMC;
+    if (stage == ON_FLASH && Storage::flashMounted()) fs = &LittleFS;
+    return fs && lister.open(*fs, SESSION_DIR);
   }
 
   // Reads the next entry and adds it if it's a file. At the end of a folder it
   // moves on: the card, then flash, then the end of the list.
   void next() {
-    if (dirOpen || openDir()) {
-      if (fat) {
-        if (f_readdir(&fatDir, &info) == FR_OK && info.fname[0]) {
-          if (!(info.fattrib & AM_DIR)) json.addFile(info.fname, info.fsize, "sd");
-          return;
-        }
-      } else {
-        File f = dir.openNextFile();
-        if (f) {
-          if (!f.isDirectory()) json.addFile(f.name(), f.size(), stage == ON_SD ? "sd" : "flash");
-          return;
-        }
-      }
-      closeDir();
+    if (lister.isOpen() || openDir()) {
+      Storage::DirLister::Entry e;
+      if (lister.next(e)) {
+        if (!e.isDir) json.addFile(e.name.c_str(), e.size, stage == ON_SD ? "sd" : "flash");
+        return;
+      }  // (next() closed the folder at its end)
     }
     if (++stage == DONE) json.finish(tz);
   }
@@ -313,11 +306,7 @@ private:
   portal::SessionListJson<String> json;
   int tz;
   int stage = ON_SD;
-  bool dirOpen = false;
-  bool fat = false;  // reading the card with FatFs, else with dir
-  FF_DIR fatDir;
-  FILINFO info;
-  File dir;
+  Storage::DirLister lister;
 };
 
 // Phones check for internet by fetching a known page from a known host.
@@ -336,6 +325,7 @@ static const char FALLBACK_PAGE[] PROGMEM = R"(<!doctype html><meta name=viewpor
 <code>pio run -e es3c28p -t uploadfs</code>.</p>
 <p><a href="/api/sessions">Session list</a> &middot; <a href="/tracks.json">tracks.json</a></p>
 <form method=post action=/api/firmware enctype=multipart/form-data>
+<p>Code from Track Rat's screen: <input name=code size=4 maxlength=4 inputmode=numeric></p>
 <p>Install firmware (.bin): <input type=file name=firmware accept=.bin> <button>Install</button></p></form>)";
 
 static void sendInfo(AsyncWebServerRequest* req) {
@@ -380,10 +370,7 @@ static void sendInfo(AsyncWebServerRequest* req) {
   doc["units"] = Settings::get().units == SpeedUnits::Mph ? "mph" : "kmh";  // the Speed units setting
   gps["rxPin"] = g.rxPin;
   gps["baud"] = g.baud;
-  if (g.fix) {
-    gps["lat"] = serialized(String(g.lat, 6));
-    gps["lon"] = serialized(String(g.lon, 6));
-  }
+  // (No position: reads are open to anyone on the network, and the page doesn't show it)
 
   String out;
   serializeJson(doc, out);
@@ -411,20 +398,13 @@ static void onNotePost(AsyncWebServerRequest* req) {
   }
   const std::string note = logbook::clean(req->arg("note").c_str());
   const String path = logbook::notePath(SESSION_DIR, base.c_str()).c_str();
-  const String tmp = String(SESSION_DIR) + "/.note.tmp";  // handlers run one at a time
   bool ok = true;
   if (note.empty()) {
+    fs->remove(path + ".tmp");  // (a save cut off by a power loss)
     if (fs->exists(path)) ok = fs->remove(path);
   } else {
     const std::string json = logbook::noteJson(note);
-    File f = fs->open(tmp, "w");
-    ok = f && f.write((const uint8_t*)json.data(), json.size()) == json.size();
-    if (f) f.close();
-    if (ok) {
-      if (fs->exists(path)) fs->remove(path);  // FAT won't rename over a file
-      ok = fs->rename(tmp, path);
-    }
-    if (!ok) fs->remove(tmp);
+    ok = writeFileSafe(*fs, path, (const uint8_t*)json.data(), json.size());
   }
   spaceValid = false;
   DEBUG_PRINTF("Wi-Fi: note for %s %s (%u bytes)\n", base.c_str(), ok ? "saved" : "NOT saved", (unsigned)note.size());
@@ -433,6 +413,7 @@ static void onNotePost(AsyncWebServerRequest* req) {
     return;
   }
   req->send(200, "application/json", logbook::noteJson(note).c_str());
+  spendCode();
 }
 
 // The note in <base>_note.json, or empty
@@ -450,7 +431,8 @@ static std::string readNote(fs::FS& fs, const String& base) {
 static bool sendVboWithNote(AsyncWebServerRequest* req, fs::FS& fs, const String& path, const String& name) {
   const String base = name.substring(0, name.length() - 4);
   if (!logbook::validBase(base.c_str())) return false;
-  if (!fs.exists(logbook::notePath(SESSION_DIR, base.c_str()).c_str())) return false;
+  // (a note whose save was cut between removing the old file and renaming the new one is put back first)
+  if (!finishLeftoverSave(fs, logbook::notePath(SESSION_DIR, base.c_str()).c_str(), jsonFileWhole)) return false;
 
   struct Splice {
     File f;
@@ -483,14 +465,13 @@ static bool sendVboWithNote(AsyncWebServerRequest* req, fs::FS& fs, const String
 }
 
 // ---------------------------------------------------------------------------
-// tracks.json upload: written to a temp file, then swapped in, old one kept as .bak
+// tracks.json upload: written to a temp file, checked, then swapped in, old one kept as .bak
+// (at most TRACKS_MAX_BYTES: the gate in setupRoutes refuses a bigger Content-Length before reading it)
 
 // Why an upload that didn't get to start was refused
 static void refuseUpload(AsyncWebServerRequest* req, const portal::UploadSlot& slot) {
-  if (uploadCode.locked())
-    req->send(403, "text/plain", "Too many wrong codes. Turn Wi-Fi off and on again on Track Rat for a new code.");
-  else if (!uploadCode.matches(req->arg("code").c_str()))
-    req->send(403, "text/plain", "Wrong code. Use the 4-digit code on Track Rat's Wi-Fi screen.");
+  if (uploadCode.locked(millis()) || !uploadCode.matches(req->arg("code").c_str()))
+    sendCodeRefused(req);
   else if (slot.busy())
     req->send(409, "text/plain", "Another upload is running. Try again when it's done.");
   else
@@ -502,19 +483,80 @@ static void dropTracksUpload() {
   if (tracksFs) tracksFs->remove(TRACKS_UPLOAD_TMP);
 }
 
+// A file read through a 1 KB buffer. The JSON parser takes a byte at a time, which from the card is slow, and
+// the AsyncTCP task has a 5 s watchdog: it is fed as the file is read.
+class BufferedFile : public Stream {
+public:
+  explicit BufferedFile(File& f) : file(f) {}
+  int available() override { return (int)(filled - at) + file.available(); }
+  int read() override { return (at < filled || fill()) ? buf[at++] : -1; }
+  int peek() override { return (at < filled || fill()) ? buf[at] : -1; }
+  size_t write(uint8_t) override { return 0; }
+  size_t readBytes(char* out, size_t len) override {
+    size_t got = 0;
+    while (got < len && (at < filled || fill())) {
+      size_t n = filled - at < len - got ? filled - at : len - got;
+      memcpy(out + got, buf + at, n);
+      at += n;
+      got += n;
+    }
+    return got;
+  }
+
+private:
+  bool fill() {
+    esp_task_wdt_reset();
+    filled = file.read(buf, sizeof(buf));
+    at = 0;
+    return filled > 0;
+  }
+  File& file;
+  uint8_t buf[1024];
+  size_t at = 0, filled = 0;
+};
+
+// The same check as TrackDatabase's validTracksFile: parses as JSON and has a "tracks" list. Nothing is kept in
+// memory, so a file up to the 2 MB cap is no strain.
+static bool validTracksUpload(fs::FS& fs, const char* path) {
+  File f = fs.open(path, "r");
+  if (!f) return false;
+  BufferedFile in(f);
+  StaticJsonDocument<64> filter;
+  filter["tracks"][0] = false;
+  StaticJsonDocument<64> doc;
+  const DeserializationError err = deserializeJson(doc, in, DeserializationOption::Filter(filter));
+  f.close();
+  return !err && doc["tracks"].is<JsonArray>();
+}
+
+// Free space on the card or flash, from the figures the Device tab keeps (at most 30 s old: a write that
+// runs out of room still fails, this only turns most of them away before they start)
+static bool roomForUpload(fs::FS& fs, size_t bytes) {
+  const StorageSpace& sp = storageSpace();
+  const uint32_t total = &fs == &SD_MMC ? sp.sdTotalKB : sp.flashTotalKB;
+  const uint32_t used = &fs == &SD_MMC ? sp.sdUsedKB : sp.flashUsedKB;
+  return portal::roomFor(total > used ? (uint64_t)(total - used) * 1024 : 0, bytes);
+}
+
 static void onTracksUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                            size_t len, bool final) {
   if (index == 0) {
-    if (!uploadCode.check(req->arg("code").c_str())) return;  // refused in the reply
-    if (!tracksSlot.claim(req)) return;                          // another upload is running
+    if (!checkCode(req->arg("code"))) return;  // refused in the reply
+    if (!tracksSlot.claim(req)) return;         // another upload is running
     tracksError = "";
+    tracksStatus = 400;
     tracksFs = Storage::sessionFS();  // the SD card, else flash: where TrackDatabase saves
     tracksOk = tracksFs != nullptr;
     if (!tracksOk) tracksError = "No SD card or flash to save to";
-    // The page checks the JSON before sending it; here just make sure it's an object.
+    // The page checks the JSON before sending it; here just make sure it's an object (the whole file is checked at the end).
     if (tracksOk && !portal::looksLikeJsonObject(data, len)) {
       tracksOk = false;
       tracksError = "That isn't a tracks.json file";
+    }
+    if (tracksOk && !roomForUpload(*tracksFs, req->contentLength())) {
+      tracksOk = false;
+      tracksStatus = 507;
+      tracksError = "Not enough room for that file on the SD card or in flash";
     }
     if (tracksOk) {
       tracksFile = tracksFs->open(TRACKS_UPLOAD_TMP, "w");
@@ -530,20 +572,33 @@ static void onTracksUpload(AsyncWebServerRequest* req, const String& filename, s
     });
   }
   if (!tracksSlot.owns(req)) return;
+  if (tracksOk && index + len > portal::TRACKS_MAX_BYTES) {
+    tracksOk = false;
+    tracksStatus = 413;
+    tracksError = "That file is too big. Track Rat takes a tracks.json up to 2 MB.";
+  }
   if (tracksOk && len && tracksFile.write(data, len) != len) {
     tracksOk = false;
+    tracksStatus = 507;
     tracksError = "Storage full or write failed";
   }
+  if (!tracksOk && tracksFile) dropTracksUpload();  // no use keeping what's been written
   if (!final) return;
 
   fs::FS* fs = tracksFs;
   if (tracksFile) tracksFile.close();
+  if (tracksOk && !validTracksUpload(*fs, TRACKS_UPLOAD_TMP)) {
+    tracksOk = false;
+    tracksError = "That isn't a good tracks.json: it needs a \"tracks\" list, and the file must be whole.";
+  }
   if (tracksOk) {
     fs->remove(TRACKS_BACKUP);
-    if (fs->exists(TRACK_DATABASE_FILE)) fs->rename(TRACK_DATABASE_FILE, TRACKS_BACKUP);
-    if (!fs->rename(TRACKS_UPLOAD_TMP, TRACK_DATABASE_FILE)) {
-      fs->rename(TRACKS_BACKUP, TRACK_DATABASE_FILE);
+    const bool hadOld = fs->exists(TRACK_DATABASE_FILE);
+    if (hadOld) fs->rename(TRACK_DATABASE_FILE, TRACKS_BACKUP);
+    if (!replaceFile(*fs, TRACKS_UPLOAD_TMP, TRACK_DATABASE_FILE)) {
+      if (hadOld) fs->rename(TRACKS_BACKUP, TRACK_DATABASE_FILE);
       tracksOk = false;
+      tracksStatus = 500;
       tracksError = "Couldn't replace tracks.json";
     }
   }
@@ -562,8 +617,9 @@ static void onTracksDone(AsyncWebServerRequest* req) {
     // Restart so the track list in memory, and where it saves to, match the new file
     req->send(200, "text/plain", "Saved. Track Rat is restarting to load the new list.");
     rebootAt = millis() + 1500;
+    spendCode();
   } else {
-    req->send(400, "text/plain", tracksError);
+    req->send(tracksStatus, "text/plain", tracksError);
   }
   tracksSlot.release(req);
 }
@@ -584,8 +640,8 @@ static void writeFirmware(const uint8_t* data, size_t len) {
 static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data,
                              size_t len, bool final) {
   if (index == 0) {
-    if (!uploadCode.check(req->arg("code").c_str())) return;  // refused in the reply
-    if (!fwSlot.claim(req)) return;                              // another upload is running
+    if (!checkCode(req->arg("code"))) return;  // refused in the reply
+    if (!fwSlot.claim(req)) return;             // another upload is running
     fwError = "";
     fwProgress = 0;
     fwOk = true;
@@ -607,6 +663,7 @@ static void onFirmwareUpload(AsyncWebServerRequest* req, const String& filename,
     len -= used;
     if (fwGate.decided()) {
       if (fwGate.ok()) {
+        approllback::markGood();  // Update refuses to start while this app is still waiting to be trusted
         fwOk = Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH);
         if (!fwOk) fwError = Update.errorString();
         writeFirmware(fwGate.header(), fwGate.headerLen());
@@ -637,6 +694,7 @@ static void onFirmwareDone(AsyncWebServerRequest* req) {
   if (fwOk && fwProgress == 100) {
     req->send(200, "text/plain", "Installed. Track Rat is restarting.");
     rebootAt = millis() + 1500;  // after the reply has gone
+    spendCode();
   } else {
     if (Update.isRunning()) Update.abort();  // the file ended without a last piece
     fwProgress = -1;
@@ -647,8 +705,47 @@ static void onFirmwareDone(AsyncWebServerRequest* req) {
 
 // ---------------------------------------------------------------------------
 
+// Refuses a POST from the headers alone, before its body is read: one from another web page (Origin), or one
+// whose Content-Length is over its limit (portal::postRefusal). The library skips a body that no handler wants
+// instead of keeping it, so a big one costs time on the Wi-Fi link and no memory. Added first, so it sees every POST.
+class PostGate : public AsyncWebHandler {
+public:
+  bool canHandle(AsyncWebServerRequest* req) const override { return req->method() == HTTP_POST && refusal(req) != 0; }
+
+  void handleRequest(AsyncWebServerRequest* req) override {
+    switch (refusal(req)) {
+      case 403: req->send(403, "text/plain", "Changes only come from Track Rat's own page."); break;
+      case 411: req->send(411, "text/plain", "The request needs a length."); break;
+      default: req->send(413, "text/plain", "That is too big to send to Track Rat."); break;
+    }
+  }
+
+private:
+  static int refusal(AsyncWebServerRequest* req) {
+    const String ip = WiFi.softAPIP().toString();
+    const bool hasOrigin = req->hasHeader("Origin");
+    const String origin = hasOrigin ? req->header("Origin") : String();
+    return portal::postRefusal(req->url().c_str(), req->contentLength(), req->hasHeader("Transfer-Encoding"),
+                               hasOrigin ? origin.c_str() : nullptr, ip.c_str(), FirmwareUpdate::slotSize());
+  }
+};
+
+// A session download: at most two at once, or the logger waits for the card. The place is given back when the
+// connection closes, which is when every reply ends. False (and the reply sent) when both places are taken.
+static bool beginDownload(AsyncWebServerRequest* req) {
+  if (!downloads.enter()) {
+    AsyncWebServerResponse* res = req->beginResponse(503, "text/plain", "Track Rat is busy sending two files. Try again in a moment.");
+    res->addHeader("Retry-After", "2");
+    req->send(res);
+    return false;
+  }
+  req->onDisconnect([]() { downloads.leave(); });
+  return true;
+}
+
 static void setupRoutes() {
   AsyncWebServer& s = *server;
+  s.addHandler(new PostGate());
 
   s.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (redirectToPortal(req)) return;
@@ -693,6 +790,7 @@ static void setupRoutes() {
       req->send(404, "text/plain", "No such file");
       return;
     }
+    if (!beginDownload(req)) return;
     if (portal::endsWith(name.c_str(), ".vbo") && sendVboWithNote(req, *fs, path, name)) return;
     req->send(req->beginResponse(*fs, path, portal::contentTypeFor(name.c_str()), true));
   });
@@ -703,6 +801,7 @@ static void setupRoutes() {
       req->send(404, "text/plain", "No tracks.json on the SD card or in flash (the built-in list is in use)");
       return;
     }
+    if (!beginDownload(req)) return;
     AsyncWebServerResponse* res = req->beginResponse(*fs, TRACK_DATABASE_FILE, "application/json", true);
     res->addHeader("Cache-Control", "no-cache");
     req->send(res);
@@ -725,12 +824,14 @@ static void setupRoutes() {
   });
 
   s.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (!codeOk(req)) return;
     if (fwSlot.busy()) {
       req->send(409, "text/plain", "A firmware update is running");
       return;
     }
     req->send(200, "text/plain", "Restarting");
     rebootAt = millis() + 1000;
+    spendCode();
   });
 
   // Re-timing (the Tracks tab): track=<id>, file=<a .vbo in /sessions> or none for every session there
@@ -752,6 +853,7 @@ static void setupRoutes() {
     retimeAskLog = file;
     retimeAskError = "";
     req->send(200, "text/plain", "Re-timing");
+    spendCode();
   });
   s.on("/api/retime", HTTP_GET, [](AsyncWebServerRequest* req) {
     const SessionLog::RetimeStatus st = SessionLog::retimeStatus();
@@ -803,11 +905,21 @@ bool start() {
     return false;
   }
   uploadCode.reset(esp_random());
+  codeChanged = true;
+  downloads = portal::DownloadGate();  // (none can be running with the network down)
   spaceValid = false;
   dns.setErrorReplyCode(DNSReplyCode::NoError);
   dns.start(53, "*", WiFi.softAPIP());
 
   if (!server) {  // created once, after the network stack is up
+    // On every reply. The page has inline scripts and styles, nothing from elsewhere: its own files, the fonts, the
+    // logo, and the board's own API. It can't be framed (clickjacking) and files keep the type they were sent as.
+    DefaultHeaders::Instance().addHeader("X-Frame-Options", "DENY");
+    DefaultHeaders::Instance().addHeader("X-Content-Type-Options", "nosniff");
+    DefaultHeaders::Instance().addHeader(
+        "Content-Security-Policy",
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; "
+        "font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     server = new AsyncWebServer(80);
     setupRoutes();
     server->begin();
@@ -833,6 +945,7 @@ void loop(const GPSHandler& gps) {
   uint32_t now = millis();
   if (rebootAt && (int32_t)(now - rebootAt) >= 0) {
     DEBUG_PRINTLN("Wi-Fi: restarting");
+    approllback::markGood();  // a restart asked for isn't a crash (and the one after an install is of the new app)
     stop();
     delay(100);
     ESP.restart();
@@ -871,8 +984,6 @@ void loop(const GPSHandler& gps) {
     g.hdop = gps.hdop();
     g.rateHz = gps.fixRateHz();
     g.speedKmh = gps.lastFix().speedKmh;
-    g.lat = gps.lastFix().lat;
-    g.lon = gps.lastFix().lon;
     g.rxPin = gps.rxPinUsed();
     g.baud = gps.baud();
     portENTER_CRITICAL(&snapLock);
@@ -893,6 +1004,12 @@ int clientCount() { return on ? WiFi.softAPgetStationNum() : 0; }
 int updateProgress() { return fwProgress; }
 
 int uploadCodeValue() { return uploadCode.value(); }
+
+bool takeCodeChanged() {
+  const bool changed = codeChanged;
+  codeChanged = false;
+  return changed;
+}
 
 bool busy() { return (fwProgress >= 0 && fwProgress < 100) || rebootAt != 0 || SessionLog::retiming(); }
 

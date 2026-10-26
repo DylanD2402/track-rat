@@ -176,13 +176,16 @@ check(ps.length === 1 && ps[0].noteFile && ps[0].base === "20261018_093012_perf_
       (ps[0] && ps[0].base));
 
 // Firmware files: same words as firmware::describe in include/FirmwareImage.h
-function image(size, chip = 0x0009, appDesc = true) {
+function image(size, chip = 0x0009, appDesc = true, project = "trackrat") {
   const b = new Uint8Array(size);
   b[0] = 0xE9;
   b[1] = 5;
   b[12] = chip & 0xFF;
   b[13] = chip >> 8;
-  if (appDesc) b.set([0x32, 0x54, 0xCD, 0xAB], 32);
+  if (appDesc) {
+    b.set([0x32, 0x54, 0xCD, 0xAB], 32);
+    if (size >= 112) b.set(new TextEncoder().encode(project), 80);  // esp_app_desc_t.project_name
+  }
   return b;
 }
 const fw = (b, fileSize = b.length) => checkFirmware(b.subarray(0, 128), fileSize);
@@ -203,6 +206,8 @@ check(fw(noSegs) === "not a firmware image", "17 segments accepted");
 check(fw(image(4096, 0x0000)) === "firmware is for a different chip", "original ESP32 image accepted");
 check(fw(image(4096, 0x0100)) === "firmware is for a different chip", "chip id is little-endian, both bytes count");
 check(fw(image(4096, 0x0009, false)) === "not the app image (use firmware.bin)", "bootloader accepted");
+for (const name of ["arduino-lib-builder", "trackrat2", "trackra", "TrackRat", ""])
+  check(fw(image(4096, 0x0009, true, name)) === "not Track Rat firmware", `project "${name}" accepted`);
 const hi = image(4096);
 hi[35] = 0xAA;  // top byte of the descriptor magic: must not be a signed-shift accident
 check(fw(hi) === "not the app image (use firmware.bin)", "wrong top byte of the app descriptor magic accepted");
@@ -1063,5 +1068,87 @@ console.log("Sample session tests");
   }
 }
 
-console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");
-process.exit(failures ? 1 : 0);
+// Settings are collected and saved together: one prompt, one POST
+{
+  const S = new Function(sm[1] + "\nreturn {setPending, pendingNeedsRestart, pendingBody};")();
+  const now = {units: "kmh", brightness: 70, gpsMode: "20hz", bluetooth: true};
+  const pend = {};
+  S.setPending(pend, "units", "mph", now);
+  S.setPending(pend, "brightness", 40, now);
+  S.setPending(pend, "bluetooth", false, now);
+  check(Object.keys(pend).length === 3 && !S.pendingNeedsRestart(pend), "three changes marked, none needs a restart");
+  S.setPending(pend, "units", "kmh", now);
+  check(!("units" in pend) && Object.keys(pend).length === 2, "setting it back drops the change");
+  S.setPending(pend, "brightness", 55, now);
+  check(pend.brightness === 55, "a second change to one setting replaces the first");
+  const body = S.pendingBody(pend, "0042", false);
+  check(body.get("brightness") === "55" && body.get("bluetooth") === "false" && body.get("code") === "0042" &&
+        !body.has("restart") && [...body.keys()].length === 3, "one form for all of them: " + body);
+  S.setPending(pend, "gpsMode", "10hz", now);
+  check(S.pendingNeedsRestart(pend), "a GPS mode change offers Save and restart");
+  const rb = S.pendingBody(pend, "0042", true);
+  check(rb.get("restart") === "1" && rb.get("gpsMode") === "10hz" && rb.get("code") === "0042", "restart=1 with the same code: " + rb);
+  // The page prompts once and posts once however many changes are pending
+  const saveFn = html.match(/async function saveSettings\(restart\) \{[\s\S]*?\n\}\n/);
+  check(saveFn && (saveFn[0].match(/askCode\(/g) || []).length === 1 && (saveFn[0].match(/post\(/g) || []).length === 1,
+        "saveSettings asks once and posts once");
+  check(/function changeSetting\(name, value\) \{[^}]*\}/.test(html) && !/function changeSetting[\s\S]{0,300}post\(/.test(html),
+        "changing a setting only marks it");
+}
+
+// The upload code: used once, so the page forgets it after a change and says so when it asks again
+{
+  const um = html.match(/\/\/ ---- upload code \(begin[^\n]*\n([\s\S]*?)\/\/ ---- upload code \(end\)/);
+  const dm = html.match(/\/\/ ---- downloads: two at a time \(begin[^\n]*\n([\s\S]*?)\/\/ ---- downloads \(end\)/);
+  if (!um || !dm) {
+    console.log("FAIL: upload code or downloads section not found in web/index.html");
+    process.exit(1);
+  }
+  const UC = new Function(um[1] + "\nreturn {codePromptText, codeAfterReply};")();
+  const first = UC.codePromptText("Change this setting?", false);
+  check(first.includes("Change this setting?") && first.includes("4-digit code") && !first.includes("used up"), "first prompt: " + first);
+  const again = UC.codePromptText("Change this setting?", true);
+  check(again.startsWith("That code is used up. Enter the new code on Track Rat's screen.") && again.includes("Change this setting?"),
+        "prompt after a change: " + again);
+  let st = {last: "1234", usedUp: false};
+  UC.codeAfterReply(st, 200);
+  check(st.last === "" && st.usedUp === true, "a change that went through spends the code");
+  st = {last: "1234", usedUp: false};
+  UC.codeAfterReply(st, 400);
+  check(st.last === "1234" && st.usedUp === false, "a refused change (bad value) keeps the code: it wasn't used");
+  UC.codeAfterReply(st, 409);
+  check(st.last === "1234", "a busy board keeps the code");
+  UC.codeAfterReply(st, 403);
+  check(st.last === "" && st.usedUp === false, "a wrong code or lockout clears it");
+  st = {last: "", usedUp: true};
+  UC.codeAfterReply(st, 413);
+  check(st.usedUp === true, "a reply that isn't about the code leaves 'used up' as it was");
+
+  // No protected request is sent twice for one action: each handler asks once and posts once
+  const asks = (html.match(/askCode\(/g) || []).length - 1;  // (minus the definition)
+  const protectedPosts = (html.match(/uploadResult\(await post\(/g) || []).length;
+  check(asks === protectedPosts && protectedPosts === 8, `one code per change: ${asks} prompts, ${protectedPosts} changes`);
+  check(!/\buploadCode\b/.test(html), "no code is kept for later changes");
+
+  // Downloads: two at a time, a 503 is tried again
+  const DL = new Function(dm[1] + "\nreturn {makeQueue, fetchFile};")();
+  (async () => {
+    let active = 0, most = 0;
+    const fake = async (u) => { active++; most = Math.max(most, active); await new Promise((r) => setTimeout(r, 5)); active--; return {status: 200, url: u}; };
+    const rs = await Promise.all([1, 2, 3, 4, 5, 6].map((i) => DL.fetchFile("/dl?f=" + i, fake)));
+    check(most === 2 && rs.length === 6 && rs.every((r, i) => r.url === "/dl?f=" + (i + 1)), `at most two downloads at once: ${most}`);
+    let calls = 0;
+    const busy = async () => ({status: ++calls < 3 ? 503 : 200});
+    const r = await DL.fetchFile("/dl", busy, 1);
+    check(r.status === 200 && calls === 3, `503 is tried again: ${calls} calls, ${r.status}`);
+    calls = -100;
+    const never = await DL.fetchFile("/dl", async () => ({status: 503, n: ++calls}), 1, 3);
+    check(never.status === 503 && calls === -97, "gives up after the tries: " + calls);
+    const failed = await DL.fetchFile("/dl", async () => { throw new Error("lost"); }).catch((e) => e.message);
+    check(failed === "lost", "a lost connection is an error, and frees the place");
+    const after = await DL.fetchFile("/dl", fake);
+    check(after.status === 200, "queue still works after an error");
+    console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASSED");
+    process.exit(failures ? 1 : 0);
+  })();
+}

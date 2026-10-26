@@ -11,6 +11,7 @@
 #ifndef SETTINGS_DATA_H
 #define SETTINGS_DATA_H
 
+#include <initializer_list>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
