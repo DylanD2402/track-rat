@@ -39,8 +39,6 @@ h1 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -.02em
 h1 img { display: block; height: 30px; width: auto; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .top h1 { margin: 0; }
-.top a.home { font-size: 14px; font-weight: 600; color: var(--brand-ink); text-decoration: none; padding: 6px 4px; }
-.top a.home:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 nav { display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--chip); overflow-x: auto; }
 nav button { flex: 1 1 auto; border: 0; border-radius: 8px; background: none; color: var(--dim); font: inherit;
@@ -125,19 +123,49 @@ table.sect td:first-child, table.sect th:first-child { text-align: left; width: 
 table.sect .tag { display: block; line-height: 1.1; }
 /* The viewer (the page on the website, no Track Rat): no board tabs, its own card, a drop target */
 .note a { color: var(--brand-ink); }
+/* The website's top bar (same as the homepage and installer), shown in the viewer only */
+.sitenav { display: none; position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,.92); border-bottom: 1px solid #2a2a2d;
+           font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #fff; }
+.viewer .sitenav { display: block; }
+.viewer header.page { top: 53px; }
+.sitenav .nav-in { max-width: 960px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; flex-wrap: wrap; }
+.sitenav .brand { color: #fff; font-weight: 700; text-decoration: none; display: flex; align-items: center; }
+.sitenav .brand img { display: block; height: 26px; width: auto; }
+.sitenav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
+.sitenav li { margin: 0; }
+.sitenav ul a { display: block; padding: 8px 12px; border-radius: 8px; color: #e6e6e8; text-decoration: none; font-size: .95rem; }
+.sitenav ul a:hover { background: #151517; color: #26B7FF; }
+.sitenav ul a[aria-current] { color: #26B7FF; }
+.sitenav .menu-btn { display: none; background: none; border: 1px solid #2a2a2d; color: #fff; border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+@media (max-width: 720px) {
+  .sitenav .menu-btn { display: block; }
+  .sitenav ul { display: none; flex-direction: column; width: 100%; padding-bottom: 8px; }
+  .sitenav ul.open { display: flex; }
+}
 .viewer-only { display: none; }
 .viewer .viewer-only { display: block; }
-.viewer .board-only, .viewer .board-logo { display: none !important; }
+.viewer .board-only, .viewer .board-logo, .viewer .top { display: none !important; }
 body.drop::after { content: "Drop session files to open them"; position: fixed; inset: 8px; z-index: 5; display: flex;
                    align-items: center; justify-content: center; font-size: 20px; font-weight: 600; pointer-events: none;
                    border: 3px dashed var(--brand); border-radius: var(--radius); background: color-mix(in srgb, var(--bg) 90%, transparent); }
 </style>
 </head>
 <body>
-<header><div class="bar">
+<header class="sitenav"><div class="nav-in">
+  <a class="brand" href="/"><img src="/assets/logo.png" alt="Track Rat" width="120" height="25"></a>
+  <button class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu">Menu</button>
+  <ul id="menu">
+    <li><a href="/">Home</a></li>
+    <li><a href="/install/">Install</a></li>
+    <li><a href="/analyze/" aria-current="page">Analyze</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat/tree/main/docs">Docs</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat/releases">Downloads</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat">GitHub</a></li>
+  </ul>
+</div></header>
+<header class="page"><div class="bar">
   <div class="top">
-    <h1><img class="board-logo" src="logo.png" alt="Track Rat" width="145" height="30"><a class="viewer-only" href="https://trackrat.ca/"><img src="logo.png" alt="Track Rat home" width="145" height="30"></a></h1>
-    <a class="home viewer-only" href="https://trackrat.ca/">Home</a>
+    <h1><img class="board-logo" src="logo.png" alt="Track Rat" width="145" height="30"></h1>
   </div>
   <nav id="tabs">
     <button data-tab="sessions" class="on">Sessions</button>
@@ -153,7 +181,7 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
 <section id="sessions" class="on">
   <div class="card viewer-only">
     <h3>Open session files</h3>
-    <p class="note">Analyse a Track Rat session here, with no Track Rat connected. Pick a session's <code>.vbo</code> log
+    <p class="note">Analyze a Track Rat session here, with no Track Rat connected. Pick a session's <code>.vbo</code> log
       and its <code>.json</code> summary (and its note), or drop them anywhere on this page. They're matched up by name.</p>
     <input type="file" id="openFiles" multiple accept=".vbo,.json" hidden>
     <div class="tools">
@@ -1841,7 +1869,7 @@ async function cmpDraw() {
     `${final > 0 ? "A" : "B"} is ${(Math.abs(final) / 1000).toFixed(2)} s quicker ${end} (from the logs: each fix is 0.05 to 0.1 s apart).`;
   Object.assign(cmpView, {cmp, a, b, la, lb});
   // The readout sticks just under the page's header
-  document.documentElement.style.setProperty("--hdr", document.querySelector("header").offsetHeight + "px");
+  document.documentElement.style.setProperty("--hdr", [...document.querySelectorAll("header")].reduce((n, h) => n + (h.offsetParent ? h.offsetHeight : 0), 0) + "px");
   const kmh = (v) => Math.round(v) + "", sec = (v) => gapText(v);
   cmpView.geo = chart("cmpSpeed", cmp, [{v: cmp.kmhA, colour: COL_A, fmt: kmh}, {v: cmp.kmhB, colour: COL_B, fmt: kmh}], false);
   chart("cmpGap", cmp, [{v: cmp.gap, colour: COL_B, fmt: sec}], true);
@@ -2473,6 +2501,13 @@ if (VIEWER) {
 } else {
   loadSessions();
 }
+</script>
+<script>
+  var mb = document.getElementById("menu-btn");
+  mb.addEventListener("click", function () {
+    var o = document.getElementById("menu").classList.toggle("open");
+    mb.setAttribute("aria-expanded", o);
+  });
 </script>
 </body>
 </html>
