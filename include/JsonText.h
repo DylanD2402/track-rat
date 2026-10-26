@@ -9,6 +9,7 @@
 #define JSON_TEXT_H
 
 #include <cstddef>
+#include <string>
 
 namespace jsontext {
 
@@ -68,6 +69,57 @@ private:
   int level_ = 0;
   bool inString_ = false, escaped_ = false;
   bool pending_ = false;  // a line starts at the next character, unless it closes an empty array or object
+};
+
+// Cuts the objects out of the first array of a {"tracks": [...]} file, fed a character at a time, so a big file
+// (a world tile, ROADMAP Phase 10) is read in pieces and only one track is parsed at once. feed() returns true
+// when an object has just ended: element() is its text, until the next feed(). Only objects count; the file's
+// other members are skipped. done() once the array has closed.
+class ElementSplitter {
+public:
+  bool feed(char c) {
+    if (done_) return false;
+    if (finished_) {  // the last call returned an element: it has been used
+      elem_.clear();
+      finished_ = false;
+    }
+    if (inString_) {
+      if (collecting_) elem_ += c;
+      if (escaped_) escaped_ = false;
+      else if (c == '\\') escaped_ = true;
+      else if (c == '"') inString_ = false;
+      return false;
+    }
+    if (c == '"') {
+      inString_ = true;
+    } else if (c == '{' || c == '[') {
+      depth_++;
+      if (c == '[' && depth_ == 2) arrayOpen_ = true;
+      if (c == '{' && depth_ == 3 && arrayOpen_) {
+        collecting_ = true;
+        elem_.clear();
+      }
+    } else if (c == '}' || c == ']') {
+      if (c == ']' && depth_ == 2 && arrayOpen_) done_ = true;
+      if (c == '}' && depth_ == 3 && collecting_) {
+        elem_ += c;
+        collecting_ = false;
+        finished_ = true;
+        depth_--;
+        return true;
+      }
+      depth_--;
+    }
+    if (collecting_) elem_ += c;
+    return false;
+  }
+  std::string& element() { return elem_; }  // (a caller may parse it in place, which changes it)
+  bool done() const { return done_; }
+
+private:
+  std::string elem_;
+  int depth_ = 0;
+  bool inString_ = false, escaped_ = false, arrayOpen_ = false, collecting_ = false, finished_ = false, done_ = false;
 };
 
 }  // namespace jsontext

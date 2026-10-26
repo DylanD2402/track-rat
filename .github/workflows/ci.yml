@@ -121,6 +121,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_mapstore.cpp -o /tmp/ms && /tmp/ms
       - name: test_textfold
         run: g++ -std=c++17 -Iinclude test/test_textfold.cpp -o /tmp/tfold && /tmp/tfold
+      - name: test_worldtiles
+        run: g++ -std=c++17 -Iinclude test/test_worldtiles.cpp -o /tmp/wt && /tmp/wt
 
   firmware:
     name: Firmware build

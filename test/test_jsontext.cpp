@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include "JsonText.h"
 #include "check.h"
 
@@ -65,6 +66,29 @@ int main() {
   CHECK(s == "{\"m\":{\n\"a\":1,\n\"b\":2\n},\"n\":3}", "object: %s", s.c_str());
   CHECK(byLine(compact, 0) == compact, "depth 0: unchanged");
   printf("  line per element: ok\n");
+
+  // Cutting a file into its tracks (world tiles are read one track at a time)
+  auto split = [](const std::string& text, int) {
+    std::vector<std::string> out;
+    ElementSplitter sp;
+    for (size_t i = 0; i < text.size(); i++) {
+      if (sp.feed(text[i])) out.push_back(sp.element());
+    }
+    return out;
+  };
+  std::vector<std::string> parts = split(
+      "{\"v\": 1, \"tracks\": [\n{\"id\": \"a\", \"map\": [[[1.5, 2.5]]], \"name\": \"A } ] \\\" {\"},\n"
+      "{\"id\": \"b\", \"layouts\": [{\"id\": \"x\"}, {}]}\n], \"later\": [{\"id\": \"zzz\"}]}", 1);
+  CHECK(parts.size() == 2, "two tracks (%zu)", parts.size());
+  if (parts.size() == 2) {
+    CHECK(parts[0] == "{\"id\": \"a\", \"map\": [[[1.5, 2.5]]], \"name\": \"A } ] \\\" {\"}", "first: %s", parts[0].c_str());
+    CHECK(parts[1] == "{\"id\": \"b\", \"layouts\": [{\"id\": \"x\"}, {}]}", "second: %s", parts[1].c_str());
+  }
+  CHECK(split("{\"tracks\": []}", 1).empty(), "empty list");
+  CHECK(split("{\"tracks\":[{}]}", 1).size() == 1, "an empty track still counts");
+  CHECK(split("", 1).empty() && split("{\"tracks\": [{\"id\": \"cut", 1).empty(), "a cut-off file gives only whole tracks");
+  CHECK(split("{\"tracks\":[{\"id\":\"a\"},{\"id\":\"b\"}", 1).size() == 2, "no closing bracket: the whole tracks still come");
+  printf("  cutting tracks apart: ok\n");
 
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;

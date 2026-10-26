@@ -530,6 +530,7 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
 
   if (!track.hasStartFinish && !track.bench) centered("No start/finish line yet: set it on track", 170, Font::Caption, C_YELLOW);
   else if (pbMs) centered(pbText(), 168, Font::Body, C_PURPLE);
+  else if (track.estimated) centered("Start/finish estimated: check it after a lap", 170, Font::Caption, C_YELLOW);
   else if (touchOk) centered("Tap the top bar to go home", 170, Font::Caption, C_TEXT3);
   if (driverCar[0]) centered(fit(driverCar, Font::Caption, W - 20), 185, Font::Caption, C_TEXT2);  // whose PB it is
 
@@ -570,13 +571,20 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
 
   y = max(y + 40, 118);
   if (driverCar[0] && track.layoutName.length()) y -= 8;  // room for whose PB it is
+  // A world track's line is a guess from the map (ROADMAP Phase 10): timing uses it, and the driver is told to check
+  const bool estimated = track.estimated && track.hasStartFinish;
   if (autoStart) {
     centered("Starts by itself when you drive off", y, Font::Body, C_GREEN);
-    if (track.hasStartFinish) {
+    if (estimated) {
+      centered("Start/finish estimated: check it after a lap", y + 21, Font::Caption, C_YELLOW);
+    } else if (track.hasStartFinish) {
       centered("Timing begins at the start/finish line", y + 19, Font::Body, C_TEXT);
     } else {
       centered("Then tap the screen as you cross the line", y + 19, Font::Body, C_YELLOW);
     }
+  } else if (estimated) {
+    centered("Timing starts at the start/finish line", y, Font::Body, C_TEXT);
+    centered("Start/finish estimated: check it after a lap", y + 21, Font::Caption, C_YELLOW);
   } else if (track.hasStartFinish) {
     centered("Timing starts when you cross", y, Font::Body, C_TEXT);
     centered("the start/finish line", y + 19, Font::Body, C_TEXT);

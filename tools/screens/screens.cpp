@@ -262,6 +262,18 @@ int main(int argc, char** argv) {
   save(d, "07e_ready_driver_car_no_pb");
   d.setDriverCar("");
   d.setPersonalBest(163611, 20260914);
+  {  // a world track whose start/finish was estimated from the pit lane (ROADMAP Phase 10)
+    Track guess = track;
+    guess.estimated = true;
+    d.setPersonalBest(0, 0);
+    d.drawTrackConfirm(guess, 2210, true, true, 0, 1);
+    save(d, "07f_ready_estimated");
+    d.drawTrackConfirm(guess, 40, true, true, 0, 1, false, true);
+    save(d, "07g_ready_estimated_autostart");
+    d.drawTrackSelect(guess, 24, 131, 2210, gps, true);
+    save(d, "06f_track_select_estimated");
+    d.setPersonalBest(163611, 20260914);
+  }
 
   // --- a session: drive laps through the real lap timer ---
   LapTimer timer;
