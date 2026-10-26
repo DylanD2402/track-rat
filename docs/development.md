@@ -40,6 +40,8 @@ python tools/render_screens.py        # -> build/screens/*.png, build/screens/co
 
 Text is placed and drawn as on the board, with the same fonts; shapes are close but not pixel-identical. Needs g++.
 
+`python tools/readme_images.py` turns the renders into the README pictures in `docs/images`. The CI job "Screens" runs `python tools/check_screens.py`, which renders fresh and fails if any of those pictures is stale, so after changing a screen run both scripts and commit `docs/images`.
+
 ## Track maps
 
 While timing, press the screen (or BOOT) to switch between the timing screen and a **map view**. The map view shows the track layout with your car as a white dot and a **ghost**, a grey ring where your reference lap was at this moment into the lap, plus the lap time, live diff, best and last lap down the right-hand side.

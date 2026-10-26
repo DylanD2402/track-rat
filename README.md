@@ -27,7 +27,8 @@ Homepage: **[trackrat.ca](https://trackrat.ca/)**. Try the analysis on a sample 
 
 | | | |
 |---|---|---|
-| <img src="docs/images/screens/menu.png" width="280"><br>Home screen | <img src="docs/images/screens/track-select.png" width="280"><br>Track day | <img src="docs/images/screens/timing-ahead.png" width="280"><br>Timing, ahead of the reference lap |
+| <img src="docs/images/screens/splash.png" width="280"><br>Start-up | <img src="docs/images/screens/menu.png" width="280"><br>Home screen | <img src="docs/images/screens/autocross-hub.png" width="280"><br>Autocross hub |
+| <img src="docs/images/screens/adjust-finish.png" width="280"><br>Adjust the finish line | <img src="docs/images/screens/track-select.png" width="280"><br>Track day | <img src="docs/images/screens/timing-ahead.png" width="280"><br>Timing, ahead of the reference lap |
 | <img src="docs/images/screens/map.png" width="280"><br>Map view | <img src="docs/images/screens/lap-flash-pb.png" width="280"><br>A new personal best | <img src="docs/images/screens/pit-debrief.png" width="280"><br>Pit debrief |
 | <img src="docs/images/screens/performance-card.png" width="280"><br>A 0-100 km/h result | <img src="docs/images/screens/wifi.png" width="280"><br>Wi-Fi page | <img src="docs/images/screens/overheat-warning.png" width="280"><br>Overheat warning |
 

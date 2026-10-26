@@ -6,6 +6,7 @@ Builds the README pictures from the PC-rendered screens.
 
 Writes docs/images/screens/*.png (2x), docs/images/gallery.png and
 docs/images/social-preview.png (1280x640).
+tools/check_screens.py uses --src and --out to build a fresh set and compare.
 """
 
 import argparse
@@ -21,7 +22,10 @@ OUT = os.path.join(ROOT, "docs", "images")
 
 # (render file, readable name)
 CHOSEN = [
+    ("01_boot", "splash"),
     ("04_home_circuit", "menu"),
+    ("45c_autocross_hub_three_runs", "autocross-hub"),
+    ("49_adjust_finish_moved", "adjust-finish"),
     ("06_track_select", "track-select"),
     ("07_ready", "ready"),
     ("09_running_ahead", "timing-ahead"),
@@ -29,7 +33,6 @@ CHOSEN = [
     ("10_map", "map"),
     ("12b_lap_flash_pb", "lap-flash-pb"),
     ("17c_debrief", "pit-debrief"),
-    ("17d_debrief_laps_sectors", "pit-debrief-laps"),
     ("22_perf_card", "performance-card"),
     ("18_free_roam", "free-roam"),
     ("25_wifi", "wifi"),
@@ -67,30 +70,32 @@ def rounded(img, radius):
 def save(img, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     img.convert("RGB").save(path, optimize=True)
-    print("wrote %s  %dx%d  %.1f KB" % (os.path.relpath(path, ROOT), img.width, img.height,
+    print("wrote %s  %dx%d  %.1f KB" % (os.path.relpath(path, ROOT) if path.startswith(ROOT) else path, img.width, img.height,
                                        os.path.getsize(path) / 1024))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--render", action="store_true", help="run render_screens.py first")
+    ap.add_argument("--src", default=SRC, help="folder of rendered screens (default build/screens)")
+    ap.add_argument("--out", default=OUT, help="where to write the pictures (default docs/images)")
     args = ap.parse_args()
     if args.render:
         subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "render_screens.py")])
 
     shots = {}
     for src, name in CHOSEN:
-        p = os.path.join(SRC, src + ".png")
+        p = os.path.join(args.src, src + ".png")
         if not os.path.exists(p):
             sys.exit("missing %s (run with --render)" % p)
         shots[name] = Image.open(p).convert("RGB")
 
     for name, im in shots.items():
         save(im.resize((im.width * 2, im.height * 2), Image.NEAREST),
-             os.path.join(OUT, "screens", name + ".png"))
+             os.path.join(args.out, "screens", name + ".png"))
 
-    # gallery: 4 across
-    cols, gap = 4, 24
+    # gallery: 3 across
+    cols, gap = 3, 24
     w, h = 320, 240
     rows = (len(CHOSEN) + cols - 1) // cols
     g = Image.new("RGB", (gap + cols * (w + gap), gap + rows * (h + gap)), BG)
@@ -99,7 +104,7 @@ def main():
         y = gap + (i // cols) * (h + gap)
         tile = rounded(shots[name], 10)
         g.paste(tile, (x, y), tile)
-    save(g, os.path.join(OUT, "gallery.png"))
+    save(g, os.path.join(args.out, "gallery.png"))
 
     # social preview
     W, H = 1280, 640
@@ -121,7 +126,7 @@ def main():
         im = shots[name].resize((sw, sh), Image.NEAREST)
         tile = rounded(im, 14)
         s.paste(tile, (x0 + i * (sw + sgap), y0), tile)
-    save(s, os.path.join(OUT, "social-preview.png"))
+    save(s, os.path.join(args.out, "social-preview.png"))
 
 
 if __name__ == "__main__":
