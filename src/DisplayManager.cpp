@@ -304,7 +304,7 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
   if (gps) {
     if (gps->isSimulated()) tag("BENCH", C_YELLOW, C_BG);  // simulated timing must be obvious
 #if BLE_ENABLED
-    if (RaceBoxBle::connected()) tag("BT", C_BLUE, C_TEXT);  // a phone app is receiving GPS
+    if (RaceBoxBle::connected()) tag("BT", C_BRAND, C_BG);  // a phone app is receiving GPS
 #endif
     // The engine's coolant temperature (6.5), coloured by Settings > Coolant: blue while cold,
     // yellow when warm, blinking red when hot. OBD while a Bluetooth adapter has none to give.
@@ -324,7 +324,7 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
         }
       }
     } else if (ObdBle::readingEngine()) {
-      tag("OBD", C_BLUE, C_TEXT);  // the car's engine is answering through the Bluetooth adapter (not while it finds the car)
+      tag("OBD", C_BRAND, C_BG);  // the car's engine is answering through the Bluetooth adapter (not while it finds the car)
     }
 #if BLE_ENABLED
     if (CameraBle::connected()) {  // the DJI camera, there and sending its status: REC while it records, its battery, and a warning when too hot.
@@ -342,7 +342,7 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
         tag(t, on ? C_RED : rgb(110, 24, 20), on ? C_BG : C_TEXT);
       } else {  // (connected() means its status is known: no bare "CAM" before one has come)
         snprintf(t, sizeof(t), "CAM %u%%", cs.cam.battery);
-        tag(t, C_BLUE, C_TEXT);
+        tag(t, C_BRAND, C_BG);
       }
       camTagL = right + 6, camTagR = r0;
     }
@@ -355,7 +355,7 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
 // primary: white with black text, for the action the screen is about.
 void DisplayManager::button(int x, int y, int w, int h, const char* label, bool primary, bool highlight) {
   gfx->fillRoundRect(x, y, w, h, CORNER, primary ? C_TEXT : highlight ? C_RAISED : C_SURFACE);
-  if (highlight) gfx->drawRoundRect(x, y, w, h, CORNER, C_TEXT);
+  if (highlight) gfx->drawRoundRect(x, y, w, h, CORNER, C_BRAND);
   text(fit(label, Font::Button, w - 8), x + w / 2, y + h / 2 + 1, Font::Button, primary ? C_BG : C_TEXT, MC_DATUM);
 }
 
@@ -403,11 +403,19 @@ static bool deltaShown(int32_t d, bool lapRunning) { return lapRunning && d != N
 
 // ---------------------------------------------------------------------------
 
+#if __has_include("logo_small.h")
+#include "BrandDraw.h"
+#include "logo_small.h"
+void DisplayManager::brandMark(int x, int y) { drawLogoPixels(gfx, LOGO_SM_PIXELS, LOGO_SM_W, LOGO_SM_H, x, y); }
+#else
+void DisplayManager::brandMark(int x, int y) { text("TRACK RAT", x, y + BRAND_MARK_H / 2, Font::Body, C_BRAND, ML_DATUM); }
+#endif
+
 void DisplayManager::drawBoot(const char* status) {
   if (splashRunning()) return;  // the logo animation owns the screen
   beginFrame();
-  text("TRACK RAT", W / 2, 74, Font::Hero, C_TEXT, TC_DATUM);
-  centered("GPS lap timer", 122, Font::Body, C_TEXT2);
+  drawBrandLogo(W / 2, 62);
+  centered("GPS lap timer", 132, Font::Body, C_TEXT2);
   centered(status, 176, Font::Caption, C_TEXT3);
   endFrame();
 }
@@ -1138,10 +1146,10 @@ static void wifiIcon(TFT_eSPI* g, int cx, int y, uint16_t c) {
 void DisplayManager::wifiButton(int y, int h, bool highlight, bool holdHint, int bx, int bwid) {
   const int x = bx >= 0 ? bx : 2 * (W / 3) + 4, w = bwid >= 0 ? bwid : W / 3 - 8;
   gfx->fillRoundRect(x, y, w, h, CORNER, highlight ? C_RAISED : C_SURFACE);
-  gfx->drawRoundRect(x, y, w, h, CORNER, highlight ? C_TEXT : C_BLUE);
+  gfx->drawRoundRect(x, y, w, h, CORNER, highlight ? C_TEXT : C_BRAND);
   int lw = textWidth("Wi-Fi", Font::Button) + 22;
   int cy = holdHint ? y + h / 2 - 6 : y + h / 2;
-  wifiIcon(gfx, x + (w - lw) / 2 + 7, cy + 6, C_BLUE);
+  wifiIcon(gfx, x + (w - lw) / 2 + 7, cy + 6, C_BRAND);
   text("Wi-Fi", x + (w - lw) / 2 + 22, cy + 1, Font::Button, C_TEXT, ML_DATUM);
   if (holdHint) text("or hold BOOT", x + w / 2, y + h - 5, Font::Caption, C_TEXT3, BC_DATUM);
 }
@@ -1163,8 +1171,8 @@ void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& 
   const int cx = 8, cw = W - 16;
   gfx->fillRoundRect(cx, HEADER_H + 6, cw, 98, CORNER, C_SURFACE);
   auto step = [&](int n, int y, const char* hint, const String& value) {
-    gfx->fillCircle(cx + 20, y + 16, 10, C_BLUE);
-    text(String(n), cx + 20, y + 17, Font::Caption, C_TEXT, MC_DATUM);
+    gfx->fillCircle(cx + 20, y + 16, 10, C_BRAND);
+    text(String(n), cx + 20, y + 17, Font::Caption, C_BG, MC_DATUM);
     label(hint, cx + 40, y);
     text(fit(value, Font::Title, cw - 50), cx + 40, y + 13, Font::Title, C_TEXT);
   };
@@ -1178,9 +1186,9 @@ void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& 
     centered("Restarting…", y + 10, Font::Title, C_YELLOW);
   } else if (progress >= 0) {
     snprintf(buf, sizeof(buf), "Installing firmware   %d%%", progress);
-    centered(buf, y, Font::Body, C_YELLOW);
+    centered(buf, y, Font::Body, C_BRAND);
     gfx->fillRoundRect(24, y + 24, W - 48, 10, 5, C_SURFACE);
-    if (progress > 0) gfx->fillRoundRect(24, y + 24, max(10, (W - 48) * progress / 100), 10, 5, C_YELLOW);
+    if (progress > 0) gfx->fillRoundRect(24, y + 24, max(10, (W - 48) * progress / 100), 10, 5, C_BRAND);
     centered("Keep the power on", y + 42, Font::Caption, C_TEXT2);
   } else {
     if (phones > 0) snprintf(buf, sizeof(buf), phones == 1 ? "1 phone connected" : "%d phones connected", phones);

@@ -87,6 +87,9 @@ public:
   bool begin();
 
   void drawBoot(const char* status);
+  void drawBrandLogo(int x, int y);  // the big logo (Splash.cpp), size LOGO_W x LOGO_H; needs include/logo_image.h
+  void brandMark(int x, int y);      // the small header logo, 96 x 20
+  static constexpr int BRAND_MARK_W = 96, BRAND_MARK_H = 20;
 
   // Start-up logo animation (Splash.cpp). Runs on the other core; drawing
   // anything else before finishSplash() returns would clash with it.

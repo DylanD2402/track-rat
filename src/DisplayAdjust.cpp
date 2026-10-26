@@ -48,7 +48,7 @@ void DisplayManager::drawAdjust(const adjust::View& v, int highlight, bool touch
 
   auto button = [&](int x, int y, int w, int h, const char* caption, bool enabled, bool primary, bool hl) {
     gfx->fillRoundRect(x, y, w, h, CORNER, enabled && primary ? C_TEXT : hl ? C_RAISED : C_SURFACE);
-    if (hl) gfx->drawRoundRect(x, y, w, h, CORNER, C_TEXT);
+    if (hl) gfx->drawRoundRect(x, y, w, h, CORNER, C_BRAND);
     text(fit(caption, Font::Body, w - 8), x + w / 2, y + h / 2 + 1, Font::Body, !enabled ? C_TEXT3 : primary ? C_BG : C_TEXT, MC_DATUM);
   };
   // Words on lines no wider than maxW
@@ -87,7 +87,7 @@ void DisplayManager::drawAdjust(const adjust::View& v, int highlight, bool touch
       const int bx = 40, bw = W - 80, by = HEADER_H + 100;
       gfx->fillRoundRect(bx, by, bw, 6, 3, C_RAISED);
       const int fill = bw * (v.done > v.total ? v.total : v.done) / v.total;
-      if (fill > 5) gfx->fillRoundRect(bx, by, fill, 6, 3, C_GREEN);
+      if (fill > 5) gfx->fillRoundRect(bx, by, fill, 6, 3, C_BRAND);
     }
     const char* back = v.phase == Phase::Saving ? "Back to the hub" : v.phase == Phase::Reading ? "Cancel" : "Back";  // (Back: the hub)
     button(5, ROW_B_Y, W - 10, ROW_B_H, back, true, false, highlight == BTN_CANCEL);

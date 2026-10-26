@@ -70,7 +70,7 @@ static void drawCheck(TFT_eSPI* g, int cx, int cy, uint16_t c) {
 // The row BOOT is on: raised, with a fine outline, inside its card
 static void rowHighlight(TFT_eSPI* g, int ry) {
   g->fillRoundRect(UI::CARD_X + 3, ry + 2, UI::CARD_W - 6, UI::ROW_H - 4, CORNER - 3, C_RAISED);
-  g->drawRoundRect(UI::CARD_X + 3, ry + 2, UI::CARD_W - 6, UI::ROW_H - 4, CORNER - 3, C_TEXT3);
+  g->drawRoundRect(UI::CARD_X + 3, ry + 2, UI::CARD_W - 6, UI::ROW_H - 4, CORNER - 3, C_BRAND);
 }
 
 // A note in the small grey type, broken into lines (at most three) that fit maxW
@@ -409,7 +409,7 @@ void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::S
       const int ry = ES::listRowY(i), cy = ry + ES::ROW_H / 2;
       if (ui.showHighlight && ui.highlight == i) {
         gfx->fillRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_RAISED);
-        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_TEXT3);
+        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_BRAND);
       } else if (i > 0) {
         gfx->drawFastHLine(ES::CARD_X + 14, ry, ES::CARD_W - 14, C_LINE);
       }
@@ -480,7 +480,7 @@ void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::St
       const int ry = ES::listRowY(i), cy = ry + ES::ROW_H / 2;
       if (ui.showHighlight && ui.highlight == i) {
         gfx->fillRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_RAISED);
-        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_TEXT3);
+        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_BRAND);
       } else if (i > 0) {
         gfx->drawFastHLine(ES::CARD_X + 14, ry, ES::CARD_W - 14, C_LINE);
       }
@@ -513,7 +513,7 @@ void DisplayManager::drawSetup(int step, int highlight, bool touchOk) {
   for (int i = 0; i < 2; i++) {
     bool hl = i == highlight && !touchOk;
     gfx->fillRoundRect(bx[i], by, bw, bh, CORNER + 2, hl ? C_RAISED : C_SURFACE);
-    if (hl) gfx->drawRoundRect(bx[i], by, bw, bh, CORNER + 2, C_TEXT);
+    if (hl) gfx->drawRoundRect(bx[i], by, bw, bh, CORNER + 2, C_BRAND);
   }
 
   if (step == 0) {

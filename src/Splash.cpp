@@ -9,6 +9,7 @@
  * otherwise a placeholder drawn in code.
  */
 
+#include "BrandDraw.h"
 #include "Config.h"
 #include "DisplayManager.h"
 #include "SplashSweep.h"
@@ -25,6 +26,15 @@ using ui::H;
 using ui::W;
 
 static volatile bool splashDone = true;
+
+// The logo drawn once, centred on x: the boot screen uses it after the animation.
+void DisplayManager::drawBrandLogo(int x, int y) {
+#if HAVE_LOGO_IMAGE
+  drawLogoPixels(gfx, LOGO_PIXELS, LOGO_W, LOGO_H, x - LOGO_W / 2, y);
+#else
+  text("TRACK RAT", x, y, Font::Hero, C_TEXT, TC_DATUM);
+#endif
+}
 
 // Draw the placeholder logo into a sprite.
 static void drawPlaceholderLogo(TFT_eSprite& s) {

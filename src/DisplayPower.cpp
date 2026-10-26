@@ -85,7 +85,7 @@ void DisplayManager::drawFirmwareProgress(int percent) {
 
   const int bx = 32, by = 136, bw = W - 64, bh = 12;
   gfx->fillRoundRect(bx, by, bw, bh, bh / 2, C_SURFACE);
-  if (percent > 0) gfx->fillRoundRect(bx, by, max(bh, bw * percent / 100), bh, bh / 2, C_GREEN);
+  if (percent > 0) gfx->fillRoundRect(bx, by, max(bh, bw * percent / 100), bh, bh / 2, C_BRAND);
   centered("Don't switch it off", 168, Font::Body, C_TEXT2);
   endFrame();
 }

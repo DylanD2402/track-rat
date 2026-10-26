@@ -37,6 +37,9 @@ static bool btConnected = false;
 bool GPSHandler::hasFix() const { return everFixed; }
 bool GPSHandler::receivingData() const { return simulating || lastSentenceMillis != 0; }
 bool DisplayManager::splashRunning() const { return false; }
+#include "BrandDraw.h"
+#include "logo_image.h"
+void DisplayManager::drawBrandLogo(int x, int y) { drawLogoPixels(gfx, LOGO_PIXELS, LOGO_W, LOGO_H, x - LOGO_W / 2, y); }
 const char* Storage::sessionFSName() { return "SD"; }
 bool RaceBoxBle::connected() { return btConnected; }
 static ObdBle::Status obdStatus;
