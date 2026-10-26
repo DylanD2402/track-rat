@@ -170,3 +170,26 @@ jobs:
       # Fix: python tools/render_screens.py && python tools/readme_images.py, then commit docs/images.
       - name: Check README screenshots
         run: python -m pip install pillow==11.3.0 && python tools/check_screens.py
+
+  sanitizers:
+    name: Host tests (sanitizers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Every g++ test of the Host tests job again, with AddressSanitizer and
+      # UndefinedBehaviorSanitizer, so a new test is covered without editing this job. The
+      # commands are read from this file; the node and python tests aren't repeated.
+      - name: Run the g++ tests with sanitizers
+        run: |
+          out=$(mktemp -d)
+          n=0
+          while read -r args; do
+            n=$((n+1))
+            echo "::group::g++ $args"
+            g++ -fsanitize=address,undefined -fno-sanitize-recover=all -g $args -o "$out/t$n"
+            "$out/t$n"
+            echo "::endgroup::"
+          done < <(grep -E "run: g\+\+" .github/workflows/ci.yml | sed -E 's/.*run: g[+]{2} //; s/ -o \/tmp.*//')
+          echo "$n tests"
+          test "$n" -gt 0
