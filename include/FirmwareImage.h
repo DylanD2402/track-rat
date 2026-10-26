@@ -8,7 +8,8 @@
  * Layout of an app image (ESP-IDF esp_image_format.h):
  *   0   magic 0xE9, 1 segment count, 12 chip id (u16)
  *   24  first segment header (load address, length)
- *   32  esp_app_desc_t, which starts with the magic word 0xABCD5432
+ *   32  esp_app_desc_t, which starts with the magic word 0xABCD5432; its project_name
+ *       (at 80) must be "trackrat", so a program for the same chip from elsewhere is refused
  * The bootloader image has the same first 24 bytes but no app descriptor,
  * which is how the two are told apart.
  */
@@ -27,8 +28,12 @@ static const uint8_t IMAGE_MAGIC = 0xE9;
 static const uint16_t CHIP_ESP32S3 = 0x0009;
 static const uint32_t APP_DESC_MAGIC = 0xABCD5432;
 static const size_t APP_DESC_OFFSET = 32;
+// esp_app_desc_t: magic 4, secure_version 4, reserv1 8, version 32, then project_name 32
+static const size_t PROJECT_NAME_OFFSET = APP_DESC_OFFSET + 48;
+static const size_t PROJECT_NAME_BYTES = 32;
+static const char PROJECT_NAME[] = "trackrat";  // set after the link by tools/set_app_name.py
 
-enum class Check { Ok, TooShort, TooBig, BadMagic, WrongChip, NotAnApp };
+enum class Check { Ok, TooShort, TooBig, BadMagic, WrongChip, NotAnApp, NotTrackRat };
 
 inline uint16_t readU16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 inline uint32_t readU32(const uint8_t* p) {
@@ -42,6 +47,8 @@ inline Check check(const uint8_t* head, size_t headLen, size_t fileSize, size_t 
   if (head[0] != IMAGE_MAGIC || head[1] == 0 || head[1] > 16) return Check::BadMagic;
   if (readU16(head + 12) != CHIP_ESP32S3) return Check::WrongChip;
   if (readU32(head + APP_DESC_OFFSET) != APP_DESC_MAGIC) return Check::NotAnApp;
+  // Another ESP32-S3 program would install and run, but it isn't ours: the name must be exactly "trackrat"
+  if (strncmp((const char*)head + PROJECT_NAME_OFFSET, PROJECT_NAME, PROJECT_NAME_BYTES) != 0) return Check::NotTrackRat;
   return Check::Ok;
 }
 
@@ -115,6 +122,7 @@ inline const char* describe(Check c) {
     case Check::BadMagic: return "not a firmware image";
     case Check::WrongChip: return "firmware is for a different chip";
     case Check::NotAnApp: return "not the app image (use firmware.bin)";
+    case Check::NotTrackRat: return "not Track Rat firmware";
   }
   return "?";
 }

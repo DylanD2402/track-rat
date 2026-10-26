@@ -194,7 +194,8 @@ static void testSleepTimer() {
 }
 
 // A minimal ESP32-S3 app image: header, one segment header, then the app descriptor.
-static std::vector<uint8_t> makeImage(size_t size, uint16_t chip = 0x0009, bool appDesc = true) {
+static std::vector<uint8_t> makeImage(size_t size, uint16_t chip = 0x0009, bool appDesc = true,
+                                      const char* project = "trackrat") {
   std::vector<uint8_t> b(size, 0);
   b[0] = 0xE9;
   b[1] = 5;  // segments
@@ -203,6 +204,7 @@ static std::vector<uint8_t> makeImage(size_t size, uint16_t chip = 0x0009, bool 
   if (appDesc) {
     uint32_t magic = 0xABCD5432;
     memcpy(&b[32], &magic, 4);
+    if (size >= 112) memcpy(&b[80], project, strlen(project));  // esp_app_desc_t.project_name
   }
   return b;
 }
@@ -229,6 +231,13 @@ static void testFirmwareImage() {
 
   auto boot = makeImage(4096, 0x0009, false);  // bootloader / merged image: no app descriptor
   CHECK(firmware::check(boot.data(), boot.size(), boot.size(), SLOT) == Check::NotAnApp, "bootloader accepted");
+
+  // Another program for the same chip: the project name must be exactly "trackrat"
+  for (const char* name : {"arduino-lib-builder", "trackrat2", "trackra", "TrackRat", ""}) {
+    auto other = makeImage(4096, 0x0009, true, name);
+    CHECK(firmware::check(other.data(), other.size(), other.size(), SLOT) == Check::NotTrackRat,
+          "project \"%s\" accepted", name);
+  }
 
   // Short read of the header
   CHECK(firmware::check(good.data(), 50, good.size(), SLOT) == Check::TooShort, "short read accepted");
@@ -276,7 +285,7 @@ static void testUploadGate() {
   const size_t sizes[] = {1, 7, 127, 128, 129, 4096};
 
   auto good = makeImage(20000);
-  for (size_t i = 40; i < good.size(); i++) good[i] = (uint8_t)(i * 31 + i / 256);  // a lost or repeated byte shows
+  for (size_t i = 112; i < good.size(); i++) good[i] = (uint8_t)(i * 31 + i / 256);  // a lost or repeated byte shows
   auto s3 = makeImage(20000, 0x0000);
   auto boot = makeImage(20000, 0x0009, false);
   auto text = makeImage(20000);
