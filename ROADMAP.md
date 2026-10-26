@@ -611,6 +611,20 @@ The screens are rendered on the PC from the real display code (tools/render_scre
 
 Existing courses ("Course 2026-10-20" stages in tracks.json) move into the course list by themselves. Nothing else changes for circuits, laps or PBs.
 
+### 0.1.1: clean-up, a matching website, and a code review (2026-10-25)
+
+Beta 3 works on the board. Before adding more, 0.1.1 removes what isn't used, makes the website look like the device, and fixes the weak points of a full code review.
+
+| Wave | Step | Built by |
+|---|---|---|
+| 1 | **Remove the LED and speaker features.** They're not wired on Dylan's board and not planned: the LED bar, the shift light, the board LED's delta, the LED part of the overheat warning, voice notes and the planned beeps. Code, settings, tests, docs, the wiring diagram and this plan all go. The big button stays | Sonnet, medium |
+| 1 | **The website looks like the device:** the Inter font, the device's colours and its rounded cards, as in the screenshots | Sonnet, low |
+| 1 | **A code review in three parts,** read-only: security (Wi-Fi page, uploads, Bluetooth, the parsers), efficiency (the main loop, the card, memory), and reuse/clean-up (duplication, dead code, main.cpp's size) | Sonnet, medium (×3) |
+| 2 | **Screenshots that keep up with the screens:** regenerate the README images, add the new screens (home, Autocross hub, Adjust), and a CI check that fails when docs/images is out of date | Sonnet, low |
+| 2 | **Fixes from the review,** triaged by Opus into small briefs | Sonnet, medium |
+
+Released as **v0.1.1-beta.1**.
+
 ## Not planned, and why
 
 - **Video recording on Track Rat.** No camera input or video encoder. Cameras and phones do it better, so Phase 6 helps them instead: Track Rat feeds its GPS into an Osmo Action's video, starts and stops it with each session, and feeds GPS and engine data to RaceChrono on a phone.
