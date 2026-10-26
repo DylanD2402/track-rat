@@ -127,19 +127,19 @@ table.sect .tag { display: block; line-height: 1.1; }
 /* The viewer (the page on the website, no Track Rat): no board tabs, its own card, a drop target */
 .note a { color: var(--brand-ink); }
 /* The website's top bar (same as the homepage and installer), shown in the viewer only */
-.sitenav { display: none; position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,.92); border-bottom: 1px solid #2a2a2d;
-           font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #fff; }
+.sitenav { display: none; position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,.92); border-bottom: 1px solid #38383a;
+           font: 500 16px/1.55 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #fff; }
 .viewer .sitenav { display: block; }
 .viewer header.page { top: 53px; }
 .sitenav .nav-in { max-width: 960px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; flex-wrap: wrap; }
-.sitenav .brand { color: #fff; font-weight: 700; text-decoration: none; display: flex; align-items: center; }
+.sitenav .brand { color: #fff; font-weight: 600; text-decoration: none; display: flex; align-items: center; }
 .sitenav .brand img { display: block; height: 26px; width: auto; }
 .sitenav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
 .sitenav li { margin: 0; }
-.sitenav ul a { display: block; padding: 8px 12px; border-radius: 8px; color: #e6e6e8; text-decoration: none; font-size: .95rem; }
-.sitenav ul a:hover { background: #151517; color: #26B7FF; }
+.sitenav ul a { display: block; padding: 8px 12px; border-radius: 10px; color: #fff; text-decoration: none; font-size: .95rem; }
+.sitenav ul a:hover { background: #2c2c2e; color: #26B7FF; }
 .sitenav ul a[aria-current] { color: #26B7FF; }
-.sitenav .menu-btn { display: none; background: none; border: 1px solid #2a2a2d; color: #fff; border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+.sitenav .menu-btn { display: none; background: #1c1c1e; border: 0; color: #fff; border-radius: 10px; padding: 6px 12px; font: inherit; cursor: pointer; }
 @media (max-width: 720px) {
   .sitenav .menu-btn { display: block; }
   .sitenav ul { display: none; flex-direction: column; width: 100%; padding-bottom: 8px; }
