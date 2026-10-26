@@ -615,10 +615,13 @@ Beta 3 works on the board. Before adding more, 0.1.1 removes what isn't used, ma
 | Wave | Step | Built by |
 |---|---|---|
 | 1 | **Remove the LED and speaker features: done.** They weren't wired on Dylan's board and weren't planned, so the LED bar, the shift light, the board LED, the LED part of the overheat warning, voice notes and the planned beeps are gone from the code, settings, tests, docs and wiring diagram. The big button stays | Sonnet, medium |
-| 1 | **The website looks like the device:** the Inter font, the device's colours and its rounded cards, as in the screenshots | Sonnet, low |
-| 1 | **A code review in three parts,** read-only: security (Wi-Fi page, uploads, Bluetooth, the parsers), efficiency (the main loop, the card, memory), and reuse/clean-up (duplication, dead code, main.cpp's size) | Sonnet, medium (×3) |
+| 1 | **The website looks like the device: done.** The Inter font, the device's colours and its rounded cards, as in the screenshots | Sonnet, low |
+| 1 | **A code review in three parts: done.** Read-only reviews of security (Wi-Fi page, uploads, Bluetooth, the parsers), efficiency (the main loop, the card, memory), and reuse/clean-up (duplication, dead code, main.cpp's size). Findings and what 0.1.1 fixes: [docs/code-review-0.1.1.md](docs/code-review-0.1.1.md) | Sonnet, medium (×3) |
 | 2 | **Screenshots that keep up with the screens:** regenerate the README images, add the new screens (home, Autocross hub, Adjust), and a CI check that fails when docs/images is out of date | Sonnet, low |
-| 2 | **Fixes from the review,** triaged by Opus into small briefs | Sonnet, medium |
+| 2 | **Review fixes, storage:** folder listing without per-file opens, recovery of the open session only, one summary parse, track maps kept in PSRAM, a PSRAM JSON allocator, `TimeFormat.h`, one `SafeFile` helper | Sonnet, medium |
+| 2 | **Review fixes, main loop and screens:** save the summary after the lap, sleep when idle, slower redraw of still screens, apply a new car's profile after the session, the Autocross hit zones, stale text, dead code | Sonnet, medium |
+| 2 | **Review fixes, GPS and timing:** a bigger fix queue, remember the GPS pins, rate-limit the full reference search and the loop check, an I2C timeout, dead code | Sonnet, medium |
+| 2 | **Review fixes, Wi-Fi page:** the network password or a one-use code, a temporary lockout, firmware checks, origin checks, upload limits, headers, the VBO reader's limits, the installer's integrity hash | Sonnet, medium |
 
 Released as **v0.1.1-beta.1**.
 
