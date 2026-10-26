@@ -53,6 +53,16 @@ def is_kart(tags):
     return "karting" in tags.get("sport", "")
 
 
+_MODEL_NAME = re.compile(r"\bmodel\b|\br/?c\b|radio.?control|t[ée]l[ée]guid|slot.?car|ラジコン", re.I)
+
+
+def is_model(tags):
+    """Radio-controlled and model car tracks (sport=rc_car, or a name that says so): not for a car."""
+    if "rc_car" in tags.get("sport", "") or "model" in tags.get("sport", ""):
+        return True
+    return any(_MODEL_NAME.search(tags.get(k, "")) for k in ("name", "name:en", "name:fr", "name:ja"))
+
+
 _PIT_NAME = re.compile(r"\bpits?\b|pit[ _-]?lane|pitlane|boxengasse|corsia box|\bboxen\b", re.I)
 
 
@@ -175,6 +185,8 @@ def group_venues(doc, include_dirt=False, include_drag=False, karting=True,
                            "refs": [(el.get("type"), el.get("id"))]})
 
     def keep(tags):
+        if is_model(tags):
+            return False
         if not include_dirt and is_dirt(tags):
             return False
         if not include_drag and is_drag(tags):

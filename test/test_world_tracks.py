@@ -258,3 +258,12 @@ assert all(len(c) == 2 and c.isupper() for c in w.COUNTRIES)
 assert '"ISO3166-1"="JP"' in o.country_query("JP")
 
 print("fetch_world_tracks checks OK")
+
+# Model and radio-controlled car tracks aren't for a car
+assert o.is_model({"sport": "rc_car"})
+assert o.is_model({"name": "Cotswold Model Car Club"})
+assert o.is_model({"name": "RC Car Racing"})
+assert o.is_model({"name": "Circuit autos téléguidées"})
+assert not o.is_model({"name": "Silverstone Circuit", "sport": "motor"})
+assert not o.is_model({"name": "Mosport", "sport": "motor"})
+print("model track checks OK")
