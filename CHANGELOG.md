@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.1-beta.1] - 2026-10-26
+
+Clean-up and hardening after a full code review ([docs/code-review-0.1.1.md](https://github.com/DylanD2402/track-rat/blob/main/docs/code-review-0.1.1.md)). Install both the firmware and the file system: the Wi-Fi page changed. Firmware older than this is refused by the Wi-Fi page and the SD card; use the web installer or USB for those.
+
 ### Changed
 
 - The README screenshots show the current screens (start-up logo, home, Autocross hub, Adjust finish), and a CI job fails when they go stale (`tools/check_screens.py`).
@@ -159,7 +163,8 @@ First public beta.
 
 Voice notes for the logbook aren't built yet; text notes work.
 
-[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.0-beta.3...HEAD
+[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.1-beta.1...HEAD
+[0.1.1-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.1-beta.1
 [0.1.0-beta.3]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1

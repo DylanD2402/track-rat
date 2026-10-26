@@ -2,7 +2,7 @@
 
 A review of the whole firmware, the Wi-Fi page, the website and the tools, done on 2026-10-25 after beta 3 (`v0.1.0-beta.3`). Three read-only reviews looked at security, efficiency, and reuse and clean-up, and the findings were checked and sorted into what 0.1.1 fixes and what waits. Back to the [README](../README.md).
 
-Timings in the efficiency part are estimates from reading the code, not measurements on the board.
+Timings in the efficiency part are estimates from reading the code, not measurements on the board. Everything marked Fixed is in [v0.1.1-beta.1](https://github.com/DylanD2402/track-rat/releases/tag/v0.1.1-beta.1).
 
 ## In short
 
@@ -25,20 +25,20 @@ Timings in the efficiency part are estimates from reading the code, not measurem
 
 | ID | Finding | Fix | Size | Status |
 |---|---|---|---|---|
-| S1 | **The Wi-Fi network has no password.** The 4-digit code travels in clear text and stays valid all session, so someone nearby can capture it and upload firmware or tracks. | A WPA2 password on the network, or a code that changes after each use. | S/M | 0.1.1: the network stays open; each code works once |
-| S2 | **Five wrong codes lock the page until restart, for everyone.** Anyone on the network can lock the owner out. | A temporary lockout per address: 30 s, doubling each time. | S | 0.1.1 |
-| S3 | **Uploaded firmware isn't checked to be Track Rat's,** and a bad image can't roll back. | Check that the image's project name is `trackrat`. Use rollback if the Arduino bootloader supports it, and mark the app good after a healthy boot. | S/M | 0.1.1 |
-| S4 | **Restart and set-time need no code,** and requests from other sites aren't refused. | Require the code for restart. Refuse a POST whose `Origin` isn't the board. | S | 0.1.1 |
-| S5 | **Reads are open:** session downloads, the session list, the position in `/api/info`, and the car VINs. | A Wi-Fi password (S1) covers this. Without one, drop the position from `/api/info`. | S | 0.1.1, with S1 |
-| S6 | **A tracks upload has no size limit and isn't validated before it replaces the file.** The server only checks that it starts with `{`, and the whole file is read into memory at boot. | Cap it at 2 MB. Validate the temporary file before the rename. Check free space. | S | 0.1.1 |
-| S7 | **Large request bodies are buffered before the code is checked.** | Refuse by `Content-Length` before reading. | S | 0.1.1 |
-| S8 | **Several downloads at once can starve the logger.** | At most two downloads at a time. | S | 0.1.1 |
-| S9 | **The Bluetooth (RaceBox/RaceChrono) side has no pairing,** so a stranger can hold the only connection. | Document it. Drop a connection that never subscribes. | S | 0.1.1 |
-| S10 | **The installer page loads ESP Web Tools from unpkg without an integrity hash.** | Pin it with `integrity`, or host it on trackrat.ca. | S | 0.1.1 |
+| S1 | **The Wi-Fi network has no password.** The 4-digit code travels in clear text and stays valid all session, so someone nearby can capture it and upload firmware or tracks. | A WPA2 password on the network, or a code that changes after each use. | S/M | Fixed: the network stays open (the owner's choice); each code works once |
+| S2 | **Five wrong codes lock the page until restart, for everyone.** Anyone on the network can lock the owner out. | A temporary lockout per address: 30 s, doubling each time. | S | Fixed |
+| S3 | **Uploaded firmware isn't checked to be Track Rat's,** and a bad image can't roll back. | Check that the image's project name is `trackrat`. Use rollback if the Arduino bootloader supports it, and mark the app good after a healthy boot. | S/M | Fixed (the bootloader's rollback; a new firmware is kept after 30 s) |
+| S4 | **Restart and set-time need no code,** and requests from other sites aren't refused. | Require the code for restart. Refuse a POST whose `Origin` isn't the board. | S | Fixed |
+| S5 | **Reads are open:** session downloads, the session list, the position in `/api/info`, and the car VINs. | A Wi-Fi password (S1) covers this. Without one, drop the position from `/api/info`. | S | Fixed: the position is gone; other reads stay open |
+| S6 | **A tracks upload has no size limit and isn't validated before it replaces the file.** The server only checks that it starts with `{`, and the whole file is read into memory at boot. | Cap it at 2 MB. Validate the temporary file before the rename. Check free space. | S | Fixed |
+| S7 | **Large request bodies are buffered before the code is checked.** | Refuse by `Content-Length` before reading. | S | Fixed |
+| S8 | **Several downloads at once can starve the logger.** | At most two downloads at a time. | S | Fixed |
+| S9 | **The Bluetooth (RaceBox/RaceChrono) side has no pairing,** so a stranger can hold the only connection. | Document it. Drop a connection that never subscribes. | S | Fixed (dropped after 10 s without subscribing) |
+| S10 | **The installer page loads ESP Web Tools from unpkg without an integrity hash.** | Pin it with `integrity`, or host it on trackrat.ca. | S | Fixed (hosted on trackrat.ca) |
 | S11 | **A spoofed OBD adapter could send a fake VIN** and switch the car profile. | Bluetooth bonding. | M | Later |
-| S12 | **The VBO reader doesn't limit the channel or comment count,** and casts NaN or out-of-range values to integers. | Caps and clamps. | S | 0.1.1 |
-| S13 | **No security headers on the Wi-Fi page.** | `X-Frame-Options`, a content security policy, `nosniff`. | S | 0.1.1 |
-| S14 | **Host tests run without sanitizers.** | A CI job with AddressSanitizer and UndefinedBehaviorSanitizer. | S | 0.1.1 if it passes; otherwise later |
+| S12 | **The VBO reader doesn't limit the channel or comment count,** and casts NaN or out-of-range values to integers. | Caps and clamps. | S | Fixed |
+| S13 | **No security headers on the Wi-Fi page.** | `X-Frame-Options`, a content security policy, `nosniff`. | S | Fixed |
+| S14 | **Host tests run without sanitizers.** | A CI job with AddressSanitizer and UndefinedBehaviorSanitizer. | S | Fixed |
 
 ## Efficiency and reliability
 
