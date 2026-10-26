@@ -535,7 +535,26 @@ static void saveTrackStats() {
   BestLapStore::saveStats(t.id, s);
 }
 
+// The summary is saved a moment after a lap, not in the lap event: re-reading and rewriting it takes
+// 60-500 ms, which would delay the lap flash and the next fixes. (The lap times themselves come from GPS time.)
+static const uint32_t SUMMARY_SAVE_DELAY_MS = 1000;
+static bool summaryDirty = false;
+static uint32_t summarySaveAt = 0;
+static void markSummaryDirty(uint32_t now) {
+  if (!summaryDirty) summarySaveAt = now + SUMMARY_SAVE_DELAY_MS;  // (a second after the first change; later ones ride along)
+  summaryDirty = true;
+}
+// Save it now if it is waiting. Before anything that reads the summary or ends the session or the power.
+static void flushSummary() {
+  if (!summaryDirty) return;
+  summaryDirty = false;
+  if (sessionPath.length() == 0 || state != AppState::Running) return;
+  if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false))
+    DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
+}
+
 static void finishSessionFiles() {
+  summaryDirty = false;  // (saved below, finally)
   if (lapTimer.lapCount() > 0 || SessionLog::logging()) {
     if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
     SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, true);
@@ -689,6 +708,7 @@ static void enterState(AppState next) {
 
   // Wi-Fi is on only while its screen is shown, never while timing.
   if (next == AppState::Wifi) {
+    flushSummary();  // the page lists and downloads the summaries
     wifiReturn = state;
     WifiPortal::start();
   } else if (state == AppState::Wifi) {
@@ -755,6 +775,7 @@ static void openAdjust(adjust::Which w) {
 
 // Save: the moved line into tracks.json, then the course's logs timed again; the hub follows when that is done
 static void adjustSave() {
+  flushSummary();  // (nothing waits here: the session's summary was finished when it ended)
   adjust::Model& m = AdjustLoad::model();
   if (m.offsetM() == 0 || hubCourse < 0) return enterState(AppState::Autocross);  // nothing moved: nothing to save
   const TrackPoint p = m.moved();
@@ -900,8 +921,7 @@ static void undoFinish() {
   lapOverlayUntil = 0;
   overlay.notice = "Finish taken back: tap at it again";
   layoutNoticeUntil = millis() + 8000;
-  if (sessionPath.length())  // the summary was saved with that run
-    SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false);
+  if (sessionPath.length()) markSummaryDirty(millis());  // the summary was saved with that run: saved again in a moment
   DEBUG_PRINTLN("Finish taken back - the run goes on");
 }
 
@@ -972,7 +992,7 @@ static void switchLayout(int index, layout::Lines& map) {
         sessionBase = renamedBase;
         sessionPath = newJson;
         if (renamedVbo) sessionLog = SessionLog::fileName(newVbo);
-        SessionLog::save(sessionPath, t, sessionStamp, sessionNumber, lapTimer, sessionLog, false);
+        markSummaryDirty(millis());  // under its new name, in a moment
       } else {
         DEBUG_PRINTF("Layout: could not rename %s to %s\n", oldJson.c_str(), newJson.c_str());
       }
@@ -1106,11 +1126,9 @@ static void onLapEvent(const LapEvent& ev) {
       lapOverlayUntil = now + 4000;
       deltaTrend.clear();  // the delta starts again at the line
 
-      // Save after every lap so a power cut doesn't lose the session.
+      // Saved after every lap so a power cut doesn't lose the session: a second later, from loop()
       if (sessionPath.length() == 0) sessionPath = summaryPath(selectedTrack().id);
-      if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false)) {
-        DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
-      }
+      markSummaryDirty(now);
       bool switched = false;
       if (!layoutChecked && lapTimer.lapCount() == 1) {  // first full lap: right layout?
         layoutChecked = true;
@@ -1158,7 +1176,8 @@ static void onPitEvent(PitWatch::Event ev) {
       pitPage = 0;
       lastRender = 0;
       if (sessionPath.length() == 0 && lapTimer.lapCount() > 0) sessionPath = summaryPath(selectedTrack().id);
-      if (sessionPath.length())
+      summaryDirty = false;
+      if (sessionPath.length())  // (now: the summary is on screen, and the car is parked)
         SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false);
       buildDebrief();
       saveTrackStats();  // now, in case the power goes before the session ends
@@ -1950,6 +1969,7 @@ static const uint32_t SLEEP_LOG_WAIT_MS = 3000;  // an SD write can take a few h
 // Close and save whatever is open, so power can go. Anything else that must be
 // flushed before sleep (e.g. an open log file) belongs here too.
 static void saveForSleep() {
+  flushSummary();
   if (state == AppState::Running) enterState(AppState::Summary);  // saves the laps so far
   else if (state == AppState::FreeRoam) enterState(AppState::FreeRoamSummary);
   SessionLog::endLog();
@@ -2173,6 +2193,7 @@ static void startSyncFlash() {
   syncUntil = millis() + SYNC_FLASH_MS;
   if (!syncUntil) syncUntil = 1;
   const String utc = gpsTimeAt(cameraFix, millis());
+  flushSummary();  // (the note is added to the file)
   const bool saved = sessionPath.length() && SessionLog::addSyncFlash(sessionPath, utc);
   DEBUG_PRINTF("SYNC flash at %s%s\n", utc.c_str(), saved ? "" : " (no summary to note it in)");
   lastRender = 0;
@@ -2186,8 +2207,25 @@ static void noteCameraStart() {
     DEBUG_PRINTF("Camera: recording from %s\n", cameraStartsPending.back().c_str());
   }
   if (!cameraStartsPending.empty() && sessionPath.length()) {
+    flushSummary();  // (the notes are added to the file)
     for (const String& s : cameraStartsPending) SessionLog::addCameraStart(sessionPath, s);
     cameraStartsPending.clear();
+  }
+}
+
+// Screens with nothing live on them (no clock, speed or map): menus, settings, summaries, lists, Ready, the
+// Performance cards. The overheat warning, the SYNC flash and the power-off bar draw over any screen and stay live.
+static const uint32_t STILL_FRAME_MS = 350;
+static bool stillScreen(uint32_t now) {
+  if (tempAlert.showing(now) || syncUntil || input.bootHeldMs() >= POWER_OFF_BAR_MS) return false;
+  switch (state) {
+    case AppState::Running:
+    case AppState::FreeRoam:
+      return false;
+    case AppState::Performance:
+      return perfView != PerfView::Live;
+    default:
+      return true;  // (a held arrow on Adjust redraws itself, see adjustHeld)
   }
 }
 
@@ -2199,8 +2237,10 @@ void loop() {
   ObdBle::poll();
   CameraBle::poll();
 
+  bool busy = false;  // something happened this pass: no nap at its end
   GpsFix fix;
   while (gps.takeFix(fix)) {
+    busy = true;
     Imu::onFix(fix);  // its g for this fix, for the log and Bluetooth
 #if BLE_ENABLED
     RaceBoxBle::sendFix(fix, gps);
@@ -2260,6 +2300,7 @@ void loop() {
   InputEvent ev = input.poll();
   if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
   handleInput(ev);
+  if (ev != InputEvent::None) busy = true, lastRender = 0;  // (most screens redraw themselves; the still ones rely on this)
   // BOOT held for POWER_OFF_HOLD_MS switches off, on any screen (render() shows the bar on the way, lighting a
   // dark screen for it), but not while firmware is being installed over Wi-Fi
   const uint32_t bootHeld = input.bootHeldMs();
@@ -2291,6 +2332,7 @@ void loop() {
     }
   }
 
+  if (summaryDirty && (int32_t)(now - summarySaveAt) >= 0) flushSummary();  // the last lap's, now it is over
   autoPickTrack();
   WifiPortal::loop(gps);
   {  // A re-time finished: the PBs it may have rewritten are read from the card again
@@ -2300,7 +2342,10 @@ void loop() {
     wasRetiming = retiming;
   }
   if (Settings::changeCount() != settingsApplied) applySettings();  // e.g. changed on the Wi-Fi page
-  Profiles::applyVin();  // the adapter has reported the car's VIN: that car, from the next session on
+  // The adapter has reported the car's VIN: that car, from the next session on. applyVin waits while a session is
+  // locked (Running, Free Roam, Performance), so its flash write never lands mid-session; and not while moving
+  // either, where a few ms of flash would be a few ms of GPS bytes unread.
+  if (!gps.hasFix() || gps.lastFix().speedKmh < 5.0f) Profiles::applyVin();
 
   Power::update(now);
   display.setBatteryPercent(Power::batteryPercent());
@@ -2344,10 +2389,15 @@ void loop() {
                  logInfo, SessionLog::recovering() ? " (recovering old sessions)" : "");
   }
 
-  // Dragging the list: draw as fast as the panel allows (about 30 a second) so it follows the finger
-  const uint32_t frameMs = listDragged ? 33 : 1000 / DISPLAY_FPS;
+  // Dragging the list: draw as fast as the panel allows (about 30 a second) so it follows the finger.
+  // A screen with nothing moving on it redraws only on input or a change (they set lastRender = 0), else every
+  // STILL_FRAME_MS: 350, so the header's 700 ms REC / hot-coolant blink stays even.
+  const uint32_t frameMs = listDragged ? 33 : stillScreen(now) ? STILL_FRAME_MS : 1000 / DISPLAY_FPS;
   if (!sleepTimer.screenOff() && (lastRender == 0 || now - lastRender >= frameMs)) {
     lastRender = now;
     render();
+    busy = true;
   }
+  // Nothing waiting: let the idle task run instead of spinning (GPS bytes wait in the 16 KB UART buffer, about 2 KB/s)
+  if (!busy) vTaskDelay(1);
 }
