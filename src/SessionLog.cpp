@@ -4,6 +4,7 @@
 
 #include "SessionLog.h"
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <SD_MMC.h>
 #include <algorithm>
 #include <atomic>
@@ -15,36 +16,25 @@
 #include "Imu.h"
 #include "JsonFile.h"
 #include "LogWriter.h"
+#include "OpenMarker.h"
+#include "PsramAlloc.h"
 #include "BestLapStore.h"
 #include "ProfileStore.h"
 #include "Retime.h"
 #include "SessionReplay.h"
 #include "Storage.h"
+#include "TimeFormat.h"
 #include "VboFormat.h"
 
 String formatLapTime(uint32_t ms, int decimals) {
-  uint32_t minutes = ms / 60000;
-  uint32_t seconds = (ms / 1000) % 60;
-  uint32_t frac = ms % 1000;
-  char buf[20];
-  if (decimals <= 0) {
-    snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)minutes, (unsigned long)seconds);
-  } else if (decimals == 1) {
-    snprintf(buf, sizeof(buf), "%lu:%02lu.%01lu", (unsigned long)minutes, (unsigned long)seconds,
-             (unsigned long)(frac / 100));
-  } else {
-    snprintf(buf, sizeof(buf), "%lu:%02lu.%03lu", (unsigned long)minutes, (unsigned long)seconds,
-             (unsigned long)frac);
-  }
+  char buf[24];
+  timefmt::lapTime(buf, sizeof(buf), ms, decimals);
   return String(buf);
 }
 
 String formatDelta(int32_t ms) {
-  if (ms == NO_DELTA) return String("--");
   char buf[16];
-  uint32_t a = ms < 0 ? -ms : ms;
-  snprintf(buf, sizeof(buf), "%c%lu.%03lu", ms < 0 ? '-' : '+', (unsigned long)(a / 1000),
-           (unsigned long)(a % 1000));
+  timefmt::delta(buf, sizeof(buf), ms);
   return String(buf);
 }
 
@@ -99,29 +89,34 @@ static void addMark(std::vector<String>& list, const String& path, const String&
   list.push_back(utc);
 }
 
-// The old file's list under key, then this session's (without repeats)
-static std::vector<String> marks(fs::FS& fs, const String& path, const char* key) {
-  std::vector<String> out;
-  if (fs.exists(path)) {
-    File f = fs.open(path, "r");
-    if (f) {
-      StaticJsonDocument<64> filter;
-      filter[key] = true;
-      DynamicJsonDocument old(1024);
-      if (!deserializeJson(old, f, DeserializationOption::Filter(filter)))
-        for (JsonVariant v : old[key].as<JsonArray>()) out.push_back(v.as<const char*>());
-      f.close();
+// The old file's lists (one parse for both keys), then this session's (without repeats)
+static void marks(fs::FS& fs, const String& path, std::vector<String>& cam, std::vector<String>& sync) {
+  // Read even when this session has none yet: the file may hold marks from before a restart
+  File f = fs.open(path, "r");
+  if (f) {
+    StaticJsonDocument<96> filter;
+    filter[CAMERA_KEY] = true;
+    filter[SYNC_KEY] = true;
+    PsramJsonDocument old(2048);
+    if (!deserializeJson(old, f, DeserializationOption::Filter(filter))) {
+      for (JsonVariant v : old[CAMERA_KEY].as<JsonArray>())
+        if (v.is<const char*>()) cam.push_back(v.as<const char*>());
+      for (JsonVariant v : old[SYNC_KEY].as<JsonArray>())
+        if (v.is<const char*>()) sync.push_back(v.as<const char*>());
     }
+    f.close();
   }
   std::lock_guard<std::mutex> g(markLock);
-  if (path == markPath)
-    for (const String& m : key == CAMERA_KEY ? markCamera : markSync)
-      if (std::find(out.begin(), out.end(), m) == out.end()) out.push_back(m);
-  return out;
+  if (path != markPath) return;
+  for (const String& m : markCamera)
+    if (std::find(cam.begin(), cam.end(), m) == cam.end()) cam.push_back(m);
+  for (const String& m : markSync)
+    if (std::find(sync.begin(), sync.end(), m) == sync.end()) sync.push_back(m);
 }
 
 static void putMarks(fs::FS& fs, const String& path, JsonDocument& doc) {
-  const std::vector<String> cam = marks(fs, path, CAMERA_KEY), sync = marks(fs, path, SYNC_KEY);
+  std::vector<String> cam, sync;
+  marks(fs, path, cam, sync);
   doc.remove("cameraStartUtc");
   doc.remove(CAMERA_KEY);
   doc.remove(SYNC_KEY);
@@ -144,12 +139,78 @@ bool addSyncFlash(const String& path, const String& utc) {
   if (!fs || !fs->exists(path)) return false;
   File f = fs->open(path, "r");
   if (!f) return false;
-  DynamicJsonDocument doc(f.size() * 2 + 2048);
+  PsramJsonDocument doc(f.size() * 2 + 2048);
   const bool ok = !deserializeJson(doc, f);
   f.close();
   if (!ok) return false;
   putMarks(*fs, path, doc);
   return writeJsonFile(*fs, path, doc, true) > 0;
+}
+
+// --- The open-session marker ----------------------------------------------------
+//
+// /sessions/.open names the sessions whose log was started and whose summary isn't finished (OpenMarker.h).
+// After a power cut recovery looks at just those, not at every .vbo on the card. Order that matters:
+//  - the name is on the card before the log file is created (markOpen, then LogWriter::open, which makes
+//    the file later on the writer task), so a log can't exist unmarked;
+//  - it comes off only after the finished summary is saved (save and saveFreeRoam), so a cut in between
+//    leaves the session marked and it is looked at again.
+// If the marker can't be written, the "scanned" flag is cleared and the next boot checks every log, as
+// firmware before this did. That scan also runs once on the first boot after an upgrade.
+
+static std::mutex openLock;           // openBases and the file: the main loop and the recovery task
+static openmarker::Bases openBases;
+
+static String markerPath() { return String(SESSION_DIR) + "/" + openmarker::FILE_NAME; }
+
+static const char* const SCAN_NS = "sessions";
+static const char* const SCAN_KEY = "scanned";  // every log was checked once, so the marker is complete
+
+static bool fullScanDone() {
+  Preferences p;
+  if (!p.begin(SCAN_NS, true)) return false;
+  const bool done = p.getBool(SCAN_KEY, false);
+  p.end();
+  return done;
+}
+
+static void setFullScanDone(bool done) {
+  Preferences p;
+  if (!p.begin(SCAN_NS, false)) return;
+  p.putBool(SCAN_KEY, done);
+  p.end();
+}
+
+// Caller holds openLock. Writes the marker, or removes the file when nothing is open.
+static bool writeMarker(fs::FS& fs) {
+  const String path = markerPath();
+  if (openBases.empty()) {
+    fs.remove(path);
+    fs.remove(path + ".tmp");
+    return true;
+  }
+  const std::string text = openmarker::format(openBases);
+  return writeFileSafe(fs, path, (const uint8_t*)text.data(), text.size());
+}
+
+static void markOpen(const String& base) {
+  fs::FS* fs = Storage::sessionFS();
+  if (!fs) return;
+  std::lock_guard<std::mutex> g(openLock);
+  openmarker::add(openBases, base.c_str());
+  if (!writeMarker(*fs)) {
+    DEBUG_PRINTLN("Session: couldn't write the open-session marker - every log is checked at the next boot");
+    setFullScanDone(false);
+  }
+}
+
+// The session's summary is finished (or its log never started): nothing to recover
+static void markDone(const String& base) {
+  fs::FS* fs = Storage::sessionFS();
+  if (!fs) return;
+  std::lock_guard<std::mutex> g(openLock);
+  if (!openmarker::remove(openBases, base.c_str())) return;  // not marked: no card access at all
+  if (!writeMarker(*fs)) setFullScanDone(false);  // the marker still names it: harmless, but make sure
 }
 
 Who currentWho() {
@@ -177,7 +238,7 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
 
   size_t splitTimes = 0;
   for (size_t i = 0; i < timer.lapCount(); i++) splitTimes += timer.lap(i).splitMs.size() + timer.lap(i).sectorMs.size();
-  DynamicJsonDocument doc(4096 + timer.lapCount() * 384 + splitTimes * 16);  // a lap with every tag takes about 300
+  PsramJsonDocument doc(4096 + timer.lapCount() * 384 + splitTimes * 16);  // a lap with every tag takes about 300
   doc["track"] = track.id;
   doc["trackName"] = track.name;
   if (track.layoutName.length()) doc["layout"] = track.layoutName;
@@ -230,7 +291,9 @@ bool save(const String& path, const Track& track, const String& stamp, int sessi
     }
   }
   putMarks(*fs, path, doc);
-  return writeJsonFile(*fs, path, doc, true) > 0;
+  if (writeJsonFile(*fs, path, doc, true) == 0) return false;
+  if (finished) markDone(openmarker::baseOf(path.c_str()).c_str());
+  return true;
 }
 
 bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive, uint32_t durationMs,
@@ -242,7 +305,7 @@ bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive
   const bool withRoute = logName.length() == 0;  // the full log has the route at every fix
   const size_t step = max((size_t)1, (size_t)(10.0f / FreeRoam::MIN_POINT_SPACING_M));
   const size_t points = withRoute ? drive.path.size() / step + 2 : 0;
-  DynamicJsonDocument doc(4096 + points * 80);  // a [lat, lon] pair takes up to 71 bytes
+  PsramJsonDocument doc(4096 + points * 80);  // a [lat, lon] pair takes up to 71 bytes
   doc["type"] = "freeroam";
   doc["started"] = stamp;
   putWho(doc, driven);
@@ -265,6 +328,7 @@ bool saveFreeRoam(const String& path, const String& stamp, const FreeRoam& drive
     }
   }
   if (!writeJsonFile(*fs, path, doc, false)) return false;
+  markDone(openmarker::baseOf(path.c_str()).c_str());
   DEBUG_PRINTF("Session: free roam saved to %s:%s\n", Storage::sessionFSName(), path.c_str());
   return true;
 }
@@ -321,7 +385,12 @@ static bool beginLog(const String& path, const vbo::Header& h) {
   }
   if (carCount) withEngine.comments.push_back(std::string("Car data: ") + car->name + " (OBDb car profile)");  // not "Car:", which names the car (Profiles.h)
   std::string text = vbo::headerText(withEngine);
-  if (!LogWriter::open(path, text.data(), text.size())) return false;
+  const String base = openmarker::baseOf(path.c_str()).c_str();
+  markOpen(base);  // before the writer task creates the file
+  if (!LogWriter::open(path, text.data(), text.size())) {
+    markDone(base);
+    return false;
+  }
   logEngine = withEngine.engine;
   logCar = carCount ? car : nullptr;
   logCarCount = carCount;
@@ -487,17 +556,6 @@ static std::string summaryTrack(fs::FS& fs, const String& jsonPath) {
   return err ? std::string() : std::string(doc["track"] | "");
 }
 
-static bool validJson(fs::FS& fs, const String& path) {
-  File f = fs.open(path, "r");
-  if (!f) return false;
-  StaticJsonDocument<16> filter;  // checks the syntax of the whole file, keeps nothing
-  filter["-"] = true;
-  StaticJsonDocument<64> doc;
-  DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
-  f.close();
-  return !err;
-}
-
 // Whoever the log says drove: nobody for a log from before drivers and cars
 static Who whoOf(const SessionReplay& r) {
   Who w;
@@ -509,9 +567,9 @@ static Who whoOf(const SessionReplay& r) {
 }
 
 // Replays a log through the lap timer (or Free Roam) and writes its summary.
-static void recoverSession(fs::FS& fs, const String& vboPath) {
+static bool recoverSession(fs::FS& fs, const String& vboPath) {
   File f = fs.open(vboPath, "r");
-  if (!f) return;
+  if (!f) return false;
   uint32_t startMs = millis();
 
   // A log with no start/finish in its header had the line marked during the
@@ -564,6 +622,7 @@ static void recoverSession(fs::FS& fs, const String& vboPath) {
                best ? formatLapTime(best->timeMs).c_str() : "", replay->switchedLayout ? ", timed as " : "",
                replay->switchedLayout ? replay->trackId.c_str() : "", (unsigned long)replay->reader().badLines(),
                replay->cutLine ? ", last line cut short" : "", (unsigned long)(millis() - startMs));
+  return ok;
 }
 
 // ("/sessions/a.json.tmp", ".json.tmp") -> "/sessions/a"
@@ -571,40 +630,59 @@ static String withoutExt(const String& path, const char* ext) {
   return path.substring(0, path.length() - strlen(ext));
 }
 
+// A summary caught mid-save: keep the new copy if it's complete. One of this boot's sessions is a save in
+// progress: not ours to touch.
+static void finishSummaryTemp(fs::FS& fs, const String& tmp) {
+  if (newThisBoot(withoutExt(tmp, ".json.tmp"))) return;
+  const String json = tmp.substring(0, tmp.length() - 4);
+  if (!fs.exists(json) && finishLeftoverSave(fs, json, jsonFileWhole, tmp)) {
+    DEBUG_PRINTF("Session: finished saving %s\n", json.c_str());
+  } else {
+    fs.remove(tmp);
+  }
+}
+
+// Listing every session: set at boot by recoverUnfinished. recoveryStale: the marker's names.
+static bool recoveryFull = false;
+static openmarker::Bases recoveryStale;
+
 static void recoverAll(fs::FS& fs) {
   std::vector<String> logs, temps;
-  File dir = fs.open(SESSION_DIR);
-  if (!dir || !dir.isDirectory()) return;
-  for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
-    String name = fileName(e.name());
-    if (!e.isDirectory()) {
+  if (recoveryFull) {  // first boot after an upgrade, or the marker couldn't be written: check every log
+    Storage::DirLister dir;
+    Storage::DirLister::Entry e;
+    if (!dir.open(fs, SESSION_DIR)) return;
+    while (dir.next(e)) {
+      if (e.isDir) continue;
+      const String name = e.name.c_str();
       if (name.endsWith(".vbo")) logs.push_back(String(SESSION_DIR) + "/" + name);
       else if (name.endsWith(".json.tmp")) temps.push_back(String(SESSION_DIR) + "/" + name);
     }
-    e.close();
-  }
-  dir.close();
-
-  // A summary caught mid-save: keep the new copy if it's complete. One of
-  // this boot's sessions is a save in progress: not ours to touch.
-  for (const String& tmp : temps) {
-    if (newThisBoot(withoutExt(tmp, ".json.tmp"))) continue;
-    String json = tmp.substring(0, tmp.length() - 4);
-    if (!fs.exists(json) && validJson(fs, tmp) && fs.rename(tmp, json)) {
-      DEBUG_PRINTF("Session: finished saving %s\n", json.c_str());
-    } else {
-      fs.remove(tmp);
+  } else {  // just the sessions the marker names
+    for (const std::string& b : recoveryStale) {
+      const String base = b.c_str();
+      if (fs.exists(base + ".json.tmp")) temps.push_back(base + ".json.tmp");
+      if (fs.exists(base + ".vbo")) logs.push_back(base + ".vbo");
     }
   }
+  for (const String& tmp : temps) finishSummaryTemp(fs, tmp);
 
-  int recovered = 0;
+  int recovered = 0, failed = 0;
   for (const String& log : logs) {
     String base = withoutExt(log, ".vbo");
     if (newThisBoot(base) || summaryFinished(fs, base + ".json")) continue;
-    recoverSession(fs, log);
-    recovered++;
+    if (recoverSession(fs, log)) recovered++;
+    else failed++;
   }
   if (recovered) DEBUG_PRINTF("Session: %d unfinished session(s) recovered\n", recovered);
+
+  // Off the marker once settled (recovered, already finished or no log). One that couldn't be recovered
+  // stays, and keeps the next boot's full scan going, as before the marker.
+  for (const std::string& b : recoveryStale) {
+    const String base = b.c_str();
+    if (!fs.exists(base + ".vbo") || summaryFinished(fs, base + ".json")) markDone(base);
+  }
+  if (recoveryFull && !failed) setFullScanDone(true);
 }
 
 static void recoveryTaskMain(void* arg) {
@@ -617,6 +695,24 @@ static void recoveryTaskMain(void* arg) {
 void recoverUnfinished(const TrackDatabase& tracks) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs || !fs->exists(SESSION_DIR) || recoveryRunning) return;
+
+  // The marker, read here on the main loop before any session can add to it
+  recoveryFull = !fullScanDone();
+  {
+    std::lock_guard<std::mutex> g(openLock);
+    openBases.clear();
+    if (finishLeftoverSave(*fs, markerPath())) {
+      File f = fs->open(markerPath(), "r");
+      if (f) {
+        std::string text;
+        while (f.available() && text.size() < 16384) text += (char)f.read();
+        f.close();
+        openBases = openmarker::parse(text);
+      }
+    }
+    recoveryStale = openBases;
+  }
+  if (!recoveryFull && recoveryStale.empty()) return;  // nothing was open: nothing to look at
 
   recoveryTracks.clear();
   for (int i = 0; i < tracks.count(); i++) {
@@ -691,16 +787,20 @@ static bestlap::Record recordOf(const SessionReplay& r, const Track& t) {
 static void retimeAll(fs::FS& fs) {
   const Track& t = retimeTrack;
   const std::string file = retimeFile.c_str(), trackId = t.id.c_str();
-  std::vector<String> logs;
-  File dir = fs.open(SESSION_DIR);
-  if (dir && dir.isDirectory()) {
-    for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
-      String name = fileName(e.name());
-      if (!e.isDirectory() && name.endsWith(".vbo")) logs.push_back(String(SESSION_DIR) + "/" + name);
-      e.close();
+  std::vector<String> logs, temps;
+  {
+    Storage::DirLister dir;
+    Storage::DirLister::Entry e;
+    if (dir.open(fs, SESSION_DIR)) {
+      while (dir.next(e)) {
+        if (e.isDir) continue;
+        const String name = e.name.c_str();
+        if (name.endsWith(".vbo")) logs.push_back(String(SESSION_DIR) + "/" + name);
+        else if (name.endsWith(".json.tmp")) temps.push_back(String(SESSION_DIR) + "/" + name);
+      }
     }
-    dir.close();
   }
+  for (const String& tmp : temps) finishSummaryTemp(fs, tmp);  // a save cut short is whole again before it's read
   std::vector<String> chosen;
   for (const String& log : logs) {
     const String base = withoutExt(log, ".vbo");

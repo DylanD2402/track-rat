@@ -8,6 +8,8 @@
 #include "Courses.h"
 #include "JsonFile.h"
 #include "JsonText.h"
+#include "MapStore.h"
+#include "PsramAlloc.h"
 #include "Settings.h"
 #include "Storage.h"
 #include <LittleFS.h>
@@ -38,13 +40,18 @@ static void restoreTracksFile(fs::FS& fs, const char* name) {
   static const char* const suffixes[] = {".tmp", ".upload", ".bak"};
   for (const char* suffix : suffixes) {
     String path = String(TRACK_DATABASE_FILE) + suffix;
-    if (!fs.exists(path) || !validTracksFile(fs, path)) continue;
-    if (fs.rename(path, TRACK_DATABASE_FILE)) {
+    if (finishLeftoverSave(fs, TRACK_DATABASE_FILE, validTracksFile, path)) {
       DEBUG_PRINTF("Tracks: restored %s%s from %s\n", name, TRACK_DATABASE_FILE, path.c_str());
       return;
     }
   }
 }
+
+// Every track's map points (MapStore.h); see TrackDatabase.h
+struct TrackDatabase::MapCache {
+  mapstore::MapStore<PsramAllocator<double>> store;
+  size_t fileBytes = 0;  // size of the tracks.json it was made from: a different size means it's out of date
+};
 
 // Set by readEntry when a stage is a course by its "Course 2026-10-20" name alone (made before courses had a
 // "kind"): begin() then writes the kind and event into tracks.json, so renaming it later can't lose that
@@ -221,7 +228,7 @@ static bool withTracksDoc(fs::FS& fs, const char* where, size_t extraBytes, std:
     }
     text.get()[size] = 0;
     if (!capacity) capacity = JSON_ARRAY_SIZE(jsontext::countValues(text.get(), size)) + extraBytes + 1024;
-    DynamicJsonDocument doc(capacity);  // large: lands in PSRAM
+    PsramJsonDocument doc(capacity);
     DeserializationError err = deserializeJson(doc, text.get(), size);
     if (!err) {
       use(doc);
@@ -246,7 +253,9 @@ static bool withTracksFile(fs::FS& fs, const char* where, std::function<void(Jso
 bool TrackDatabase::loadFrom(fs::FS& fs, const char* name) {
   if (!fs.exists(TRACK_DATABASE_FILE)) return false;
   int withMap = 0, noLine = 0, layouts = 0;
+  size_t fileBytes = 0;
   bool read = withTracksFile(fs, name, [&](JsonArray arr) {
+    rebuildMapCache(arr, 0);
     tracks.clear();
     std::vector<Track> entry;
     for (JsonObject t : arr) {
@@ -264,7 +273,16 @@ bool TrackDatabase::loadFrom(fs::FS& fs, const char* name) {
       }
     }
   });
-  if (!read || tracks.empty()) return false;
+  if (!read || tracks.empty()) {
+    mapCache.reset();
+    return false;
+  }
+  {
+    File f = fs.open(TRACK_DATABASE_FILE, "r");
+    fileBytes = f ? f.size() : 0;
+    f.close();
+  }
+  if (mapCache) mapCache->fileBytes = fileBytes;
   sourceName = name;
   fileFs = &fs;
   DEBUG_PRINTF("Tracks: loaded %d from %s (%d are layouts of a venue, %d with a map, %d without a start/finish yet)\n",
@@ -325,6 +343,56 @@ static void readMapLines(JsonObject src, double refLat, double refLon, layout::L
   }
 }
 
+// --- The map cache -------------------------------------------------------------
+
+
+
+// One venue, or one of its layouts: the points exactly as readMapLines reads them
+static void cacheOne(mapstore::MapStore<PsramAllocator<double>>& store, const std::string& id, int layoutIndex,
+                     JsonObject src) {
+  store.addMap(id, layoutIndex);
+  for (JsonArray line : src["map"].as<JsonArray>()) {
+    store.addLine();
+    for (JsonArray ll : line) store.addPoint(ll[0] | 0.0, ll[1] | 0.0);
+  }
+}
+
+static void cacheTracks(mapstore::MapStore<PsramAllocator<double>>& store, JsonArray arr) {
+  for (JsonObject t : arr) {
+    const std::string id = t["id"] | "";
+    JsonArray layouts = t["layouts"];
+    if (layouts.size() == 0) {
+      cacheOne(store, id, -1, t);
+      continue;
+    }
+    int i = 0;
+    for (JsonObject lo : layouts) cacheOne(store, id, i++, lo);
+  }
+  store.shrink();
+}
+
+// tracks.json was just loaded or written (arr is what it holds, fileBytes its size)
+void TrackDatabase::rebuildMapCache(JsonArray arr, size_t fileBytes) {
+  std::shared_ptr<MapCache> fresh = std::make_shared<MapCache>();
+  mapCache.reset();  // the old copy goes first: they needn't both be in memory
+  cacheTracks(fresh->store, arr);
+  fresh->fileBytes = fileBytes;
+  mapCache = fresh;
+  DEBUG_PRINTF("Tracks: %u map points of %u in memory\n", (unsigned)fresh->store.points(), (unsigned)fresh->store.maps());
+}
+
+// Serves a track's map from the cache, as parsing tracks.json would give it. False if the cache can't be
+// trusted (none, or the file's size is not the one it was made from): parse the file then.
+bool TrackDatabase::mapsFromCache(const Track& t, double refLat, double refLon, layout::Lines& out) {
+  if (!mapCache || !fileFs) return false;
+  File f = fileFs->open(TRACK_DATABASE_FILE, "r");
+  const size_t size = f ? f.size() : 0;
+  f.close();
+  if (size != mapCache->fileBytes) return false;
+  mapCache->store.read(t.venueId.c_str(), t.layoutIndex, refLat, refLon, out);  // not in the file: no lines
+  return true;
+}
+
 void TrackDatabase::loadMap(int index) {
   for (int i = 0; i < (int)tracks.size(); i++)
     if (i != index && !tracks[i].bench && !tracks[i].mapUnsaved) {
@@ -338,10 +406,12 @@ void TrackDatabase::loadMap(int index) {
   if (t->mapUnsaved) {  // not in tracks.json yet
     map.swap(t->map);
   } else {
-    readFile([&](JsonArray arr) {
-      JsonObject o = findLayout(arr, *t);
-      if (!o.isNull()) readMapLines(o, t->refLat(), t->refLon(), map);
-    });
+    if (!mapsFromCache(*t, t->refLat(), t->refLon(), map)) {
+      readFile([&](JsonArray arr) {
+        JsonObject o = findLayout(arr, *t);
+        if (!o.isNull()) readMapLines(o, t->refLat(), t->refLon(), map);
+      });
+    }
   }
   setLoadedMap(index, std::move(map));
 }
@@ -418,6 +488,15 @@ std::vector<int> TrackDatabase::layoutCandidates(int index, double maxDistanceM)
 bool TrackDatabase::readMaps(const std::vector<int>& indices, double refLat, double refLon,
                              std::vector<layout::Lines>& out) {
   out.assign(indices.size(), layout::Lines());
+  if (fileFs && mapCache) {
+    bool served = true;
+    for (size_t k = 0; k < indices.size() && served; k++) {
+      const Track* t = get(indices[k]);
+      served = !t || mapsFromCache(*t, refLat, refLon, out[k]);
+    }
+    if (served) return true;
+    out.assign(indices.size(), layout::Lines());
+  }
   return readFile([&](JsonArray arr) {
     for (size_t k = 0; k < indices.size(); k++) {
       const Track* t = get(indices[k]);
@@ -498,6 +577,7 @@ bool TrackDatabase::editFile(size_t extraBytes, std::function<bool(JsonArray)> c
     JsonArray arr = doc["tracks"].as<JsonArray>();
     if (arr.isNull()) arr = doc.createNestedArray("tracks");
     if (change(arr)) written = writeJsonFileByLine(*fs, TRACK_DATABASE_FILE, doc);
+    if (written) rebuildMapCache(arr, written);  // the file now holds exactly this
   };
 
   size_t fileSize = 0;
@@ -513,7 +593,7 @@ bool TrackDatabase::editFile(size_t extraBytes, std::function<bool(JsonArray)> c
       return false;
     }
   } else {  // no file yet (built-in list): start one from what's in memory
-    DynamicJsonDocument doc(16384 + tracks.size() * 512 + extraBytes);
+    PsramJsonDocument doc(16384 + tracks.size() * 512 + extraBytes);
     JsonArray arr = doc.createNestedArray("tracks");
     for (const Track& t : tracks)
       if (!t.bench) writeTrack(arr.createNestedObject(), t);

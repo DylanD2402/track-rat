@@ -79,10 +79,43 @@ static size_t saveJson(fs::FS& fs, const String& path, const JsonDocument& doc, 
     fs.remove(tmp);
     return 0;
   }
-  size_t n = out.total();
-  if (fs.rename(tmp, path)) return n;  // LittleFS replaces the old file in one step
-  fs.remove(path);                     // FAT won't rename over an existing file
-  return fs.rename(tmp, path) ? n : 0;
+  return replaceFile(fs, tmp, path) ? out.total() : 0;
+}
+
+bool replaceFile(fs::FS& fs, const String& tmp, const String& path) {
+  if (fs.rename(tmp, path)) return true;  // LittleFS replaces the old file in one step
+  fs.remove(path);                        // FAT won't rename over an existing file
+  return fs.rename(tmp, path);            // if this fails the whole tmp is still there for finishLeftoverSave
+}
+
+bool writeFileSafe(fs::FS& fs, const String& path, const uint8_t* data, size_t len) {
+  const String tmp = path + ".tmp";
+  File f = fs.open(tmp, "w");
+  if (!f) return false;
+  const size_t written = f.write(data, len);
+  f.close();
+  if (written != len) {
+    fs.remove(tmp);
+    return false;
+  }
+  return replaceFile(fs, tmp, path);
+}
+
+bool finishLeftoverSave(fs::FS& fs, const String& path, FileCheck whole, const String& src) {
+  if (fs.exists(path)) return true;
+  const String from = src.length() ? src : path + ".tmp";
+  return fs.exists(from) && (!whole || whole(fs, from)) && fs.rename(from, path);
+}
+
+bool jsonFileWhole(fs::FS& fs, const String& path) {
+  File f = fs.open(path, "r");
+  if (!f) return false;
+  StaticJsonDocument<16> filter;  // checks the syntax of the whole file, keeps nothing
+  filter["-"] = true;
+  StaticJsonDocument<64> doc;
+  const DeserializationError err = deserializeJson(doc, f, DeserializationOption::Filter(filter));
+  f.close();
+  return !err;
 }
 
 size_t writeJsonFile(fs::FS& fs, const String& path, const JsonDocument& doc, bool pretty) {

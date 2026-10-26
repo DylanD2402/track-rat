@@ -6,9 +6,12 @@
 #include "Config.h"
 #include <LittleFS.h>
 #include <SD_MMC.h>
+#include <memory>
 #include "driver/sdmmc_host.h"
 #include "esp_heap_caps.h"
 #include "sdmmc_cmd.h"
+#include "ff.h"
+#include "diskio_sdmmc.h"  // after ff.h, whose BYTE it uses
 
 namespace Storage {
 
@@ -108,6 +111,79 @@ const char* sessionFSName() {
   if (sdOk) return "SD";
   if (flashOk) return "flash";
   return "none";
+}
+
+// --- DirLister ---------------------------------------------------------------
+
+// SD_MMC keeps the card it mounted to itself (protected). Naming the member
+// through a derived class is allowed when taking its address.
+struct SdMmcCard : fs::SDMMCFS {
+  static sdmmc_card_t* of(fs::SDMMCFS& sd) { return sd.*(&SdMmcCard::_card); }
+};
+
+// FatFs locks the volume for each call (FF_FS_REENTRANT), so the log writer can
+// write meanwhile: a file made or renamed during the listing may or may not show.
+struct DirLister::State {
+  bool fat = false;
+  FF_DIR fatDir;
+  FILINFO info;
+  File dir;
+};
+
+DirLister::DirLister() {}
+DirLister::~DirLister() { close(); }
+
+bool DirLister::open(fs::FS& fs, const char* path) {
+  close();
+  std::unique_ptr<State> s(new State());
+  if (&fs == &SD_MMC && sdOk) {
+    sdmmc_card_t* card = SdMmcCard::of(SD_MMC);
+    BYTE drive = card ? ff_diskio_get_pdrv_card(card) : 0xFF;
+    if (drive < FF_VOLUMES) {
+      char full[48];
+      snprintf(full, sizeof(full), "%u:%s", (unsigned)drive, path);
+      if (f_opendir(&s->fatDir, full) == FR_OK) s->fat = true;
+      else return false;  // no such folder
+    }
+  }
+  if (!s->fat) {
+    s->dir = fs.open(path);
+    if (!s->dir || !s->dir.isDirectory()) return false;
+  }
+  state = s.release();
+  return true;
+}
+
+bool DirLister::next(Entry& out) {
+  if (!state) return false;
+  if (state->fat) {
+    // "." and ".." aren't returned by FatFs's f_readdir for FAT32 roots; skip them anyway
+    while (f_readdir(&state->fatDir, &state->info) == FR_OK && state->info.fname[0]) {
+      if (!strcmp(state->info.fname, ".") || !strcmp(state->info.fname, "..")) continue;
+      out.name = state->info.fname;
+      out.size = (uint32_t)state->info.fsize;
+      out.isDir = (state->info.fattrib & AM_DIR) != 0;
+      return true;
+    }
+  } else if (File e = state->dir.openNextFile()) {
+    std::string name = e.name();  // the name alone or the whole path, depending on the core
+    const size_t slash = name.rfind('/');
+    out.name = slash == std::string::npos ? name : name.substr(slash + 1);
+    out.size = e.size();
+    out.isDir = e.isDirectory();
+    e.close();
+    return true;
+  }
+  close();
+  return false;
+}
+
+void DirLister::close() {
+  if (!state) return;
+  if (state->fat) f_closedir(&state->fatDir);
+  state->dir.close();
+  delete state;
+  state = nullptr;
 }
 
 }  // namespace Storage

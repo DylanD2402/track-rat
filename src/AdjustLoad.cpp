@@ -19,7 +19,7 @@ static adjust::Which which = adjust::Which::Finish;
 static TrackPoint lineNow = {0, 0, 0, 0, HeadingFrom::None};
 static double refLat = 0, refLon = 0;
 static std::string trackId, event;
-static File dir;
+static Storage::DirLister dir;
 static File openLog;
 static std::vector<std::string> names;  // every .vbo of the day, then sorted
 static size_t logPos = 0;
@@ -28,7 +28,7 @@ static adjust::Model theModel;
 static bool failedFlag = false;
 static String failedText;
 
-static const int LIST_PER_POLL = 6;       // directory entries a call looks at
+static const uint32_t LIST_BUDGET_MS = 8;  // most of one loop pass given to the folder listing
 static const size_t CHUNK = 2048;         // bytes read at a time
 static const uint32_t BUDGET_MS = 10;     // most of one loop pass given to the card
 
@@ -43,13 +43,13 @@ static void fail(const char* why) {
   failedFlag = true;
   failedText = why;
   step = Step::Done;
-  if (dir) dir.close();
+  dir.close();
   if (openLog) openLog.close();
   scan.reset();
 }
 
 void release() {
-  if (dir) dir.close();
+  dir.close();
   if (openLog) openLog.close();
   scan.reset();
   theModel = adjust::Model();
@@ -79,14 +79,13 @@ void start(const Track& course, adjust::Which w) {
   fs::FS* fs = Storage::sessionFS();
   if (!fs) return fail("Needs the SD card with the session logs");
   if (!courses::validEvent(event)) return fail("This course has no date");
-  dir = fs->open(SESSION_DIR);
-  if (!dir || !dir.isDirectory()) return fail("No session logs on the SD card");
+  if (!dir.open(*fs, SESSION_DIR)) return fail("No session logs on the SD card");
   step = Step::Listing;
 }
 
 // The model, once every log is read
 static void finishUp() {
-  if (dir) dir.close();
+  dir.close();
   adjust::DayScan& d = *scan;
   if (d.runs().empty()) {
     fail(names.empty() ? "No session logs for this course's day" : "No timed runs in this day's logs");
@@ -101,23 +100,17 @@ static void finishUp() {
 
 void poll() {
   if (step == Step::Listing) {
-    for (int n = 0; n < LIST_PER_POLL; n++) {
-      File e = dir.openNextFile();
-      if (!e) {
-        dir.close();
+    const uint32_t t0 = millis();
+    Storage::DirLister::Entry e;
+    do {
+      if (!dir.next(e)) {
         names = adjust::logsForDay(names, trackId, event);
         logPos = 0;
         step = Step::Reading;
         return;
       }
-      if (!e.isDirectory()) {
-        const std::string full = String(e.name()).c_str();
-        const size_t slash = full.rfind('/');
-        const std::string base = slash == std::string::npos ? full : full.substr(slash + 1);
-        if (adjust::logFor(base, trackId, event)) names.push_back(std::string(SESSION_DIR) + "/" + base);
-      }
-      e.close();
-    }
+      if (!e.isDir && adjust::logFor(e.name, trackId, event)) names.push_back(std::string(SESSION_DIR) + "/" + e.name);
+    } while (millis() - t0 < LIST_BUDGET_MS);
   } else if (step == Step::Reading) {
     fs::FS* fs = Storage::sessionFS();
     if (!fs) return fail("The SD card went away");

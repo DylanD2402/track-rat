@@ -17,6 +17,13 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- Listing the sessions folder no longer slows down as it fills: the Autocross run list, Adjust start/finish, boot recovery and re-timing read the folder one entry at a time with FatFs instead of opening every file by path (which made it slower with every file), and take at most about 8 ms of a loop pass.
+- Boot recovery only looks at the session that was open when the power went off (named in `/sessions/.open`) instead of re-checking every log on the card at every boot. The first boot after this update still checks them all once.
+- Saving a summary (camera and sync marks) reads the old file once, not twice.
+- Starting a session and checking the layout no longer parse all of tracks.json: every track's map is kept in memory when the file is loaded or saved.
+- Small JSON documents are built in PSRAM, leaving internal memory to Bluetooth and Wi-Fi.
+- Best-lap, stats, summary and tracks.json saves share one write-then-rename routine and the same recovery of a save cut short by a power cut; the best-lap file is only replaced once the new copy is whole and checked, and a half-written copy is never taken as the file.
+- Lap time and delta text is written once (`TimeFormat.h`) with a test.
 - GPS and timing speed-ups: the fix queue holds 256 fixes (12 s at 20 Hz, in PSRAM) instead of 64, so a long stall no longer drops the oldest ones; the GPS pins and baud rate are remembered and tried first, and each listen ends at the first valid data, so start-up finds the GPS sooner; off the reference lap (pit lane, out lap) the whole-lap search runs once a second, not on every fix; the loop finder repeats its out-and-back check once per pass; the I2C bus gives up after 5 ms instead of 50 ms when it's stuck. Lap times are unchanged.
 - The session summary is saved a second after a lap instead of inside the lap event, so the lap flash and the fixes that follow are no longer delayed by the card. It is still saved at once when the session ends or the car parks, before the Wi-Fi page opens, and before sleep or power-off.
 - The Autocross hub's buttons are touched where they are drawn: one shared set of rectangles replaces hit zones that were 2 px off. The Adjust screen's Back button while reading or saving uses its drawn row too.
