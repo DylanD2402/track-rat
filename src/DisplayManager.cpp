@@ -4,6 +4,7 @@
 
 #include "DisplayManager.h"
 #include "BestLap.h"
+#include "TextFold.h"
 #include "Config.h"
 #include "SessionLog.h"
 #include "Storage.h"
@@ -135,7 +136,17 @@ void DisplayManager::useFont(Font f) {
   loadedFont = (int)f;
 }
 
-int DisplayManager::text(const String& s, int x, int y, Font f, uint16_t color, uint8_t datum) {
+// The fonts have no accented letters: draw and measure "é" as "e" (TextFold.h). All-ASCII
+// text, the usual case, is used as it is.
+static String folded(const String& s) {
+  if (textIsAscii(s.c_str())) return s;
+  char buf[160];
+  foldText(s.c_str(), buf, sizeof(buf));   // anything past 159 bytes is cut, far beyond any screen
+  return String(buf);
+}
+
+int DisplayManager::text(const String& raw, int x, int y, Font f, uint16_t color, uint8_t datum) {
+  const String s = folded(raw);
   useFont(f);
   gfx->setTextColor(color);
   gfx->setTextDatum(datum);
@@ -144,7 +155,8 @@ int DisplayManager::text(const String& s, int x, int y, Font f, uint16_t color, 
   return gfx->textWidth(s);
 }
 
-int DisplayManager::textWidth(const String& s, Font f) {
+int DisplayManager::textWidth(const String& raw, Font f) {
+  const String s = folded(raw);
   useFont(f);
   return gfx->textWidth(s);
 }

@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- Accented letters (track names like Autodrome La Chaudière, driver and car names) no longer drop out on the display: letters the fonts cannot draw are shown as plain ones (é as e, ß as ss), and curly quotes as straight ones.
+
 ## [0.1.1-beta.1] - 2026-10-26
 
 Clean-up and hardening after a full code review ([docs/code-review-0.1.1.md](https://github.com/DylanD2402/track-rat/blob/main/docs/code-review-0.1.1.md)). Install both the firmware and the file system: the Wi-Fi page changed. Firmware older than this is refused by the Wi-Fi page and the SD card; use the web installer or USB for those.

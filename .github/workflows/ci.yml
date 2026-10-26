@@ -119,6 +119,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_openmarker.cpp -o /tmp/om && /tmp/om
       - name: test_mapstore
         run: g++ -std=c++17 -Iinclude test/test_mapstore.cpp -o /tmp/ms && /tmp/ms
+      - name: test_textfold
+        run: g++ -std=c++17 -Iinclude test/test_textfold.cpp -o /tmp/tfold && /tmp/tfold
 
   firmware:
     name: Firmware build
