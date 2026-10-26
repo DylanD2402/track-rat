@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- Storage code tidied for 0.1.1 (see the entries below as they land).
+
 ### Removed
 
 - The LED and speaker features, which were never wired or planned for the board: the WS2812 LED delta bar (`LED_BAR_*`), the board's own LED showing the delta (`BOARD_LED_*`), the shift light (`SHIFT_LIGHT_*`), the LED part of the overheat warning (the full-screen red and yellow card stays), voice notes (`VOICE_NOTES_ENABLED`) and the planned beeps. The big button stays. Old saved settings still load.
