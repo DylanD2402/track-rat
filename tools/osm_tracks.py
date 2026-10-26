@@ -89,13 +89,17 @@ class OverpassError(Exception):
     pass
 
 
-def fetch_overpass(query, mirrors=None, timeout=900, rounds=3, post=_post, sleep=time.sleep, log=print):
+def fetch_overpass(query, mirrors=None, timeout=900, rounds=3, post=_post, sleep=time.sleep, log=print,
+                   has_data=None):
     """Ask the Overpass mirrors until one answers. A 429 or 504 (or 502/503), a timed-out
     answer or a network error moves on to the next mirror; after each full round of mirrors
-    it waits longer (30 s, 60 s, ... up to 5 minutes, or the server's Retry-After)."""
+    it waits longer (30 s, 60 s, ... up to 5 minutes, or the server's Retry-After).
+    has_data(doc) False: the answer may be a mirror missing the area (one answered the UK
+    with no tracks at all), so the next mirror is asked; empty is believed once two agree."""
     mirrors = mirrors or OVERPASS_URLS
     data = urllib.parse.urlencode({"data": query}).encode()
     wait = 30
+    empties = []
     for rnd in range(rounds):
         retry_after = 0
         for url in mirrors:
@@ -105,6 +109,12 @@ def fetch_overpass(query, mirrors=None, timeout=900, rounds=3, post=_post, sleep
                 remark = str(doc.get("remark", ""))
                 if "runtime error" in remark or "out of memory" in remark.lower():
                     raise OverpassError(remark)  # the server gave up part way: the answer is partial
+                if has_data and not has_data(doc):
+                    empties.append(doc)
+                    if len(empties) >= 2:
+                        return doc
+                    log(f"  {url}: nothing found; asking another mirror to be sure")
+                    continue
                 return doc
             except urllib.error.HTTPError as e:
                 log(f"  {url}: HTTP {e.code}")
@@ -122,6 +132,8 @@ def fetch_overpass(query, mirrors=None, timeout=900, rounds=3, post=_post, sleep
             log(f"  every mirror failed; waiting {pause} s")
             sleep(pause)
             wait *= 2
+    if empties:
+        return empties[-1]  # every other answer was an error: the one empty answer is all there is
     raise OverpassError("no Overpass mirror answered")
 
 

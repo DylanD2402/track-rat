@@ -228,6 +228,20 @@ except o.OverpassError:
     pass
 assert 120 in sleeps, sleeps  # Retry-After honoured
 assert len(calls) == 3
+# A mirror missing the country's area answers with no raceways (as one did for the UK): ask another
+ways = lambda d: any(e.get("type") == "way" for e in d.get("elements", []))
+calls.clear(); sleeps.clear()
+doc = o.fetch_overpass("q", mirrors=["A", "B"], post=post_factory([{"elements": [{"type": "node"}]}, {"elements": [{"type": "way"}]}]),
+                       sleep=sleeps.append, log=quiet, has_data=ways)
+assert doc["elements"] == [{"type": "way"}] and calls == ["A", "B"], calls
+calls.clear()
+doc = o.fetch_overpass("q", mirrors=["A", "B"], post=post_factory([{"elements": []}, {"elements": []}]),
+                       sleep=sleeps.append, log=quiet, has_data=ways)
+assert doc == {"elements": []} and calls == ["A", "B"], "two empty answers: the country has no tracks"
+calls.clear()
+doc = o.fetch_overpass("q", mirrors=["A", "B"], post=post_factory([Boom(502), {"elements": []}, Boom(502), Boom(502)]),
+                       sleep=sleeps.append, log=quiet, has_data=ways, rounds=2)
+assert doc == {"elements": []} and len(calls) == 4, "one empty answer, the rest errors: kept after every round"
 with tempfile.TemporaryDirectory() as d:
     p = os.path.join(d, "sub", "CA.json")
     calls.clear()

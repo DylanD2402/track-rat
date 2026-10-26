@@ -415,6 +415,11 @@ def validate_estimates(db_path, cache_dir, align_with_pit=True, offline=False, p
 
 # --- main ------------------------------------------------------------------------------------------
 
+def has_raceways(doc):
+    """A country's answer holds at least one raceway way (else the mirror may be missing the country's area)."""
+    return any(e.get("type") == "way" for e in doc.get("elements", []))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--countries", help="ISO 3166-1 alpha-2 codes, comma separated (default: every country)")
@@ -449,7 +454,8 @@ def main():
         path = os.path.join(args.cache, f"{cc}.json")
         print(f"[{n}/{len(codes)}] {cc} {COUNTRIES[cc]}")
         try:
-            doc, cached = cached_fetch(path, country_query(cc, 900, places=True), refresh=args.refresh, offline=args.from_cache)
+            doc, cached = cached_fetch(path, country_query(cc, 900, places=True), refresh=args.refresh, offline=args.from_cache,
+                                       has_data=has_raceways)
         except OverpassError as e:
             print(f"  skipped: {e}", file=sys.stderr)
             continue
