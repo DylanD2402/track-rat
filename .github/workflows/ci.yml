@@ -123,6 +123,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_textfold.cpp -o /tmp/tfold && /tmp/tfold
       - name: test_worldtiles
         run: g++ -std=c++17 -Iinclude test/test_worldtiles.cpp -o /tmp/wt && /tmp/wt
+      - name: test_world_tracks
+        run: python3 test/test_world_tracks.py
 
   firmware:
     name: Firmware build

@@ -34,35 +34,11 @@ import time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fetch_track_map import DEFAULT_DB, OVERPASS_URLS, _post, simplify, to_local  # noqa: E402
+from fetch_track_map import DEFAULT_DB, OVERPASS_URLS, _post, simplify, to_local  # noqa: E402,F401
+from osm_tracks import (DIRT, EXISTING_RADIUS_M, VENUE_RADIUS_M, country_query, dist_m, group_venues,  # noqa: E402,F401
+                        is_dirt, is_drag, is_kart, line_len_m, slug)
 
-QUERY = """[out:json][timeout:300];
-area["ISO3166-1"="CA"][admin_level=2]->.ca;
-(
-  nwr["leisure"="track"]["sport"~"motor|karting"](area.ca);
-  nwr["leisure"~"sports_centre|stadium"]["sport"~"motor|karting"](area.ca);
-)->.venues;
-.venues out center tags;
-way["highway"="raceway"](area.ca);
-out geom tags;"""
-
-DIRT = {"dirt", "gravel", "ground", "sand", "grass", "earth", "mud", "unpaved", "compacted", "fine_gravel"}
-VENUE_RADIUS_M = 2000      # raceway ways within this of a venue belong to it
-EXISTING_RADIUS_M = 1000   # skip tracks this close to one already in tracks.json
-
-
-def dist_m(a, b):
-    x, y = to_local(b[0], b[1], a[0], a[1])
-    return math.hypot(x, y)
-
-
-def line_len_m(pts):
-    return sum(dist_m(pts[i - 1], pts[i]) for i in range(1, len(pts)))
-
-
-def slug(name):
-    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return s[:40] or "track"
+QUERY = country_query("CA")
 
 
 def fetch(retries=2):
@@ -78,71 +54,8 @@ def fetch(retries=2):
     sys.exit("Could not reach OpenStreetMap (Overpass). Try again later, or use --from-json (see --help).")
 
 
-def is_dirt(tags):
-    return tags.get("surface", "") in DIRT or tags.get("sport", "") in ("motocross", "dirt_bike")
-
-
-def is_drag(tags):
-    return (tags.get("raceway", "") in ("drag_strip", "dragstrip", "drag")
-            or "drag" in tags.get("name", "").lower() or "drag" in tags.get("sport", "").lower())
-
-
-def is_kart(tags):
-    return "karting" in tags.get("sport", "")
-
-
 def build_tracks(doc, include_dirt=False, include_drag=False, karting=True, tolerance=1.5):
-    venues, ways = [], []
-    for el in doc.get("elements", []):
-        tags = el.get("tags", {})
-        if el.get("type") == "way" and tags.get("highway") == "raceway" and el.get("geometry"):
-            ways.append({"tags": tags, "pts": [[g["lat"], g["lon"]] for g in el["geometry"]]})
-            continue
-        c = el.get("center") or ({"lat": el["lat"], "lon": el["lon"]} if "lat" in el else None)
-        if c and tags.get("name"):
-            venues.append({"name": tags["name"], "tags": tags, "center": [c["lat"], c["lon"]], "ways": []})
-
-    def keep(tags):
-        if not include_dirt and is_dirt(tags):
-            return False
-        if not include_drag and is_drag(tags):
-            return False
-        if not karting and "karting" in tags.get("sport", ""):
-            return False
-        return True
-
-    venues = [v for v in venues if keep(v["tags"])]
-    # Merge duplicate venues (same name nearby, e.g. a node and an area)
-    merged = []
-    for v in venues:
-        dup = next((m for m in merged if m["name"] == v["name"] and dist_m(m["center"], v["center"]) < VENUE_RADIUS_M), None)
-        if not dup:
-            merged.append(v)
-    venues = merged
-
-    # Attach each raceway way to the nearest venue
-    loose = []
-    for w in ways:
-        if not keep(w["tags"]):
-            continue
-        mid = w["pts"][len(w["pts"]) // 2]
-        best = min(venues, key=lambda v: dist_m(v["center"], mid), default=None)
-        if best and dist_m(best["center"], mid) < VENUE_RADIUS_M:
-            best["ways"].append(w)
-        else:
-            loose.append(w)
-
-    # Named raceways with no venue around them become tracks of their own
-    for w in loose:
-        name = w["tags"].get("name")
-        if not name:
-            continue
-        mid = w["pts"][len(w["pts"]) // 2]
-        v = next((v for v in venues if v["name"] == name and dist_m(v["center"], mid) < VENUE_RADIUS_M), None)
-        if v:
-            v["ways"].append(w)
-        else:
-            venues.append({"name": name, "tags": w["tags"], "center": mid, "ways": [w]})
+    venues = group_venues(doc, include_dirt, include_drag, karting)
 
     tracks = []
     for v in venues:

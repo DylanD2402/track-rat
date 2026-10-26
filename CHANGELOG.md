@@ -11,6 +11,7 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 ### Fixed
 
 - Accented letters (track names like Autodrome La Chaudière, driver and car names) no longer drop out on the display: letters the fonts cannot draw are shown as plain ones (é as e, ß as ss), and curly quotes as straight ones.
+- `tools/fetch_world_tracks.py` builds the world track set (Phase 10) from OpenStreetMap, country by country, as 2-degree tiles (`<lat>/<lon>.json`) plus `index.json`: English names with the local name kept, kart/dirt/drag rules as in the Canada tool, layouts for venues with several circuits, and an estimated start/finish (marked `"estimated": true`) for circuits with a mapped pit lane. Raw Overpass answers are cached, with retries and backoff. The code shared with the Canada tool is now `tools/osm_tracks.py`; the Canada tool works as before.
 
 ## [0.1.1-beta.1] - 2026-10-26
 
