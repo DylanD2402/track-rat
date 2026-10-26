@@ -29,10 +29,6 @@
 #include "ff.h"
 #include "diskio_sdmmc.h"  // after ff.h, whose BYTE it uses
 
-#if VOICE_NOTES_ENABLED
-#error "Voice notes aren't built yet (see Config.h)"
-#endif
-
 #include "Version.h"
 
 namespace WifiPortal {

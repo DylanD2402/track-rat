@@ -5,7 +5,7 @@
  * IO3 (TX) and IO14 (RX), wired to the car's OBD-II socket (CAN high pin 6,
  * CAN low pin 14, ground pin 4 or 5). It asks the engine for its speed,
  * throttle and coolant temperature a few times a second (Obd.h): they go
- * into the .vbo log, and the engine speed drives a shift light on the LED bar.
+ * into the .vbo log, and the coolant temperature feeds the overheat warning.
  *
  * Off by default because IO14 is also one of the GPS pins on the expansion
  * header; it stays off if the GPS was found there. Untested on hardware: no

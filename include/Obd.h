@@ -3,12 +3,11 @@
  *
  * The parts that don't touch the hardware: the standard OBD-II requests
  * (mode 01, 11-bit functional address 0x7DF), reading the engine's replies
- * (0x7E8..0x7EF), a schedule that asks for the engine speed most often (the
- * shift light wants it) with throttle and coolant temperature in between, a
- * few times a second each, and the shift light's pattern for the LED bar.
+ * (0x7E8..0x7EF), and a schedule that asks for the engine speed most often
+ * with throttle and coolant temperature in between, a few times a second each.
  *
- * The Bluetooth LE adapter (Elm327.h, 6.1) uses the same formulas, values
- * and shift light, with its own schedule (Schedule, below): a Bluetooth round
+ * The Bluetooth LE adapter (Elm327.h, 6.1) uses the same formulas and
+ * values, with its own schedule (Schedule, below): a Bluetooth round
  * trip is slower, so coolant and intake temperature are only asked once a
  * second there.
  *
@@ -22,7 +21,6 @@
 
 #include <math.h>
 #include <stdint.h>
-#include "DeltaLeds.h"
 
 namespace obd {
 
@@ -200,29 +198,6 @@ private:
   bool askedAny[SLOW] = {false, false, false};
   int step = 0;
 };
-
-// The shift light on the LED bar: from startRpm the bar fills left to right,
-// green then yellow then red; at shiftRpm and above the whole bar flashes
-// blue. False below startRpm (the bar shows the delta as usual).
-constexpr Rgb SHIFT_GREEN = {0, 255, 0}, SHIFT_YELLOW = {255, 200, 0}, SHIFT_RED = {255, 0, 0}, SHIFT_FLASH = {0, 80, 255};
-constexpr uint32_t SHIFT_FLASH_MS = 100;  // on for half of each flash
-
-inline bool shiftLights(float rpm, float startRpm, float shiftRpm, uint32_t nowMs, Rgb* bar, int n) {
-  if (rpm < startRpm || shiftRpm <= startRpm || n <= 0) return false;
-  const Rgb off = {0, 0, 0};
-  if (rpm >= shiftRpm) {
-    const bool on = (nowMs / (SHIFT_FLASH_MS / 2)) % 2 == 0;
-    for (int i = 0; i < n; i++) bar[i] = on ? SHIFT_FLASH : off;
-    return true;
-  }
-  const float level = (rpm - startRpm) / (shiftRpm - startRpm);  // 0..1
-  const int lit = 1 + (int)(level * n);                          // the first LED lights at startRpm
-  for (int i = 0; i < n; i++) {
-    const float at = (float)i / n;
-    bar[i] = i >= lit ? off : at < 0.5f ? SHIFT_GREEN : at < 0.8f ? SHIFT_YELLOW : SHIFT_RED;
-  }
-  return true;
-}
 
 }  // namespace obd
 

@@ -39,7 +39,7 @@ python tools/render_screens.py
 - **New logic goes in Arduino-free headers, with a host test.** See [`include/LapTimer.h`](include/LapTimer.h) and [`include/TempAlert.h`](include/TempAlert.h) for the pattern.
 - **Match the surrounding code.** Same naming, same layout, same comment style.
 - **Update the README or docs with the feature.** If a user would notice it, say how it works.
-- **Keep the firmware working with no SD card, no GPS fix and no optional hardware.** Add-ons (the big button, the LED bar, the IMU, CAN, Bluetooth adapters, the camera) must do nothing when they're absent.
+- **Keep the firmware working with no SD card, no GPS fix and no optional hardware.** Add-ons (the big button, the IMU, CAN, Bluetooth adapters, the camera) must do nothing when they're absent.
 
 ## Reporting a bug
 

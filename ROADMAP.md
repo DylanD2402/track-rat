@@ -21,13 +21,13 @@ The features worth building, roughly in order:
 9. **Unknown tracks learn themselves:** drive the same loop twice and it's timed.
 10. **More ways to drive:** autocross and hillclimbs (separate start and finish), and acceleration and braking runs (0–100 km/h, ¼ mile, 100–0).
 
-Plus two cheap, optional add-ons: a big glove-friendly button and an LED delta bar.
+Plus a cheap, optional add-on: a big glove-friendly button.
 
 ## What the hardware allows
 
 | Hardware | What it means for features |
 |---|---|
-| 2.8" 320×240 screen, about 230 nits measured | Hard to read in direct sun (sunlight-readable displays are around 1,000 nits). Use big colour blocks and few numbers. An LED bar helps in open cars and karts. |
+| 2.8" 320×240 screen, about 230 nits measured | Hard to read in direct sun (sunlight-readable displays are around 1,000 nits). Use big colour blocks and few numbers. |
 | Capacitive touch | Doesn't work with racing gloves, and vibration and rain cause false taps. Nothing on track may need a touch. In the pits, use screen thirds or a button. |
 | BOOT button | The only physical input, and it's on the board, so hard to reach in a case. A button on a spare pin fixes this. |
 | ESP32-S3 Wi-Fi and Bluetooth LE | A web page on your phone can replace an app. Bluetooth already streams to phone apps as a RaceBox Mini. There's no Classic Bluetooth, so no audio to headsets or car stereos. |
@@ -36,8 +36,7 @@ Plus two cheap, optional add-ons: a big glove-friendly button and an LED delta b
 | microSD | Every fix at 20 Hz is about 7 MB per hour of driving. A card holds years of it. |
 | USB power from the car | Cuts out when the ignition goes off, at any moment. Saving must survive that. |
 | Battery socket and charger, battery voltage on IO9 | Can run on a kart, keep going when the car is switched off, and show a battery gauge. |
-| Speaker amp (1.5 W) and microphone | Too quiet to hear under a helmet. The microphone is useful for voice notes in the pits. |
-| RGB LED (IO42); free pins IO2, IO3, IO14, IO21; I2C header shared with touch | Room for an LED bar, a button, an IMU or a CAN (OBD-II) adapter. |
+| Free pins IO2, IO3, IO14, IO21; I2C header shared with touch | Room for a button, an IMU or a CAN (OBD-II) adapter. |
 | u-blox M10 GPS: 20 Hz with GPS and Galileo, about 1.5 m accuracy | Excellent for lap times and speed. Not accurate enough to coach the racing line. |
 | No IMU | g-forces come from the GPS. Fine for analysis, slightly delayed live. |
 
@@ -167,7 +166,7 @@ Sizes are relative: S small, M medium, L large.
 **2.4 A delta-first timing screen (M)**
 
 - **Layout, top to bottom:** a header with lap number, session clock, GPS accuracy and battery; the delta in the largest digits on a full-width band, bright green when ahead and red when behind, with black digits that hold up in sun; the current lap time and predicted lap, smaller; a strip of sector blocks. The running lap time is shown full size at the line anyway.
-- **Trend bar** at one edge: gaining or losing over the last few seconds. VBOX shows a delta bar, and Apex Pro's second generation added the same idea to its LEDs.
+- **Trend bar** at one edge: gaining or losing over the last few seconds. VBOX shows a delta bar.
 - **Sector strip:** each block fills in as you finish that sector. Purple: best ever. Green: best of the day. Yellow: slower.
 - **At the line:** the whole screen flashes the lap time and the gap. Purple for a PB, green for best of the day.
 - **Don't rely on colour alone.** About 1 in 12 men has red-green colour blindness. Draw the + or − sign large, make the trend bar grow up for gaining and down for losing, and offer a blue and orange palette.
@@ -215,9 +214,8 @@ Sizes are relative: S small, M medium, L large.
 **3.4 Logbook (S)**
 
 - A note for each session (pressures, weather, setup, your instructor's advice), typed on the phone and saved with the session and its exports.
-- Later: hold the button on the debrief screen to record a 30 s voice note with the board's microphone, played back on the Wi-Fi page. The thought is freshest in the car.
 
-**Status: done** (2026-10-20, commit 1b8cf77) for text notes. Voice notes wait behind `VOICE_NOTES_ENABLED` (0) in `Config.h` until the ES8311 codec is brought up on a board.
+**Status: done** (2026-10-20, commit 1b8cf77) for text notes. (Voice notes were planned and removed in 0.1.1.)
 
 ### Phase 4: More ways to drive
 
@@ -260,13 +258,12 @@ All of these use the spare pins on the expansion header, with the GPS on the UAR
 | Add-on | Parts | What it adds |
 |---|---|---|
 | **Big button** | A 25–30 mm push button on IO21 | Does what BOOT does, mounted on the dash or wheel. Works with gloves. |
-| **LED delta bar** | 8–12 WS2812B LEDs on IO2 | Delta in peripheral vision: lights grow right in green when ahead, left in red when behind; purple flash for a PB. AiM (10 LEDs), VBOX (6) and Apex Pro all use LEDs for this. The best fix for the dim screen. A first step: show the delta colour on the board's own RGB LED, if it's visible through the case. |
 | **IMU** | An LSM6DSO or similar on the I2C header | Real g-forces (a friction circle), and real acceleration in the RaceBox packet for phone apps. |
-| **CAN / OBD-II** | An SN65HVD230 transceiver on IO3 and IO14, and an OBD-II plug | RPM, throttle and temperatures from the car (the ESP32-S3 has a CAN controller built in): a shift light on the LED bar, and more channels in the log. This is the step from lap timer to data logger, like AiM's Solo 2 DL. The most work, and different for each car. |
+| **CAN / OBD-II** | An SN65HVD230 transceiver on IO3 and IO14, and an OBD-II plug | RPM, throttle and temperatures from the car (the ESP32-S3 has a CAN controller built in): and more channels in the log. This is the step from lap timer to data logger, like AiM's Solo 2 DL. The most work, and different for each car. |
 
 **IMU status: done, untested on hardware** (2026-10-20, commit 91794f5). An LSM6DSO-class IMU on the I2C header is found at boot (`IMU_ENABLED`, default on, harmless with none), learns how it's mounted, and then gives the log and the RaceBox packet real g. Only the maths is host-tested.
 
-**CAN / OBD-II status: done, untested on hardware** (2026-10-20, commit 7b26c4e). TWAI on IO3/IO14 with an SN65HVD230; engine speed, throttle and coolant temperature into the log, and a shift light on the LED bar. `CAN_ENABLED` is off by default (IO14 is a GPS pin on the header). Only the OBD-II parsing, polling and shift light are host-tested.
+**CAN / OBD-II status: done, untested on hardware** (2026-10-20, commit 7b26c4e). TWAI on IO3/IO14 with an SN65HVD230; engine speed, throttle and coolant temperature into the log. `CAN_ENABLED` is off by default (IO14 is a GPS pin on the header). Only the OBD-II parsing and polling are host-tested.
 
 ### Phase 6: Engine data and video
 
@@ -300,13 +297,13 @@ Why a hub: a Bluetooth adapter talks to one device at a time. If the phone takes
 - **Talking to it:** adapters speak ELM327, a text protocol, over a BLE service (FFF0 on Veepeak). Sources disagree on which of its two characteristics notifies and which is written, and it varies between models, so find them by their properties rather than fixed UUIDs.
 - **Set-up:** echo, spaces and headers off (`ATE0`, `ATS0`, `ATH0`), automatic protocol (`ATSP0`), aggressive adaptive timing (`ATAT2`) and a short timeout (`ATST`). Then ask which PIDs the car supports (`0100`, `0120`, `0140`).
 - **How fast:** every request is a round trip over Bluetooth, and the rate is shared between channels. Cheap adapters manage about 6–15 requests a second. With adaptive timing and the "one reply" suffix (`010C1`: the adapter answers as soon as the engine does instead of waiting out its timeout), an ELM327 reaches 20–40 a second on a CAN car; RaceChrono quotes up to 50 Hz for OBDLink. Several PIDs in one request (`010C11`) helps where the adapter supports it. Detect both features and fall back if they fail.
-- **Schedule:** reuse 5.2's: RPM most often, then throttle, with coolant and intake temperature about once a second. At 20 requests a second that's RPM at about 10 Hz and throttle at about 7 Hz: plenty for the log and overlays. The shift light trails by about 0.1 s; the CAN transceiver (5.2) is the fix if that matters.
+- **Schedule:** reuse 5.2's: RPM most often, then throttle, with coolant and intake temperature about once a second. At 20 requests a second that's RPM at about 10 Hz and throttle at about 7 Hz: plenty for the log and overlays.
 - **Timing:** each value is stamped with GPS time at the middle of its request, so it lines up with the video.
-- **Same engine data as 5.2:** the log's engine channels, the shift light on the LED bar, and a coolant warning. The adapter is just another way in. A diagnostics screen shows requests a second and each channel's rate.
+- **Same engine data as 5.2:** the log's engine channels and a coolant warning. The adapter is just another way in. A diagnostics screen shows requests a second and each channel's rate.
 - **Code:** the ELM327 protocol (command queue, reply parsing for `NO DATA`, `SEARCHING...`, `?` and the `>` prompt) is pure C++, tested on the PC with recorded adapter conversations. The NimBLE central code is separate.
 - **Stretch:** the gear, from RPM divided by speed, once each gear has been seen.
 
-**Status: done, untested on hardware** (2026-10-20, commit c6dc233 and after on queue/6.1). `include/Elm327.h` is the ELM327 conversation (set-up, supported PIDs, the `1` suffix and multi-PID probes with fall-backs, reply parsing across notifications, timeouts and ATZ recovery, values stamped mid-request), host-tested in `test/test_elm327.cpp` against a simulated adapter. `src/ObdBle.cpp` is the NimBLE central in its own task: Settings → Engine data → Find adapter, remembered in NVS, reconnects every 5–10 s, characteristics found by their properties. Engine data from CAN or the adapter feeds the same log channels (now with intake temperature), shift light and a new HOT coolant tag; an OBD tag shows in the header. `OBD_BLE_ENABLED` is on, but nothing happens until an adapter is chosen. No adapter has been tried yet. The gear (stretch) isn't done.
+**Status: done, untested on hardware** (2026-10-20, commit c6dc233 and after on queue/6.1). `include/Elm327.h` is the ELM327 conversation (set-up, supported PIDs, the `1` suffix and multi-PID probes with fall-backs, reply parsing across notifications, timeouts and ATZ recovery, values stamped mid-request), host-tested in `test/test_elm327.cpp` against a simulated adapter. `src/ObdBle.cpp` is the NimBLE central in its own task: Settings → Engine data → Find adapter, remembered in NVS, reconnects every 5–10 s, characteristics found by their properties. Engine data from CAN or the adapter feeds the same log channels (now with intake temperature) and a new HOT coolant tag; an OBD tag shows in the header. `OBD_BLE_ENABLED` is on, but nothing happens until an adapter is chosen. No adapter has been tried yet. The gear (stretch) isn't done.
 
 **6.2 Track Rat as the camera's GPS remote (M/L)**
 
@@ -354,7 +351,7 @@ Asked for on 2026-10-20.
 
 - **The top bar:** the blue OBD tag becomes the live coolant temperature (92°) once the engine has sent one, from CAN or the Bluetooth adapter: blue below *Cold below*, plain between, yellow from *Warm at*, blinking red from *Hot at*. Back to OBD when the value goes stale. The separate HOT tag goes. °F with Speed units in mph.
 - **Oil temperature** (PID 0x5C) where the car supports it: asked once a second (by Bluetooth only when the supported-PID bitmap has it; on CAN until three requests go unanswered while the engine answers others), logged as a fifth engine channel "Oil temperature", in the CSV and overlay.py. Not in the top bar; in the warning and the summary.
-- **The overheat warning:** at *Hot at* (or *Oil hot at* for oil) a full-screen card flashing red and yellow, COOLANT TOO HOT and the temperature (was a red card, COOLANT 112° or OIL 131°), for 10 s on any screen, with the LED bar flashing red and yellow. Again only after a 3 °C drop and a return, or a minute later still over. A tap closes it. The logic is `include/TempAlert.h`, tested in `test/test_tempalert.cpp`.
+- **The overheat warning:** at *Hot at* (or *Oil hot at* for oil) a full-screen card flashing red and yellow, COOLANT TOO HOT and the temperature (was a red card, COOLANT 112° or OIL 131°), for 10 s on any screen. Again only after a 3 °C drop and a return, or a minute later still over. A tap closes it. The logic is `include/TempAlert.h`, tested in `test/test_tempalert.cpp`.
 - **After the session:** `coolantMaxC` (and `oilMaxC`) for the session and each lap in the summary, recomputed from the log's channels on recovery and re-timing; **Coolant max 104°** on the summary and debrief, and each lap's max on the debrief's laps page.
 - **Settings > Coolant:** Cold below 70, Warm at 100, Hot at 110 (COOLANT_WARN_C), Oil hot at 130 °C, 1 °C steps, kept in order; in NVS and on the Wi-Fi page.
 
@@ -414,7 +411,7 @@ The goal: someone who finds the repo sees what Track Rat is in ten seconds, buys
 
 #### 7.3 Wiring diagram (Haiku, low)
 **Status: done** (2026-10-25, 5a1e09f).
-- `docs/images/wiring.svg`: the BE-252Q on the board's UART connector (5 V, GND, TX, RX, either way round), plus the optional button (IO21) and LED bar (IO2).
+- `docs/images/wiring.svg`: the BE-252Q on the board's UART connector (5 V, GND, TX, RX, either way round), plus the optional button (IO21).
 
 #### 7.4 Licences, credits and contributor files (Haiku, low)
 **Status: done** (2026-10-25, 4902274 and c0127a0; the Wi-Fi page footer followed once the OBDb work landed).
@@ -462,7 +459,7 @@ Ranked by value for the effort. Each "needs" is beyond the parts Track Rat alrea
 | 1 | **Analysis in the browser:** speed and delta against distance, two laps on the map, sectors, a friction circle. On the Wi-Fi page and on the project website, which opens a `.vbo` from your PC without uploading it | Review at the track with no PC software. The website also lets anyone try Track Rat on sample sessions | Nothing | L | Sonnet, medium (2–3 briefs) |
 | 2 | **Tracks worldwide** from OpenStreetMap: the Canada fetch generalised to any country (US, UK, Europe, Australia), maps simplified to fit | Auto-detection everywhere, not just Canada. Commercial timers advertise 1,000–4,000 tracks | Nothing | M | Sonnet, medium |
 | 3 | **Drag-race tree** in Performance: staging, ambers or a pro tree, reaction time, 60 ft, red light | Turns Performance into a drag-strip tool | Nothing | M | Sonnet, medium |
-| 4 | **Beeps:** a lap beep (higher when faster), PB chime, overheat alarm, the drag tree. From a piezo buzzer on a spare pin; the board's own speaker (ES8311 and FM8002E, pins known) is too quiet in a car | Eyes stay on the track | A buzzer, ~$2 | S | Sonnet, low |
+| 4 | *Sound (beeps, a buzzer) was dropped in 0.1.1; the number stays so the steps below keep theirs* | | | | |
 | 5 | **Driver and car profiles:** sessions and PBs per driver and per car | A shared car or a club unit | Nothing | S | Sonnet, low |
 | 6 | **Someone else's reference lap:** load a friend's or a coach's `.vbo` on the Wi-Fi page and drive against it | The quickest way to find time | Nothing | M | Sonnet, medium |
 | 7 | **Conditions quick-picks:** dry, damp or wet; tyres; temperature; saved with the session | Days become comparable | Nothing | S | Haiku, low |
@@ -617,7 +614,7 @@ Beta 3 works on the board. Before adding more, 0.1.1 removes what isn't used, ma
 
 | Wave | Step | Built by |
 |---|---|---|
-| 1 | **Remove the LED and speaker features.** They're not wired on Dylan's board and not planned: the LED bar, the shift light, the board LED's delta, the LED part of the overheat warning, voice notes and the planned beeps. Code, settings, tests, docs, the wiring diagram and this plan all go. The big button stays | Sonnet, medium |
+| 1 | **Remove the LED and speaker features: done.** They weren't wired on Dylan's board and weren't planned, so the LED bar, the shift light, the board LED, the LED part of the overheat warning, voice notes and the planned beeps are gone from the code, settings, tests, docs and wiring diagram. The big button stays | Sonnet, medium |
 | 1 | **The website looks like the device:** the Inter font, the device's colours and its rounded cards, as in the screenshots | Sonnet, low |
 | 1 | **A code review in three parts,** read-only: security (Wi-Fi page, uploads, Bluetooth, the parsers), efficiency (the main loop, the card, memory), and reuse/clean-up (duplication, dead code, main.cpp's size) | Sonnet, medium (×3) |
 | 2 | **Screenshots that keep up with the screens:** regenerate the README images, add the new screens (home, Autocross hub, Adjust), and a CI check that fails when docs/images is out of date | Sonnet, low |
@@ -628,7 +625,7 @@ Released as **v0.1.1-beta.1**.
 ## Not planned, and why
 
 - **Video recording on Track Rat.** No camera input or video encoder. Cameras and phones do it better, so Phase 6 helps them instead: Track Rat feeds its GPS into an Osmo Action's video, starts and stops it with each session, and feeds GPS and engine data to RaceChrono on a phone.
-- **Spoken coaching.** Garmin's reaches the driver through earbuds or the car's stereo. The ESP32-S3 has no Classic Bluetooth for audio, and the board's speaker won't be heard under a helmet. Use colour and the LED bar instead.
+- **Spoken coaching.** Garmin's reaches the driver through earbuds or the car's stereo. The ESP32-S3 has no Classic Bluetooth for audio, and Use colour on the screen instead.
 - **Racing-line coaching.** About 1.5 m of GPS error is as big as the line differences that matter. Time and speed comparisons are reliable; line position isn't.
 - **A phone app.** The Wi-Fi page covers it without app stores, and RaceBox emulation already covers live phone use.
 - **Fully configurable dash pages.** AiM offers several configurable pages. Three good screens with a couple of options keeps Track Rat simple.
@@ -640,7 +637,7 @@ Build the phases in order. Within Phase 1, do 1.1 to 1.5 first; 1.6 to 1.8 can g
 
 - The Wi-Fi page (3.1) only needs the log (1.1) and settings (1.4). Bring it forward if taking the card out to get files becomes a chore.
 - Acceleration runs (4.3) only need the log, but are better with binary GPS (1.7) for slope.
-- The big button and LED bar can be added at any point after settings (1.4).
+- The big button can be added at any point after settings (1.4).
 
 Two habits that will pay off:
 
@@ -655,11 +652,10 @@ Two habits that will pay off:
 
 ## Open questions
 
-- How readable is the screen at noon in an open car or kart? That decides how much the LED bar matters.
+- How readable is the screen at noon in an open car or kart?
 - ~~Does the BE-252Q keep its satellite data between power-ups?~~ Answered (2026-10-24): only for as long as its small backup capacitor lasts, and orbits go stale after 4 hours anyway. Track Rat now keeps the GPS powered in standby whenever the board sleeps or is switched off (1.6), with AssistNow Autonomous on. Unplugging the battery still means a cold start.
 - Default delta reference: best of the day (fair to the day's conditions) or best ever (motivating)? This plan uses best ever until you set a lap that day.
 - Is 10 minutes the right gap before a new session starts?
-- Is the board's RGB LED visible through your case?
 - Battery size: measure the current draw first.
 - Does Circuit Tools open the VBO files? Write a sample early.
 - Which OBD-II adapter will you use (Veepeak OBDCheck BLE+ or OBDLink CX), and what car? A CAN car (2008 on) is far faster than an older one.
@@ -667,15 +663,14 @@ Two habits that will pay off:
 
 ## Sources
 
-- [LCDWiki: ES3C28P board](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display): battery charger and IO9 voltage, speaker amp, microphone, RGB LED, free pins, measured brightness
+- [LCDWiki: ES3C28P board](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display): battery charger and IO9 voltage, free pins, measured brightness
 - [Beitian BE-252Q listing](https://rcdrone.top/products/beitian-be-122-be-182-be-252q-gps-module): M10050 chip, accuracy, start-up times
 - [u-blox change notice on M10 update rates](https://shop.richardsonrfpd.com/docs/rfpd/u-blox_PCN_UBX-23006557.pdf): 25/20/16/10 Hz by number of satellite systems
 - [u-blox M10 SPG 5.10 interface description](https://cdn.sparkfun.com/assets/f/1/2/9/e/u-blox-M10-SPG-5.10_InterfaceDescription_UBX-21035062.pdf): UBX-RXM-PMREQ, UBX-NAV-AOPSTATUS, CFG-ANA-USE_ANA (off by default)
 - [u-blox SAM-M10Q integration manual](https://cdn.sparkfun.com/assets/4/1/1/0/3/SAM-M10Q_IntegrationManual_UBX-22020019.pdf): software standby keeps the clock and orbits but clears RAM settings, hot start within 4 hours, AssistNow Autonomous 3 to 6 days
 - [BE-252Q manual](https://manualsfile.com/product/k6aaab5d5ea3.html): the backup capacitor that keeps its clock with the power off
-- [AiM Solo 2 DL](https://discoveryparts.com/products/aim-sports-solo-2-dl-data-logging-lap-timer) and [AiM shop](https://aimshop.com/products/aim-solo-2-dl-gps-ecu-dash-logger): predictive lap, LEDs, theoretical lap, auto-learning, ECU data
-- [VBOX LapTimer predictive timing menu](https://en.racelogic.support/motorsport/lap-timing/vblap/ug/menu-options/predictive-lap-timing-menu/): delta bar, speed mode for pit lanes, LEDs
-- [Apex Pro Gen II](https://www.hmsmotorsport.com/item/apex-pro-gen-ii): LED coaching and predictive LEDs
+- [AiM Solo 2 DL](https://discoveryparts.com/products/aim-sports-solo-2-dl-data-logging-lap-timer) and [AiM shop](https://aimshop.com/products/aim-solo-2-dl-gps-ecu-dash-logger): predictive lap, theoretical lap, auto-learning, ECU data
+- [VBOX LapTimer predictive timing menu](https://en.racelogic.support/motorsport/lap-timing/vblap/ug/menu-options/predictive-lap-timing-menu/): delta bar, speed mode for pit lanes
 - [Garmin Catalyst 2 at BimmerWorld](https://www.bimmerworld.com/About-Us/Data-Acquisition-101/Garmin-Catalyst-2-Driving-Performance-Optimizer-Camera.html): audio coaching, True Optimal Lap, top three opportunities
 - [Your Data Driven: Catalyst optimal lap review](https://www.yourdatadriven.com/garmin-catalyst-review-optimal-lap-any-good/) and [NA M3 Forum: Catalyst after two days](https://nam3forum.com/forums/forum/special-interests/track-autox/60183-garmin-catalyst-review-after-2-days-on-track): what owners found useful and misleading
 - [Which lap timer should you buy? (gt.si)](https://gt.si/which-lap-itmer-should-you-buy/): phone app, RaceBox, Catalyst and VBOX compared in use
@@ -706,7 +701,7 @@ Phases 7 and 8:
 - [esptool: merge-bin and the v5 migration](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/migration-guide.html)
 - [Semantic Versioning](https://semver.org) and [Keep a Changelog](https://keepachangelog.com)
 - [OpenStreetMap attribution guidelines](https://osmfoundation.org/wiki/Licence/Attribution_Guidelines) and [copyright](https://www.openstreetmap.org/copyright): "© OpenStreetMap contributors", ODbL share-alike for the track list
-- [LCDWiki ES3C28P](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display): ES8311 codec and FM8002E amplifier, I2S on IO4–IO8, amplifier enable on IO1, native USB, download mode
+- [LCDWiki ES3C28P](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display): native USB, download mode
 - [u-blox MAX-F10S datasheet](https://mouser.com/datasheet/2/1025/MAX_F10S_DataSheet_UBXDOC_963802114_12732-3502504.pdf) and [Quectel LC29H specification](https://quectel.com/content/uploads/sites/3/2022/06/Quectel_LC29H_GNSS_Specification_V1.2.pdf): dual-band modules top out at 10 Hz
 - [Open GoPro](https://gopro.github.io/OpenGoPro/): Bluetooth control for HERO9 and later
 - [andi38/TPMS](https://github.com/andi38/TPMS): one valve-cap TPMS family's broadcast format; others differ

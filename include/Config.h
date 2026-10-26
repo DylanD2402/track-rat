@@ -106,33 +106,22 @@
 #define POWER_OFF_BAR_MS 2000        // ...with a bar filling from here. Let go of before it's full: nothing happens
 
 // ---------------------------------------------------------------------------
-// Optional add-ons on the expansion header (see docs/hardware.md, "Big button and LED bar").
+// Optional add-ons on the expansion header (see docs/hardware.md, "Big button").
 // Each add-on is switched off at boot if the GPS was found on its pin.
 // ---------------------------------------------------------------------------
 #define EXT_BUTTON_ENABLED 1         // momentary push button, IO21 to GND; same as BOOT
 #define EXT_BUTTON_PIN 21
-#define LED_BAR_ENABLED 1            // WS2812B strip delta bar
-#define LED_BAR_PIN 2
-#define LED_BAR_COUNT 10             // LEDs on the strip (2 to 64)
-#define LED_BAR_BRIGHTNESS 64        // 0-255; a full strip at 255 can draw over 500 mA
-#define LED_BAR_REVERSED 0           // 1 = flip the bar if "ahead" grows to the left
-#define LED_BAR_FULL_SCALE_MS 1000   // the whole bar side lights at this much delta
-#define BOARD_LED_ENABLED 1          // mirror the delta colour on the board's own WS2812
-#define BOARD_LED_PIN 42
-#define BOARD_LED_BRIGHTNESS 40      // 0-255
 // An LSM6DSO-class IMU on the I2C header (with the touch controller): real g in the log and the
 // RaceBox output once it has learned how it's mounted (Imu.h). Harmless with none fitted.
 // Untested on hardware.
 #define IMU_ENABLED 1
 // OBD-II over CAN: an SN65HVD230 transceiver on IO3 (TX) and IO14 (RX) to the car's OBD-II socket.
-// Engine speed, throttle and coolant temperature in the log, and a shift light on the LED bar
+// Engine speed, throttle and coolant temperature in the log
 // (CanObd.h). Off by default: IO14 is also a GPS pin on the header. Untested on hardware.
 #define CAN_ENABLED 0
 #define CAN_TX_PIN 3
 #define CAN_RX_PIN 14
 #define CAN_BITRATE_KBPS 500         // 500 for most cars since 2008; some use 250
-#define SHIFT_LIGHT_START_RPM 5500   // the LED bar starts filling here...
-#define SHIFT_LIGHT_RPM 6800         // ...and flashes blue to shift. Set for your engine; 0 = no shift light
 // OBD-II from a Bluetooth LE adapter (ELM327: Veepeak OBDCheck BLE+, OBDLink CX...): the same
 // engine data as CAN, chosen in Settings > Engine data (ObdBle.h). Nothing happens until an
 // adapter has been chosen. Untested on hardware: no adapter has been tried yet.
@@ -148,7 +137,7 @@
 #define COOLANT_WARN_C 110           // Hot at
 #define OIL_HOT_C 130                // Oil hot at, for cars that report oil temperature (PID 0x5C)
 #define TEMP_ALERT_MS 10000          // the full-screen warning shows this long (a tap ends it sooner)...
-#define TEMP_ALERT_FLASH_MS 350      // ...flashing red and yellow (and the LED bar with it) this fast...
+#define TEMP_ALERT_FLASH_MS 350      // ...flashing red and yellow this fast...
 #define TEMP_REARM_DROP_C 3          // ...and again once the temperature has dropped this far below the limit and come back,
 #define TEMP_REPEAT_MS 60000         // or after this long still over it
 // Track Rat as a DJI Osmo Action's GPS remote (Action 4, 5 Pro, 6, Osmo 360): GPS into the video
@@ -251,11 +240,6 @@
 // and written from core 0 about once a second
 #define LOG_BUFFER_BYTES (256 * 1024)    // power of two; ~2 min of 20 Hz fixes
 #define LOG_FLUSH_MS 1000
-
-// Logbook (Logbook.h): a note per session, typed on the Wi-Fi page.
-// Voice notes (hold on the debrief to record 30 s from the ES8311 microphone)
-// aren't built yet: the codec has to be brought up on a board first. Leave 0.
-#define VOICE_NOTES_ENABLED 0
 
 // ---------------------------------------------------------------------------
 // Battery (3.7 V LiPo on the board's socket, TP4054 charger, voltage on IO9)

@@ -251,7 +251,7 @@ python test/test_overlay.py
 
 `test/test_web.js` also checks the CSV download: a row per fix, UTC across midnight, the values, lap times and deltas against the fastest or the summary's best lap, and oil temperature (empty when not known).
 
-`test/test_tempalert.cpp` checks the engine temperatures on screen (`include/TempAlert.h`): the coolant tag's colour bands rising from cold through warm to hot, °F, and when the overheat warning shows: once at the limit, again only after dropping 3 °C below it or a minute later, nothing on stale data, oil with its own limit, coolant first when both are over, a tap closing it, and the LED bar's flashing. `test/test_settings.cpp` checks the Coolant settings (defaults, staying in order, the Wi-Fi page's names, BOOT and touch on the page) and `test/test_vbo.cpp` the laps' hottest temperatures, live and recovered from a log:
+`test/test_tempalert.cpp` checks the engine temperatures on screen (`include/TempAlert.h`): the coolant tag's colour bands rising from cold through warm to hot, °F, and when the overheat warning shows: once at the limit, again only after dropping 3 °C below it or a minute later, nothing on stale data, oil with its own limit, coolant first when both are over, a tap closing it. `test/test_settings.cpp` checks the Coolant settings (defaults, staying in order, the Wi-Fi page's names, BOOT and touch on the page) and `test/test_vbo.cpp` the laps' hottest temperatures, live and recovered from a log:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_tempalert.cpp -o /tmp/ta && /tmp/ta
@@ -287,7 +287,7 @@ g++ -std=c++17 -Iinclude test/test_racechrono.cpp -o /tmp/rc && /tmp/rc
 g++ -std=c++17 -Iinclude test/test_elm327.cpp -o /tmp/elm && /tmp/elm
 ```
 
-`test/test_obd.cpp` checks OBD-II over CAN: the requests, reading engine speed, throttle and coolant temperature from the engine's replies while ignoring everything else on the bus (other messages, other modes, "not supported", short and multi-frame replies), values going stale, the polling schedule (engine speed every other request, one at a time, a gap between, a timeout; oil temperature once a second, dropped after three unanswered), and the shift light. `test/test_vbo.cpp` checks the log's engine channels:
+`test/test_obd.cpp` checks OBD-II over CAN: the requests, reading engine speed, throttle and coolant temperature from the engine's replies while ignoring everything else on the bus (other messages, other modes, "not supported", short and multi-frame replies), values going stale, the polling schedule (engine speed every other request, one at a time, a gap between, a timeout; oil temperature once a second, dropped after three unanswered). `test/test_vbo.cpp` checks the log's engine channels:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_obd.cpp -o /tmp/obd && /tmp/obd
@@ -356,10 +356,10 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 ```bash
 g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
 ```
-`test/test_deltaleds.cpp` checks the LED bar pattern: which side and how many LEDs light for a given delta, the clamping at a full side, the purple best-lap flash and white split blink (and their priority), a reversed or odd-length strip, that the LED clock handles `millis()` wrapping, and which add-on pins the GPS takes:
+`test/test_addons.cpp` checks which add-on pins the GPS takes, so an add-on on one of them stays off:
 
 ```bash
-g++ -std=c++17 -DDEBUG_MODE=0 -Iinclude test/test_deltaleds.cpp src/DeltaLeds.cpp src/LapTimer.cpp -o /tmp/dl && /tmp/dl
+g++ -std=c++17 -Iinclude test/test_addons.cpp -o /tmp/ao && /tmp/ao
 ```
 `test/test_autostart.cpp` checks the drive-off detector that starts a session from the Ready screen: parked GPS noise never starts one, a short burst of speed doesn't, steady driving does after about 2 seconds, slowing down or a gap in the fixes starts the count again, and it works across midnight at 10 and 20 Hz:
 
@@ -408,8 +408,7 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
            SessionReplay (times a session again from its log),
-           Power (battery, sleep, power off), FirmwareUpdate (SD card update)
-           LedBar, DeltaLeds,
+           Power (battery, sleep, power off), FirmwareUpdate (SD card update),
            PerfRun (acceleration/braking), PerfLog (performance summaries),
            DisplayPerf (performance screens), DisplayPower (battery and update screens),
            DisplaySettings (Settings and first-boot screens)

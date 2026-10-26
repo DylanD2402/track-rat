@@ -85,7 +85,7 @@ public:
   bool showing(uint32_t nowMs) const { return active && nowMs - startedAt < TEMP_ALERT_MS; }
   void dismiss() { active = false; }  // a tap
   const Card& current() const { return card; }
-  // The card and the LED bar flash red, then yellow, in TEMP_ALERT_FLASH_MS halves, starting red
+  // The card flashes red, then yellow, in TEMP_ALERT_FLASH_MS halves, starting red
   bool redPhase(uint32_t nowMs) const { return showing(nowMs) && (nowMs - startedAt) / TEMP_ALERT_FLASH_MS % 2 == 0; }
 
 private:

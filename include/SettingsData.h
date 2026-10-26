@@ -22,7 +22,7 @@ enum class SpeedUnits : uint8_t { Kmh = 0, Mph = 1 };
 enum class CompareTo : uint8_t { Day = 0, Ever = 1, Session = 2 };       // what the live delta compares with
 enum class BigNumber : uint8_t { Delta = 0, Predicted = 1, LapTime = 2 };  // the largest number on the timing screen
 enum class GpsMode : uint8_t { Fast20 = 0, AllSystems10 = 1 };
-enum class DeltaColours : uint8_t { GreenRed = 0, BlueOrange = 1 };  // ahead / behind on the timing screen and LED bar
+enum class DeltaColours : uint8_t { GreenRed = 0, BlueOrange = 1 };  // ahead / behind on the timing screen
 enum class BleProfile : uint8_t { RaceBox = 0, RaceChrono = 1 };  // what the phone sees: one at a time (6.3)
 
 struct SettingsData {
