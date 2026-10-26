@@ -472,7 +472,7 @@ int32_t LapTimer::matchBestTrace(float x, float y, int32_t elapsed) {
   if (usingStoredReference() != matchedStored) {  // another reference: search it from the start
     matchedStored = !matchedStored;
     matchIdx = 0;
-  fullSearchValid = false;
+    fullSearchValid = false;
   }
   const size_t n = bestTrace.size();
   if (n < 2) return NO_DELTA;
