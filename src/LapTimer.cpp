@@ -57,6 +57,7 @@ void LapTimer::reset() {
   sectorBestTrace.clear();
   sectorBest.clear();
   matchIdx = 0;
+  fullSearchValid = false;
   liveDelta = NO_DELTA;
   sfHeadingConfirmed = false;
   sfWrongWay = false;
@@ -91,6 +92,7 @@ void LapTimer::startLap(int64_t t, uint32_t startMillis) {
   curTrace.reserve(2048);
   curTrace.push_back({0, 0, 0, 0});  // the start/finish is the origin
   matchIdx = 0;
+  fullSearchValid = false;
   liveDelta = NO_DELTA;
   stopping = false;
 }
@@ -168,6 +170,7 @@ bool LapTimer::undoFinishRun() {
   stopping = false;
   liveDelta = NO_DELTA;
   matchIdx = 0;
+  fullSearchValid = false;
   return true;
 }
 
@@ -469,6 +472,7 @@ int32_t LapTimer::matchBestTrace(float x, float y, int32_t elapsed) {
   if (usingStoredReference() != matchedStored) {  // another reference: search it from the start
     matchedStored = !matchedStored;
     matchIdx = 0;
+  fullSearchValid = false;
   }
   const size_t n = bestTrace.size();
   if (n < 2) return NO_DELTA;
@@ -498,7 +502,10 @@ int32_t LapTimer::matchBestTrace(float x, float y, int32_t elapsed) {
   float bestU = 0;
   size_t from = matchIdx > 20 ? matchIdx - 20 : 0;
   search(from, matchIdx + 200, bestD2, bestI, bestU);
-  if (bestD2 > maxD2) {  // lost track of where we are: search the whole lap
+  if (bestD2 > maxD2) {  // lost track of where we are: search the whole lap, but only once a second (pit lane, out lap)
+    if (fullSearchValid && elapsed >= fullSearchAt && elapsed - fullSearchAt < FULL_SEARCH_MS) return NO_DELTA;
+    fullSearchAt = elapsed;
+    fullSearchValid = true;
     search(0, n, bestD2, bestI, bestU);
     if (bestD2 > maxD2) return NO_DELTA;
   }

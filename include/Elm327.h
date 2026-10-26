@@ -370,7 +370,6 @@ public:
   const Supported& supported() const { return sup; }
   bool usesSuffix() const { return suffix; }
   bool usesMulti() const { return multi; }
-  const char* lastCommand() const { return lastCmd; }
 
 private:
   static constexpr int SETUP_STEPS = 7;
