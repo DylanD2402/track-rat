@@ -4,6 +4,8 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.0-beta.3] - 2026-10-25
+
 ### Added
 
 - Adjust start and Adjust finish on the device: from the Autocross hub, slide a course's start or finish along the way the cars go in 0.5 m steps (hold to repeat; BOOT: hold picks a button, press uses it) and see the day's runs re-timed live from their logs, drawn over a zoomed view of the paths. Save writes the line and re-times the course's logs; Cancel changes nothing. Standing starts say how they are timed. The buttons are greyed out, with the reason, until there is a finish, a run and an SD card.
@@ -13,6 +15,8 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 ### Changed
 
 - The website moved to trackrat.ca, with the new logo and blue accent
+- The new Track Rat logo on the board: the full TRACKRAT logo at start-up and the TR mark on the home screen, with the logo's blue (#26B7FF) as the highlight colour (selection rings, progress bars, the Bluetooth, OBD and camera tags). Timing colours keep their meanings.
+- The analyzer at trackrat.ca/analyze has the same menu bar as the rest of the site, and the menu says Analyze.
 - The menu is now a home screen that leads with what's next. A big **Next up** card picks itself and does the most likely thing in one tap: today's autocross course within 5 km (with "Run 4 next"), else a circuit within 5 km (with its PB), else Drive (Free Roam). Below it are four tiles, **Track day**, **Autocross**, **Drag** and **Drive**, then Wi-Fi and Settings. BOOT goes through them in that order. The circuits list is now Track day, with **+ New circuit** after the last track, and the NEW TRACK screen is gone: a new circuit starts there and a new course in the Autocross hub.
 
 ## [0.1.0-beta.2] - 2026-10-25
@@ -114,6 +118,7 @@ First public beta.
 
 Voice notes for the logbook aren't built yet; text notes work.
 
-[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.0-beta.2...HEAD
+[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.0-beta.3...HEAD
+[0.1.0-beta.3]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.1
