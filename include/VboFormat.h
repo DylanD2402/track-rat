@@ -149,6 +149,8 @@ public:
 
 private:
   static const size_t MAX_COLUMNS = 64;  // a file with more channels isn't read
+  static const size_t MAX_COMMENTS = 256;  // more [comments] lines than this are ignored
+  static const size_t MAX_LINE = 2048;     // a longer line is dropped (a header line is cut short)
   enum class Section { None, Header, Units, Comments, Columns, Data, Other };
   Section section = Section::None;
   std::vector<std::string> chans;

@@ -7,6 +7,7 @@
 #include "Config.h"
 #include "EngineData.h"
 #include "Imu.h"
+#include "RaceBoxBle.h"
 #include "RaceChrono.h"
 
 namespace RaceChronoBle {
@@ -28,13 +29,25 @@ class FilterCallbacks : public NimBLECharacteristicCallbacks {
   }
 };
 
+// RaceChrono subscribes to the GPS (0x0003) and CAN (0x0001) characteristics; any
+// subscription keeps the connection (see RaceBoxBle.cpp's subscribe timeout).
+class SubscribeCallbacks : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic*, ble_gap_conn_desc* desc, uint16_t subValue) override {
+    if (subValue) RaceBoxBle::onSubscribed(desc->conn_handle);
+  }
+};
+
 void build(NimBLEServer* server) {
+  static SubscribeCallbacks subscribeCallbacks;
   NimBLEService* svc = server->createService("1FF8");
   canMain = svc->createCharacteristic((uint16_t)0x0001, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  canMain->setCallbacks(&subscribeCallbacks);
   // Must be there, or RaceChrono disconnects
   svc->createCharacteristic((uint16_t)0x0002, NIMBLE_PROPERTY::WRITE)->setCallbacks(new FilterCallbacks());
   gpsMain = svc->createCharacteristic((uint16_t)0x0003, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  gpsMain->setCallbacks(&subscribeCallbacks);
   gpsTime = svc->createCharacteristic((uint16_t)0x0004, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  gpsTime->setCallbacks(&subscribeCallbacks);
   svc->start();
   NimBLEDevice::getAdvertising()->addServiceUUID("1FF8");
 }

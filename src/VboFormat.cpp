@@ -4,6 +4,7 @@
 
 #include "VboFormat.h"
 #include <ctype.h>
+#include <limits>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -348,9 +349,26 @@ static bool parseTime(const char* s, const char* e, uint32_t& ms) {
   return true;
 }
 
+// A parsed value as an integer or float: the cast of a NaN or out-of-range double is
+// undefined, and a hostile or corrupt log can hold either. NaN and infinity are
+// rejected before this (feed()); the rest is clamped.
+template <typename T>
+static T clampTo(double v) {
+  const double lo = (double)std::numeric_limits<T>::lowest(), hi = (double)std::numeric_limits<T>::max();
+  return (T)(v < lo ? lo : v > hi ? hi : v);
+}
+
 bool Reader::feed(const char* line, Sample& out) {
   size_t len = strlen(line);
   while (len && (line[len - 1] == '\r' || line[len - 1] == '\n')) len--;
+  if (len > MAX_LINE) {
+    if (line[0] == '[') return false;  // a section name is never this long
+    if (section == Section::Data) {
+      bad++;
+      return false;
+    }
+    len = MAX_LINE;  // a header or comment line: keep its start
+  }
 
   if (section != Section::Data || (len && line[0] == '[')) {
     std::string l(line, len);
@@ -365,8 +383,11 @@ bool Reader::feed(const char* line, Sample& out) {
       return false;
     }
     if (trim(l).empty()) return false;
-    if (section == Section::Header) chans.push_back(trim(l));
-    else if (section == Section::Comments) comms.push_back(l);
+    if (section == Section::Header) {
+      if (chans.size() <= MAX_COLUMNS) chans.push_back(trim(l));  // one over is enough to refuse the file
+    } else if (section == Section::Comments) {
+      if (comms.size() < MAX_COMMENTS) comms.push_back(l);
+    }
     return false;
   }
 
@@ -401,7 +422,7 @@ bool Reader::feed(const char* line, Sample& out) {
     } else {
       char* stop = nullptr;
       v[col] = strtod(start, &stop);
-      if (stop != p) {
+      if (stop != p || !isfinite(v[col])) {
         bad++;
         return false;
       }
@@ -418,17 +439,17 @@ bool Reader::feed(const char* line, Sample& out) {
   out.utcMs = utc;
   out.lat = v[colLat] / 60.0;
   out.lon = -v[colLon] / 60.0;
-  if (colSpeed >= 0) out.speedKmh = (float)v[colSpeed];
-  if (colHeading >= 0) out.headingDeg = (float)v[colHeading];
-  if (colHeight >= 0) out.heightM = (float)v[colHeight];
-  if (colSats >= 0) out.sats = (uint8_t)v[colSats];
-  if (colHdop >= 0) out.hdop = (float)v[colHdop];
-  if (colLap >= 0) out.lap = (uint16_t)v[colLap];
-  if (colLatG >= 0) out.latG = (float)v[colLatG];
-  if (colLongG >= 0) out.longG = (float)v[colLongG];
-  if (colTag >= 0) out.tag = (uint8_t)v[colTag];
-  if (colCoolant >= 0) out.coolantC = (float)v[colCoolant];
-  if (colOil >= 0) out.oilC = (float)v[colOil];
+  if (colSpeed >= 0) out.speedKmh = clampTo<float>(v[colSpeed]);
+  if (colHeading >= 0) out.headingDeg = clampTo<float>(v[colHeading]);
+  if (colHeight >= 0) out.heightM = clampTo<float>(v[colHeight]);
+  if (colSats >= 0) out.sats = clampTo<uint8_t>(v[colSats]);
+  if (colHdop >= 0) out.hdop = clampTo<float>(v[colHdop]);
+  if (colLap >= 0) out.lap = clampTo<uint16_t>(v[colLap]);
+  if (colLatG >= 0) out.latG = clampTo<float>(v[colLatG]);
+  if (colLongG >= 0) out.longG = clampTo<float>(v[colLongG]);
+  if (colTag >= 0) out.tag = clampTo<uint8_t>(v[colTag]);
+  if (colCoolant >= 0) out.coolantC = clampTo<float>(v[colCoolant]);
+  if (colOil >= 0) out.oilC = clampTo<float>(v[colOil]);
   return true;
 }
 

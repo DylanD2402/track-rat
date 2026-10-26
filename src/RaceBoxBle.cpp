@@ -31,14 +31,75 @@ static void addText(NimBLEService* svc, const char* uuid, const std::string& tex
   svc->createCharacteristic(uuid, NIMBLE_PROPERTY::READ)->setValue(text);
 }
 
+// There is no pairing, so a stranger could connect and sit on the link. A phone that
+// hasn't subscribed to a data characteristic within SUBSCRIBE_TIMEOUT_MS is dropped:
+// the RaceBox and RaceChrono apps subscribe right after connecting.
+static const uint32_t SUBSCRIBE_TIMEOUT_MS = 10000;
+static const int PENDING_MAX = 4;  // connections waiting to subscribe
+static struct {
+  uint16_t handle;
+  uint32_t since;
+  bool used;
+} pending[PENDING_MAX];
+static portMUX_TYPE pendingLock = portMUX_INITIALIZER_UNLOCKED;  // NimBLE's task and the timer's
+
+static void pendingAdd(uint16_t handle) {
+  portENTER_CRITICAL(&pendingLock);
+  for (auto& p : pending) {
+    if (!p.used) {
+      p = {handle, millis(), true};
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&pendingLock);
+}
+
+static void pendingRemove(uint16_t handle) {
+  portENTER_CRITICAL(&pendingLock);
+  for (auto& p : pending)
+    if (p.used && p.handle == handle) p.used = false;
+  portEXIT_CRITICAL(&pendingLock);
+}
+
+// Every second: drop the connections that stayed silent too long. NimBLE then calls
+// onDisconnect, and advertiseOnDisconnect() brings advertising back.
+static void pendingCheck(TimerHandle_t) {
+  uint16_t drop[PENDING_MAX];
+  int n = 0;
+  const uint32_t now = millis();
+  portENTER_CRITICAL(&pendingLock);
+  for (auto& p : pending) {
+    if (p.used && now - p.since >= SUBSCRIBE_TIMEOUT_MS) {
+      drop[n++] = p.handle;
+      p.used = false;
+    }
+  }
+  portEXIT_CRITICAL(&pendingLock);
+  NimBLEServer* server = NimBLEDevice::getServer();
+  for (int i = 0; i < n && server; i++) {
+    server->disconnect(drop[i]);
+    DEBUG_PRINTLN("BLE: dropped a connection that never subscribed");
+  }
+}
+
+void onSubscribed(uint16_t connHandle) { pendingRemove(connHandle); }
+
+class TxCallbacks : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic*, ble_gap_conn_desc* desc, uint16_t subValue) override {
+    if (subValue) onSubscribed(desc->conn_handle);
+  }
+};
+
 class ServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* server, ble_gap_conn_desc* desc) override {
     isConnected = true;
+    pendingAdd(desc->conn_handle);
     // 88-byte packets need a bigger MTU than the default 23; ask for faster intervals too.
     server->updateConnParams(desc->conn_handle, 12, 24, 0, 400);  // 15-30 ms, 4 s timeout
     DEBUG_PRINTLN("BLE: phone connected");
   }
-  void onDisconnect(NimBLEServer* server) override {
+  void onDisconnect(NimBLEServer* server, ble_gap_conn_desc* desc) override {
+    pendingRemove(desc->conn_handle);
     isConnected = server->getConnectedCount() > 0;
     if (!isConnected) RaceChronoBle::onDisconnect();
     DEBUG_PRINTLN("BLE: phone disconnected");
@@ -77,6 +138,8 @@ void begin() {
   server->setCallbacks(new ServerCallbacks());
   server->advertiseOnDisconnect(true);
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  TimerHandle_t t = xTimerCreate("blePending", pdMS_TO_TICKS(1000), pdTRUE, nullptr, pendingCheck);
+  if (t) xTimerStart(t, 0);
 
   if (raceChrono) {
     RaceChronoBle::build(server);  // and nothing else: iOS drops DIY data beside a UART-style service
@@ -90,6 +153,7 @@ void begin() {
 
   NimBLEService* svc = server->createService(SERVICE_UUID);
   tx = svc->createCharacteristic(TX_UUID, NIMBLE_PROPERTY::NOTIFY);
+  tx->setCallbacks(new TxCallbacks());
   svc->createCharacteristic(RX_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);  // commands ignored
   svc->start();
 

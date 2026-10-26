@@ -29,6 +29,12 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 - The Autocross hub's buttons are touched where they are drawn: one shared set of rectangles replaces hit zones that were 2 px off. The Adjust screen's Back button while reading or saving uses its drawn row too.
 - The user guide listed the Adjust screen's BOOT order wrongly (it goes Later, Cancel, Save, Earlier, Reset). Stale comments and the code layout list in the development guide are corrected.
 
+### Security
+
+- The Bluetooth (RaceBox/RaceChrono) side has no pairing, so it drops a phone that connects but doesn't subscribe to the data within 10 seconds, and goes on advertising. The no-pairing limit is noted in `docs/phone-and-video.md`.
+- The web installer serves ESP Web Tools 10.4.0 itself (`site/install/esp-web-tools/`, Apache-2.0 licence beside it) instead of loading it from unpkg, so the page loads no third-party script.
+- The VBO reader caps a header at 64 channels and 256 comment lines and a line at 2048 characters, rejects NaN and infinite values, and clamps values to their type before converting them, so a corrupt or hostile .vbo can't use unbounded memory or trigger undefined behaviour. Valid logs read as before.
+
 ## [0.1.0-beta.3] - 2026-10-25
 
 ### Added

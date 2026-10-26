@@ -12,6 +12,7 @@ Track Rat sends its GPS over Bluetooth in the same format as a **RaceBox Mini**,
 - **Accelerometer:** this board has none, so the motion values read as a device lying still. Apps still calculate G-forces from the GPS.
 - **Accuracy figures:** the position, speed and heading accuracy fields come straight from the GPS (UBX-NAV-PVT). With a GPS that only sends NMEA they're estimates from the satellite precision value (HDOP).
 - **Bench Test:** a bench session streams the simulated car, which is handy for setting up an app at a desk.
+- **No pairing:** the Bluetooth link to the phone isn't paired or encrypted, so anyone in range can connect and read your GPS position. Track Rat drops a connection that doesn't start the data stream within 10 seconds, so a stranger can't sit on the connection, but a phone that does subscribe gets the data. Turn Bluetooth off when you don't need it.
 - **Turning it off:** set **Bluetooth** to Off in [Settings](user-guide.md#settings). It stops at once and stays off until you turn it on. To leave Bluetooth out of the build altogether, set `BLE_ENABLED` to `0` in `include/Config.h`; the Bluetooth item then disappears from the Wi-Fi page.
 
 Track Rat isn't affiliated with RaceBox. The device name is used only so apps recognise the data format.

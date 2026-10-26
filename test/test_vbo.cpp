@@ -847,6 +847,63 @@ static void testLapTemperatures() {
   printf("  lap temperatures: hottest coolant and oil per lap, live and recovered from the log\n");
 }
 
+// A hostile or corrupt .vbo: capped header, no NaN or out-of-range casts (the sanitizer run checks the casts)
+static void feedAll(vbo::Reader& r, const std::string& text, std::vector<vbo::Sample>& got) {
+  std::istringstream in(text);
+  for (std::string l; std::getline(in, l);) {
+    vbo::Sample s;
+    if (r.feed(l.c_str(), s)) got.push_back(s);
+  }
+}
+
+static void testHostileFiles() {
+  const std::string head = "[header]\ntime\nlatitude\nlongitude\nsatellites\nvelocity kmh\nlap\n\n[column names]\n\n[data]\n";
+  {  // a valid line reads as before
+    vbo::Reader r;
+    std::vector<vbo::Sample> got;
+    feedAll(r, head + "120000.000 2220.000 7500.000 9 123.5 4\n", got);
+    CHECK(got.size() == 1 && got[0].sats == 9 && got[0].lap == 4 && got[0].speedKmh == 123.5f, "valid line");
+    CHECK(fabs(got[0].lat - 2220.0 / 60) < 1e-9 && got[0].utcMs == 43200000, "valid line position and time");
+  }
+  {  // NaN, infinity and huge numbers: rejected or clamped, never cast raw
+    vbo::Reader r;
+    std::vector<vbo::Sample> got;
+    feedAll(r, head + "120000.000 nan 7500.000 9 1 1\n120000.000 2220.0 inf 9 1 1\n120000.000 2220.0 7500.0 9 -inf 1\n", got);
+    CHECK(got.empty() && r.badLines() == 3, "non-finite values rejected: %zu lines, %u bad", got.size(), r.badLines());
+    got.clear();
+    vbo::Reader r3;
+    feedAll(r3, head + "120000.000 2220.0 7500.0 1e300 1e300 -5\n120000.000 2220.0 7500.0 -1e300 -1e300 1e20\n", got);
+    CHECK(got.size() == 2, "huge values still read");
+    if (got.size() == 2) {
+      CHECK(got[0].sats == 255 && got[0].lap == 0 && std::isfinite(got[0].speedKmh), "clamped high / negative: %u %u", got[0].sats, got[0].lap);
+      CHECK(got[1].sats == 0 && got[1].lap == 65535 && std::isfinite(got[1].speedKmh), "clamped low / high: %u %u", got[1].sats, got[1].lap);
+    }
+  }
+  {  // 100000 channels and comments: kept to the caps, memory bounded, and the file isn't read
+    std::string text = "[header]\ntime\nlatitude\nlongitude\n";
+    for (int i = 0; i < 100000; i++) text += "chan" + std::to_string(i) + "\n";
+    text += "\n[comments]\n";
+    for (int i = 0; i < 100000; i++) text += "Note: " + std::to_string(i) + "\n";
+    text += "\n[column names]\n\n[data]\n120000.000 2220.0 7500.0\n";
+    vbo::Reader r;
+    std::vector<vbo::Sample> got;
+    feedAll(r, text, got);
+    CHECK(r.comments().size() == 256, "comments capped: %zu", r.comments().size());
+    CHECK(got.empty() && r.badLines() == 1, "more than 64 channels isn't read");
+    CHECK(r.comment("Note") == "0", "the first comments are kept");
+  }
+  {  // a very long line: a data line is dropped, a comment line is cut short
+    vbo::Reader r;
+    std::vector<vbo::Sample> got;
+    std::string longData = "120000.000 2220.0 7500.0 9 1 1" + std::string(100000, ' ') + "7\n";
+    feedAll(r, head + longData, got);
+    CHECK(got.empty() && r.badLines() == 1, "an over-long data line is bad");
+    vbo::Reader r2;
+    feedAll(r2, "[header]\ntime\n\n[comments]\nNote: " + std::string(100000, 'x') + "\n\n[data]\n", got);
+    CHECK(r2.comments().size() == 1 && r2.comments()[0].size() == 2048, "a long comment is cut to 2048: %zu", r2.comments().empty() ? 0 : r2.comments()[0].size());
+  }
+}
+
 int main() {
   printf("VBO log tests\n");
   testEngineChannels();
@@ -862,6 +919,7 @@ int main() {
   testLineDirections();
   testFreeRoamRecovery();
   testLogRingThreads();
+  testHostileFiles();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

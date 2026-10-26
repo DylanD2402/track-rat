@@ -22,6 +22,7 @@ void begin();
 void setEnabled(bool on);  // the Bluetooth setting: the first "on" starts Bluetooth
 void sendFix(const GpsFix& fix, const GPSHandler& gps);
 bool connected();
+void onSubscribed(uint16_t connHandle);  // a phone subscribed to data: its connection stays
 void resumeAdvertising();  // after another connection (the OBD adapter): keep advertising to phones
 
 // One connection attempt or scan at a time across the Bluetooth centrals (the OBD
