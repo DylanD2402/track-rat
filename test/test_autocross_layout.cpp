@@ -14,8 +14,8 @@ int main() {
     // every drawn pixel of the button, and its centre, hits that button
     for (int y = r.y; y < r.y + r.h; y++)
       for (int x = r.x; x < r.x + r.w; x++) CHECK(buttonAt(x, y) == b, "button %d pixel %d,%d -> %d", b, x, y, buttonAt(x, y));
-    // the zone reaches no more than 6 px past the drawn button (half the gaps, and the 2 px above the top row)
-    CHECK(r.x - z.x <= 6 && r.y - z.y <= 6 && (z.x + z.w) - (r.x + r.w) <= 6, "zone %d too big", b);
+    // the zone reaches no more than 7 px past the drawn button (half the gaps, the 2 px above the top row, the screen edge)
+    CHECK(r.x - z.x <= 7 && r.y - z.y <= 7 && (z.x + z.w) - (r.x + r.w) <= 7, "zone %d too big", b);
   }
   // zones do not overlap, and every point gets at most one button
   for (int y = 0; y < SCREEN_H; y++)
