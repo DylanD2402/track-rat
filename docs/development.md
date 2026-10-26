@@ -77,6 +77,7 @@ What a driver chooses (units, brightness and so on) is a [setting](user-guide.md
 | `DEFAULT_SESSION_LENGTH` | 0 | Starting Session length: 0 = off, 1 = 20 min, 2 = 25, 3 = 30 |
 | `DEFAULT_UTC_OFFSET_MIN` | 0 | Starting Time zone, in minutes east of UTC |
 | `DEFAULT_RECORD_ROAD_DRIVES` | 1 | Starting Record road drives: 0 = off |
+| `DISPLAY_FPS` | 10 | Redraws a second on screens with something live (timing, map, Free Roam, Performance). Screens with nothing moving (menus, settings, summaries, lists) redraw on a touch or press, a change, or at most every 350 ms |
 | `DISPLAY_ROTATION` | 1 | The "normal" screen direction (1 or 3); the Screen setting's upside down uses the other |
 | `BLE_ENABLED` | 1 | 0 = leave Bluetooth out of the build. Otherwise the Bluetooth setting starts on |
 | `GPS_PIN_PAIRS` | 44/43, 43/44, 14/21, 21/14 | Pins searched for the GPS at boot |
@@ -86,6 +87,8 @@ What a driver chooses (units, brightness and so on) is a [setting](user-guide.md
 | `GPS_ECHO_NMEA` | 0 | 1 = copy raw GPS output to the serial monitor, and leave NMEA on alongside UBX |
 | `DISPLAY_INVERT` | 1 | Set to 0 if colours look inverted (white background) |
 | `TOUCH_SWAP_XY`, `TOUCH_INVERT_X/Y` | 1, 0, 1 | Fix touch orientation if taps land in the wrong place |
+| `FINISH_UNDO_MS` | 5000 | After the finish tap on a new course, Tap to undo shows this long |
+| `END_SESSION_HOLD_MS` | 2000 | Holding the screen or BOOT this long ends a running session |
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
 | `PERF_ROLLOUT_DEFAULT` | 0 | 1 = Performance starts with the 1-foot rollout on |
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
@@ -399,6 +402,11 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            LogRing.h (log buffer), UiTheme.h (screen size, colours),
            TimingScreen.h (the timing screen's colours, trend bar, sector strip and ghost),
            SituationScreen.h (the slow screen, the pit lane, the session clock),
+           AutocrossLayout.h (the Autocross hub's buttons: drawn and touched alike),
+           Courses.h (autocross courses as events), CourseRuns.h (the day's runs of a course),
+           AdjustLine.h, AdjustView.h, AdjustLoad.h (Adjust start / finish on the device),
+           Profiles.h (drivers and cars), Debrief.h, Sectors.h (the debrief and corner sectors),
+           AutoStart.h (drive-off, parked and session-over detection), TrackLearn.h, FreeRoam.h,
            Retime.h (which sessions are re-timed, when best laps are replaced),
            SettingsData.h (the settings and their rules), SettingsFlow.h (how keys move through
            the Settings and first-boot screens), ButtonPress.h (a button's presses and holds),
@@ -407,7 +415,8 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            Elm327.h (the Bluetooth adapter's conversation), RaceChrono.h (RaceChrono's DIY encodings), DjiRemote.h (the DJI camera remote, ported
            from DJI's demo), DeviceLink.h (is the OBD adapter or camera really there), DeviceScreen.h (Settings > Engine data and Camera), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
-           DisplayManager, InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
+           DisplayManager (shared drawing, timing screens), DisplayHome, DisplayAutocross, DisplayAdjust,
+           DisplayDebrief (the screens by area), InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
            SessionReplay (times a session again from its log),
            Power (battery, sleep, power off), FirmwareUpdate (SD card update),
@@ -418,7 +427,8 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            CanObd (OBD-II over CAN), ObdBle (the Bluetooth OBD-II adapter), EngineData (either),
            CarProfiles (car profiles on the SD card),
            CameraBle (the DJI camera's GPS remote), RaceBoxBle, RaceChronoBle (the phone's two profiles)
-           WifiPortal (Wi-Fi page)
+           WifiPortal (Wi-Fi page), Profiles (drivers and cars, kept in flash), CourseRuns, AdjustLoad,
+           BestLapStore (best laps), Imu (the motion sensor), Splash
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)
 data/      tracks.json

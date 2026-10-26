@@ -7,6 +7,9 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 ### Changed
 
 - The README screenshots show the current screens (start-up logo, home, Autocross hub, Adjust finish), and a CI job fails when they go stale (`tools/check_screens.py`).
+- The main loop sleeps for 1 ms when nothing is waiting (no fix, no input, no frame due) instead of spinning, which saves battery.
+- Screens with nothing moving on them (menus, settings, lists, Ready, summaries, the Autocross and Adjust screens, Wi-Fi, Performance cards) redraw only after a touch or press, a change, or every 350 ms, instead of 10 times a second. Timing, map, Free Roam, Performance live, the overheat warning, SYNC flash and the power-off bar keep their rate.
+- A car found from its VIN is switched to only while the car is slow or there is no fix, so the flash write cannot land while driving (it already waited for the session to end).
 
 ### Removed
 
@@ -15,6 +18,9 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 ### Fixed
 
 - GPS and timing speed-ups: the fix queue holds 256 fixes (12 s at 20 Hz, in PSRAM) instead of 64, so a long stall no longer drops the oldest ones; the GPS pins and baud rate are remembered and tried first, and each listen ends at the first valid data, so start-up finds the GPS sooner; off the reference lap (pit lane, out lap) the whole-lap search runs once a second, not on every fix; the loop finder repeats its out-and-back check once per pass; the I2C bus gives up after 5 ms instead of 50 ms when it's stuck. Lap times are unchanged.
+- The session summary is saved a second after a lap instead of inside the lap event, so the lap flash and the fixes that follow are no longer delayed by the card. It is still saved at once when the session ends or the car parks, before the Wi-Fi page opens, and before sleep or power-off.
+- The Autocross hub's buttons are touched where they are drawn: one shared set of rectangles replaces hit zones that were 2 px off. The Adjust screen's Back button while reading or saving uses its drawn row too.
+- The user guide listed the Adjust screen's BOOT order wrongly (it goes Later, Cancel, Save, Earlier, Reset). Stale comments and the code layout list in the development guide are corrected.
 
 ## [0.1.0-beta.3] - 2026-10-25
 
