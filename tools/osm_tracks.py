@@ -78,12 +78,12 @@ def _is_minor_pit(tags):
     return any(w in n for w in ("support", "paddock", "service", "kart")) or is_kart(tags)
 
 
-def country_query(cc, timeout=300, places=False):
-    """The Overpass query for a country's venues and raceway ways (ISO 3166-1 alpha-2 code).
-    With places, the country's cities and towns come too (to name where a track is)."""
+def area_query(area_line, timeout=300, places=False):
+    """The Overpass query for the venues and raceway ways inside an area. area_line is a statement
+    that makes the area, ending ->.ca; with places, its cities and towns come too (to name where a track is)."""
     town = '\nnode["place"~"^(city|town)$"]["name"](area.ca);\nout center tags qt;' if places else ""
     return f"""[out:json][timeout:{timeout}];
-area["ISO3166-1"="{cc}"][admin_level=2]->.ca;
+{area_line}
 (
   nwr["leisure"="track"]["sport"~"motor|karting"](area.ca);
   nwr["leisure"~"sports_centre|stadium"]["sport"~"motor|karting"](area.ca);
@@ -91,6 +91,24 @@ area["ISO3166-1"="{cc}"][admin_level=2]->.ca;
 .venues out center tags;
 way["highway"="raceway"](area.ca);
 out geom tags;{town}"""
+
+
+def country_query(cc, timeout=300, places=False):
+    """The Overpass query for a country's venues and raceway ways (ISO 3166-1 alpha-2 code)."""
+    return area_query(f'area["ISO3166-1"="{cc}"][admin_level=2]->.ca;', timeout, places)
+
+
+def subdivision_query(code, timeout=300, places=False):
+    """The same for one first-level subdivision (ISO 3166-2 code such as US-CA)."""
+    return area_query(f'area["ISO3166-2"="{code}"][admin_level=4]->.ca;', timeout, places)
+
+
+def subdivisions_list_query(cc, timeout=120):
+    """The first-level subdivisions (states, provinces) of a country: tags only."""
+    return f"""[out:json][timeout:{timeout}];
+area["ISO3166-1"="{cc}"][admin_level=2]->.ca;
+rel["admin_level"="4"]["ISO3166-2"~"^{cc}-"](area.ca);
+out tags;"""
 
 
 # --- Overpass ---------------------------------------------------------------------

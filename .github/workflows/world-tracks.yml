@@ -30,16 +30,18 @@ concurrency:
 
 jobs:
   # The whole world one country at a time takes about 20 hours (Overpass is slow for big
-  # countries and often busy), past a job's 6-hour limit. So 8 jobs fetch a slice each, and
-  # keep the raw answers; the publish job builds the tiles from all of them.
+  # countries and often busy), past a job's 6-hour limit. So 12 jobs fetch a slice each, and
+  # keep the raw answers; the publish job builds the tiles from all of them. The big countries
+  # go a state or province at a time (Canada took 2 hours that way), the United States, Russia
+  # and China cut across several jobs: each leaves its answers, the build joins them.
   fetch:
-    name: Fetch countries (${{ matrix.shard }}/8)
+    name: Fetch countries (${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     env:
       COUNTRIES: ${{ github.event.inputs.countries }}
     steps:
@@ -55,7 +57,7 @@ jobs:
         timeout-minutes: 330
         continue-on-error: true
         run: |
-          args=(--pause 10 --shard "${{ matrix.shard }}/8" --out build/world-part)
+          args=(--pause 10 --shard "${{ matrix.shard }}/12" --out build/world-part)
           if [ -n "$COUNTRIES" ]; then args+=(--countries "$COUNTRIES"); fi
           python tools/fetch_world_tracks.py "${args[@]}"
 
@@ -89,7 +91,8 @@ jobs:
           path: build/osm-cache
           merge-multiple: true
 
-      # From the slices' answers only; a country none of them got counts as failed (over 5%: no publish)
+      # From the slices' answers only; a country none of them got counts as failed (over 5%: no publish;
+      # US, CA, GB, DE, FR, IT, ES, JP, AU, BR, NL, BE, SE or PL missing: never publishes)
       - name: Build the tiles
         run: |
           args=(--from-cache)

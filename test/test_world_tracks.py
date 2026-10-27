@@ -278,7 +278,8 @@ def _run(codes, bad):
         return w.main(["--countries", ",".join(codes), "--out", d, "--cache", d, "--pause", "0"], fetch=fake)
 assert _run(["LU", "MT"], []) == 0
 assert _run(["LU", "MT"], ["LU"]) == 1, "1 of 2 failed is over 5%"
-assert _run(sorted(w.COUNTRIES)[:40], ["AD"]) == 0, "1 of 40 failed (2.5%) still succeeds"
+_plain = [c for c in sorted(w.COUNTRIES) if c not in w.BIG_COUNTRIES and c not in w.REQUIRED_COUNTRIES]
+assert _run(_plain[:40], [_plain[0]]) == 0, "1 of 40 failed (2.5%) still succeeds"
 print("failed country checks OK")
 
 # --shard I/N takes every Nth country; from the cache, a country with no answer counts as failed
@@ -293,3 +294,164 @@ with tempfile.TemporaryDirectory() as d:
     missing = lambda path, q, **kw: (None, False)
     assert w.main(["--countries", "LU,MT", "--out", d, "--cache", d, "--from-cache"], fetch=missing) == 1
 print("shard checks OK")
+
+
+# --- big countries by subdivision ---------------------------------------------------------------------------------
+def sub_list(cc, codes):
+    return {"elements": [{"type": "relation", "id": 100 + i, "tags": {"ISO3166-2": f"{cc}-{c}", "admin_level": "4"}}
+                         for i, c in enumerate(codes)]}
+
+
+def sub_way(i):
+    return {"type": "way", "id": i, "tags": {"highway": "raceway"}, "geometry": [{"lat": 1, "lon": 1}, {"lat": 1, "lon": 1.01}]}
+
+
+def make_fake(answers, fail=(), whole_fails=True, calls=None):
+    """A fetch that obeys the cache like cached_fetch: answers is {marker in the query: doc}."""
+    def fake(path, q, refresh=False, offline=False, has_data=None, **kw):
+        if os.path.exists(path) and not refresh:
+            return json.load(open(path)), True
+        if offline:
+            return None, False
+        if calls is not None:
+            calls.append(os.path.basename(path))
+        if 'rel["admin_level"' in q:
+            doc = answers["list"]
+        else:
+            if any(f'"{f}"' in q for f in fail) or (whole_fails and '"ISO3166-1"' in q and "ISO3166-1" not in answers):
+                raise o.OverpassError("all mirrors failed")
+            doc = next(v for k, v in answers.items() if f'"{k}"' in q)
+        w._write_json(path, doc)
+        return doc, False
+    return fake
+
+
+# a short list (a mirror's partial answer) fails the country and isn't kept
+with tempfile.TemporaryDirectory() as d:
+    try:
+        w.fetch_country("CA", d, make_fake({"list": sub_list("CA", ["AB", "BC"])}), pause=0)
+        raise SystemExit("2 of 13 provinces should fail")
+    except o.OverpassError as e:
+        assert "only 2" in str(e), e
+    assert not os.path.exists(os.path.join(d, "CA.subdivisions.json")), "the short list isn't cached"
+w.MIN_SUBDIVISIONS = {}  # the fakes below have two subdivisions
+
+# merge and dedupe: the same way in two subdivisions is one element
+answers = {"list": sub_list("US", ["AA", "BB"]), "US-AA": {"elements": [sub_way(1), sub_way(2)]},
+           "US-BB": {"elements": [sub_way(2), sub_way(3)]}}
+with tempfile.TemporaryDirectory() as d:
+    calls = []
+    doc, cached = w.fetch_country("US", d, make_fake(answers, calls=calls), pause=0)
+    assert not cached and sorted(e["id"] for e in doc["elements"]) == [1, 2, 3], doc
+    assert json.load(open(os.path.join(d, "US.json"))) == doc, "saved as the normal country cache"
+    assert os.path.exists(os.path.join(d, "US.subdivisions.json"))
+    assert calls == ["US.subdivisions.json", "US.AA.part.json", "US.BB.part.json"], calls
+    assert not [f for f in os.listdir(d) if f.endswith(".part.json")], "parts removed after the merge"
+    calls.clear()  # now it is just the cache
+    doc2, cached = w.fetch_country("US", d, make_fake(answers, calls=calls), pause=0)
+    assert cached and doc2 == doc and calls == []
+
+# resume: a country that stopped part way reuses the parts it has
+with tempfile.TemporaryDirectory() as d:
+    calls = []
+    try:
+        w.fetch_country("US", d, make_fake(answers, fail=["US-BB"], calls=calls), pause=0)
+        raise SystemExit("US-BB should have failed the country")
+    except o.OverpassError as e:
+        assert "US-BB" in str(e), e
+    assert not os.path.exists(os.path.join(d, "US.json")), "no country answer with a hole in it"
+    assert os.path.exists(os.path.join(d, "US.AA.part.json"))
+    calls.clear()
+    doc, _ = w.fetch_country("US", d, make_fake(answers, calls=calls), pause=0)
+    assert calls == ["US.BB.part.json"], calls  # the list and US-AA come from disk
+    assert len(doc["elements"]) == 3
+
+# fallback: a small country whose whole-country query fails goes by subdivisions; one that answers doesn't
+fb = {"list": sub_list("NZ", ["N", "S"]), "NZ-N": {"elements": [sub_way(5)]}, "NZ-S": {"elements": [sub_way(6)]}}
+with tempfile.TemporaryDirectory() as d:
+    calls = []
+    doc, _ = w.fetch_country("NZ", d, make_fake(fb, calls=calls), pause=0)
+    assert len(doc["elements"]) == 2 and calls[0] == "NZ.json" and "NZ.subdivisions.json" in calls, calls
+with tempfile.TemporaryDirectory() as d:
+    calls = []
+    ok = dict(fb)
+    ok["ISO3166-1"] = {"elements": [sub_way(9)]}
+    doc, _ = w.fetch_country("NZ", d, make_fake(ok, calls=calls, whole_fails=False), pause=0)
+    assert calls == ["NZ.json"] and doc["elements"][0]["id"] == 9, calls
+with tempfile.TemporaryDirectory() as d:  # a big country never tries the whole-country query
+    calls = []
+    w.fetch_country("US", d, make_fake(answers, calls=calls), pause=0)
+    assert "US.json" not in calls
+with tempfile.TemporaryDirectory() as d:  # no subdivisions found fails the country
+    try:
+        w.fetch_country("CA", d, make_fake({"list": {"elements": []}}), pause=0)
+        raise SystemExit("an empty list should fail")
+    except o.OverpassError:
+        pass
+print("subdivision checks OK")
+
+
+# the required countries: a run lacking one exits 1 even under the 5% rule
+def _run_req(codes, bad):
+    def fake(path, q, **kw):
+        if any(f'"{b}"' in q for b in bad):
+            raise o.OverpassError("all mirrors failed")
+        return {"elements": []}, True
+    with tempfile.TemporaryDirectory() as d:
+        return w.main(["--countries", ",".join(codes), "--out", d, "--cache", d, "--pause", "0"], fetch=fake)
+many = [c for c in sorted(w.COUNTRIES) if c not in w.BIG_COUNTRIES]
+assert "GB" in many and "DE" in many
+assert _run_req(many, ["GB"]) == 1, "1 of ~230 failed (under 5%) but GB is required"
+assert _run_req(many, ["AD"]) == 0
+assert {"US", "CA", "GB", "DE", "FR", "IT", "ES", "JP", "AU", "BR", "NL", "BE", "SE", "PL"} <= w.REQUIRED_COUNTRIES
+with tempfile.TemporaryDirectory() as d:  # from the cache, with the United States missing
+    assert w.main(["--countries", "US,LU", "--out", d, "--cache", d, "--from-cache"],
+                  fetch=lambda *a, **k: (None, False)) == 1
+print("required country checks OK")
+
+# shards (12 as in the workflow): big units are spread, at most two per shard, the heavy ones alone
+allc = sorted(w.COUNTRIES)
+N = 12
+shards = [w.work_units(allc)[i::N] for i in range(N)]
+flat = [u for s_ in shards for u in s_]
+assert len(flat) == len(set(flat)), "no unit twice"
+assert sorted({c for c, _, _ in flat}) == allc, "every country in some shard"
+for cc, K in w.SPLIT_PARTS.items():  # a split country's shares are all there, in different shards
+    assert sorted(k for c, k, KK in flat if c == cc) == list(range(K)) and all(KK == K for c, k, KK in flat if c == cc)
+    assert len({i for i, s_ in enumerate(shards) for c, _, _ in s_ if c == cc}) == K
+per = [sum(c in w.BIG_COUNTRIES for c, _, _ in s_) for s_ in shards]
+assert max(per) <= 2 and per.count(2) == 3, per
+heavy = [i for i, s_ in enumerate(shards) if any(c in ("US", "CA", "RU", "CN") for c, _, _ in s_)]
+assert len(heavy) == 9 and all(per[i] == 1 for i in heavy), heavy  # US x4, CA, RU x2, CN x2, each alone
+assert w.work_units(["US", "LU"], split=False) == [("US", 0, 1), ("LU", 0, 1)]
+assert set(w.BIG_COUNTRIES) <= set(w.COUNTRIES) and w.REQUIRED_COUNTRIES <= set(w.COUNTRIES)
+assert set(w.SPLIT_PARTS) <= set(w.BIG_COUNTRIES)
+print("big country shard checks OK")
+
+# a split country: each shard fetches its share and keeps the parts; the build merges them from the cache
+_five = ["AA", "BB", "CC", "DD", "EE"]
+five = {"list": sub_list("US", _five), **{f"US-{c}": {"elements": [sub_way(i)]} for i, c in enumerate(_five, 1)}}
+with tempfile.TemporaryDirectory() as d:
+    w.MIN_SUBDIVISIONS = {}
+    for k in range(2):
+        calls = []
+        w.fetch_by_subdivisions("US", d, make_fake(five, calls=calls), pause=0, share=(k, 2))
+        got = [c for c in calls if c.endswith(".part.json")]
+        assert got == (["US.AA.part.json", "US.CC.part.json", "US.EE.part.json"] if k == 0 else ["US.BB.part.json", "US.DD.part.json"]), got
+        assert not os.path.exists(os.path.join(d, "US.json")), "a share isn't the country"
+    doc, cached = w.fetch_country("US", d, make_fake(five), offline=True)
+    assert sorted(e["id"] for e in doc["elements"]) == [1, 2, 3, 4, 5], doc
+    os.remove(os.path.join(d, "US.CC.part.json"))  # a share that never finished
+    try:
+        w.fetch_country("US", d, make_fake(five), offline=True)
+        raise SystemExit("a missing part should fail")
+    except o.OverpassError as e:
+        assert "US-CC" in str(e), e
+    # the build from the cache names the country as failed, and US is required
+    assert w.main(["--countries", "US", "--out", d + "/o", "--cache", d, "--from-cache"], fetch=make_fake(five)) == 1
+with tempfile.TemporaryDirectory() as d:  # main with --shard: this job fetches its share only
+    assert w.main(["--countries", "US", "--shard", "1/2", "--out", d + "/o", "--cache", d, "--pause", "0"],
+                  fetch=make_fake(five)) == 0
+    assert sorted(f for f in os.listdir(d) if f.endswith(".part.json")) == ["US.BB.part.json", "US.DD.part.json"]
+print("split country checks OK")
+

@@ -49,7 +49,8 @@ import unicodedata
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fetch_track_map import DEFAULT_DB, REPO_ROOT, simplify, to_local  # noqa: E402
 from osm_tracks import (OverpassError, cached_fetch, country_query, dist_m, estimate_from_ways,  # noqa: E402
-                        group_venues, is_kart, is_pit_tags, line_len_m)
+                        group_venues, is_kart, is_pit_tags, line_len_m, subdivision_query,
+                        subdivisions_list_query)
 
 TOLERANCE_M = 1.5
 TILE_DEG = 2
@@ -422,6 +423,145 @@ def has_raceways(doc):
 
 MAX_FAILED_FRACTION = 0.05  # more countries than this failing makes the run exit non-zero
 
+# Countries too big for one Overpass request (the whole-country query of the United States and Canada
+# timed out on every mirror): fetched a state or province at a time. Canada took about 2 hours that way
+# on a busy day, so under --shard the biggest are cut into SPLIT_PARTS shares of their subdivisions (the
+# i-th of K takes every K-th), each a unit of its own for the shards. The order is for codes[i::n] with 12
+# shards: the first 12 units go to different shards, the last 3 join shards 0 to 2, so those hold the
+# lighter ones (KZ, AR, MX), and the heavy ones (US, CA, RU, CN) sit alone.
+BIG_COUNTRIES = ["KZ", "AR", "MX", "US", "CA", "RU", "CN", "BR", "AU", "IN"]
+SPLIT_PARTS = {"US": 4, "RU": 2, "CN": 2}
+
+# A build without an answer for one of these never publishes, whatever MAX_FAILED_FRACTION says
+REQUIRED_COUNTRIES = {"US", "CA", "GB", "DE", "FR", "IT", "ES", "JP", "AU", "BR", "NL", "BE", "SE", "PL"}
+
+
+# Fewest first-level subdivisions a complete list has (the real counts are a little higher: territories):
+# a shorter list is a mirror's partial answer and fails the country rather than leave holes.
+MIN_SUBDIVISIONS = {"US": 50, "CA": 13, "AU": 8, "BR": 27, "IN": 28, "AR": 24, "MX": 32, "KZ": 17, "RU": 80, "CN": 31}
+
+
+def work_units(codes, split=True):
+    """[(country, share, shares)]: big countries first (BIG_COUNTRIES order, cut into SPLIT_PARTS shares when
+    split), then the rest as given, one unit each. --shard I/N takes units[I::N]."""
+    units = []
+    for cc in BIG_COUNTRIES:
+        if cc in codes:
+            units += [(cc, k, SPLIT_PARTS.get(cc, 1) if split else 1) for k in range(SPLIT_PARTS.get(cc, 1) if split else 1)]
+    return units + [(c, 0, 1) for c in codes if c not in BIG_COUNTRIES]
+
+
+def _write_json(path, doc):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(doc, f, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def _sub_file(cache, cc, code):
+    return os.path.join(cache, f"{cc}.{''.join(ch for ch in code[len(cc) + 1:] if ch.isalnum() or ch == '-')}.part.json")
+
+
+def merge_docs(docs):
+    """One Overpass document from several: elements deduplicated by (type, id), first seen kept."""
+    seen, out = set(), []
+    for d in docs:
+        for el in d.get("elements", []):
+            k = (el.get("type"), el.get("id"))
+            if k not in seen:
+                seen.add(k)
+                out.append(el)
+    return {"elements": out}
+
+
+def subdivision_codes(doc, cc):
+    """Sorted ISO 3166-2 codes of the subdivisions in a list answer."""
+    return sorted({e["tags"]["ISO3166-2"] for e in doc.get("elements", [])
+                   if e.get("tags", {}).get("ISO3166-2", "").startswith(cc + "-")})
+
+
+def fetch_by_subdivisions(cc, cache, fetch, refresh=False, pause=15, share=(0, 1), log=print):
+    """A country's Overpass answer, one first-level subdivision at a time (a whole-country query is too much
+    for the mirrors in a big country). The list of subdivisions is cached as <CC>.subdivisions.json and each
+    answer as <CC>.<SUB>.part.json, so a rerun carries on where the last one stopped. Any subdivision failing
+    on every mirror fails the country (OverpassError naming it): no country is published with holes.
+    share (k, K): only every K-th subdivision from the k-th, for a split across --shard jobs; the answers stay
+    as parts for the build to merge (see cached_country). Returns (merged doc or None for a share, whether
+    anything was downloaded, the subdivision codes)."""
+    lst, cached = fetch(os.path.join(cache, f"{cc}.subdivisions.json"), subdivisions_list_query(cc),
+                        refresh=refresh,
+                        has_data=lambda d: len(subdivision_codes(d, cc)) >= MIN_SUBDIVISIONS.get(cc, 1))
+    subs = subdivision_codes(lst, cc)
+    if len(subs) < MIN_SUBDIVISIONS.get(cc, 1):
+        # a mirror gave 6 of Canada's 13 provinces once: a short list would leave holes
+        try:
+            os.remove(os.path.join(cache, f"{cc}.subdivisions.json"))
+        except OSError:
+            pass
+        raise OverpassError(f"only {len(subs)} subdivision(s) of {cc} listed ({', '.join(subs) or 'none'}), "
+                            f"expected at least {MIN_SUBDIVISIONS.get(cc, 1)}")
+    downloaded = not cached
+    if not cached:
+        time.sleep(pause)
+    docs = []
+    for k, code in enumerate(subs, 1):
+        if (k - 1) % share[1] != share[0]:
+            continue
+        path = _sub_file(cache, cc, code)
+        log(f"  [{k}/{len(subs)}] {code}")
+        try:
+            doc, cached = fetch(path, subdivision_query(code, 900, places=True), refresh=refresh, has_data=has_raceways)
+        except OverpassError as e:
+            raise OverpassError(f"subdivision {code} failed on every mirror: {e}") from e
+        docs.append(doc)
+        if not cached:
+            downloaded = True
+            time.sleep(pause)
+    return (merge_docs(docs) if share[1] == 1 else None), downloaded, subs
+
+
+def cached_country(cc, cache):
+    """A country's document from its subdivision answers on disk (the shards of a split country leave parts, not
+    <CC>.json); None when it was never fetched by subdivisions. A subdivision with no answer is an error."""
+    lp = os.path.join(cache, f"{cc}.subdivisions.json")
+    if not os.path.exists(lp):
+        return None
+    with open(lp, encoding="utf-8") as f:
+        subs = subdivision_codes(json.load(f), cc)
+    docs = []
+    for code in subs:
+        p = _sub_file(cache, cc, code)
+        if not os.path.exists(p):
+            raise OverpassError(f"subdivision {code} has no answer in the cache")
+        with open(p, encoding="utf-8") as f:
+            docs.append(json.load(f))
+    return merge_docs(docs) if docs else None
+
+
+def fetch_country(cc, cache, fetch, refresh=False, offline=False, pause=15):
+    """(doc, from_cache) for one country, saved as <cache>/<CC>.json; doc None when offline and not cached.
+    Big countries (and any whose whole-country query fails on every mirror) go by subdivisions."""
+    path = os.path.join(cache, f"{cc}.json")
+    if os.path.exists(path) and not refresh:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f), True
+    if offline:
+        return cached_country(cc, cache), True
+    if cc not in BIG_COUNTRIES:
+        try:
+            return fetch(path, country_query(cc, 900, places=True), refresh=refresh, has_data=has_raceways)
+        except OverpassError as e:
+            print(f"  whole-country query failed ({e}); trying its subdivisions", file=sys.stderr)
+    doc, downloaded, subs = fetch_by_subdivisions(cc, cache, fetch, refresh, pause)
+    _write_json(path, doc)
+    for code in subs:  # the parts have done their job (the artifact stays small)
+        try:
+            os.remove(_sub_file(cache, cc, code))
+        except OSError:
+            pass
+    return doc, not downloaded
+
 
 def main(argv=None, fetch=None):
     fetch = fetch or cached_fetch
@@ -436,7 +576,8 @@ def main(argv=None, fetch=None):
     ap.add_argument("--include-dirt", action="store_true")
     ap.add_argument("--include-drag", action="store_true")
     ap.add_argument("--no-karting", action="store_true")
-    ap.add_argument("--shard", metavar="I/N", help="only every Nth country, starting at I (0-based): for parallel jobs")
+    ap.add_argument("--shard", metavar="I/N", help="only every Nth unit, starting at I (0-based): for parallel jobs. A unit "
+                    "is a country; the biggest (see SPLIT_PARTS) are cut into several, whose answers the build merges")
     ap.add_argument("--validate-estimates", action="store_true",
                     help="compare the start/finish estimate with the real lines in --db and exit")
     ap.add_argument("--db", default=DEFAULT_DB)
@@ -457,15 +598,21 @@ def main(argv=None, fetch=None):
         i, n = (int(x) for x in args.shard.split("/"))
         if not 0 <= i < n:
             sys.exit(f"--shard {args.shard}: I must be 0 to N-1")
-        codes = codes[i::n]
+        units = work_units(codes)[i::n]
+    else:
+        units = [(c, 0, 1) for c in codes]
 
     tracks, failed, t0 = [], [], time.time()
-    for n, cc in enumerate(codes, 1):
-        path = os.path.join(args.cache, f"{cc}.json")
-        print(f"[{n}/{len(codes)}] {cc} {COUNTRIES[cc]}")
+    for n, (cc, share, shares) in enumerate(units, 1):
+        print(f"[{n}/{len(units)}] {cc} {COUNTRIES[cc]}{f' (part {share + 1} of {shares})' if shares > 1 else ''}")
         try:
-            doc, cached = fetch(path, country_query(cc, 900, places=True), refresh=args.refresh, offline=args.from_cache,
-                                       has_data=has_raceways)
+            if shares > 1 and not args.from_cache:
+                _, downloaded, _ = fetch_by_subdivisions(cc, args.cache, fetch, args.refresh, args.pause, (share, shares))
+                print("  answers kept for the build to merge")  # (no tiles from a part)
+                if downloaded and n < len(units):
+                    time.sleep(args.pause)
+                continue
+            doc, cached = fetch_country(cc, args.cache, fetch, args.refresh, args.from_cache, args.pause)
         except OverpassError as e:
             print(f"  FAILED, skipped: {e}", file=sys.stderr)
             failed.append(cc)
@@ -477,7 +624,7 @@ def main(argv=None, fetch=None):
         got = build_world_tracks(doc, cc, args.include_dirt, args.include_drag, not args.no_karting)
         print(f"  {len(got)} track(s){' (from cache)' if cached else ''}")
         tracks += got
-        if not cached and n < len(codes):
+        if not cached and n < len(units):
             time.sleep(args.pause)
 
     index = write_tiles(tracks, args.out)
@@ -486,8 +633,12 @@ def main(argv=None, fetch=None):
     print(f"\n{index['tracks']} track(s) in {len(index['tiles'])} tile(s), {size / 1024 / 1024:.1f} MB, "
           f"{est} with an estimated start/finish, in {time.time() - t0:.0f} s -> {args.out}")
     if failed:
-        print(f"{len(failed)} of {len(codes)} country(ies) failed on every mirror: {', '.join(failed)}", file=sys.stderr)
-        if len(failed) > MAX_FAILED_FRACTION * len(codes):
+        print(f"{len(failed)} of {len(units)} country(ies) failed on every mirror: {', '.join(failed)}", file=sys.stderr)
+        missing = sorted(set(failed) & REQUIRED_COUNTRIES)
+        if missing:
+            print(f"NO ANSWER for required countries: {', '.join(missing)}: not complete", file=sys.stderr)
+            return 1
+        if len(failed) > MAX_FAILED_FRACTION * len(units):
             return 1
     return 0
 

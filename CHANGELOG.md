@@ -12,6 +12,7 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- The world tracks build no longer comes out without the United States or Canada: big countries (US, CA, RU, CN, AU, BR, IN, AR, MX, KZ) are fetched a state or province at a time, any country whose whole-country query fails falls back to that, and a build missing one of the main countries (US, CA, GB, DE, FR, IT, ES, JP, AU, BR, NL, BE, SE, PL) fails instead of publishing.
 - Accented letters (track names like Autodrome La Chaudière, driver and car names) no longer drop out on the display: letters the fonts cannot draw are shown as plain ones (é as e, ß as ss), and curly quotes as straight ones.
 
 ## [0.1.1-beta.1] - 2026-10-26
