@@ -309,7 +309,7 @@ Then copy `data/tracks.json` to the SD card.
 
 For tracks outside `tracks.json`, Track Rat reads world track files from the SD card. They come in 2 degree squares ("tiles"), and each is a file named for its south-west corner, `/world/<lat>/<lon>.json`, in whole degrees that are even numbers, and negative south and west (`/world/44/-78.json`, `/world/-34/150.json`). Each file is `{"tracks": [...]}` in the same format as `tracks.json`.
 
-1. Copy the `world` folder (or just the tiles for where you drive) to the root of the SD card, so the files are at `/world/44/-78.json` and so on.
+1. Download [trackrat-world-tracks.zip](https://github.com/DylanD2402/track-rat/releases/download/world-tracks/trackrat-world-tracks.zip) and unzip it onto the root of the SD card, so the files are at `/world/44/-78.json` and so on. It is rebuilt from OpenStreetMap every month (the "World tracks" workflow), and a SHA256 file sits beside it. To build it yourself, run `python tools/fetch_world_tracks.py` (hours: it asks Overpass country by country) and copy `build/world` to the card as `world`. You can also copy just the tiles for where you drive.
 2. Put the card in and switch on. At the first GPS fix Track Rat reads the tile it is in, and the next one over when you are within about 10 km of an edge. The tracks join the Track day list and are found like any other. It reads another tile only after you move into one, never while timing.
 
 With no card or no `/world` folder, nothing changes.

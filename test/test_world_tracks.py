@@ -267,3 +267,16 @@ assert o.is_model({"name": "Circuit autos téléguidées"})
 assert not o.is_model({"name": "Silverstone Circuit", "sport": "motor"})
 assert not o.is_model({"name": "Mosport", "sport": "motor"})
 print("model track checks OK")
+
+# A country that fails on every mirror is logged and skipped; the run fails only when over 5% failed
+def _run(codes, bad):
+    def fake(path, q, **kw):
+        if any(f'"{b}"' in q for b in bad):
+            raise o.OverpassError("all mirrors failed")
+        return {"elements": []}, True
+    with tempfile.TemporaryDirectory() as d:
+        return w.main(["--countries", ",".join(codes), "--out", d, "--cache", d, "--pause", "0"], fetch=fake)
+assert _run(["LU", "MT"], []) == 0
+assert _run(["LU", "MT"], ["LU"]) == 1, "1 of 2 failed is over 5%"
+assert _run(sorted(w.COUNTRIES)[:40], ["AD"]) == 0, "1 of 40 failed (2.5%) still succeeds"
+print("failed country checks OK")

@@ -1,0 +1,81 @@
+name: World tracks
+
+# Builds the world track tiles (/world/<lat>/<lon>.json for the SD card) from OpenStreetMap
+# through Overpass, and publishes them as a rolling prerelease tagged "world-tracks".
+# The tag doesn't start with v, so release.yml (v* tags) never runs for it.
+# A run with "countries" set is a test: it uploads trackrat-world-tracks-test.zip and
+# skips the track-count check, so it never replaces the real zip.
+
+on:
+  schedule:
+    - cron: '17 3 1 * *'
+  workflow_dispatch:
+    inputs:
+      countries:
+        description: 'Test run: comma separated ISO country codes (e.g. LU,MT). Leave empty for the whole world.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  world:
+    name: Build and publish world tracks
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+      COUNTRIES: ${{ github.event.inputs.countries }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Fetch the tracks
+        run: |
+          args=(--pause 15)
+          if [ -n "$COUNTRIES" ]; then args+=(--countries "$COUNTRIES"); fi
+          python tools/fetch_world_tracks.py "${args[@]}"
+
+      - name: Check the result
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          n = json.load(open('build/world/index.json'))['tracks']
+          print(n, 'tracks')
+          if not os.environ.get('COUNTRIES', '').strip() and n < 3000:
+              sys.exit(f'Only {n} tracks: too few for a full run, not publishing')
+          PY
+
+      - name: Zip
+        run: |
+          name=trackrat-world-tracks
+          if [ -n "$COUNTRIES" ]; then name=trackrat-world-tracks-test; fi
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          # The zip's top level is world/, so unzipping onto the card root gives /world/...
+          mkdir -p out stage
+          cp -r build/world stage/world
+          (cd stage && zip -r -q "../out/$name.zip" world)
+          (cd out && sha256sum "$name.zip" > "$name.zip.sha256")
+          ls -l out
+
+      - name: Publish the release
+        run: |
+          tracks=$(python -c "import json; print(json.load(open('build/world/index.json'))['tracks'])")
+          tiles=$(python -c "import json; print(len(json.load(open('build/world/index.json'))['tiles']))")
+          {
+            echo "Built $(date -u +%Y-%m-%d): $tracks tracks in $tiles tiles."
+            echo
+            echo "Unzip trackrat-world-tracks.zip onto the root of the SD card, so the files are at /world/<lat>/<lon>.json."
+            echo "Track Rat reads the tiles for where you are. See the user guide, World tracks from the SD card."
+            echo
+            echo "Data © OpenStreetMap contributors, ODbL 1.0. Start/finish lines are estimates: check them after a lap."
+            echo "Rebuilt monthly. A zip named -test is from a test run on a few countries."
+          } > notes.md
+          gh release view world-tracks >/dev/null 2>&1 || \
+            gh release create world-tracks --title "World tracks (OpenStreetMap)" --prerelease --latest=false --notes-file notes.md
+          if [ -z "$COUNTRIES" ]; then gh release edit world-tracks --notes-file notes.md; fi
+          gh release upload world-tracks "out/$NAME.zip" "out/$NAME.zip.sha256" --clobber

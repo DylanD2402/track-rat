@@ -420,7 +420,11 @@ def has_raceways(doc):
     return any(e.get("type") == "way" for e in doc.get("elements", []))
 
 
-def main():
+MAX_FAILED_FRACTION = 0.05  # more countries than this failing makes the run exit non-zero
+
+
+def main(argv=None, fetch=None):
+    fetch = fetch or cached_fetch
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--countries", help="ISO 3166-1 alpha-2 codes, comma separated (default: every country)")
     ap.add_argument("--out", default=os.path.join(REPO_ROOT, "build", "world"))
@@ -435,7 +439,7 @@ def main():
     ap.add_argument("--validate-estimates", action="store_true",
                     help="compare the start/finish estimate with the real lines in --db and exit")
     ap.add_argument("--db", default=DEFAULT_DB)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.validate_estimates:
         r = [d for _, d in validate_estimates(args.db, args.cache, offline=args.from_cache, pause=args.pause) if d is not None]
@@ -449,15 +453,16 @@ def main():
     if bad:
         sys.exit(f"Unknown country code(s): {', '.join(bad)}")
 
-    tracks, t0 = [], time.time()
+    tracks, failed, t0 = [], [], time.time()
     for n, cc in enumerate(codes, 1):
         path = os.path.join(args.cache, f"{cc}.json")
         print(f"[{n}/{len(codes)}] {cc} {COUNTRIES[cc]}")
         try:
-            doc, cached = cached_fetch(path, country_query(cc, 900, places=True), refresh=args.refresh, offline=args.from_cache,
+            doc, cached = fetch(path, country_query(cc, 900, places=True), refresh=args.refresh, offline=args.from_cache,
                                        has_data=has_raceways)
         except OverpassError as e:
-            print(f"  skipped: {e}", file=sys.stderr)
+            print(f"  FAILED, skipped: {e}", file=sys.stderr)
+            failed.append(cc)
             continue
         if doc is None:
             print("  not in the cache, skipped")
@@ -473,7 +478,12 @@ def main():
     est = sum(1 for t in tracks if "startFinish" in t)
     print(f"\n{index['tracks']} track(s) in {len(index['tiles'])} tile(s), {size / 1024 / 1024:.1f} MB, "
           f"{est} with an estimated start/finish, in {time.time() - t0:.0f} s -> {args.out}")
+    if failed:
+        print(f"{len(failed)} of {len(codes)} country(ies) failed on every mirror: {', '.join(failed)}", file=sys.stderr)
+        if len(failed) > MAX_FAILED_FRACTION * len(codes):
+            return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

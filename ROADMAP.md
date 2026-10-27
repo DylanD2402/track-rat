@@ -642,7 +642,7 @@ Today `data/tracks.json` holds 129 Canadian tracks from OpenStreetMap; 8 have a 
 | 1 | **Accents on the screen:** fold characters the fonts don't have to plain letters, in one place in the drawing code | Sonnet, low |
 | 1 | **The world data pipeline:** `tools/fetch_world_tracks.py` (shared code with the Canada tool), names, kart/dirt/drag rules, the start/finish estimate, 2° tiles, tests; tried on a few countries | Sonnet, medium |
 | 1 | **The device reads world tiles:** load the nearby tiles from the SD card, merge with `tracks.json`, copy a world track before editing it, show an estimated start/finish | Sonnet, medium |
-| 2 | **The workflow and the zip,** the full world run, docs (user guide, hardware/SD card), and the website's analyser naming sessions from the tiles | Sonnet, low |
+| 2 | **The workflow and the zip** (done: `world-tracks.yml`, monthly, rolling `world-tracks` release; docs), the full world run, and the website's analyser naming sessions from the tiles (to do) | Sonnet, low |
 
 ## Not planned, and why
 
