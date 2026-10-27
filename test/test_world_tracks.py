@@ -280,3 +280,16 @@ assert _run(["LU", "MT"], []) == 0
 assert _run(["LU", "MT"], ["LU"]) == 1, "1 of 2 failed is over 5%"
 assert _run(sorted(w.COUNTRIES)[:40], ["AD"]) == 0, "1 of 40 failed (2.5%) still succeeds"
 print("failed country checks OK")
+
+# --shard I/N takes every Nth country; from the cache, a country with no answer counts as failed
+seen = []
+def _seen(path, q, **kw):
+    seen.append(os.path.basename(path))
+    return {"elements": []}, True
+with tempfile.TemporaryDirectory() as d:
+    w.main(["--countries", "AD,AE,AF,AG,AI", "--shard", "1/2", "--out", d, "--cache", d, "--pause", "0"], fetch=_seen)
+assert seen == ["AE.json", "AG.json"], seen
+with tempfile.TemporaryDirectory() as d:
+    missing = lambda path, q, **kw: (None, False)
+    assert w.main(["--countries", "LU,MT", "--out", d, "--cache", d, "--from-cache"], fetch=missing) == 1
+print("shard checks OK")

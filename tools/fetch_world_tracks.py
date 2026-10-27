@@ -436,6 +436,7 @@ def main(argv=None, fetch=None):
     ap.add_argument("--include-dirt", action="store_true")
     ap.add_argument("--include-drag", action="store_true")
     ap.add_argument("--no-karting", action="store_true")
+    ap.add_argument("--shard", metavar="I/N", help="only every Nth country, starting at I (0-based): for parallel jobs")
     ap.add_argument("--validate-estimates", action="store_true",
                     help="compare the start/finish estimate with the real lines in --db and exit")
     ap.add_argument("--db", default=DEFAULT_DB)
@@ -452,6 +453,11 @@ def main(argv=None, fetch=None):
     bad = [c for c in codes if c not in COUNTRIES]
     if bad:
         sys.exit(f"Unknown country code(s): {', '.join(bad)}")
+    if args.shard:
+        i, n = (int(x) for x in args.shard.split("/"))
+        if not 0 <= i < n:
+            sys.exit(f"--shard {args.shard}: I must be 0 to N-1")
+        codes = codes[i::n]
 
     tracks, failed, t0 = [], [], time.time()
     for n, cc in enumerate(codes, 1):
@@ -465,7 +471,8 @@ def main(argv=None, fetch=None):
             failed.append(cc)
             continue
         if doc is None:
-            print("  not in the cache, skipped")
+            print("  not in the cache, skipped", file=sys.stderr)
+            failed.append(cc)  # (building from a parallel run's answers: that part of it didn't finish)
             continue
         got = build_world_tracks(doc, cc, args.include_dirt, args.include_drag, not args.no_karting)
         print(f"  {len(got)} track(s){' (from cache)' if cached else ''}")
@@ -486,4 +493,5 @@ def main(argv=None, fetch=None):
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(line_buffering=True)  # progress shows as it happens in a log or CI
     sys.exit(main())
