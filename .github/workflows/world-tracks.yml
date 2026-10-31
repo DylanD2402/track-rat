@@ -19,9 +19,14 @@ on:
         description: 'Test run: comma separated ISO country codes (e.g. LU,MT). Leave empty for the whole world.'
         required: false
         default: ''
+      attempt:
+        description: 'Which run this is: a failed build starts the next one itself, up to 3'
+        required: false
+        default: '1'
 
 permissions:
   contents: write
+  actions: write  # a failed build starts the workflow again (gh workflow run)
 
 # One build at a time: a second waits rather than racing the first to the release
 concurrency:
@@ -30,18 +35,21 @@ concurrency:
 
 jobs:
   # The whole world one country at a time takes about 20 hours (Overpass is slow for big
-  # countries and often busy), past a job's 6-hour limit. So 12 jobs fetch a slice each, and
+  # countries and often busy), past a job's 6-hour limit. So 20 jobs fetch a slice each, and
   # keep the raw answers; the publish job builds the tiles from all of them. The big countries
   # go a state or province at a time (Canada took 2 hours that way), the United States, Russia
   # and China cut across several jobs: each leaves its answers, the build joins them.
+  # Even so a slice can run out of time on a slow day (Brazil's did). Each slice keeps its
+  # answers in the Actions cache for the month, so the next run only fetches what's missing,
+  # and a build that finds countries missing starts that next run itself (up to 3 runs).
   fetch:
-    name: Fetch countries (${{ matrix.shard }}/12)
+    name: Fetch countries (${{ matrix.shard }}/20)
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     env:
       COUNTRIES: ${{ github.event.inputs.countries }}
     steps:
@@ -51,15 +59,32 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Stops itself before the job's limit, so what it got is still uploaded. A country that
+      # This month's answers from earlier runs (a new month starts afresh); not for test runs
+      - name: The month
+        id: month
+        run: echo "key=world-osm-v1-$(date -u +%Y-%m)-s20-${{ matrix.shard }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6
+        if: env.COUNTRIES == ''
+        with:
+          path: build/osm-cache
+          key: ${{ steps.month.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.month.outputs.key }}-
+
+      # Stops itself before the job's limit, so what it got is still kept. A country that
       # failed has no answer, and the publish job counts it.
       - name: Fetch this slice
         timeout-minutes: 330
         continue-on-error: true
         run: |
-          args=(--pause 10 --shard "${{ matrix.shard }}/12" --out build/world-part)
+          args=(--pause 10 --shard "${{ matrix.shard }}/20" --out build/world-part)
           if [ -n "$COUNTRIES" ]; then args+=(--countries "$COUNTRIES"); fi
           python tools/fetch_world_tracks.py "${args[@]}"
+
+      - uses: actions/cache/save@v6
+        if: always() && env.COUNTRIES == ''
+        with:
+          path: build/osm-cache
+          key: ${{ steps.month.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -98,6 +123,19 @@ jobs:
           args=(--from-cache)
           if [ -n "$COUNTRIES" ]; then args+=(--countries "$COUNTRIES"); fi
           python tools/fetch_world_tracks.py "${args[@]}"
+
+      # Countries missing (a slice ran out of time): run again, which fetches only those
+      - name: Start the next run
+        if: failure() && env.COUNTRIES == ''
+        env:
+          ATTEMPT: ${{ github.event.inputs.attempt || '1' }}
+        run: |
+          if [ "$ATTEMPT" -lt 3 ]; then
+            echo "Missing countries: starting run $((ATTEMPT + 1)) of 3, which fetches only what's missing"
+            gh workflow run world-tracks.yml --ref "${{ github.ref_name }}" -f attempt=$((ATTEMPT + 1))
+          else
+            echo "Still missing after 3 runs: not publishing. The cache keeps what was fetched; run it again later."
+          fi
 
       - name: Check the result
         run: |
