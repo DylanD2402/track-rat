@@ -15,7 +15,7 @@ It is available under the [Open Database Licence (ODbL) 1.0](https://opendatacom
 
 - [`tools/fetch_canada_tracks.py`](tools/fetch_canada_tracks.py) fetches the motorsport tracks in Canada from the Overpass API, which serves OpenStreetMap data.
 - [`tools/fetch_world_tracks.py`](tools/fetch_world_tracks.py) does the same for every country, as the 2-degree tiles of world tracks (`/world/` on the SD card). They are OpenStreetMap data too, so they stay under the ODbL, credited to OpenStreetMap contributors. Their start/finish lines are estimates from the pit lane and are marked as such.
-- The published `trackrat-world-tracks.zip` (the GitHub Release tagged `world-tracks`, rebuilt monthly by the World tracks workflow) is OpenStreetMap data, so it is under the ODbL 1.0, © OpenStreetMap contributors.
+- The published `trackrat-world-tracks.zip` (the GitHub Release tagged `world-tracks`, built by the World tracks workflow or `tools/fetch_world_tracks.py`) is OpenStreetMap data, so it is under the ODbL 1.0, © OpenStreetMap contributors.
 - [`tools/fill_track_locations.py`](tools/fill_track_locations.py) adds the town and province names. It uses Nominatim and Photon, both run on OpenStreetMap data.
 - [`tools/fetch_track_map.py`](tools/fetch_track_map.py) adds a track's layout map from OpenStreetMap.
 

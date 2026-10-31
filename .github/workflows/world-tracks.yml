@@ -6,13 +6,9 @@ name: World tracks
 # A run with "countries" set is a test: it uploads trackrat-world-tracks-test.zip and
 # skips the track-count check, so it never replaces the real zip.
 
+# Run by hand only (Actions > World tracks > Run workflow); the monthly schedule was turned off
+# on 2026-10-31, and the set is now built now and then, on a PC or here.
 on:
-  schedule:
-    - cron: '17 3 1 * *'
-  # A change to this file on main runs it too (that's how the first build started)
-  push:
-    branches: [main]
-    paths: ['.github/workflows/world-tracks.yml']
   workflow_dispatch:
     inputs:
       countries:
@@ -170,7 +166,7 @@ jobs:
             echo "Track Rat reads the tiles for where you are. See the user guide, World tracks from the SD card."
             echo
             echo "Data © OpenStreetMap contributors, ODbL 1.0. Start/finish lines are estimates: check them after a lap."
-            echo "Rebuilt monthly. A zip named -test is from a test run on a few countries."
+            echo "Rebuilt now and then. A zip named -test is from a test run on a few countries."
           } > notes.md
           gh release view world-tracks >/dev/null 2>&1 || \
             gh release create world-tracks --title "World tracks (OpenStreetMap)" --prerelease --latest=false --notes-file notes.md

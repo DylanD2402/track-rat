@@ -634,7 +634,7 @@ Today `data/tracks.json` holds 129 Canadian tracks from OpenStreetMap; 8 have a 
 - **Size:** about 2 KB a track, 10,000 or more tracks: over 20 MB. That's far beyond the 3.4 MB LittleFS partition, and too much to parse at boot. So the world set lives on the SD card in 2° tiles, `/world/<lat>/<lon>.json` (each the corner's whole degrees, even numbers; the same schema as `tracks.json`). The device loads the tile it's in, plus a neighbour when near an edge.
 - **Your tracks win:** `tracks.json` stays the user's file. A world track with the same id, or within 1 km of one of yours, is hidden. Editing a world track (start/finish, a layout, a name) copies it into `tracks.json` first.
 - **Names:** the English name when there is one (the local one kept as `localName`). Text the screen's fonts can't draw is folded to plain letters (é → e); other scripts fall back to the English name.
-- **Getting it onto the card:** a "World tracks" workflow fetches the data from Overpass country by country (manually, or monthly) and publishes `trackrat-world-tracks.zip`. You unzip it onto the SD card.
+- **Getting it onto the card:** a "World tracks" workflow fetches the data from Overpass country by country (by hand; the monthly schedule was turned off) and publishes `trackrat-world-tracks.zip`. You unzip it onto the SD card.
 - **Licence:** OpenStreetMap data is ODbL: credited in `DATA_LICENSE.md`, and the published tiles stay under ODbL.
 
 | Wave | Step | Built by |
@@ -642,7 +642,7 @@ Today `data/tracks.json` holds 129 Canadian tracks from OpenStreetMap; 8 have a 
 | 1 | **Accents on the screen:** fold characters the fonts don't have to plain letters, in one place in the drawing code | Sonnet, low |
 | 1 | **The world data pipeline:** `tools/fetch_world_tracks.py` (shared code with the Canada tool), names, kart/dirt/drag rules, the start/finish estimate, 2° tiles, tests; tried on a few countries | Sonnet, medium |
 | 1 | **The device reads world tiles:** load the nearby tiles from the SD card, merge with `tracks.json`, copy a world track before editing it, show an estimated start/finish | Sonnet, medium |
-| 2 | **The workflow and the zip** (done: `world-tracks.yml`, monthly, rolling `world-tracks` release; docs), the full world run, and the website's analyser naming sessions from the tiles (to do) | Sonnet, low |
+| 2 | **The workflow and the zip** (done: `world-tracks.yml`, run by hand, rolling `world-tracks` release; docs), the full world run, and the website's analyser naming sessions from the tiles (to do) | Sonnet, low |
 
 ## Not planned, and why
 

@@ -91,7 +91,7 @@ See the [changelog](CHANGELOG.md).
 ## More
 
 - [User guide](docs/user-guide.md): driving, settings, tracks, the Wi-Fi page, session logs.
-- [World tracks](docs/user-guide.md#world-tracks-from-the-sd-card): a monthly OpenStreetMap download of tracks worldwide for the SD card.
+- [World tracks](docs/user-guide.md#world-tracks-from-the-sd-card): an OpenStreetMap download of tracks worldwide for the SD card.
 - [Hardware](docs/hardware.md): wiring, GPS data, add-ons.
 - [Phone apps and video](docs/phone-and-video.md): RaceChrono, RaceBox Mini mode, DJI Osmo Action, overlay videos.
 - [Flashing](docs/flashing.md)
