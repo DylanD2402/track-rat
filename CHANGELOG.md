@@ -4,10 +4,14 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.0-beta.1] - 2026-11-01
+
+World tracks: about 11,000 circuits from OpenStreetMap, read from the SD card. Download `trackrat-world-tracks.zip` from the [world-tracks release](https://github.com/DylanD2402/track-rat/releases/tag/world-tracks) and unzip it onto the card's root, so the files are at `/world/...`. Install both the firmware and the file system (the web installer does both).
+
 ### Added
 
 - World tracks from the SD card: tiles at `/world/<lat>/<lon>.json` (2 degree squares, the format of `tracks.json`) are read at the first GPS fix and when you move into another tile, with the next tile too when within about 10 km of an edge. A world track that `tracks.json` also has, or within 1 km of one of your tracks, is hidden. Changing one (start/finish, map, corner sectors) copies it into `tracks.json` first. A start/finish marked `"estimated": true` is timed like any other, and the Ready screen and track list say "Start/finish estimated: check it after a lap" until you set the line. With no card or no `/world` folder nothing changes.
-- A "World tracks" workflow builds the world tiles monthly and publishes `trackrat-world-tracks.zip` to the rolling `world-tracks` release; unzip it onto the SD card. A country that fails on every mirror is listed at the end; the run fails only if over 5% do.
+- A "World tracks" workflow builds the world tiles (run by hand, now and then) and publishes `trackrat-world-tracks.zip` to the rolling `world-tracks` release; unzip it onto the SD card. A country that fails on every mirror is listed at the end; the run fails only if over 5% do.
 - `tools/fetch_world_tracks.py` builds the world track set (Phase 10) from OpenStreetMap, country by country, as 2-degree tiles (`<lat>/<lon>.json`) plus `index.json`: English names with the local name kept, kart/dirt/drag rules as in the Canada tool, layouts for venues with several circuits, and an estimated start/finish (marked `"estimated": true`) for circuits with a mapped pit lane. Raw Overpass answers are cached, with retries and backoff. The code shared with the Canada tool is now `tools/osm_tracks.py`; the Canada tool works as before.
 
 ### Fixed
@@ -174,7 +178,8 @@ First public beta.
 
 Voice notes for the logbook aren't built yet; text notes work.
 
-[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.1.1-beta.1...HEAD
+[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.2.0-beta.1...HEAD
+[0.2.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.2.0-beta.1
 [0.1.1-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.1-beta.1
 [0.1.0-beta.3]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.2
