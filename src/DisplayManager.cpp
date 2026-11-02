@@ -267,13 +267,20 @@ static int signalBars(TFT_eSPI* g, const GPSHandler& gps, int right) {
 }
 
 // A battery outline filled to `pct`, right edge at `right`. Returns its left edge.
-static int batteryIcon(TFT_eSPI* g, int pct, uint16_t color, int right) {
+// While charging a small lightning bolt (two triangles) sits in the middle, in the text colour so it shows
+// on the green fill and on the dark part of the icon alike.
+static int batteryIcon(TFT_eSPI* g, int pct, uint16_t color, int right, bool charging) {
   const int bw = 22, bh = 11;
   const int x = right - bw - 2, y = HEADER_H / 2 - bh / 2;
   g->drawRoundRect(x, y, bw, bh, 3, C_TEXT2);
   g->fillRect(x + bw, y + 3, 2, bh - 6, C_TEXT2);  // the nub
   int fill = (bw - 4) * constrain(pct, 0, 100) / 100;
   if (fill > 0) g->fillRoundRect(x + 2, y + 2, fill, bh - 4, 1, color);
+  if (charging) {
+    const int cx = x + bw / 2, cy = y + bh / 2;
+    g->fillTriangle(cx + 2, cy - 3, cx - 2, cy + 1, cx + 2, cy, C_TEXT);
+    g->fillTriangle(cx - 2, cy + 3, cx + 2, cy - 1, cx - 2, cy, C_TEXT);
+  }
   return x;
 }
 
@@ -307,11 +314,11 @@ void DisplayManager::header(const String& title, const GPSHandler* gps, uint16_t
     }
   }
   if (batteryPct >= 0) {
-    uint16_t c = batteryPct <= 15 ? C_RED : batteryPct <= 30 ? C_YELLOW : C_TEXT;
-    right = batteryIcon(gfx, batteryPct, c, right) - 4;
+    uint16_t c = batteryCharging ? C_GREEN : batteryPct <= 15 ? C_RED : batteryPct <= 30 ? C_YELLOW : C_TEXT;
+    right = batteryIcon(gfx, batteryPct, c, right, batteryCharging) - 4;
     char b[8];
     snprintf(b, sizeof(b), "%d%%", batteryPct);
-    right -= text(b, right, HEADER_H / 2, Font::Caption, batteryPct <= 30 ? c : C_TEXT2, MR_DATUM) + 8;
+    right -= text(b, right, HEADER_H / 2, Font::Caption, (batteryCharging || batteryPct <= 30) ? c : C_TEXT2, MR_DATUM) + 8;
   }
   if (gps) {
     if (gps->isSimulated()) tag("BENCH", C_YELLOW, C_BG);  // simulated timing must be obvious

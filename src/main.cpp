@@ -2385,6 +2385,7 @@ void loop() {
 
   Power::update(now);
   display.setBatteryPercent(Power::batteryPercent());
+  display.setBatteryCharging(Power::batteryCharging());
   if (Power::batteryLow(now)) lowBatterySleep();
 #if AUTO_SLEEP_ENABLED
   // A phone on the Wi-Fi page counts as using the board, even with no taps:

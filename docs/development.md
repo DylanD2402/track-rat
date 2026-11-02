@@ -356,7 +356,7 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 
 **On Windows** without g++, the `ziglang` Python package has a C++ compiler that needs no install: `pip install ziglang`, then use `python -m ziglang c++` in place of `g++`, add `-D_USE_MATH_DEFINES`, and write the output to a `.exe`.
 
-`test/test_power.cpp` checks the battery voltage to percentage curve, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), a BOOT press (a tap, a hold that acts when let go before 2 s, one held on to switch off doing nothing else, the big button's hold acting at 1 s, and the press that woke the board doing nothing), and that firmware files, from the SD card or sent over Wi-Fi in chunks of any size, are accepted only if they're an ESP32-S3 app image:
+`test/test_power.cpp` checks the battery voltage to percentage curve, that charging is found from plug-in and unplug steps and the slow trend (and not from noise), that the shown percentage only moves the right way and slowly, that a missing battery shows nothing and never counts as low, that a brief dip doesn't trigger low battery, the 20-minute sleep timing (movement and touches reset it), a BOOT press (a tap, a hold that acts when let go before 2 s, one held on to switch off doing nothing else, the big button's hold acting at 1 s, and the press that woke the board doing nothing), and that firmware files, from the SD card or sent over Wi-Fi in chunks of any size, are accepted only if they're an ESP32-S3 app image:
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw

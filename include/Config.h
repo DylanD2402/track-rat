@@ -259,6 +259,15 @@
 #define BATTERY_LOW_MV 3300          // save the session and sleep at or below this...
 #define BATTERY_LOW_HOLD_MS 10000    // ...for this long
 #define BATTERY_LOW_SCREEN_MS 5000   // how long the "battery low" message shows before sleeping
+// Charging is inferred from the voltage (no pin for it): the charger lifts the reading ~100-200 mV.
+#define BATTERY_CHARGE_STEP_MV 50    // reading this far off the average twice in a row = plugged in / unplugged
+#define BATTERY_CHARGE_OFFSET_MV 100 // lift assumed when charging was found by the slow trend, not a step
+#define BATTERY_CHARGE_HOLD_MV 4150  // from here up only an unplug step clears charging (charger may be done)
+#define BATTERY_TREND_RISE_MV 20     // average up this much in 2 min = charging
+#define BATTERY_TREND_FALL_MV 15     // average down this much in 2 min = not charging
+// The shown percentage moves slowly and only the right way (like a phone)
+#define BATTERY_SHOWN_CHARGE_MS 30000     // at most 1 % up per this long while charging
+#define BATTERY_SHOWN_DISCHARGE_MS 60000  // at most 1 % down per this long otherwise
 
 // ---------------------------------------------------------------------------
 // Auto-sleep: parked with no touch or BOOT press. Waking is by BOOT (IO0) or a touch (INT, IO17).

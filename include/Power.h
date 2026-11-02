@@ -22,6 +22,7 @@ void update(uint32_t nowMs);
 
 int batteryPercent();               // 0..100, or -1 when no battery is fitted
 int batteryMillivolts();            // 0 when no battery is fitted
+bool batteryCharging();             // USB charger in (worked out from the voltage; no pin tells us)
 bool batteryLow(uint32_t nowMs);    // low for long enough to save and sleep
 
 // Backlight on (at the brightness set below) or off.

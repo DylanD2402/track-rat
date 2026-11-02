@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- A steady battery gauge: charging is worked out from the battery voltage (the board has no pin for it), and the icon and percentage turn green with a small lightning bolt while it charges. The shown percentage only rises while charging and only falls otherwise, by at most 1% per 30 s or per minute, so plugging in or unplugging no longer swings it. The low-battery sleep still uses the real voltage.
+
 ## [0.2.0-beta.1] - 2026-11-01
 
 World tracks: about 11,000 circuits from OpenStreetMap, read from the SD card. Download `trackrat-world-tracks.zip` from the [world-tracks release](https://github.com/DylanD2402/track-rat/releases/tag/world-tracks) and unzip it onto the card's root, so the files are at `/world/...`. Install both the firmware and the file system (the web installer does both).

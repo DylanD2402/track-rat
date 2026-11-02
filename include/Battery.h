@@ -52,6 +52,15 @@ struct Limits {
   uint32_t lowHoldMs;   // ... for this long, so a bump or a load spike doesn't trigger it
   int hysteresisMv;     // margin before "no battery" clears again (stops the gauge flickering at the limit)
   int absentAfter;      // this many out-of-range readings in a row = no battery (one ADC glitch isn't)
+  // Charging is worked out from the voltage alone (the board has no pin for it). The charger lifts the
+  // reading by charge current x the cell's resistance, and unplugging drops it again.
+  int chargeStepMv;     // a reading this far above/below the average, twice in a row = plugged in / unplugged
+  int chargeOffsetMv;   // lift assumed while charging when no plug-in step was seen (boot, missed step)
+  int chargeHoldMv;     // at or above this, only an unplug step clears "charging" (the charger may have finished)
+  int trendRiseMv;      // average up this much over 2 minutes = charging
+  int trendFallMv;      // average down this much over 2 minutes = not charging
+  uint32_t chargeStepMs;     // the shown percent rises by at most 1 in this time while charging
+  uint32_t dischargeStepMs;  // ... and falls by at most 1 in this time otherwise
 };
 
 class Monitor {
@@ -73,15 +82,21 @@ public:
       haveAverage = false;  // start again from a clean average if a battery appears
       lowSince = 0;
       lowTiming = false;
+      resetCharge();
       return;
     }
     fitted = true;
     if (!haveAverage) {
       avg16 = mv * 16;
       haveAverage = true;
+      refCount = 0;
+      refAt = nowMs;
     } else {
+      trackCharging(nowMs, mv);
       avg16 += (mv * 16 - avg16) / 8;  // 1 s samples: settles in about 10 s; x16 keeps the fraction
     }
+    updateTrend(nowMs);
+    updateShown(nowMs);
 
     if (avg16 <= lim.lowMv * 16) {
       if (!lowTiming) {
@@ -95,7 +110,10 @@ public:
 
   bool present() const { return fitted && haveAverage; }
   int millivolts() const { return present() ? (avg16 + 8) / 16 : 0; }
-  int percent() const { return present() ? percentFromMv(millivolts()) : -1; }
+  // Shown percentage, iPhone style: the first reading is straight from the voltage; after that it only
+  // rises while charging, only falls while not, and moves at most 1 % per chargeStepMs / dischargeStepMs.
+  int percent() const { return present() ? shown : -1; }
+  bool charging() const { return present() && isCharging; }
 
   // Low for long enough that the unit should save and sleep. Never true when no battery is fitted.
   bool low(uint32_t nowMs) const {
@@ -103,6 +121,103 @@ public:
   }
 
 private:
+  void resetCharge() {
+    isCharging = false;
+    offsetMv = 0;
+    up = down = 0;
+    refCount = 0;
+    haveShown = false;
+    shown = 0;
+  }
+
+  void setCharging(bool on, int offset) {
+    isCharging = on;
+    offsetMv = offset < 0 ? 0 : offset > MAX_OFFSET_MV ? MAX_OFFSET_MV : offset;
+    up = down = 0;
+    refCount = 0;  // the step (or the trend that found it) must not count again
+  }
+
+  // Plug-in / unplug steps. Called before the average takes the new sample.
+  void trackCharging(uint32_t nowMs, int mv) {
+    const int dev16 = mv * 16 - avg16;
+    if (!isCharging) {
+      down = 0;
+      if (dev16 >= lim.chargeStepMv * 16) {
+        if (up++ == 0) stepBase16 = avg16;
+        if (up >= 2) {
+          setCharging(true, (mv * 16 - stepBase16 + 8) / 16);
+          avg16 = mv * 16;  // snap: no 10 s crawl to the new level
+          refAt = nowMs;
+        }
+      } else {
+        up = 0;
+      }
+    } else {
+      up = 0;
+      if (dev16 <= -lim.chargeStepMv * 16) {
+        if (++down >= 2) {
+          setCharging(false, 0);
+          avg16 = mv * 16;
+          refAt = nowMs;
+        }
+      } else {
+        down = 0;
+      }
+    }
+  }
+
+  // Slow fallback: a reference taken every 60 s; compare with the one from 2 minutes ago.
+  void updateTrend(uint32_t nowMs) {
+    if ((uint32_t)(nowMs - refAt) < TREND_STEP_MS) return;
+    refAt = nowMs;
+    ref[2] = ref[1];
+    ref[1] = ref[0];
+    ref[0] = avg16;
+    if (refCount < 3) refCount++;
+    if (refCount < 3) return;
+    const int change = (ref[0] - ref[2]) / 16;
+    if (!isCharging && change >= lim.trendRiseMv) {
+      setCharging(true, lim.chargeOffsetMv);
+    } else if (isCharging && change <= -lim.trendFallMv && avg16 < lim.chargeHoldMv * 16) {
+      setCharging(false, 0);
+    }
+  }
+
+  // Best guess at the resting voltage. While charging the reading is lifted by about offsetMv; the lift
+  // fades to nothing as the cell nears 4.2 V (the current has tailed off), so a full cell reads 100 %.
+  int restingMv() const {
+    const int mv = millivolts();
+    if (!isCharging) return mv;
+    const int top = CURVE[0].mv, from = lim.chargeHoldMv - 50;
+    int off = offsetMv;
+    if (mv >= top) off = 0;
+    else if (mv > from && top > from) off = off * (top - mv) / (top - from);
+    return mv - off;
+  }
+
+  void updateShown(uint32_t nowMs) {
+    const int target = percentFromMv(restingMv());
+    if (!haveShown) {
+      shown = target;
+      haveShown = true;
+      shownAt = nowMs;
+      return;
+    }
+    const bool wants = isCharging ? target > shown : target < shown;
+    if (!wants) {
+      shownAt = nowMs;  // the next step waits a full interval from when it is wanted
+      return;
+    }
+    const uint32_t every = isCharging ? lim.chargeStepMs : lim.dischargeStepMs;
+    if ((uint32_t)(nowMs - shownAt) >= every) {
+      shown += isCharging ? 1 : -1;
+      shownAt = nowMs;
+    }
+  }
+
+  static const int MAX_OFFSET_MV = 250;
+  static const uint32_t TREND_STEP_MS = 60000;
+
   Limits lim;
   bool fitted = false;
   int outOfRange = 0;
@@ -110,6 +225,16 @@ private:
   int avg16 = 0;  // smoothed mV x 16
   bool lowTiming = false;
   uint32_t lowSince = 0;
+  bool isCharging = false;
+  int offsetMv = 0;  // size of the charger's lift
+  int up = 0, down = 0;
+  int stepBase16 = 0;
+  int ref[3] = {0, 0, 0};  // average taken 0, 60 and 120 s ago (x16)
+  int refCount = 0;
+  uint32_t refAt = 0;
+  bool haveShown = false;
+  int shown = 0;
+  uint32_t shownAt = 0;
 };
 
 }  // namespace battery
