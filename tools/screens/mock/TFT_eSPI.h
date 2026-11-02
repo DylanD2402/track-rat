@@ -5,6 +5,7 @@
 // the device. Shapes are close but not pixel-identical.
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include "Arduino.h"
 
@@ -77,6 +78,19 @@ public:
     for (int32_t y = -r; y <= r; y++)
       for (int32_t x = -r; x <= r; x++)
         if (x * x + y * y <= r * r + r) drawPixel(cx + x, cy + y, c);
+  }
+  // Filled triangle: every pixel centre inside or on the edges
+  void fillTriangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t c) {
+    auto edge = [](int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t px, int32_t py) {
+      return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+    };
+    int32_t minX = std::min({x0, x1, x2}), maxX = std::max({x0, x1, x2});
+    int32_t minY = std::min({y0, y1, y2}), maxY = std::max({y0, y1, y2});
+    for (int32_t y = minY; y <= maxY; y++)
+      for (int32_t x = minX; x <= maxX; x++) {
+        int32_t a = edge(x0, y0, x1, y1, x, y), b = edge(x1, y1, x2, y2, x, y), d = edge(x2, y2, x0, y0, x, y);
+        if ((a >= 0 && b >= 0 && d >= 0) || (a <= 0 && b <= 0 && d <= 0)) drawPixel(x, y, c);
+      }
   }
   // Rounded rectangles: inside test against the corner circles
   void fillRoundRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint16_t c) { roundRect(x, y, w, h, r, c, true); }
