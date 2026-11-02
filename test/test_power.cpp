@@ -16,7 +16,7 @@
 #include "check.h"
 
 // Same numbers as include/Config.h
-static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5}; }
+static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5, 50, 100, 4150, 20, 15, 30000, 60000}; }
 
 static void testVoltageToPercent() {
   using battery::percentFromMv;
@@ -544,6 +544,200 @@ static void testNoisyAndFloating() {
   printf("  noisy readings, floating charger, garbage readings and charging all behave\n");
 }
 
+// ---------------------------------------------------------------------------
+// Charging: found from the voltage alone, and a shown percentage that moves like a phone's
+// ---------------------------------------------------------------------------
+
+// Feeds `seconds` readings 1 s apart at `mv` (+/- noise); t advances.
+static void feed(battery::Monitor& m, uint32_t& t, int seconds, int mv, int noiseMv = 0) {
+  for (int i = 0; i < seconds; i++, t += 1000) m.addSample(t, mv + (noiseMv ? noise(noiseMv) : 0));
+}
+
+static void testChargingSteps() {
+  battery::Monitor m(limits());
+  uint32_t t = 0;
+  feed(m, t, 60, 3800, 10);
+  CHECK(!m.charging(), "charging with no charger");
+  const int before = m.percent();
+  CHECK(before >= 30 && before <= 45, "shown %d%% at 3.8 V", before);
+
+  // USB plugged in: the charger lifts the reading by 150 mV
+  feed(m, t, 1, 3950);
+  CHECK(!m.charging(), "one high reading is not a plug-in");
+  feed(m, t, 1, 3950);
+  CHECK(m.charging(), "two readings 150 mV up did not mean charging");
+  CHECK(m.millivolts() >= 3945, "average did not snap to the new level: %d mV", m.millivolts());
+  CHECK(m.percent() == before, "shown %d%% jumped from %d%% on plug-in", m.percent(), before);
+  // The lift is taken off: the shown figure doesn't climb to the 3.95 V value (70%)
+  feed(m, t, 600, 3950, 8);
+  CHECK(m.charging(), "charging dropped under noise");
+  CHECK(m.percent() >= before && m.percent() <= before + 10, "shown %d%% after 10 min (from %d%%)", m.percent(), before);
+
+  // Unplugged: the reading falls back 150 mV
+  const int charged = m.percent();
+  feed(m, t, 1, 3800);
+  CHECK(m.charging(), "one low reading is not an unplug");
+  feed(m, t, 1, 3800);
+  CHECK(!m.charging(), "two readings 150 mV down did not clear charging");
+  CHECK(m.millivolts() <= 3810, "average did not snap down: %d mV", m.millivolts());
+  CHECK(m.percent() == charged, "shown %d%% dropped from %d%% on unplug", m.percent(), charged);
+  feed(m, t, 600, 3800, 8);
+  CHECK(!m.charging(), "charging came back with no charger");
+  CHECK(m.percent() <= charged && m.percent() >= charged - 10, "shown %d%% after unplug (from %d%%)", m.percent(), charged);
+
+  // A load step while not charging (a 70 mV dip) does not snap the average or change the state
+  battery::Monitor d(limits());
+  t = 0;
+  feed(d, t, 60, 3800);
+  feed(d, t, 2, 3730);
+  CHECK(!d.charging() && d.millivolts() > 3780, "a load dip changed things: %d mV", d.millivolts());
+  printf("  charging: plug-in and unplug steps found; shown %d%% -> %d%% -> %d%% without a jump\n", before, charged,
+         m.percent());
+}
+
+static void testChargingNoise() {
+  // +/-15 mV of ADC noise (and bigger bursts, one at a time) for an hour: never flips the state
+  for (int level : {3700, 3850, 4100}) {
+    battery::Monitor m(limits());
+    uint32_t t = 0;
+    int flips = 0;
+    bool was = false;
+    for (int i = 0; i < 3600; i++, t += 1000) {
+      int mv = level + noise(15);
+      if (i % 50 == 7) mv += 45;  // lone spikes, never two in a row
+      m.addSample(t, mv);
+      if (m.charging() != was) flips++;
+      was = m.charging();
+    }
+    CHECK(flips == 0, "noise at %d mV flipped charging %d times", level, flips);
+  }
+  // Charging state also survives noise
+  battery::Monitor c(limits());
+  uint32_t t = 0;
+  feed(c, t, 30, 3800, 12);
+  feed(c, t, 3, 3950, 12);
+  CHECK(c.charging(), "plug-in missed under noise");
+  int flips = 0;
+  for (int i = 0; i < 3600; i++, t += 1000) {
+    c.addSample(t, 3950 + noise(15));
+    if (!c.charging()) flips++;
+  }
+  CHECK(flips == 0, "charging cleared %d times by noise", flips);
+  printf("  charging: an hour of +/-15 mV noise flips nothing\n");
+}
+
+static void testChargingTrend() {
+  // USB already in at boot: no step, just a slow rise as the charger fills the cell
+  battery::Monitor m(limits());
+  uint32_t t = 0;
+  feed(m, t, 5, 3800);
+  const int start = m.percent();
+  CHECK(!m.charging(), "charging with nothing to go on");
+  for (int i = 0; i < 400 && !m.charging(); i++, t += 1000) m.addSample(t, 3800 + i / 4 + noise(10));  // +15 mV/min
+  CHECK(m.charging(), "a 15 mV/min rise never counted as charging");
+  CHECK(t < 400000, "took too long: %u s", t / 1000);
+  CHECK(m.percent() >= start, "shown fell on a trend detection");
+  // Falling 20 mV over 2 minutes clears it again
+  for (int i = 0; i < 600 && m.charging(); i++, t += 1000) m.addSample(t, 3900 - i / 4 + noise(10));
+  CHECK(!m.charging(), "a slow fall never cleared charging");
+
+  // The very slow drain of a normal discharge never counts as a rise or fall
+  battery::Monitor d(limits());
+  t = 0;
+  for (int i = 0; i < 7200; i++, t += 1000) d.addSample(t, 3900 - i / 20 + noise(15));
+  CHECK(!d.charging(), "a normal discharge looked like charging");
+
+  // Near full the charger may have finished: a slow fall there does not clear charging
+  battery::Monitor f(limits());
+  t = 0;
+  feed(f, t, 30, 4000, 5);
+  feed(f, t, 3, 4180, 5);
+  CHECK(f.charging(), "plug-in near full missed");
+  for (int i = 0; i < 1200; i++, t += 1000) f.addSample(t, 4190 - i / 40);
+  CHECK(f.charging(), "charging cleared by a slow fall at %d mV", f.millivolts());
+  CHECK(f.percent() >= 90, "full charger shows %d%%", f.percent());
+  printf("  charging: a slow rise sets it, a slow fall clears it, normal discharge and noise do not\n");
+}
+
+static void testShownPercent() {
+  // First reading shows straight away, then it moves at most 1 % per 60 s while discharging
+  battery::Monitor m(limits());
+  uint32_t t = 0;
+  m.addSample(t, 3950);
+  CHECK(m.percent() == battery::percentFromMv(3950), "first reading %d%%", m.percent());
+  t += 1000;
+  // Voltage falls 3950 -> 3750 in 10 s (a heavy load): the shown figure only creeps
+  int prev = m.percent();
+  int maxDrop = 0;
+  uint32_t lastChange = 0;
+  bool slowEnough = true, onlyDown = true;
+  for (int i = 0; i < 600; i++, t += 1000) {
+    m.addSample(t, i < 10 ? 3950 - i * 20 : 3750);
+    int p = m.percent();
+    if (p > prev) onlyDown = false;
+    if (p < prev) {
+      if (prev - p > 1 || (lastChange && t - lastChange < 60000)) slowEnough = false;
+      lastChange = t;
+      maxDrop += prev - p;
+    }
+    prev = p;
+  }
+  CHECK(onlyDown, "shown percentage rose while discharging");
+  CHECK(slowEnough, "shown percentage fell faster than 1%% per minute");
+  CHECK(maxDrop >= 8 && maxDrop <= 10, "fell %d%% in 10 min", maxDrop);
+
+  // Charging: only up, at most 1 % per 30 s, and it keeps climbing towards the resting value
+  battery::Monitor c(limits());
+  t = 0;
+  feed(c, t, 30, 3700);
+  feed(c, t, 2, 3850);  // plug-in, 150 mV lift: resting ~3700 = ~15 %
+  CHECK(c.charging(), "no charging");
+  prev = c.percent();
+  lastChange = 0;
+  bool up = true, rate = true;
+  for (int i = 0; i < 3600; i++, t += 1000) {
+    c.addSample(t, 3850 + i / 12);  // 5 mV/min lift of the real cell
+    int p = c.percent();
+    if (p < prev) up = false;
+    if (p > prev) {
+      if (p - prev > 1 || (lastChange && t - lastChange < 30000)) rate = false;
+      lastChange = t;
+    }
+    prev = p;
+  }
+  CHECK(up, "shown percentage fell while charging");
+  CHECK(rate, "shown percentage rose faster than 1%% per 30 s");
+  CHECK(c.percent() > 30, "shown only %d%% after an hour of charging", c.percent());
+  printf("  shown percent: 1%%/60 s down, 1%%/30 s up, never the wrong way\n");
+}
+
+static void testChargingLowAndAbsent() {
+  // low() follows the real voltage: a shown percent held up by the rate limit doesn't hide a flat battery
+  battery::Monitor m(limits());
+  uint32_t t = 0;
+  feed(m, t, 30, 3800);
+  feed(m, t, 40, 3200);
+  CHECK(m.low(t), "low() not set at 3.2 V (shown %d%%)", m.percent());
+  CHECK(m.percent() > 20, "shown %d%% fell with the voltage instead of lagging", m.percent());
+
+  // Charging plugged in at 3.2 V: the snap up clears low as before
+  feed(m, t, 3, 3450);
+  CHECK(m.charging() && !m.low(t), "plugging in did not clear low");
+
+  // Battery pulled: everything starts again
+  battery::Monitor a(limits());
+  t = 0;
+  feed(a, t, 30, 3700);
+  feed(a, t, 3, 3850);
+  CHECK(a.charging(), "setup");
+  feed(a, t, 10, 20);
+  CHECK(!a.present() && !a.charging() && a.percent() == -1, "absent battery still charging/present");
+  feed(a, t, 20, 3900);
+  CHECK(a.present() && !a.charging(), "charging survived a battery swap");
+  CHECK(a.percent() == battery::percentFromMv(3900), "shown %d%% did not restart from the voltage", a.percent());
+  printf("  charging: low() follows the real voltage; a pulled battery resets everything\n");
+}
+
 // Same numbers as include/Config.h: LONG_PRESS_MS, POWER_OFF_BAR_MS, POWER_OFF_HOLD_MS
 static const uint32_t LONG_MS = 1000, BAR_MS = 2000, OFF_MS = 3000;
 
@@ -651,6 +845,11 @@ int main() {
   testDrivingDay();
   testDrainToLow();
   testNoisyAndFloating();
+  testChargingSteps();
+  testChargingNoise();
+  testChargingTrend();
+  testShownPercent();
+  testChargingLowAndAbsent();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

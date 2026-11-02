@@ -12,10 +12,13 @@
 namespace Power {
 
 static battery::Monitor monitor({BATTERY_PRESENT_MIN_MV, BATTERY_PRESENT_MAX_MV, BATTERY_LOW_MV, BATTERY_LOW_HOLD_MS,
-                                 BATTERY_PRESENT_HYST_MV, BATTERY_ABSENT_SAMPLES});
+                                 BATTERY_PRESENT_HYST_MV, BATTERY_ABSENT_SAMPLES, BATTERY_CHARGE_STEP_MV,
+                                 BATTERY_CHARGE_OFFSET_MV, BATTERY_CHARGE_HOLD_MV, BATTERY_TREND_RISE_MV,
+                                 BATTERY_TREND_FALL_MV, BATTERY_SHOWN_CHARGE_MS, BATTERY_SHOWN_DISCHARGE_MS});
 static uint32_t lastRead = 0;
 static uint32_t lastLog = 0;
 static bool firstRead = true;
+static bool lastCharging = false;
 RTC_DATA_ATTR static bool switchedOff = false;  // the last sleep was a power off (kept through deep sleep only)
 
 static const char* wakeCauseName(esp_sleep_wakeup_cause_t c) {
@@ -68,12 +71,16 @@ void update(uint32_t nowMs) {
   int pinMv = 0;
   int mv = readBatteryMv(&pinMv);
   monitor.addSample(nowMs, mv);
+  if (monitor.charging() != lastCharging) {
+    lastCharging = monitor.charging();
+    DEBUG_PRINTF("Battery: %s (average %d mV)\n", lastCharging ? "charging" : "not charging", monitor.millivolts());
+  }
 
   if (lastLog == 0 || nowMs - lastLog >= 10000) {
     lastLog = nowMs ? nowMs : 1;
     if (monitor.present()) {
-      DEBUG_PRINTF("Battery: pin %d mV, battery %d mV (average %d mV), %d%%\n", pinMv, mv, monitor.millivolts(),
-                   monitor.percent());
+      DEBUG_PRINTF("Battery: pin %d mV, battery %d mV (average %d mV), %d%%, %s\n", pinMv, mv, monitor.millivolts(),
+                   monitor.percent(), monitor.charging() ? "charging" : "not charging");
     } else {
       DEBUG_PRINTF("Battery: none fitted (pin %d mV, reads %d mV)\n", pinMv, mv);
     }
@@ -84,6 +91,7 @@ void update(uint32_t nowMs) {
 }
 
 int batteryPercent() { return BATTERY_ENABLED ? monitor.percent() : -1; }
+bool batteryCharging() { return BATTERY_ENABLED && monitor.charging(); }
 int batteryMillivolts() { return BATTERY_ENABLED ? monitor.millivolts() : 0; }
 bool batteryLow(uint32_t nowMs) { return BATTERY_ENABLED && monitor.low(nowMs); }
 

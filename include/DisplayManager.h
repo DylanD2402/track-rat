@@ -171,6 +171,7 @@ public:
   void drawPerfCard(const perf::PerfRun& pr, int index, perf::SpeedUnit units, bool touchOk);
 
   // Battery, sleep and firmware update screens (DisplayPower.cpp)
+  void setBatteryCharging(bool charging) { batteryCharging = charging; }  // green icon with a bolt
   void setBatteryPercent(int percent) { batteryPct = percent; }  // shown in the header; -1 = no battery fitted
   // The camera's CAM/REC tag in the top bar: whether a tap at x hit it (drawn in the last frame)
   bool cameraTagHit(int x) const { return camTagL >= 0 && x >= camTagL - 8 && x <= camTagR + 8; }
@@ -220,6 +221,7 @@ private:
   uint16_t* shown = nullptr;  // copy of the panel contents (PSRAM)
   bool shownValid = false;
   int batteryPct = -1;
+  bool batteryCharging = false;
   int camTagL = -1, camTagR = -1;  // the camera's tag in the top bar (-1: not drawn)
   uint32_t camAskedAt = 0;         // millis() of a tap on it (0: none)
   bool camAskedWasRec = false;     // recording when tapped
