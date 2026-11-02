@@ -192,10 +192,8 @@ int main(int argc, char** argv) {
   save(d, "02_gps_wait");
   d.setBatteryPercent(76);
   setGps(gps, true, SF_LAT + 0.002, SF_LON, 0, 0);
-  d.setBatteryCharging(true);  // plugged in: green icon with a bolt
   d.drawGpsWait(gps, 131, "SD", true, true);
   save(d, "03_gps_status");
-  d.setBatteryCharging(false);
   {  // the home screen (9.1): each kind of Next up card, then BOOT navigation
     nextcard::Inputs in;
     in.fix = true;
