@@ -263,8 +263,8 @@
 #define BATTERY_CHARGE_STEP_MV 50    // reading this far off the average twice in a row = plugged in / unplugged
 #define BATTERY_CHARGE_OFFSET_MV 100 // lift assumed when charging was found by the slow trend, not a step
 #define BATTERY_CHARGE_HOLD_MV 4150  // from here up only an unplug step clears charging (charger may be done)
-#define BATTERY_TREND_RISE_MV 20     // average up this much in 2 min = charging
-#define BATTERY_TREND_FALL_MV 15     // average down this much in 2 min = not charging
+#define BATTERY_TREND_RISE_MV 6      // up this much over 4 min = charging (near full it rises only 1-2 mV/min)
+#define BATTERY_TREND_FALL_MV 15     // down this much over 4 min = not charging
 // The shown percentage moves slowly and only the right way (like a phone)
 #define BATTERY_SHOWN_CHARGE_MS 30000     // at most 1 % up per this long while charging
 #define BATTERY_SHOWN_DISCHARGE_MS 60000  // at most 1 % down per this long otherwise

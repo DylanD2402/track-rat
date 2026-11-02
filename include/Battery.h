@@ -57,8 +57,8 @@ struct Limits {
   int chargeStepMv;     // a reading this far above/below the average, twice in a row = plugged in / unplugged
   int chargeOffsetMv;   // lift assumed while charging when no plug-in step was seen (boot, missed step)
   int chargeHoldMv;     // at or above this, only an unplug step clears "charging" (the charger may have finished)
-  int trendRiseMv;      // average up this much over 2 minutes = charging
-  int trendFallMv;      // average down this much over 2 minutes = not charging
+  int trendRiseMv;      // up this much over 4 minutes (minute means) = charging
+  int trendFallMv;      // down this much over 4 minutes = not charging
   uint32_t chargeStepMs;     // the shown percent rises by at most 1 in this time while charging
   uint32_t dischargeStepMs;  // ... and falls by at most 1 in this time otherwise
 };
@@ -90,12 +90,14 @@ public:
       avg16 = mv * 16;
       haveAverage = true;
       refCount = 0;
+      sum = 0;
+      sumCount = 0;
       refAt = nowMs;
     } else {
       trackCharging(nowMs, mv);
       avg16 += (mv * 16 - avg16) / 8;  // 1 s samples: settles in about 10 s; x16 keeps the fraction
     }
-    updateTrend(nowMs);
+    updateTrend(nowMs, mv);
     updateShown(nowMs);
 
     if (avg16 <= lim.lowMv * 16) {
@@ -126,6 +128,8 @@ private:
     offsetMv = 0;
     up = down = 0;
     refCount = 0;
+    sum = 0;
+    sumCount = 0;
     haveShown = false;
     shown = 0;
   }
@@ -135,6 +139,8 @@ private:
     offsetMv = offset < 0 ? 0 : offset > MAX_OFFSET_MV ? MAX_OFFSET_MV : offset;
     up = down = 0;
     refCount = 0;  // the step (or the trend that found it) must not count again
+    sum = 0;
+    sumCount = 0;
   }
 
   // Plug-in / unplug steps. Called before the average takes the new sample.
@@ -166,16 +172,21 @@ private:
     }
   }
 
-  // Slow fallback: a reference taken every 60 s; compare with the one from 2 minutes ago.
-  void updateTrend(uint32_t nowMs) {
+  // Slow fallback: the mean of each minute's readings, compared with the one from 4 minutes before. Near
+  // full the charger lifts the cell only 1-2 mV a minute, so the window is long and the means keep ADC
+  // noise (a few mV per reading) well under the thresholds.
+  void updateTrend(uint32_t nowMs, int mv) {
+    sum += mv;
+    sumCount++;
     if ((uint32_t)(nowMs - refAt) < TREND_STEP_MS) return;
     refAt = nowMs;
-    ref[2] = ref[1];
-    ref[1] = ref[0];
-    ref[0] = avg16;
-    if (refCount < 3) refCount++;
-    if (refCount < 3) return;
-    const int change = (ref[0] - ref[2]) / 16;
+    for (int i = TREND_REFS - 1; i > 0; i--) ref[i] = ref[i - 1];
+    ref[0] = (int)(sum * 16 / sumCount);
+    sum = 0;
+    sumCount = 0;
+    if (refCount < TREND_REFS) refCount++;
+    if (refCount < TREND_REFS) return;
+    const int change = (ref[0] - ref[TREND_REFS - 1]) / 16;
     if (!isCharging && change >= lim.trendRiseMv) {
       setCharging(true, lim.chargeOffsetMv);
     } else if (isCharging && change <= -lim.trendFallMv && avg16 < lim.chargeHoldMv * 16) {
@@ -217,6 +228,7 @@ private:
 
   static const int MAX_OFFSET_MV = 250;
   static const uint32_t TREND_STEP_MS = 60000;
+  static const int TREND_REFS = 5;  // minute means 0..4 minutes ago
 
   Limits lim;
   bool fitted = false;
@@ -229,8 +241,10 @@ private:
   int offsetMv = 0;  // size of the charger's lift
   int up = 0, down = 0;
   int stepBase16 = 0;
-  int ref[3] = {0, 0, 0};  // average taken 0, 60 and 120 s ago (x16)
+  int ref[TREND_REFS] = {};  // minute means, newest first (x16)
   int refCount = 0;
+  int32_t sum = 0;  // readings so far this minute
+  int sumCount = 0;
   uint32_t refAt = 0;
   bool haveShown = false;
   int shown = 0;

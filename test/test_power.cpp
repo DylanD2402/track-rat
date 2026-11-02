@@ -16,7 +16,7 @@
 #include "check.h"
 
 // Same numbers as include/Config.h
-static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5, 50, 100, 4150, 20, 15, 30000, 60000}; }
+static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5, 50, 100, 4150, 6, 15, 30000, 60000}; }
 
 static void testVoltageToPercent() {
   using battery::percentFromMv;
@@ -637,9 +637,16 @@ static void testChargingTrend() {
   CHECK(m.charging(), "a 15 mV/min rise never counted as charging");
   CHECK(t < 400000, "took too long: %u s", t / 1000);
   CHECK(m.percent() >= start, "shown fell on a trend detection");
-  // Falling 20 mV over 2 minutes clears it again
+  // A slow fall clears it again
   for (int i = 0; i < 600 && m.charging(); i++, t += 1000) m.addSample(t, 3900 - i / 4 + noise(10));
   CHECK(!m.charging(), "a slow fall never cleared charging");
+
+  // USB in at boot with the cell nearly full: the charger lifts it only about 2 mV a minute
+  battery::Monitor n(limits());
+  t = 0;
+  for (int i = 0; i < 900 && !n.charging(); i++, t += 1000) n.addSample(t, 4085 + i / 30 + noise(5));
+  CHECK(n.charging(), "a 2 mV/min rise near full never counted as charging");
+  CHECK(t <= 420000, "near full took too long: %u s", t / 1000);
 
   // The very slow drain of a normal discharge never counts as a rise or fall
   battery::Monitor d(limits());
