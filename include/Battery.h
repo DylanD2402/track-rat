@@ -56,8 +56,7 @@ struct Limits {
   // reading by charge current x the cell's resistance, and unplugging drops it again.
   int chargeStepMv;     // a reading this far above/below the average, twice in a row = plugged in / unplugged
   int chargeOffsetMv;   // lift assumed while charging when no plug-in step was seen (boot, missed step)
-  int chargeHoldMv;     // at or above this, only an unplug step clears "charging" (the charger may have finished)
-  int trendRiseMv;      // up this much over 4 minutes (minute means) = charging
+  int trendRiseMv;      // up this much over 4 minutes (minute means) = charging, if it is smooth (no jump, see smoothRise)
   int trendFallMv;      // down this much over 4 minutes = not charging
   int climbMinutes;     // slow climb: the minute means over this many minutes ...
   int climbRiseMv;      // ... rose by at least this much (the 4-minute rule above misses 0.3 mV a minute) ...
@@ -202,13 +201,25 @@ private:
     if (refCount < MAX_REFS) refCount++;
     if (refCount > TREND_SPAN) {
       const int change = (ref[0] - ref[TREND_SPAN]) / 16;
-      if (!isCharging && change >= lim.trendRiseMv) {
+      if (!isCharging && change >= lim.trendRiseMv && smoothRise()) {
         setCharging(true, lim.chargeOffsetMv);
-      } else if (isCharging && change <= -lim.trendFallMv && avg16 < lim.chargeHoldMv * 16) {
-        setCharging(false, 0);
+      } else if (isCharging && change <= -lim.trendFallMv) {
+        setCharging(false, 0);  // at any voltage: a charger that has finished no longer holds the cell up
       }
     }
     if (!isCharging && climbing()) setCharging(true, lim.chargeOffsetMv);
+  }
+
+  // The 4-minute rise must be smooth. A voltage recovering after a load drops rises in one minute (a jump),
+  // charging rises a bit every minute. A minute that gains more than climbJumpMv and also makes up most
+  // (2/5) of the whole rise is a jump; a fast but even charge (15 mV a minute) has no such minute.
+  bool smoothRise() const {
+    const int total = ref[0] - ref[TREND_SPAN];
+    for (int i = 0; i < TREND_SPAN; i++) {
+      const int step = ref[i] - ref[i + 1];
+      if (step > lim.climbJumpMv * 16 && step * 5 > total * 2) return false;
+    }
+    return true;
   }
 
   // A steady slow climb over climbMinutes: near full, on USB with no step to see, the cell gains only
@@ -230,7 +241,7 @@ private:
   int restingMv() const {
     const int mv = millivolts();
     if (!charged()) return mv;
-    const int top = CURVE[0].mv, from = lim.chargeHoldMv - 50;
+    const int top = CURVE[0].mv, from = OFFSET_FADE_FROM_MV;
     int off = isCharging ? offsetMv : lim.chargeOffsetMv;  // (a USB host with no step seen: the usual lift)
     if (mv >= top) off = 0;
     else if (mv > from && top > from) off = off * (top - mv) / (top - from);
@@ -258,6 +269,7 @@ private:
   }
 
   static const int MAX_OFFSET_MV = 250;
+  static const int OFFSET_FADE_FROM_MV = 4100;  // the charger's lift fades out from here to 4200 mV
   static const uint32_t TREND_STEP_MS = 60000;
   static const int TREND_SPAN = 4;  // minutes the quick trend looks back
   static const int MAX_REFS = 16;   // minute means kept: the slow climb can look back up to 15 minutes

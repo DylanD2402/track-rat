@@ -6,7 +6,7 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ### Added
 
-- A steady battery gauge: charging is worked out from the battery voltage (the board has no pin for it), and the icon and percentage turn green with a small lightning bolt while it charges. The shown percentage only rises while charging and only falls otherwise, by at most 1% per 30 s or per minute, so plugging in or unplugging no longer swings it. The low-battery sleep still uses the real voltage. Plugged into a computer or a car's USB port it turns green at once, and a steady climb of 3 mV over 10 minutes (a nearly full battery on USB) counts as charging too.
+- A steady battery gauge: charging is worked out from the battery voltage (the board has no pin for it), and the icon and percentage turn green with a small lightning bolt while it charges. The shown percentage only rises while charging and only falls otherwise, by at most 1% per 30 s or per minute, so plugging in or unplugging no longer swings it. The low-battery sleep still uses the real voltage. Plugged into a computer or a car's USB port it turns green at once, and a steady climb of 3 mV over 10 minutes (a nearly full battery on USB) counts as charging too. A wall charger shows within about 2 seconds while it is charging; once the charger has finished it can't be told from the battery and shows white, while a computer or car USB port always shows green.
 
 ## [0.2.0-beta.1] - 2026-11-01
 

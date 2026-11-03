@@ -260,10 +260,9 @@
 #define BATTERY_LOW_HOLD_MS 10000    // ...for this long
 #define BATTERY_LOW_SCREEN_MS 5000   // how long the "battery low" message shows before sleeping
 // Charging is inferred from the voltage (no pin for it): the charger lifts the reading ~100-200 mV.
-#define BATTERY_CHARGE_STEP_MV 50    // reading this far off the average twice in a row = plugged in / unplugged
+#define BATTERY_CHARGE_STEP_MV 30    // reading this far off the average twice in a row = plugged in / unplugged (measured: +74 / -60 mV)
 #define BATTERY_CHARGE_OFFSET_MV 100 // lift assumed when charging was found by the slow trend, not a step
-#define BATTERY_CHARGE_HOLD_MV 4150  // from here up only an unplug step clears charging (charger may be done)
-#define BATTERY_TREND_RISE_MV 6      // up this much over 4 min = charging (near full it rises only 1-2 mV/min)
+#define BATTERY_TREND_RISE_MV 6      // up this much over 4 min, smoothly (no jump) = charging (near full it rises only 1-2 mV/min)
 #define BATTERY_TREND_FALL_MV 15     // down this much over 4 min = not charging
 #define BATTERY_CLIMB_MIN 10         // slow climb: minute means over this many minutes ...
 #define BATTERY_CLIMB_RISE_MV 3      // ... up at least this much (USB at start-up, nearly full: 0.3 mV/min) ...

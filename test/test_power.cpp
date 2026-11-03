@@ -16,7 +16,7 @@
 #include "check.h"
 
 // Same numbers as include/Config.h
-static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5, 50, 100, 4150, 6, 15, 10, 3, 1, 5, 30000, 60000}; }
+static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5, 30, 100, 6, 15, 10, 3, 1, 5, 30000, 60000}; }
 
 static void testVoltageToPercent() {
   using battery::percentFromMv;
@@ -660,15 +660,14 @@ static void testChargingTrend() {
   for (int i = 0; i < 7200; i++, t += 1000) d.addSample(t, 3900 - i / 20 + noise(15));
   CHECK(!d.charging(), "a normal discharge looked like charging");
 
-  // Near full the charger may have finished: a slow fall there does not clear charging
+  // Near full the charger may have finished: a slow fall there clears charging, as at any other voltage
   battery::Monitor f(limits());
   t = 0;
   feed(f, t, 30, 4000, 5);
   feed(f, t, 3, 4180, 5);
   CHECK(f.charging(), "plug-in near full missed");
-  for (int i = 0; i < 1200; i++, t += 1000) f.addSample(t, 4190 - i / 40);
-  CHECK(f.charging(), "charging cleared by a slow fall at %d mV", f.millivolts());
-  CHECK(f.percent() >= 90, "full charger shows %d%%", f.percent());
+  for (int i = 0; i < 600 && f.charging(); i++, t += 1000) f.addSample(t, 4190 - i / 8);  // 7.5 mV a minute
+  CHECK(!f.charging(), "a slow fall near full never cleared charging (%d mV)", f.millivolts());
   printf("  charging: a slow rise sets it, a slow fall clears it, normal discharge and noise do not\n");
 }
 
@@ -768,6 +767,83 @@ static void testSlowClimb() {
   }
   rngState = savedRng;
   printf("  charging: a 0.3 mV/min climb found after %u s; flat, draining and load-recovery voltages are not\n", foundAt);
+}
+
+// Measured on the real board (TP4054, 3000 mAh): a wall charger that is charging steps the reading +74 / -60 mV
+// in one reading. No USB host flag here, so only the voltage rules can see it.
+static void testMeasuredPlugSequence() {
+  const uint32_t savedRng = rngState;
+  rngState = 777;
+  battery::Monitor m(limits());
+  uint32_t t = 0;
+  int changes = 0;
+  bool was = false;
+  struct Seg {
+    int seconds, mv, noiseMv;
+    bool charging;  // the state from the second reading of the segment on
+  };
+  const Seg seq[] = {{100, 4154, 2, false}, {35, 4090, 4, false}, {60, 4160, 4, true},
+                     {30, 4102, 4, false},  {40, 4174, 4, true}};
+  int n = 0;
+  for (const Seg& s : seq) {
+    for (int i = 0; i < s.seconds; i++, t += 1000) {
+      m.addSample(t, s.mv + noise(s.noiseMv));
+      if (i >= 1) {
+        CHECK(m.charging() == s.charging, "segment %d reading %d: charging=%d, want %d", n, i, m.charging(), s.charging);
+      }
+      if (m.charging() != was) changes++;
+      was = m.charging();
+    }
+    n++;
+  }
+  CHECK(changes == 3, "state changed %d times, want 3 (on, off, on)", changes);
+  rngState = savedRng;
+
+  // The charger has finished (about 4086 on battery, 4094 plugged in): an 8 mV step is not a plug-in or unplug.
+  // The steps come on whole minutes so the minute means see them as one jump too.
+  rngState = 4242;
+  battery::Monitor f(limits());
+  t = 0;
+  bool ever = false;
+  for (int block = 0; block < 6; block++) {
+    const int mv = (block % 2) ? 4094 : 4086;
+    for (int i = 0; i < 120; i++, t += 1000) {
+      f.addSample(t, mv + noise(2));
+      ever = ever || f.charging();
+    }
+  }
+  CHECK(!ever, "an 8 mV step changed the charging state");
+  rngState = savedRng;
+  printf("  charging: measured +74/-60 mV plug sequence followed with no flicker; an 8 mV step is ignored\n");
+}
+
+// A load drops the voltage and it jumps back: the 4-minute rise rule must not read that as charging
+static void testLoadRecovery() {
+  const uint32_t savedRng = rngState;
+  struct Case {
+    int dipMv;
+    int stepMv;  // chargeStepMv for the run (huge: isolates the 4-minute rule from the step rule)
+  };
+  for (Case c : {Case{25, 30}, Case{40, 1000}}) {
+    rngState = 99;
+    battery::Limits lim = limits();
+    lim.chargeStepMv = c.stepMv;
+    battery::Monitor m(lim);
+    uint32_t t = 0;
+    bool ever = false;
+    auto run = [&](int seconds, int mv) {
+      for (int i = 0; i < seconds; i++, t += 1000) {
+        m.addSample(t, mv + noise(2));
+        ever = ever || m.charging();
+      }
+    };
+    run(720, 4000);
+    run(120, 4000 - c.dipMv);
+    run(1200, 4000);
+    CHECK(!ever, "a %d mV dip and recovery set charging", c.dipMv);
+  }
+  rngState = savedRng;
+  printf("  charging: a load-drop recovery (a jump) is not taken for a 4-minute rise\n");
 }
 
 static void testShownPercent() {
@@ -961,6 +1037,8 @@ int main() {
   testChargingTrend();
   testUsbHost();
   testSlowClimb();
+  testMeasuredPlugSequence();
+  testLoadRecovery();
   testShownPercent();
   testChargingLowAndAbsent();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
