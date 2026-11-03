@@ -68,17 +68,23 @@ static int readBatteryMv(int* pinMvOut) {
 // The last 10 minutes of readings, 1 s apart, for measuring what plugging in and unplugging do on a real
 // board: send "b" over the USB serial port and they are printed (oldest first).
 static const int HISTORY = 600;
-static int16_t historyMv[HISTORY];
-static uint8_t historyFlags[HISTORY];  // bit 0: USB host, bit 1: backlight on, bit 2: charging
-static int historyNext = 0, historyCount = 0;
+// Kept in RTC memory, so it survives deep sleep and resets (not a power cut). A row marked "start" is the
+// first reading after the board started again: the time before it is a gap.
+static const uint32_t HISTORY_MAGIC = 0x42415448;
+RTC_NOINIT_ATTR static uint32_t historyMagic;
+RTC_NOINIT_ATTR static int16_t historyMv[HISTORY];
+RTC_NOINIT_ATTR static uint8_t historyFlags[HISTORY];  // bit 0: USB host, 1: backlight on, 2: charging, 3: start
+RTC_NOINIT_ATTR static int historyNext, historyCount;
+static bool historyStarted = false;
 static bool backlightIsOn();
 
 static void printHistory() {
-  DEBUG_PRINTF("Battery history: %d readings, 1 s apart, oldest first (s, mV, usb, backlight, charging)\n", historyCount);
+  DEBUG_PRINTF("Battery history: %d readings, 1 s apart, oldest first (n, mV, usb, backlight, charging, start)\n", historyCount);
   for (int i = 0; i < historyCount; i++) {
     int k = (historyNext - historyCount + i + HISTORY) % HISTORY;
     uint8_t f = historyFlags[k];
-    DEBUG_PRINTF("%d,%d,%d,%d,%d\n", i - historyCount + 1, historyMv[k], f & 1, (f >> 1) & 1, (f >> 2) & 1);
+    DEBUG_PRINTF("%d,%d,%d,%d,%d,%d\n", i - historyCount + 1, historyMv[k], f & 1, (f >> 1) & 1, (f >> 2) & 1,
+                 (f >> 3) & 1);
     delay(2);  // let the USB serial keep up
   }
   DEBUG_PRINTLN("Battery history: end");
@@ -113,8 +119,15 @@ void update(uint32_t nowMs) {
     lastCharging = monitor.charging();
     DEBUG_PRINTF("Battery: %s (average %d mV)\n", lastCharging ? "charging" : "not charging", monitor.millivolts());
   }
+  if (historyMagic != HISTORY_MAGIC || historyNext < 0 || historyNext >= HISTORY || historyCount < 0 ||
+      historyCount > HISTORY) {
+    historyMagic = HISTORY_MAGIC;  // power cut: RTC memory holds garbage
+    historyNext = historyCount = 0;
+  }
   historyMv[historyNext] = (int16_t)mv;
-  historyFlags[historyNext] = (usbHost ? 1 : 0) | (backlightIsOn() ? 2 : 0) | (monitor.charging() ? 4 : 0);
+  historyFlags[historyNext] = (usbHost ? 1 : 0) | (backlightIsOn() ? 2 : 0) | (monitor.charging() ? 4 : 0) |
+                              (historyStarted ? 0 : 8);
+  historyStarted = true;
   historyNext = (historyNext + 1) % HISTORY;
   if (historyCount < HISTORY) historyCount++;
 
