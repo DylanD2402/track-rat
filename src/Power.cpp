@@ -14,11 +14,13 @@ namespace Power {
 static battery::Monitor monitor({BATTERY_PRESENT_MIN_MV, BATTERY_PRESENT_MAX_MV, BATTERY_LOW_MV, BATTERY_LOW_HOLD_MS,
                                  BATTERY_PRESENT_HYST_MV, BATTERY_ABSENT_SAMPLES, BATTERY_CHARGE_STEP_MV,
                                  BATTERY_CHARGE_OFFSET_MV, BATTERY_CHARGE_HOLD_MV, BATTERY_TREND_RISE_MV,
-                                 BATTERY_TREND_FALL_MV, BATTERY_SHOWN_CHARGE_MS, BATTERY_SHOWN_DISCHARGE_MS});
+                                 BATTERY_TREND_FALL_MV, BATTERY_CLIMB_MIN, BATTERY_CLIMB_RISE_MV,
+                                 BATTERY_CLIMB_DIP_MV, BATTERY_CLIMB_JUMP_MV, BATTERY_SHOWN_CHARGE_MS, BATTERY_SHOWN_DISCHARGE_MS});
 static uint32_t lastRead = 0;
 static uint32_t lastLog = 0;
 static bool firstRead = true;
 static bool lastCharging = false;
+static bool lastUsbHost = false;
 RTC_DATA_ATTR static bool switchedOff = false;  // the last sleep was a power off (kept through deep sleep only)
 
 static const char* wakeCauseName(esp_sleep_wakeup_cause_t c) {
@@ -70,6 +72,16 @@ void update(uint32_t nowMs) {
 
   int pinMv = 0;
   int mv = readBatteryMv(&pinMv);
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+  const bool usbHost = HWCDC::isPlugged();  // a PC or car port is sending frames (a wall charger isn't)
+#else
+  const bool usbHost = false;
+#endif
+  if (usbHost != lastUsbHost) {
+    lastUsbHost = usbHost;
+    DEBUG_PRINTF("Battery: USB host %s\n", usbHost ? "seen" : "gone");
+  }
+  monitor.setUsbHost(usbHost);
   monitor.addSample(nowMs, mv);
   if (monitor.charging() != lastCharging) {
     lastCharging = monitor.charging();

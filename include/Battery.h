@@ -59,6 +59,10 @@ struct Limits {
   int chargeHoldMv;     // at or above this, only an unplug step clears "charging" (the charger may have finished)
   int trendRiseMv;      // up this much over 4 minutes (minute means) = charging
   int trendFallMv;      // down this much over 4 minutes = not charging
+  int climbMinutes;     // slow climb: the minute means over this many minutes ...
+  int climbRiseMv;      // ... rose by at least this much (the 4-minute rule above misses 0.3 mV a minute) ...
+  int climbDipMv;       // ... with no minute more than this far below the one before ...
+  int climbJumpMv;      // ... or more than this far above it (a recovery after a load drops is a jump, not a climb)
   uint32_t chargeStepMs;     // the shown percent rises by at most 1 in this time while charging
   uint32_t dischargeStepMs;  // ... and falls by at most 1 in this time otherwise
 };
@@ -115,7 +119,15 @@ public:
   // Shown percentage, iPhone style: the first reading is straight from the voltage; after that it only
   // rises while charging, only falls while not, and moves at most 1 % per chargeStepMs / dischargeStepMs.
   int percent() const { return present() ? shown : -1; }
-  bool charging() const { return present() && isCharging; }
+  bool charging() const { return present() && charged(); }
+
+  // A USB host (PC, car media port) is sending frames: the cable is in, whatever the voltage says. A plain wall
+  // charger never sets this, so the voltage rules still do the work there. Call it before each sample.
+  void setUsbHost(bool host) {
+    if (host == usbHost) return;
+    usbHost = host;
+    if (!host) setCharging(false, 0);  // unplugged: the voltage rules must find charging again by themselves
+  }
 
   // Low for long enough that the unit should save and sleep. Never true when no battery is fitted.
   bool low(uint32_t nowMs) const {
@@ -123,6 +135,8 @@ public:
   }
 
 private:
+  bool charged() const { return isCharging || usbHost; }
+
   void resetCharge() {
     isCharging = false;
     offsetMv = 0;
@@ -172,7 +186,8 @@ private:
     }
   }
 
-  // Slow fallback: the mean of each minute's readings, compared with the one from 4 minutes before. Near
+  // Slow fallback: the mean of each minute's readings, compared with the one from 4 minutes before (and see
+  // climbing() for the slower rule). Near
   // full the charger lifts the cell only 1-2 mV a minute, so the window is long and the means keep ADC
   // noise (a few mV per reading) well under the thresholds.
   void updateTrend(uint32_t nowMs, int mv) {
@@ -180,27 +195,43 @@ private:
     sumCount++;
     if ((uint32_t)(nowMs - refAt) < TREND_STEP_MS) return;
     refAt = nowMs;
-    for (int i = TREND_REFS - 1; i > 0; i--) ref[i] = ref[i - 1];
+    for (int i = MAX_REFS - 1; i > 0; i--) ref[i] = ref[i - 1];
     ref[0] = (int)(sum * 16 / sumCount);
     sum = 0;
     sumCount = 0;
-    if (refCount < TREND_REFS) refCount++;
-    if (refCount < TREND_REFS) return;
-    const int change = (ref[0] - ref[TREND_REFS - 1]) / 16;
-    if (!isCharging && change >= lim.trendRiseMv) {
-      setCharging(true, lim.chargeOffsetMv);
-    } else if (isCharging && change <= -lim.trendFallMv && avg16 < lim.chargeHoldMv * 16) {
-      setCharging(false, 0);
+    if (refCount < MAX_REFS) refCount++;
+    if (refCount > TREND_SPAN) {
+      const int change = (ref[0] - ref[TREND_SPAN]) / 16;
+      if (!isCharging && change >= lim.trendRiseMv) {
+        setCharging(true, lim.chargeOffsetMv);
+      } else if (isCharging && change <= -lim.trendFallMv && avg16 < lim.chargeHoldMv * 16) {
+        setCharging(false, 0);
+      }
     }
+    if (!isCharging && climbing()) setCharging(true, lim.chargeOffsetMv);
+  }
+
+  // A steady slow climb over climbMinutes: near full, on USB with no step to see, the cell gains only
+  // 0.3 mV a minute. Every minute must be within climbDipMv of the one before (and no big jump up), so a
+  // recovery after a load drops, which falls then jumps, is not taken for charging.
+  bool climbing() const {
+    const int span = lim.climbMinutes < MAX_REFS - 1 ? lim.climbMinutes : MAX_REFS - 1;
+    if (span < 1 || refCount <= span) return false;
+    if (ref[0] - ref[span] < lim.climbRiseMv * 16) return false;
+    for (int i = 0; i < span; i++) {
+      const int step = ref[i] - ref[i + 1];
+      if (step < -lim.climbDipMv * 16 || step > lim.climbJumpMv * 16) return false;
+    }
+    return true;
   }
 
   // Best guess at the resting voltage. While charging the reading is lifted by about offsetMv; the lift
   // fades to nothing as the cell nears 4.2 V (the current has tailed off), so a full cell reads 100 %.
   int restingMv() const {
     const int mv = millivolts();
-    if (!isCharging) return mv;
+    if (!charged()) return mv;
     const int top = CURVE[0].mv, from = lim.chargeHoldMv - 50;
-    int off = offsetMv;
+    int off = isCharging ? offsetMv : lim.chargeOffsetMv;  // (a USB host with no step seen: the usual lift)
     if (mv >= top) off = 0;
     else if (mv > from && top > from) off = off * (top - mv) / (top - from);
     return mv - off;
@@ -214,21 +245,22 @@ private:
       shownAt = nowMs;
       return;
     }
-    const bool wants = isCharging ? target > shown : target < shown;
+    const bool wants = charged() ? target > shown : target < shown;
     if (!wants) {
       shownAt = nowMs;  // the next step waits a full interval from when it is wanted
       return;
     }
-    const uint32_t every = isCharging ? lim.chargeStepMs : lim.dischargeStepMs;
+    const uint32_t every = charged() ? lim.chargeStepMs : lim.dischargeStepMs;
     if ((uint32_t)(nowMs - shownAt) >= every) {
-      shown += isCharging ? 1 : -1;
+      shown += charged() ? 1 : -1;
       shownAt = nowMs;
     }
   }
 
   static const int MAX_OFFSET_MV = 250;
   static const uint32_t TREND_STEP_MS = 60000;
-  static const int TREND_REFS = 5;  // minute means 0..4 minutes ago
+  static const int TREND_SPAN = 4;  // minutes the quick trend looks back
+  static const int MAX_REFS = 16;   // minute means kept: the slow climb can look back up to 15 minutes
 
   Limits lim;
   bool fitted = false;
@@ -241,7 +273,8 @@ private:
   int offsetMv = 0;  // size of the charger's lift
   int up = 0, down = 0;
   int stepBase16 = 0;
-  int ref[TREND_REFS] = {};  // minute means, newest first (x16)
+  bool usbHost = false;
+  int ref[MAX_REFS] = {};  // minute means, newest first (x16)
   int refCount = 0;
   int32_t sum = 0;  // readings so far this minute
   int sumCount = 0;

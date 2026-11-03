@@ -265,6 +265,10 @@
 #define BATTERY_CHARGE_HOLD_MV 4150  // from here up only an unplug step clears charging (charger may be done)
 #define BATTERY_TREND_RISE_MV 6      // up this much over 4 min = charging (near full it rises only 1-2 mV/min)
 #define BATTERY_TREND_FALL_MV 15     // down this much over 4 min = not charging
+#define BATTERY_CLIMB_MIN 10         // slow climb: minute means over this many minutes ...
+#define BATTERY_CLIMB_RISE_MV 3      // ... up at least this much (USB at start-up, nearly full: 0.3 mV/min) ...
+#define BATTERY_CLIMB_DIP_MV 1       // ... with no minute more than this below the one before ...
+#define BATTERY_CLIMB_JUMP_MV 5      // ... or more than this above it (a recovery after a load drops) = charging
 // The shown percentage moves slowly and only the right way (like a phone)
 #define BATTERY_SHOWN_CHARGE_MS 30000     // at most 1 % up per this long while charging
 #define BATTERY_SHOWN_DISCHARGE_MS 60000  // at most 1 % down per this long otherwise

@@ -16,7 +16,7 @@
 #include "check.h"
 
 // Same numbers as include/Config.h
-static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5, 50, 100, 4150, 6, 15, 30000, 60000}; }
+static battery::Limits limits() { return {2500, 4230, 3300, 10000, 30, 5, 50, 100, 4150, 6, 15, 10, 3, 1, 5, 30000, 60000}; }
 
 static void testVoltageToPercent() {
   using battery::percentFromMv;
@@ -596,7 +596,11 @@ static void testChargingSteps() {
 }
 
 static void testChargingNoise() {
-  // +/-15 mV of ADC noise (and bigger bursts, one at a time) for an hour: never flips the state
+  // +/-15 mV of ADC noise (and bigger bursts, one at a time) for an hour: never flips the state. The noise
+  // starts from a fixed point so the run is repeatable (at this size, about 1 hour in 25 of random noise
+  // will, by chance, climb 3 mV over 10 minutes).
+  const uint32_t savedRng = rngState;
+  rngState = 12345;
   for (int level : {3700, 3850, 4100}) {
     battery::Monitor m(limits());
     uint32_t t = 0;
@@ -611,6 +615,8 @@ static void testChargingNoise() {
     }
     CHECK(flips == 0, "noise at %d mV flipped charging %d times", level, flips);
   }
+  rngState = savedRng;
+  for (int i = 0; i < 3 * 3600; i++) noise(15);  // the later tests get the same noise as before
   // Charging state also survives noise
   battery::Monitor c(limits());
   uint32_t t = 0;
@@ -664,6 +670,104 @@ static void testChargingTrend() {
   CHECK(f.charging(), "charging cleared by a slow fall at %d mV", f.millivolts());
   CHECK(f.percent() >= 90, "full charger shows %d%%", f.percent());
   printf("  charging: a slow rise sets it, a slow fall clears it, normal discharge and noise do not\n");
+}
+
+// A USB host (PC, car media port) means the cable is in, whatever the voltage does
+static void testUsbHost() {
+  battery::Monitor m(limits());
+  uint32_t t = 0;
+  feed(m, t, 60, 3800, 3);
+  CHECK(!m.charging(), "charging with no host");
+  m.setUsbHost(true);
+  CHECK(m.charging(), "a USB host did not mean charging");
+  feed(m, t, 600, 3800, 3);  // the voltage shows nothing at all
+  CHECK(m.charging(), "charging dropped while the host was there");
+  m.setUsbHost(false);
+  CHECK(!m.charging(), "charging stayed on after the host went");
+  feed(m, t, 600, 3800, 3);
+  CHECK(!m.charging(), "charging came back with no host and a flat voltage");
+
+  // The host as Power.cpp sets it: before the first sample. The usual 100 mV lift is taken off the percentage
+  battery::Monitor b(limits());
+  b.setUsbHost(true);
+  CHECK(!b.charging(), "charging with no battery fitted");
+  b.addSample(0, 3800);
+  CHECK(b.charging(), "a USB host at start-up did not mean charging");
+  CHECK(b.percent() == battery::percentFromMv(3700), "shown %d%%, want the percentage at 3.70 V", b.percent());
+  b.setUsbHost(false);
+  b.addSample(1000, 3800);
+  CHECK(!b.charging(), "charging after the host went at start-up");
+
+  // Plug-in step with the host: the step's own size is the lift; the host going takes charging away even
+  // though the voltage is still high, and then the voltage rules decide again: a flat voltage is not charging,
+  // a climbing one is
+  battery::Monitor s(limits());
+  t = 0;
+  feed(s, t, 60, 3800, 5);
+  s.setUsbHost(true);
+  feed(s, t, 2, 3950);
+  CHECK(s.charging() && s.percent() <= battery::percentFromMv(3800) + 1, "step with a host: %d%%", s.percent());
+  s.setUsbHost(false);
+  CHECK(!s.charging(), "host gone but still charging");
+  feed(s, t, 60, 3950, 3);
+  CHECK(!s.charging(), "flat voltage after the host went counted as charging");
+  for (int i = 0; i < 400 && !s.charging(); i++, t += 1000) s.addSample(t, 3950 + i / 4 + noise(3));
+  CHECK(s.charging(), "a 15 mV/min rise did not count after the host went");
+
+  // The host does not change what the percentage does: it still only rises while the host is there
+  battery::Monitor p(limits());
+  t = 0;
+  p.setUsbHost(true);
+  feed(p, t, 120, 3850, 3);
+  const int shown = p.percent();
+  feed(p, t, 600, 3850 - 20, 3);  // the voltage sags
+  CHECK(p.charging() && p.percent() >= shown, "shown fell from %d%% to %d%% with a host", shown, p.percent());
+  printf("  charging: a USB host means charging at once; when it goes, the voltage decides\n");
+}
+
+// Near full on USB with no step to see, the cell gains about 0.3 mV a minute: only a long, steady climb finds it
+static void testSlowClimb() {
+  const uint32_t savedRng = rngState;
+  rngState = 12345;
+
+  // Booted on USB at 4.094 V: 0.3 mV a minute, +/-2 mV of noise per reading
+  battery::Monitor m(limits());
+  uint32_t t = 0;
+  for (int i = 0; i < 1200 && !m.charging(); i++, t += 1000) m.addSample(t, 4094 + (i * 3) / 600 + noise(2));
+  CHECK(m.charging(), "a 0.3 mV/min climb never counted as charging");
+  CHECK(t <= 14 * 60000, "took %u s to find a 0.3 mV/min climb", t / 1000);
+  const uint32_t foundAt = t / 1000;
+
+  // Not a rise at all: the same noise and level, flat or draining at 0.3 mV a minute, for two hours
+  for (int drain : {0, 1}) {
+    battery::Monitor f(limits());
+    t = 0;
+    for (int i = 0; i < 7200; i++, t += 1000) f.addSample(t, 4094 - drain * (i * 3) / 600 + noise(2));
+    CHECK(!f.charging(), "a %s voltage counted as charging", drain ? "draining" : "flat");
+  }
+
+  // A recovery after a 40 mV load drop (backlight on, then off): down for 2 min, back up over 3 min, then
+  // flat or slowly draining. It is a jump, not a climb: the climb rule alone must not take it for charging.
+  // (The 4-minute rule is left out here with a huge threshold: it does see a 40 mV rise in 4 minutes.)
+  battery::Limits lim = limits();
+  lim.trendRiseMv = 1000;
+  for (int drain : {0, 1}) {
+    battery::Monitor r(lim);
+    t = 0;
+    bool everCharging = false;
+    auto step = [&](int mv) {
+      r.addSample(t, mv + noise(2));
+      t += 1000;
+      everCharging = everCharging || r.charging();
+    };
+    for (int i = 0; i < 720; i++) step(4000);
+    for (int i = 0; i < 120; i++) step(3960);
+    for (int i = 0; i < 180; i++) step(3960 + (40 * i) / 180);
+    for (int i = 0; i < 1200; i++) step(4000 - drain * i / 200);
+    CHECK(!everCharging, "a recovery after a load drop looked like charging (%s)", drain ? "draining" : "flat");
+  }
+  rngState = savedRng;
+  printf("  charging: a 0.3 mV/min climb found after %u s; flat, draining and load-recovery voltages are not\n", foundAt);
 }
 
 static void testShownPercent() {
@@ -855,6 +959,8 @@ int main() {
   testChargingSteps();
   testChargingNoise();
   testChargingTrend();
+  testUsbHost();
+  testSlowClimb();
   testShownPercent();
   testChargingLowAndAbsent();
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
