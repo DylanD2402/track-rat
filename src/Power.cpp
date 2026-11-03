@@ -64,8 +64,34 @@ static int readBatteryMv(int* pinMvOut) {
 }
 #endif
 
+#if BATTERY_ENABLED
+// The last 10 minutes of readings, 1 s apart, for measuring what plugging in and unplugging do on a real
+// board: send "b" over the USB serial port and they are printed (oldest first).
+static const int HISTORY = 600;
+static int16_t historyMv[HISTORY];
+static uint8_t historyFlags[HISTORY];  // bit 0: USB host, bit 1: backlight on, bit 2: charging
+static int historyNext = 0, historyCount = 0;
+static bool backlightIsOn();
+
+static void printHistory() {
+  DEBUG_PRINTF("Battery history: %d readings, 1 s apart, oldest first (s, mV, usb, backlight, charging)\n", historyCount);
+  for (int i = 0; i < historyCount; i++) {
+    int k = (historyNext - historyCount + i + HISTORY) % HISTORY;
+    uint8_t f = historyFlags[k];
+    DEBUG_PRINTF("%d,%d,%d,%d,%d\n", i - historyCount + 1, historyMv[k], f & 1, (f >> 1) & 1, (f >> 2) & 1);
+    delay(2);  // let the USB serial keep up
+  }
+  DEBUG_PRINTLN("Battery history: end");
+}
+#endif
+
 void update(uint32_t nowMs) {
 #if BATTERY_ENABLED
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+  while (Serial.available()) {
+    if (Serial.read() == 'b') printHistory();
+  }
+#endif
   if (!firstRead && nowMs - lastRead < BATTERY_READ_MS) return;
   firstRead = false;
   lastRead = nowMs;
@@ -87,6 +113,10 @@ void update(uint32_t nowMs) {
     lastCharging = monitor.charging();
     DEBUG_PRINTF("Battery: %s (average %d mV)\n", lastCharging ? "charging" : "not charging", monitor.millivolts());
   }
+  historyMv[historyNext] = (int16_t)mv;
+  historyFlags[historyNext] = (usbHost ? 1 : 0) | (backlightIsOn() ? 2 : 0) | (monitor.charging() ? 4 : 0);
+  historyNext = (historyNext + 1) % HISTORY;
+  if (historyCount < HISTORY) historyCount++;
 
   if (lastLog == 0 || nowMs - lastLog >= 10000) {
     lastLog = nowMs ? nowMs : 1;
@@ -111,6 +141,9 @@ bool batteryLow(uint32_t nowMs) { return BATTERY_ENABLED && monitor.low(nowMs); 
 // plain low output while it's off, which deep sleep can hold.
 static uint8_t brightnessPct = 100;
 static bool backlightOn = false;
+#if BATTERY_ENABLED
+static bool backlightIsOn() { return backlightOn; }
+#endif
 
 static void writeBacklight() {
 #ifdef TFT_BL
