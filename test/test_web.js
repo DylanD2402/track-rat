@@ -68,6 +68,62 @@ function check(cond, msg) {
 const file = (name, fsName = "sd", size = 100) => ({name, fs: fsName, size});
 const utcDay = (d) => d.toISOString().slice(0, 10);
 
+// The Battery table in the Device section (the "battery" part)
+{
+  console.log("Wi-Fi page battery table tests");
+  const bm = html.match(/\/\/ ---- battery \(begin[^\n]*\n([\s\S]*?)\/\/ ---- battery \(end\)/);
+  if (!bm) {
+    console.log("FAIL: battery section not found in web/index.html");
+    process.exit(1);
+  }
+  const {batteryRows, hoursText} = new Function(bm[1] + "\nreturn {batteryRows, hoursText};")();
+  const row = (rows, label) => (rows.find((r) => r[0] === label) || [])[1];
+  check(hoursText(0.5) === "30 min" && hoursText(12.0167) === "12 h 01 min" && hoursText(16.67) === "16 h 40 min", "hours text: " + [hoursText(0.5), hoursText(12.0167), hoursText(16.67)]);
+  const none = {present: false};
+  check(batteryRows(none).length === 1 && row(batteryRows(none), "Charge") === "No battery fitted", "no battery");
+  check(batteryRows(undefined).length === 1, "older firmware: no battery object");
+
+  // Nothing measured yet: the defaults, marked as estimates
+  const fresh = {present: true, percent: 80, mV: 4012, charging: false, capacityMah: 3000, mode: "screenOn", timeLeftH: 13.3, timeLeftEstimate: true,
+    modes: {screenOn: {measured: false, ma: null, pctPerHour: null, estimateMa: 180}, screenOnWifi: {measured: false, ma: null, pctPerHour: null, estimateMa: 260},
+            screenOff: {measured: false, ma: null, pctPerHour: null, estimateMa: 90}, asleep: {measured: false, ma: null, pctPerHour: null, estimateMa: 1}},
+    runH: 16.7, runEstimate: true, lastRunH: null, bestRunH: null, cycles: 0, health: "Learning", healthSteps: 2, stepNowMv: null, stepFirstMv: null, fullMv: null};
+  let rows = batteryRows(fresh);
+  check(rows.length === 10, "10 rows: " + rows.length);
+  check(row(rows, "Charge") === "80% (4.01 V)", "charge " + row(rows, "Charge"));
+  check(row(rows, "Time left") === "13 h 18 min (estimate) at this draw", "time left " + row(rows, "Time left"));
+  check(row(rows, "Draw, screen on") === "≈180 mA (estimate)", "estimate draw " + row(rows, "Draw, screen on"));
+  check(row(rows, "Draw, asleep") === "≈1 mA (estimate)", "asleep draw");
+  check(row(rows, "Run time on a full charge") === "16 h 42 min (estimate: capacity ÷ screen-on draw)", "run " + row(rows, "Run time on a full charge"));
+  check(row(rows, "Health") === "Learning (2 of 5 charges seen)", "learning " + row(rows, "Health"));
+  check(row(rows, "Full reads") === "not learned yet (after a full charge)", "full reads");
+
+  // Measured, charging, a full run and a learned full voltage
+  const full = JSON.parse(JSON.stringify(fresh));
+  full.charging = true;
+  full.timeLeftH = null;
+  full.modes.screenOn = {measured: true, ma: 185, pctPerHour: 6.2, estimateMa: 185};
+  full.runH = 12.0; full.runEstimate = false; full.lastRunH = 12.0; full.bestRunH = 14.5;
+  full.cycles = 12.3; full.health = "Good"; full.healthSteps = 12; full.stepNowMv = 82; full.stepFirstMv = 78; full.fullMv = 4172;
+  rows = batteryRows(full);
+  check(row(rows, "Charge") === "80%, charging (4.01 V)" && row(rows, "Time left") === "Charging", "charging");
+  check(row(rows, "Draw, screen on") === "185 mA, 6.2%/h (measured)", "measured draw " + row(rows, "Draw, screen on"));
+  check(row(rows, "Run time on a full charge") === "12 h 00 min (last full run), best 14 h 30 min", "run " + row(rows, "Run time on a full charge"));
+  check(row(rows, "Cycles") === "12.3", "cycles");
+  check(row(rows, "Health") === "Good (charger step 82 mV now, 78 mV when new)", "health " + row(rows, "Health"));
+  check(row(rows, "Full reads") === "4.172 V", "full reads " + row(rows, "Full reads"));
+  full.charging = false;
+  full.timeLeftH = null;
+  check(row(batteryRows(full), "Time left") === "–", "no time left known");
+  // The names the page reads are the ones the firmware writes
+  const cpp = readText("src", "WifiPortal.cpp");
+  for (const key of ["present", "percent", "mV", "charging", "timeLeftH", "timeLeftEstimate", "modes", "measured", "estimateMa", "pctPerHour", "runH",
+                     "runEstimate", "lastRunH", "bestRunH", "cycles", "health", "healthSteps", "stepNowMv", "stepFirstMv", "fullMv",
+                     "screenOn", "screenOnWifi", "screenOff", "asleep"]) {
+    check(cpp.includes(`"${key}"`), `WifiPortal.cpp writes "${key}"`);
+  }
+}
+
 console.log("Wi-Fi page session list tests");
 
 // Parsing

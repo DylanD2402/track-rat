@@ -48,7 +48,7 @@ struct SettingsScreenState {
   static constexpr int SECTION_GAP = 12; // below a card
   static constexpr int FOOT_H = 30;      // below a card that has a footnote
   static constexpr int LIST_PAD = 4;     // above the first caption
-  static constexpr int ROWS = 22, SECTIONS = 7;
+  static constexpr int ROWS = 23, SECTIONS = 8;
   // A page of choices: the card, then the item's note under it
   static constexpr int CHOICE_TOP = TOP + 12;
   // A level page (brightness, time zone): the bar and the two big buttons
@@ -103,7 +103,8 @@ struct SettingsScreenState {
         {SettingItem::Engine, RowKind::Open},       {SettingItem::Coolant, RowKind::Level},
         {SettingItem::Camera, RowKind::Open},       {SettingItem::CameraRec, RowKind::Choice},
         {SettingItem::RoadDrives, RowKind::Toggle}, {SettingItem::TimeZone, RowKind::Level},
-        {SettingItem::PowerOff, RowKind::PowerOff}, {SettingItem::Count, RowKind::Back},
+        {SettingItem::Battery, RowKind::Open},      {SettingItem::PowerOff, RowKind::PowerOff},
+        {SettingItem::Count, RowKind::Back},
     };
     return rows[r];
   }
@@ -114,8 +115,9 @@ struct SettingsScreenState {
         {"TIMING", 5, 6, nullptr},
         {"GPS & BLUETOOTH", 11, 7, "GPS mode and Bluetooth profile are used from the next restart"},
         {"RECORDING", 18, 2, nullptr},
-        {"POWER", 20, 1, "Or hold BOOT for 3 s on any screen"},
-        {nullptr, 21, 1, FIRMWARE_FOOT},  // DisplaySettings writes the version there
+        {nullptr, 20, 1, nullptr},  // Battery: a read-only page
+        {"POWER", 21, 1, "Or hold BOOT for 3 s on any screen"},
+        {nullptr, 22, 1, FIRMWARE_FOOT},  // DisplaySettings writes the version there
     };
     return sections[i];
   }
@@ -147,6 +149,7 @@ struct SettingsScreenState {
       case SettingItem::Kart: return "Kart everywhere";
       case SettingItem::Engine: return "Engine data";
       case SettingItem::Camera: return "Camera";
+      case SettingItem::Battery: return "Battery";
       case SettingItem::Driver: return "Driver";
       case SettingItem::Car: return "Car";
       case SettingItem::CameraRec: return "Camera recording";

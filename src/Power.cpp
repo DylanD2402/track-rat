@@ -4,9 +4,13 @@
 
 #include "Power.h"
 #include "Battery.h"
+#include "BatteryStats.h"
 #include "Config.h"
 #include "SettingsData.h"
+#include "WifiPortal.h"
+#include <Preferences.h>
 #include "driver/gpio.h"
+#include "esp_private/esp_clk.h"
 #include "esp_sleep.h"
 
 namespace Power {
@@ -23,6 +27,31 @@ static bool lastCharging = false;
 static bool lastUsbHost = false;
 RTC_DATA_ATTR static bool switchedOff = false;  // the last sleep was a power off (kept through deep sleep only)
 
+#if BATTERY_ENABLED
+// What the battery has been through (BatteryStats.h). Changed only by the loop; the Wi-Fi page reads a copy.
+static battery::Stats stats({BATTERY_CAPACITY_MAH,
+                             {BATTERY_DRAW_SCREEN_MA, BATTERY_DRAW_WIFI_MA, BATTERY_DRAW_SCREEN_OFF_MA, BATTERY_DRAW_SLEEP_MA}});
+static battery::MinuteMeter meter;
+static portMUX_TYPE statsLock = portMUX_INITIALIZER_UNLOCKED;
+static Preferences battPrefs;  // namespace "batt"
+static bool battOpen = false;
+static uint32_t lastStatsSave = 0;
+// What the screens and the Wi-Fi page are told, copied once a second
+static volatile int snapPercent = -1, snapMv = 0;
+static volatile bool snapCharging = false;
+static volatile uint8_t snapMode = 0;
+// Where the board went to sleep: its voltage and the RTC clock (which runs through deep sleep)
+static const uint32_t SLEEP_NOTE_MAGIC = 0x534C5001;
+struct SleepNote {
+  uint32_t magic;
+  int32_t mv;
+  uint64_t rtcUs;
+};
+RTC_DATA_ATTR static SleepNote sleepNote;
+static int readBatteryMv(int* pinMvOut);
+static bool backlightIsOn();
+#endif
+
 static const char* wakeCauseName(esp_sleep_wakeup_cause_t c) {
   switch (c) {
     case ESP_SLEEP_WAKEUP_EXT0: return "BOOT button";
@@ -34,6 +63,36 @@ static const char* wakeCauseName(esp_sleep_wakeup_cause_t c) {
 }
 
 [[noreturn]] static void sleepNow(bool switchingOff);
+
+#if BATTERY_ENABLED
+static void loadStats() {
+  battOpen = battPrefs.begin("batt", false);
+  if (!battOpen) {
+    DEBUG_PRINTLN("Battery: flash storage unavailable - usage figures won't be kept");
+    return;
+  }
+  battery::StatsData d;
+  if (battPrefs.getBytesLength("stats") == sizeof(d) && battPrefs.getBytes("stats", &d, sizeof(d)) == sizeof(d)) {
+    stats.load(d);  // (thrown away if it isn't good)
+  }
+  monitor.setFullMv(stats.fullMv());
+}
+
+// Written when it changed and at most every BATTERY_STATS_SAVE_MS, and before sleeping: flash wears
+static void saveStats() {
+  if (!battOpen || !stats.dirty()) return;
+  const battery::StatsData d = stats.data();
+  battPrefs.putBytes("stats", &d, sizeof(d));
+  portENTER_CRITICAL(&statsLock);
+  stats.saved();
+  portEXIT_CRITICAL(&statsLock);
+}
+
+static battery::Mode currentMode() {
+  if (!backlightIsOn()) return battery::Mode::ScreenOff;
+  return WifiPortal::active() ? battery::Mode::ScreenOnWifi : battery::Mode::ScreenOn;
+}
+#endif
 
 void begin() {
   // Switched off with BOOT or a finger still down (see deepSleep): it woke to look again. Still off, so back
@@ -48,6 +107,20 @@ void begin() {
 #if BATTERY_ENABLED
   pinMode(BATTERY_ADC_PIN, INPUT);
   analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);  // full range to ~3.1 V; the pin sees at most ~2.2 V
+  loadStats();
+  // Woken from deep sleep: what the battery did while the board slept (nothing is learned if it was charged)
+  if (sleepNote.magic == SLEEP_NOTE_MAGIC) {
+    sleepNote.magic = 0;
+    const uint64_t nowUs = esp_clk_rtc_time();
+    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED && nowUs > sleepNote.rtcUs) {
+      const uint32_t secs = (uint32_t)((nowUs - sleepNote.rtcUs) / 1000000ULL);
+      const int wakeMv = readBatteryMv(nullptr);
+      portENTER_CRITICAL(&statsLock);
+      stats.addSleep(secs, sleepNote.mv, wakeMv);
+      portEXIT_CRITICAL(&statsLock);
+      DEBUG_PRINTF("Battery: slept %lu s, %d mV to %d mV\n", (unsigned long)secs, (int)sleepNote.mv, wakeMv);
+    }
+  }
 #endif
 }
 
@@ -119,6 +192,38 @@ void update(uint32_t nowMs) {
     lastCharging = monitor.charging();
     DEBUG_PRINTF("Battery: %s (average %d mV)\n", lastCharging ? "charging" : "not charging", monitor.millivolts());
   }
+  // What the battery has been through: the plug-in steps, and once a minute the mode and the mean voltage
+  const battery::Mode mode = currentMode();
+  snapMode = (uint8_t)mode;
+  snapPercent = monitor.percent();
+  snapMv = monitor.millivolts();
+  snapCharging = monitor.charging();
+  if (monitor.present()) {
+    int stepMv = 0, fromMv = 0;
+    if (monitor.takeStep(stepMv, fromMv)) {
+      portENTER_CRITICAL(&statsLock);
+      stats.addStep(stepMv, fromMv);
+      portEXIT_CRITICAL(&statsLock);
+      DEBUG_PRINTF("Battery: plug-in step %d mV from %d mV\n", stepMv, fromMv);
+    }
+    if (meter.add(mv, mode, monitor.charging())) {
+      portENTER_CRITICAL(&statsLock);
+      stats.addMinute(meter.mode(), meter.meanMv(), meter.charging(), monitor.percent());
+      portEXIT_CRITICAL(&statsLock);
+      if (stats.takeFull()) {  // the charger finished: this cell's full voltage
+        monitor.setFullMv(stats.fullMv());
+        monitor.markFull();
+        DEBUG_PRINTF("Battery: full reads %d mV\n", stats.fullMv());
+      }
+    }
+  } else {
+    meter.reset();
+  }
+  if (nowMs - lastStatsSave >= BATTERY_STATS_SAVE_MS) {
+    lastStatsSave = nowMs;
+    saveStats();
+  }
+
   if (historyMagic != HISTORY_MAGIC || historyNext < 0 || historyNext >= HISTORY || historyCount < 0 ||
       historyCount > HISTORY) {
     historyMagic = HISTORY_MAGIC;  // power cut: RTC memory holds garbage
@@ -149,6 +254,24 @@ int batteryPercent() { return BATTERY_ENABLED ? monitor.percent() : -1; }
 bool batteryCharging() { return BATTERY_ENABLED && monitor.charging(); }
 int batteryMillivolts() { return BATTERY_ENABLED ? monitor.millivolts() : 0; }
 bool batteryLow(uint32_t nowMs) { return BATTERY_ENABLED && monitor.low(nowMs); }
+
+battery::Report batteryReport() {
+#if BATTERY_ENABLED
+  portENTER_CRITICAL(&statsLock);
+  const battery::Stats copy = stats;  // (the loop changes it; this may be the web server's task)
+  portEXIT_CRITICAL(&statsLock);
+  const int percent = snapPercent;
+  const bool charging = snapCharging;
+  battery::Report r = copy.report((battery::Mode)snapMode, percent, charging);
+  r.present = percent >= 0;
+  r.percent = percent;
+  r.mv = snapMv;
+  r.charging = charging;
+  return r;
+#else
+  return battery::Report();
+#endif
+}
 
 // The backlight pin is PWM (LEDC) while it's on, so it can be dimmed, and a
 // plain low output while it's off, which deep sleep can hold.
@@ -190,6 +313,22 @@ void setBrightness(uint8_t percent) {
 void deepSleep(bool switchingOff) {
   DEBUG_PRINTLN(switchingOff ? "Power: off (a tap or BOOT turns it on)" : "Power: deep sleep (BOOT or touch wakes it)");
   delay(50);  // let the log line out (Serial.flush() could wait on a USB host that isn't there)
+
+#if BATTERY_ENABLED
+  // Down to the low cutoff: a run from full ends here. Then everything is saved, and where it went to sleep is
+  // kept in RTC memory for the next start.
+  if (monitor.present()) {
+    if (monitor.low(millis())) {
+      portENTER_CRITICAL(&statsLock);
+      stats.lowReached();
+      portEXIT_CRITICAL(&statsLock);
+    }
+    saveStats();
+    sleepNote.mv = monitor.millivolts();
+    sleepNote.rtcUs = esp_clk_rtc_time();
+    sleepNote.magic = SLEEP_NOTE_MAGIC;
+  }
+#endif
 
   backlight(false);
   // A finger or button still down would wake it again at once. Held to switch off, BOOT is still down

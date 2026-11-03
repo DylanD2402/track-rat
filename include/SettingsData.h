@@ -64,7 +64,7 @@ inline bool operator!=(const SettingsData& a, const SettingsData& b) { return !(
 // The items on the settings screen, in the order they appear.
 enum class SettingItem : uint8_t { Units, Upside, Brightness, Compare, Big, Colours, SessionLen, Gps, Bluetooth, TimeZone, RoadDrives,
                                    MinLap, Kart, CameraRec, Profile, Count,
-                                   Engine, Camera,     // after Count: rows that open a screen of their own, not values
+                                   Engine, Camera, Battery,  // after Count: rows that open a screen of their own, not values
                                    Driver, Car,        // rows that pick a driver or car (Profiles.h): not settings, so not on the Wi-Fi page's list
                                    Coolant,            // the row that opens the Coolant page, and its four values:
                                    CoolCold, CoolWarm, CoolHot, OilHot,
@@ -275,6 +275,7 @@ inline const char* itemName(SettingItem item) {
     case SettingItem::Profile: return "BLUETOOTH PROFILE";
     case SettingItem::Engine: return "ENGINE DATA";
     case SettingItem::Camera: return "CAMERA";
+    case SettingItem::Battery: return "BATTERY";
     case SettingItem::Coolant: return "COOLANT";
     case SettingItem::CoolCold: return "COLD BELOW";
     case SettingItem::CoolWarm: return "WARM AT";
@@ -303,6 +304,7 @@ inline const char* itemNote(SettingItem item) {
     case SettingItem::Profile: return "What the phone sees, one at a time. Restart to apply";
     case SettingItem::Engine: return "A Bluetooth OBD-II adapter";
     case SettingItem::Camera: return "A DJI Osmo Action camera: Track Rat as its GPS remote";
+    case SettingItem::Battery: return "Charge, time left, draw and health";
     case SettingItem::Coolant: return "Top bar colours. Hot at: a full-screen warning";
     default: return "";
   }

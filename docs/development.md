@@ -212,7 +212,7 @@ g++ -std=c++17 -Iinclude test/test_localtime.cpp -o /tmp/ltz && /tmp/ltz
 g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
 ```
 
-`test/test_web.js` checks how the page groups session files by day and track (a session's logbook note kept with it), that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts, a stage's finish), and the lap comparison (laps from a log across midnight, speed and gap against distance with lap lengths that differ, who was faster where, the season and its PBs) (needs Node.js):
+`test/test_web.js` checks how the page groups session files by day and track (a session's logbook note kept with it), that its firmware file check says the same as the board, that its Settings tab uses the board's field names and values, and the track editor's rules (reading a .vbo, track ids, moving the line, splits in lap order, corner names, new layouts, a stage's finish), and the lap comparison (laps from a log across midnight, speed and gap against distance with lap lengths that differ, who was faster where, the season and its PBs), and the Battery table in the Device section (estimates marked, measured draws, charging, a full run, health, and that the page reads the names the firmware writes) (needs Node.js):
 
 ```bash
 node test/test_web.js
@@ -360,6 +360,11 @@ g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
+```
+`test/test_battery_stats.cpp` checks what the battery has been through, measured from the voltage: the drain of each way of running (screen on, with the Wi-Fi page, screen off, asleep) and that relaxing after a charge, recoveries and mode changes are left out, deep-sleep drain, time left (measured or the default draw), charge cycles, health from the size of the charger's plug-in step, the full voltage learned when the charger finishes (and the percentage curve that uses it, with the low-battery cutoff left on the raw voltage), full runs from full to flat, and that zeroed, random or damaged saved data comes back as "not measured yet":
+
+```bash
+g++ -std=c++17 -Iinclude test/test_battery_stats.cpp -o /tmp/bs && /tmp/bs
 ```
 `test/test_addons.cpp` checks which add-on pins the GPS takes, so an add-on on one of them stays off:
 

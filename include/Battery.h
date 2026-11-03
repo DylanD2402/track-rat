@@ -39,6 +39,34 @@ inline int percentFromMv(int mv) {
   return 0;
 }
 
+// The same, in hundredths of a percent, so a minute's small drop is not lost to rounding.
+inline int percentFromMvX100(int mv) {
+  if (mv >= CURVE[0].mv) return 10000;
+  if (mv <= CURVE[CURVE_POINTS - 1].mv) return 0;
+  for (int i = 1; i < CURVE_POINTS; i++) {
+    if (mv >= CURVE[i].mv) {
+      const CurvePoint& hi = CURVE[i - 1];
+      const CurvePoint& lo = CURVE[i];
+      return lo.percent * 100 + (hi.percent - lo.percent) * 100 * (mv - lo.mv) / (hi.mv - lo.mv);
+    }
+  }
+  return 0;
+}
+
+// "Full means full": the resting voltage this cell was seen to reach when its charger finished (fullMv). A
+// full reading of 4170 should be 100 %, not 94 %. The curve is shifted up by the gap to 4200 mV, fading from
+// all of it at fullMv to none at FULL_FADE_LOW_MV, so the low end of the curve (and the low-battery cutoff,
+// which uses the raw voltage anyway) stays as it was. fullMv outside the believable range = not learned.
+static const int FULL_MIN_MV = 4100, FULL_MAX_MV = 4230, FULL_FADE_LOW_MV = 3800;
+inline bool fullMvValid(int fullMv) { return fullMv >= FULL_MIN_MV && fullMv <= FULL_MAX_MV; }
+inline int fullCorrectedMv(int mv, int fullMv) {
+  if (!fullMvValid(fullMv)) return mv;
+  const int shift = CURVE[0].mv - fullMv;
+  if (shift == 0 || mv <= FULL_FADE_LOW_MV) return mv;
+  if (mv >= fullMv) return mv + shift;
+  return mv + shift * (mv - FULL_FADE_LOW_MV) / (fullMv - FULL_FADE_LOW_MV);
+}
+
 // Voltage at the ADC pin -> battery voltage. The board has two equal
 // resistors (2 x 200 k) between BAT+ and ground, so the pin sees half.
 inline int batteryMvFromPinMv(int pinMv, float dividerRatio, int offsetMv) {
@@ -120,6 +148,23 @@ public:
   int percent() const { return present() ? shown : -1; }
   bool charging() const { return present() && charged(); }
 
+  // The full voltage learned from the charger finishing (BatteryStats.h), 0 = none yet. It only changes what
+  // percentage a voltage reads as; low() stays on the raw voltage.
+  void setFullMv(int mv) { fullMv = fullMvValid(mv) ? mv : 0; }
+  // The charger has finished: the cell is full, whatever the curve says
+  void markFull() {
+    if (haveShown) shown = 100;
+  }
+  // The size of the last plug-in step the voltage showed (not one found by the slow trend), once: the lift in mV
+  // and the voltage just before it. For the battery health (BatteryStats.h).
+  bool takeStep(int& stepMv, int& fromMv) {
+    if (!haveStep) return false;
+    haveStep = false;
+    stepMv = lastStepMv;
+    fromMv = lastStepFromMv;
+    return true;
+  }
+
   // A USB host (PC, car media port) is sending frames: the cable is in, whatever the voltage says. A plain wall
   // charger never sets this, so the voltage rules still do the work there. Call it before each sample.
   void setUsbHost(bool host) {
@@ -164,7 +209,10 @@ private:
       if (dev16 >= lim.chargeStepMv * 16) {
         if (up++ == 0) stepBase16 = avg16;
         if (up >= 2) {
-          setCharging(true, (mv * 16 - stepBase16 + 8) / 16);
+          lastStepMv = (mv * 16 - stepBase16 + 8) / 16;
+          lastStepFromMv = (stepBase16 + 8) / 16;
+          haveStep = true;
+          setCharging(true, lastStepMv);
           avg16 = mv * 16;  // snap: no 10 s crawl to the new level
           refAt = nowMs;
         }
@@ -249,7 +297,7 @@ private:
   }
 
   void updateShown(uint32_t nowMs) {
-    const int target = percentFromMv(restingMv());
+    const int target = percentFromMv(fullCorrectedMv(restingMv(), fullMv));
     if (!haveShown) {
       shown = target;
       haveShown = true;
@@ -286,6 +334,9 @@ private:
   int up = 0, down = 0;
   int stepBase16 = 0;
   bool usbHost = false;
+  int fullMv = 0;
+  bool haveStep = false;
+  int lastStepMv = 0, lastStepFromMv = 0;
   int ref[MAX_REFS] = {};  // minute means, newest first (x16)
   int refCount = 0;
   int32_t sum = 0;  // readings so far this minute

@@ -51,6 +51,8 @@ jobs:
         run: g++ -std=c++17 -pthread -DDEBUG_MODE=0 -Iinclude test/test_vbo.cpp src/VboFormat.cpp src/SessionReplay.cpp src/LapTimer.cpp -o /tmp/vbo && /tmp/vbo
       - name: test_power
         run: g++ -std=c++17 -Iinclude test/test_power.cpp -o /tmp/pw && /tmp/pw
+      - name: test_battery_stats
+        run: g++ -std=c++17 -Iinclude test/test_battery_stats.cpp -o /tmp/bs && /tmp/bs
       - name: test_addons
         run: g++ -std=c++17 -Iinclude test/test_addons.cpp -o /tmp/ao && /tmp/ao
       - name: test_perfrun

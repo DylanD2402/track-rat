@@ -14,6 +14,7 @@
 #include "JsonFile.h"
 #include "Logbook.h"
 #include "PortalLogic.h"
+#include "Power.h"
 #include "ProfileStore.h"
 #include "SessionLog.h"
 #include "Settings.h"
@@ -328,13 +329,67 @@ static const char FALLBACK_PAGE[] PROGMEM = R"(<!doctype html><meta name=viewpor
 <p>Code from Track Rat's screen: <input name=code size=4 maxlength=4 inputmode=numeric></p>
 <p>Install firmware (.bin): <input type=file name=firmware accept=.bin> <button>Install</button></p></form>)";
 
+// One decimal, as a double so the JSON reads 6.3 and not 6.30000019
+static double oneDecimal(float v) { return (double)lroundf(v * 10.0f) / 10.0; }
+
+// What the battery has been through (BatteryStats.h). A mode that isn't measured yet has no ma / pctPerHour
+// (null) and the draw assumed for it in estimateMa.
+static void addBatteryInfo(JsonObject b) {
+  static const char* const MODE_KEYS[battery::MODE_COUNT] = {"screenOn", "screenOnWifi", "screenOff", "asleep"};
+  const battery::Report r = Power::batteryReport();
+  b["present"] = r.present;
+  b["percent"] = r.percent;
+  b["mV"] = r.mv;
+  b["charging"] = r.charging;
+  b["capacityMah"] = r.capacityMah;
+  b["mode"] = MODE_KEYS[battery::modeIndex(r.mode)];
+  if (r.haveTimeLeft) {
+    b["timeLeftH"] = oneDecimal(r.hoursLeft);
+    b["timeLeftEstimate"] = r.timeLeftEstimate;
+  } else {
+    b["timeLeftH"] = nullptr;
+  }
+  JsonObject modes = b.createNestedObject("modes");
+  for (int i = 0; i < battery::MODE_COUNT; i++) {
+    const battery::ModeUsage& u = r.usage[i];
+    JsonObject m = modes.createNestedObject(MODE_KEYS[i]);
+    m["measured"] = u.measured;
+    if (u.measured) {
+      m["ma"] = lroundf(u.milliamps);
+      m["pctPerHour"] = oneDecimal(u.pctPerHour);
+    } else {
+      m["ma"] = nullptr;
+      m["pctPerHour"] = nullptr;
+    }
+    m["estimateMa"] = lroundf(u.milliamps);  // (the measured value when it is measured)
+  }
+  b["runH"] = oneDecimal(r.runHours);
+  b["runEstimate"] = r.runEstimate;
+  if (r.lastRunHours > 0) b["lastRunH"] = oneDecimal(r.lastRunHours);
+  else b["lastRunH"] = nullptr;
+  if (r.bestRunHours > 0) b["bestRunH"] = oneDecimal(r.bestRunHours);
+  else b["bestRunH"] = nullptr;
+  b["cycles"] = oneDecimal(r.cycles);
+  b["health"] = battery::healthName(r.health);
+  b["healthSteps"] = r.steps;
+  if (r.stepFirstMv > 0) {
+    b["stepNowMv"] = r.stepNowMv;
+    b["stepFirstMv"] = r.stepFirstMv;
+  } else {
+    b["stepNowMv"] = nullptr;
+    b["stepFirstMv"] = nullptr;
+  }
+  if (r.fullMv > 0) b["fullMv"] = r.fullMv;
+  else b["fullMv"] = nullptr;
+}
+
 static void sendInfo(AsyncWebServerRequest* req) {
   GpsSnapshot g;
   portENTER_CRITICAL(&snapLock);
   g = gpsSnap;
   portEXIT_CRITICAL(&snapLock);
 
-  DynamicJsonDocument doc(1536);
+  DynamicJsonDocument doc(3072);
   doc["version"] = firmwareVersion();
   doc["built"] = firmwareBuilt();
   doc["network"] = ssid;
@@ -370,6 +425,7 @@ static void sendInfo(AsyncWebServerRequest* req) {
   doc["units"] = Settings::get().units == SpeedUnits::Mph ? "mph" : "kmh";  // the Speed units setting
   gps["rxPin"] = g.rxPin;
   gps["baud"] = g.baud;
+  addBatteryInfo(doc.createNestedObject("battery"));
   // (No position: reads are open to anyone on the network, and the page doesn't show it)
 
   String out;

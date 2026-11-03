@@ -9,6 +9,7 @@
 #define POWER_H
 
 #include <Arduino.h>
+#include "BatteryStats.h"
 
 namespace Power {
 
@@ -24,6 +25,9 @@ int batteryPercent();               // 0..100, or -1 when no battery is fitted
 int batteryMillivolts();            // 0 when no battery is fitted
 bool batteryCharging();             // USB charger in (worked out from the voltage; no pin tells us)
 bool batteryLow(uint32_t nowMs);    // low for long enough to save and sleep
+// What the battery has been through: draw per mode, time left, cycles, health (BatteryStats.h). A copy, safe to
+// ask from the Wi-Fi page's task.
+battery::Report batteryReport();
 
 // Backlight on (at the brightness set below) or off.
 void backlight(bool on);

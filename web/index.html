@@ -319,6 +319,7 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
 
 <section id="device" class="board-only">
   <div class="card"><table id="info"><tr><td>Loading…</td><td></td></tr></table></div>
+  <div class="card" id="battCard" hidden><table id="battInfo"></table></div>
   <button class="btn plain" id="restart">Restart Track Rat</button>
   <p id="restartMsg" class="note"></p>
 </section>
@@ -2184,6 +2185,36 @@ $("fwSend").addEventListener("click", async () => {
   $("fwFile").disabled = false;
 });
 
+// ---- battery (begin: tested by test/test_web.js) ----
+// The Battery table in the Device section, from /api/info's "battery" (src/WifiPortal.cpp addBatteryInfo).
+// Plain text rows: the page escapes them.
+function hoursText(h) {
+  if (h < 1) return `${Math.round(h * 60)} min`;
+  const total = Math.round(h * 60);
+  return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, "0")} min`;
+}
+function batteryRows(b) {
+  if (!b || !b.present) return [["Charge", "No battery fitted"]];
+  const MODES = [["screenOn", "Screen on"], ["screenOnWifi", "Screen on, Wi-Fi page"], ["screenOff", "Screen off"], ["asleep", "Asleep"]];
+  const rows = [];
+  rows.push(["Charge", `${b.percent}%${b.charging ? ", charging" : ""} (${(b.mV / 1000).toFixed(2)} V)`]);
+  rows.push(["Time left", b.charging ? "Charging" : b.timeLeftH == null ? "–" :
+    hoursText(b.timeLeftH) + (b.timeLeftEstimate ? " (estimate)" : "") + " at this draw"]);
+  for (const [key, label] of MODES) {
+    const m = b.modes[key];
+    rows.push([`Draw, ${label.toLowerCase()}`, m.measured ? `${m.ma} mA, ${m.pctPerHour}%/h (measured)` : `≈${m.estimateMa} mA (estimate)`]);
+  }
+  let run = hoursText(b.runH) + (b.runEstimate ? " (estimate: capacity ÷ screen-on draw)" : " (last full run)");
+  if (b.bestRunH != null && b.bestRunH > b.runH + 0.05) run += `, best ${hoursText(b.bestRunH)}`;
+  rows.push(["Run time on a full charge", run]);
+  rows.push(["Cycles", `${b.cycles}`]);
+  rows.push(["Health", b.health === "Learning" ? `Learning (${Math.min(b.healthSteps, 5)} of 5 charges seen)` :
+    `${b.health} (charger step ${b.stepNowMv} mV now, ${b.stepFirstMv} mV when new)`]);
+  rows.push(["Full reads", b.fullMv == null ? "not learned yet (after a full charge)" : `${(b.fullMv / 1000).toFixed(3)} V`]);
+  return rows;
+}
+// ---- battery (end) ----
+
 // ---- device ----
 async function loadInfo() {
   let i;
@@ -2210,6 +2241,8 @@ async function loadInfo() {
     ["Free memory", `${size(i.freeHeap)} RAM, ${size(i.freePsram)} PSRAM`],
   ];
   $("info").innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+  $("battCard").hidden = !i.battery;  // (firmware before the battery figures has none)
+  if (i.battery) $("battInfo").innerHTML = batteryRows(i.battery).map(([k, v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join("");
 }
 
 // ---- settings (begin: tested by test/test_web.js) ----

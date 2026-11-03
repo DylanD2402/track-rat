@@ -271,6 +271,13 @@
 // The shown percentage moves slowly and only the right way (like a phone)
 #define BATTERY_SHOWN_CHARGE_MS 30000     // at most 1 % up per this long while charging
 #define BATTERY_SHOWN_DISCHARGE_MS 60000  // at most 1 % down per this long otherwise
+// What the battery has been through (BatteryStats.h): measured from the voltage, saved in flash
+#define BATTERY_CAPACITY_MAH 3000         // the pack's rating, for turning %/hour into mA
+#define BATTERY_DRAW_SCREEN_MA 180        // draw assumed until measured: screen on ...
+#define BATTERY_DRAW_WIFI_MA 260          // ... screen on with the Wi-Fi page running (everything on) ...
+#define BATTERY_DRAW_SCREEN_OFF_MA 90     // ... awake with the backlight off ...
+#define BATTERY_DRAW_SLEEP_MA 1           // ... deep sleep
+#define BATTERY_STATS_SAVE_MS (10UL * 60UL * 1000UL)  // saved at most this often (flash wear), and before sleeping
 
 // ---------------------------------------------------------------------------
 // Auto-sleep: parked with no touch or BOOT press. Waking is by BOOT (IO0) or a touch (INT, IO17).

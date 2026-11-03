@@ -67,11 +67,11 @@
 #include "WifiPortal.h"
 
 enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
-                      Setup, SettingsScreen, EngineScreen, CameraScreen, Autocross, NewCourse, AdjustLine };
+                      Setup, SettingsScreen, EngineScreen, CameraScreen, Autocross, NewCourse, AdjustLine, BatteryScreen };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
                                     "WIFI",     "SETUP",      "SETTINGS",     "ENGINE_DATA",       "CAMERA",
-                                    "AUTOCROSS", "NEW_COURSE", "ADJUST_LINE"};
+                                    "AUTOCROSS", "NEW_COURSE", "ADJUST_LINE", "BATTERY"};
 // The Autocross hub (Courses.h): which course it shows (a trackDB index, -1 none), and the BOOT button's place:
 // 0 Start runs, 1 New course, 2 Adjust start, 3 Adjust finish, 4 Back
 static int hubCourse = -1;
@@ -1623,6 +1623,8 @@ static void handleInput(InputEvent ev) {
       } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Camera) {
         cameraUi.begin(input.touchAvailable());
         enterState(AppState::CameraScreen);
+      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Battery) {
+        enterState(AppState::BatteryScreen);
       }
       lastRender = 0;
       break;
@@ -1663,6 +1665,11 @@ static void handleInput(InputEvent ev) {
       lastRender = 0;
       break;
     }
+
+    case AppState::BatteryScreen:  // read-only: any tap or press goes back to the list
+      enterState(AppState::SettingsScreen);
+      lastRender = 0;
+      break;
 
     case AppState::Autocross: {  // Start runs and New course on the top row; Adjust start, Adjust finish and Back below
       const bool canStart = hubCourse >= 0, canMake = gps.hasFix();
@@ -1857,6 +1864,9 @@ static void render() {
       if (cameraUi.page == DeviceScreenState::Page::Find) cameraFoundCount = CameraBle::found(cameraFound, CameraBle::MAX_FOUND);
       display.drawCamera(cameraUi, CameraBle::status(), Settings::get().cameraWithSessions, cameraFound, cameraFoundCount,
                          CameraBle::scanning(), input.touchAvailable());
+      break;
+    case AppState::BatteryScreen:
+      display.drawBattery(Power::batteryReport(), input.touchAvailable());
       break;
     case AppState::Setup:
       display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());

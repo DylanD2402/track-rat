@@ -6,6 +6,9 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ### Added
 
+- What the battery has been through, worked out from the voltage alone (so it is an estimate that improves with use): the draw in mA and %/hour of each way of running (screen on, screen on with the Wi-Fi page, screen off, deep sleep), the time left at the current draw (the default draws until measured, marked as a guess), the run time on a full charge (from the last full run, or the capacity over the screen-on draw), charge cycles, and a health rating (Good, Fair, Replace) from how big the charger's plug-in step is now compared with when it was new. It is saved to flash every 10 minutes and before sleeping. See it on the Wi-Fi page (Device, a Battery table) and in Settings > Battery.
+- "Full means full": when the charger finishes, the resting voltage of this cell is learned, and the percentage curve is lifted so that voltage reads 100% (fading out by 3.8 V; the low-battery cutoff still uses the raw voltage). The percentage jumps to 100% when the charger is found to have finished.
+
 - A steady battery gauge: charging is worked out from the battery voltage (the board has no pin for it), and the icon and percentage turn green with a small lightning bolt while it charges. The shown percentage only rises while charging and only falls otherwise, by at most 1% per 30 s or per minute, so plugging in or unplugging no longer swings it. The low-battery sleep still uses the real voltage. Plugged into a computer or a car's USB port it turns green at once, and a steady climb of 3 mV over 10 minutes (a nearly full battery on USB) counts as charging too. A wall charger shows within about 2 seconds while it is charging; once the charger has finished it can't be told from the battery and shows white, while a computer or car USB port always shows green.
 
 ## [0.2.0-beta.1] - 2026-11-01

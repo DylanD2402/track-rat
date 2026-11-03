@@ -22,6 +22,7 @@
 #include "SettingsData.h"
 #include "SettingsFlow.h"
 #include "DeviceScreen.h"
+#include "BatteryStats.h"
 #include "ObdBle.h"
 #include "CameraBle.h"
 #include "TrackDatabase.h"
@@ -197,6 +198,8 @@ public:
   // Settings > Camera: the DJI camera's status and pairing code, or the Pair list
   void drawCamera(const DeviceScreenState& ui, const CameraBle::Status& st, bool withSessions, const CameraBle::Found* found, int n,
                   bool scanning, bool touchOk);
+  // Settings > Battery: charge, time left, draw per mode, run time, cycles and health (read-only; a tap or BOOT goes back)
+  void drawBattery(const battery::Report& r, bool touchOk);
   // First boot: step 0 asks which way up (highlight 0 = the left arrow, 1 = the right), step 1 km/h or mph.
   void drawSetup(int step, int highlight, bool touchOk);
 

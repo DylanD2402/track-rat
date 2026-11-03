@@ -679,6 +679,50 @@ int main(int argc, char** argv) {
   d.drawCamera(cam, camStatus, true, cams, 1, false, true);
   save(d, "37c_camera_pair_list");
 
+  // Settings > Battery: only the default draws so far (guesses), then after some weeks of use
+  {
+    battery::Report r;
+    r.present = true;
+    r.percent = 76;
+    r.mv = 3965;
+    r.capacityMah = 3000;
+    r.mode = battery::Mode::ScreenOn;
+    const float defaultMa[battery::MODE_COUNT] = {180, 260, 90, 1};
+    for (int i = 0; i < battery::MODE_COUNT; i++) {
+      r.usage[i].measured = false;
+      r.usage[i].milliamps = defaultMa[i];
+      r.usage[i].pctPerHour = defaultMa[i] * 100.0f / 3000.0f;
+    }
+    r.haveTimeLeft = true;
+    r.timeLeftEstimate = true;
+    r.hoursLeft = 76.0f / r.usage[0].pctPerHour;
+    r.runHours = 3000.0f / 180.0f;
+    r.runEstimate = true;
+    r.steps = 2;
+    d.drawBattery(r, true);
+    save(d, "37d_battery_estimates");
+
+    r.usage[0] = {true, 6.2f, 186.0f};
+    r.usage[1] = {true, 8.4f, 252.0f};
+    r.usage[3] = {true, 0.09f, 2.7f};
+    r.timeLeftEstimate = false;
+    r.hoursLeft = 76.0f / r.usage[0].pctPerHour;
+    r.runHours = 11.8f;
+    r.runEstimate = false;
+    r.cycles = 14.2f;
+    r.steps = 14;
+    r.stepFirstMv = 78;
+    r.stepNowMv = 82;
+    r.health = battery::Health::Good;
+    r.fullMv = 4172;
+    d.drawBattery(r, true);
+    save(d, "37e_battery_measured");
+    r.charging = true;
+    r.haveTimeLeft = false;
+    d.drawBattery(r, false);
+    save(d, "37f_battery_charging_boot");
+  }
+
   // The SYNC flash (6.4), for lining a video up with the log
   d.drawSync("14:03:12.3");
   save(d, "38_sync_flash");

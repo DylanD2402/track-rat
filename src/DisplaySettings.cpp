@@ -7,6 +7,7 @@
  * work with gloves: two big halves of the screen.
  */
 
+#include <stdarg.h>
 #include <string.h>
 #include <string>
 #include "DisplayManager.h"
@@ -139,6 +140,9 @@ void DisplayManager::settingsList(const SettingsData& s, const SettingsScreenSta
         } else if (rw.item == SettingItem::Camera) {
           const CameraBle::Status st = CameraBle::status();
           snprintf(buf, sizeof(buf), "%s", st.connected ? "Connected" : st.configured ? st.name : "None");
+        } else if (rw.item == SettingItem::Battery) {  // the charge, not a setting
+          if (batteryPct >= 0) snprintf(buf, sizeof(buf), "%d%%", batteryPct);
+          else snprintf(buf, sizeof(buf), "None");
         } else if (rw.item == SettingItem::Driver || rw.item == SettingItem::Car) {  // the lists, not a setting
           snprintf(buf, sizeof(buf), "%s", rw.item == SettingItem::Driver ? ui.people.driverName() : ui.people.carName());
         } else {
@@ -492,6 +496,73 @@ void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::St
     text("Pair camera", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
     if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
   }
+  endFrame();
+}
+
+// "12 h 05 min", or "40 min"
+static void hoursText(char* buf, size_t n, float hours) {
+  const int total = (int)(hours * 60.0f + 0.5f);
+  if (total < 60) snprintf(buf, n, "%d min", total);
+  else snprintf(buf, n, "%d h %02d min", total / 60, total % 60);
+}
+
+// Settings > Battery: one card of facts, nothing to change. The figures are estimates from the voltage
+// (BatteryStats.h): "~" marks the ones that are a guess (the default draw, not measured yet).
+void DisplayManager::drawBattery(const battery::Report& r, bool touchOk) {
+  beginFrame();
+  struct Line {
+    char label[24];
+    char value[40];
+    uint16_t colour;
+  } lines[9];
+  int n = 0;
+  auto add = [&](const char* label, uint16_t colour, const char* fmt, ...) {
+    Line& l = lines[n++];
+    snprintf(l.label, sizeof(l.label), "%s", label);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(l.value, sizeof(l.value), fmt, ap);
+    va_end(ap);
+    l.colour = colour;
+  };
+  char t[24];
+  if (!r.present) {
+    add("Charge", C_TEXT2, "No battery fitted");
+  } else {
+    add("Charge", r.charging ? C_GREEN : C_TEXT, "%d%%%s  %.2f V", r.percent, r.charging ? " charging" : "", r.mv / 1000.0f);
+    if (r.charging) {
+      add("Time left", C_TEXT2, "Charging");
+    } else if (r.haveTimeLeft) {
+      hoursText(t, sizeof(t), r.hoursLeft);
+      add("Time left", C_TEXT, "%s%s", r.timeLeftEstimate ? "~" : "", t);
+    } else {
+      add("Time left", C_TEXT2, "-");
+    }
+    static const char* const NAMES[battery::MODE_COUNT] = {"Screen on", "Screen on, Wi-Fi", "Screen off", "Asleep"};
+    for (int i = 0; i < battery::MODE_COUNT; i++) {
+      const battery::ModeUsage& u = r.usage[i];
+      add(NAMES[i], u.measured ? C_TEXT : C_TEXT2, "%s%.0f mA  %.1f%%/h", u.measured ? "" : "~", u.milliamps, u.pctPerHour);
+    }
+    hoursText(t, sizeof(t), r.runHours);
+    add("Full charge lasts", r.runEstimate ? C_TEXT2 : C_TEXT, "%s%s", r.runEstimate ? "~" : "", t);
+    add("Cycles", C_TEXT, "%.1f", r.cycles);
+    if (r.health == battery::Health::Learning) add("Health", C_TEXT2, "Learning (%d of %d)", r.steps < 5 ? r.steps : 5, battery::STEP_SAMPLES);
+    else add("Health", r.health == battery::Health::Good ? C_GREEN : r.health == battery::Health::Fair ? C_YELLOW : C_ORANGE,
+             "%s  (%d mV, was %d)", battery::healthName(r.health), r.stepNowMv, r.stepFirstMv);
+  }
+
+  const int rowH = 18, x = ES::CARD_X, w = ES::CARD_W, top = ES::TOP + 4;
+  gfx->fillRoundRect(x, top, w, n * rowH + 4, CORNER, C_SURFACE);
+  for (int i = 0; i < n; i++) {
+    const int cy = top + 2 + i * rowH + rowH / 2;
+    if (i > 0) gfx->drawFastHLine(x + 14, cy - rowH / 2, w - 28, C_LINE);
+    const int lw = text(lines[i].label, x + 14, cy, Font::Caption, C_TEXT2, ML_DATUM);
+    text(fit(lines[i].value, Font::Caption, w - 28 - lw - 8), x + w - 14, cy, Font::Caption, lines[i].colour, MR_DATUM);
+  }
+  if (touchOk) button(ES::FIND_X, 206, w, 28, "Back", false);
+  header("‹  Settings", nullptr);
+  text("Battery", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+  if (!touchOk) settingsHint("BOOT: press or hold to go back");
   endFrame();
 }
 
