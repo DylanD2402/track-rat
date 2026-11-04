@@ -10,13 +10,13 @@
 #include "LapTimer.h"
 #include "LayoutMatch.h"
 #include "check.h"
+#include "geo_helpers.h"
 
 static const double SF_LAT = 37.0, SF_LON = -122.0, R = 150.0;
 
 // Position on a circle of radius R whose easternmost point (angle 0) is the S/F.
 static void circlePos(double angle, double& lat, double& lon) {
-  lat = SF_LAT + R * sin(angle) / 111194.93;  // metres per degree on a 6371 km sphere
-  lon = SF_LON + R * (cos(angle) - 1.0) / (111194.93 * cos(SF_LAT * geo::DEG2RAD));
+  circlePoint(SF_LAT, SF_LON, R, angle, lat, lon);
 }
 
 // Constant speed: every lap should be exactly 2*pi*R / v.

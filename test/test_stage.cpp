@@ -20,6 +20,7 @@
 #include "SessionReplay.h"
 #include "VboFormat.h"
 #include "check.h"
+#include "geo_helpers.h"
 
 static const double REF_LAT = 45.0, REF_LON = -75.0;
 
@@ -30,10 +31,9 @@ static TrackPoint at(double x, double y, float heading = -1) {
 }
 
 // A car, fed to the timer a fix every 50 ms (20 Hz)
-struct Car {
+struct Car : CarMotion<Car> {
   LapTimer& timer;
   uint32_t ms = 36000000;  // 10:00 UTC
-  double x = 0, y = 0;
   std::vector<LapEvent> events;
   int32_t lastDelta = NO_DELTA;
   uint32_t stoppedUntilMs = 0;  // time of the last fix at a standstill
@@ -56,37 +56,6 @@ struct Car {
     smp.hdop = 0.8f;
     log.push_back(smp);
     ms += 50;
-  }
-  void wait(double seconds) {
-    for (int i = 0; i < seconds * 20; i++) fix(0);
-  }
-  // Straight to (tx, ty): from a standstill (accelerating at `accel` m/s^2) or rolling, at up to vmax km/h
-  void driveTo(double tx, double ty, float vmaxKmh, float startKmh = 0, double accel = 6) {
-    double v = startKmh / 3.6;
-    const double vmax = vmaxKmh / 3.6;
-    const double len = hypot(tx - x, ty - y), ux = (tx - x) / len, uy = (ty - y) / len;
-    double done = 0;
-    while (done < len) {
-      v = fmin(vmax, v + accel * 0.05);
-      const double step = fmin(v * 0.05, len - done);
-      done += step;
-      x += ux * step;
-      y += uy * step;
-      fix((float)(v * 3.6));
-    }
-  }
-  // Brakes to a stop over `d` metres onwards
-  void stopWithin(double dx, double dy, float fromKmh) {
-    double v = fromKmh / 3.6;
-    const double len = hypot(dx, dy), ux = dx / len, uy = dy / len;
-    const double decel = v * v / (2 * len);
-    while (v > 0.05) {
-      v = fmax(0, v - decel * 0.05);
-      x += ux * v * 0.05;
-      y += uy * v * 0.05;
-      fix((float)(v * 3.6));
-    }
-    fix(0);
   }
   int count(LapEventType type) const {
     int n = 0;

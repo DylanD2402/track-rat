@@ -14,17 +14,14 @@
 #include "BestLap.h"
 #include "LapTimer.h"
 #include "check.h"
+#include "geo_helpers.h"
 
 using bestlap::Record;
 
 static const double SF_LAT = 45.0, SF_LON = -76.0, R = 150.0;
-static const double M_PER_DEG_LAT = 111194.93;
 static const double TWO_PI = 2 * M_PI;
 
-static void circlePos(double angle, double& lat, double& lon) {
-  lat = SF_LAT + R * sin(angle) / M_PER_DEG_LAT;
-  lon = SF_LON + R * (cos(angle) - 1.0) / (M_PER_DEG_LAT * cos(SF_LAT * geo::DEG2RAD));
-}
+static void circlePos(double angle, double& lat, double& lon) { circlePoint(SF_LAT, SF_LON, R, angle, lat, lon); }
 
 static Record sampleRecord(uint32_t lapMs, uint32_t date, size_t points) {
   Record r;

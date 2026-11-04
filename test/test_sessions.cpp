@@ -16,15 +16,12 @@
 #include "SessionReplay.h"
 #include "VboFormat.h"
 #include "check.h"
+#include "geo_helpers.h"
 
 static const double SF_LAT = 45.0, SF_LON = -76.0, R = 150.0;  // a 942 m circle, S/F at its easternmost point
-static const double M_PER_DEG_LAT = 111194.93;
 static const double TWO_PI = 2 * M_PI;
 
-static void circlePos(double angle, double& lat, double& lon) {
-  lat = SF_LAT + R * sin(angle) / M_PER_DEG_LAT;
-  lon = SF_LON + R * (cos(angle) - 1.0) / (M_PER_DEG_LAT * cos(SF_LAT * geo::DEG2RAD));
-}
+static void circlePos(double angle, double& lat, double& lon) { circlePoint(SF_LAT, SF_LON, R, angle, lat, lon); }
 
 // Drives a car round the circle at 10 Hz, feeding every fix to the lap timer
 // and the pit watch, and keeping the log a session would write.

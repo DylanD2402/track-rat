@@ -14,6 +14,7 @@
 #include "Debrief.h"
 #include "LapTimer.h"
 #include "check.h"
+#include "geo_helpers.h"
 
 using namespace debrief;
 
@@ -139,8 +140,7 @@ static void testHints() {
 static void testSectorPaths() {
   const double SF_LAT = 45.0, SF_LON = -76.0, R = 150.0;
   auto pos = [&](double a, double& lat, double& lon) {
-    lat = SF_LAT + R * sin(a) / 111194.93;
-    lon = SF_LON + R * (cos(a) - 1.0) / (111194.93 * cos(SF_LAT * geo::DEG2RAD));
+    circlePoint(SF_LAT, SF_LON, R, a, lat, lon);
   };
   // Gates a quarter and half way round (anticlockwise), heading west and south
   std::vector<TrackPoint> gates(2);

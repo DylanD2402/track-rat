@@ -14,14 +14,14 @@
 #include "SessionReplay.h"
 #include "VboFormat.h"
 #include "check.h"
+#include "geo_helpers.h"
 
 static const double SF_LAT = 45.0, SF_LON = -75.0, R = 150.0;
-static double mPerDegLon() { return 111194.93 * cos(SF_LAT * geo::DEG2RAD); }
+static double mPerDegLon() { return ::mPerDegLon(SF_LAT); }
 
 // A point on a 150 m circle through the start/finish (angle 0), anticlockwise.
 static void circlePos(double angle, double& lat, double& lon) {
-  lat = SF_LAT + R * sin(angle) / 111194.93;
-  lon = SF_LON + R * (cos(angle) - 1.0) / mPerDegLon();
+  circlePoint(SF_LAT, SF_LON, R, angle, lat, lon);
 }
 // The line at an angle round the circle, across the track, facing the way the car goes.
 static TrackPoint lineAt(double angle) {

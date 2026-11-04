@@ -16,6 +16,7 @@
 #include "LapTimer.h"
 #include "VboFormat.h"
 #include "check.h"
+#include "geo_helpers.h"
 
 using namespace adjust;
 
@@ -28,10 +29,9 @@ static TrackPoint at(double x, double y, float heading = -1, float radius = 10) 
 }
 
 // A car feeding a LapTimer and recording every fix as a .vbo would, the lap column included
-struct Car {
+struct Car : CarMotion<Car> {
   LapTimer& timer;
   uint32_t ms = 36000000;
-  double x = 0, y = 0;
   std::vector<vbo::Sample> log;
   std::vector<uint32_t> runs;  // the timer's run times, as they finish
 
@@ -48,35 +48,6 @@ struct Car {
     s.lap = timer.lapRunning() ? timer.currentLapNumber() : 0;
     log.push_back(s);
     ms += 50;
-  }
-  void wait(double seconds) {
-    for (int i = 0; i < seconds * 20; i++) fix(0);
-  }
-  void driveTo(double tx, double ty, float vmaxKmh, float startKmh = 0, double accel = 6) {
-    double v = startKmh / 3.6;
-    const double vmax = vmaxKmh / 3.6;
-    const double len = hypot(tx - x, ty - y), ux = (tx - x) / len, uy = (ty - y) / len;
-    double done = 0;
-    while (done < len) {
-      v = fmin(vmax, v + accel * 0.05);
-      const double step = fmin(v * 0.05, len - done);
-      done += step;
-      x += ux * step;
-      y += uy * step;
-      fix((float)(v * 3.6));
-    }
-  }
-  void stopWithin(double dx, double dy, float fromKmh) {
-    double v = fromKmh / 3.6;
-    const double len = hypot(dx, dy), ux = dx / len, uy = dy / len;
-    const double decel = v * v / (2 * len);
-    while (v > 0.05) {
-      v = fmax(0, v - decel * 0.05);
-      x += ux * v * 0.05;
-      y += uy * v * 0.05;
-      fix((float)(v * 3.6));
-    }
-    fix(0);
   }
 };
 
