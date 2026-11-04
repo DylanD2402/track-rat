@@ -78,8 +78,6 @@ private:
   uint32_t since = 0;
 };
 
-// The Session length setting's choices, in minutes (0: no countdown).
-
 // "m:ss" (or "h:mm:ss") of a time in ms.
 inline std::string clockText(uint32_t ms) {
   const uint32_t s = ms / 1000;

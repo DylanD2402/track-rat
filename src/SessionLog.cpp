@@ -556,8 +556,9 @@ static std::string summaryTrack(fs::FS& fs, const String& jsonPath) {
   return err ? std::string() : std::string(doc["track"] | "");
 }
 
-// Whoever the log says drove: nobody for a log from before drivers and cars
 // Read a whole .vbo into a replay in 4 KB chunks, then close the file and finish the replay.
+// One buffer serves boot recovery and re-timing: they never run at once (retime() refuses while
+// recovery runs, and recovery only starts from setup()).
 static void feedWholeFile(File& f, SessionReplay& replay) {
   static char chunk[4096];
   for (;;) {
@@ -569,6 +570,7 @@ static void feedWholeFile(File& f, SessionReplay& replay) {
   replay.finish();
 }
 
+// Whoever the log says drove: nobody for a log from before drivers and cars
 static Who whoOf(const SessionReplay& r) {
   Who w;
   w.driverId = r.driverId;
