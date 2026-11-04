@@ -28,6 +28,7 @@
 #include "app/SdUpdate.h"
 #include "app/SettingsScreens.h"
 #include "app/SleepControl.h"
+#include "app/TrackDay.h"
 #include "AdjustLoad.h"
 #include "AppRollback.h"
 #include "AutoStart.h"
@@ -91,23 +92,14 @@ AppState state = AppState::GpsWait;
 static AppState statusReturn = AppState::Menu;  // where the GPS Status screen goes back to
 static AppState wifiReturn = AppState::Menu;    // where the Wi-Fi screen goes back to
 int selectedIndex = 0;
-// Track list: trackDB indices, nearest first (see TrackOrder.h), and where in it we are
-static std::vector<int> listOrder;
-static int listPos = 0;
-static bool listSorted = false;  // ordered by distance (false: no GPS fix when it was made)
 static int menuHighlight = 0;  // the home screen's BOOT place (home::Item)
-// The Track day list also holds two entries that are not a track: + New circuit, and (no touch screen) Back
-static const int ENTRY_NEW_CIRCUIT = -2, ENTRY_BACK = -3;
 static nextcard::Choice nextUp;     // the home screen's Next up card
-static uint32_t nextUpAt = 0;     // millis() it was worked out; 0: out of date
+uint32_t nextUpAt = 0;     // millis() it was worked out; 0: out of date
 static bool autoPickDone = false;
 static bool noTrackNearby = false;
 
-// The Ready screen: where it was entered from decides whether its left button
-// is "Back" (to the track list) or "Menu". Auto-start: a track was picked at
-// boot with the car parked, so the screen starts the session by itself once
+// Auto-start: a track was picked at boot with the car parked, so the Ready screen starts the session by itself once
 // the car drives off (see AutoStart.h). It ends when the screen is left.
-static bool readyFromList = false;
 static bool autoStart = false;
 static DriveOffDetector driveOff;
 
@@ -180,47 +172,10 @@ static uint32_t lastStatusLog = 0;
 
 const Track& selectedTrack() { return *trackDB.get(selectedIndex); }
 
-static double distanceToTrack(int index) {
+double distanceToTrack(int index) {
   const Track* t = trackDB.get(index);
   if (!gps.hasFix() || t->bench) return -1;
   return geo::distanceM(gps.lastFix().lat, gps.lastFix().lon, t->refLat(), t->refLon());
-}
-
-// Orders the track list by distance from here. keepIndex >= 0 stays selected;
-// otherwise the nearest track is.
-static void sortTrackList(int keepIndex) {
-  std::vector<trackorder::Item> items;
-  std::vector<int> trackOf;    // trackDB index of each item: autocross courses are left out (the Autocross hub has them)
-  std::vector<String> venues;  // venue ids, so layouts of one venue share a group number
-  for (int i = 0; i < trackDB.count(); i++) {
-    const Track* t = trackDB.get(i);
-    if (t->course) continue;
-    trackOf.push_back(i);
-    int group = -1;
-    if (t->layoutIndex >= 0) {
-      auto it = std::find(venues.begin(), venues.end(), t->venueId);
-      group = it - venues.begin();
-      if (it == venues.end()) venues.push_back(t->venueId);
-    }
-    items.push_back({distanceToTrack(i), group, t->bench});
-  }
-  bool hasBench = false;
-  for (const trackorder::Item& it : items) hasBench |= it.last;
-  listOrder = trackorder::byDistance(items);
-  for (int& i : listOrder) i = trackOf[i];
-  listOrder = trackorder::withEntries(listOrder, hasBench, ENTRY_NEW_CIRCUIT, !input.touchAvailable(), ENTRY_BACK);
-  listSorted = gps.hasFix();
-  listPos = 0;
-  for (size_t p = 0; keepIndex >= 0 && p < listOrder.size(); p++)
-    if (listOrder[p] == keepIndex) listPos = p;
-  if (!listOrder.empty() && listOrder[listPos] >= 0) selectedIndex = listOrder[listPos];
-}
-
-// How many entries the Track day list has: the circuits (and the Bench Test), + New circuit, and Back without touch
-static int trackListSize() {
-  int n = 1 + (input.touchAvailable() ? 0 : 1);
-  for (int i = 0; i < trackDB.count(); i++) n += !trackDB.get(i)->course;
-  return n;
 }
 
 // Autocross courses (Courses.h), by trackDB index
@@ -243,18 +198,11 @@ static int courseRunsBefore() {
 }
 
 // trackDB index of today's course nearby (made today, start within 5 km), or -1
-static int todaysCourseNearby() {
+int todaysCourseNearby() {
   if (!gps.hasFix()) return -1;
   const std::vector<courses::Candidate> list = courseCandidates();
   const int k = courses::todaysNearby(list, todayEvent(), gps.lastFix().lat, gps.lastFix().lon);
   return k < 0 ? -1 : list[k].index;
-}
-
-static void moveInTrackList(int step) {
-  const int n = listOrder.size();
-  if (n == 0) return;
-  listPos = (listPos + step + n) % n;
-  if (listOrder[listPos] >= 0) selectedIndex = listOrder[listPos];
 }
 
 static uint32_t minLapMs(const Track& t) {
@@ -269,30 +217,6 @@ static bestlap::Record pbRecord, dayRecord;
 // The track's stats as they were when the session started (best sector
 // times ever, the session before): see BestLapStore::Stats
 static BestLapStore::Stats trackStats;
-// PBs for the track list and Ready screen, read from the card once per track
-struct PbInfo {
-  bool read = false;
-  uint32_t ms = 0, date = 0;
-};
-static std::vector<PbInfo> pbCache;
-
-static void personalBestFor(int index, uint32_t& ms, uint32_t& date) {
-  if ((int)pbCache.size() != trackDB.count()) pbCache.assign(trackDB.count(), PbInfo());
-  PbInfo& c = pbCache[index];
-  if (!c.read) {
-    c.read = true;
-    const Track* t = trackDB.get(index);
-    bestlap::Record r;
-    if (t->hasStartFinish && BestLapStore::load(t->id, BestLapStore::Kind::Ever, r, false) &&
-        bestlap::sameLine(r, t->startFinish.lat, t->startFinish.lon)) {
-      c.ms = r.lapMs;
-      c.date = r.date;
-    }
-  }
-  ms = c.ms;
-  date = c.date;
-}
-
 // One stored best lap of the selected track, if it was timed at its line as it is now.
 static bool loadBestLap(BestLapStore::Kind kind, bestlap::Record& r, bool withPath) {
   const Track& t = selectedTrack();
@@ -357,7 +281,7 @@ static bool saveBestLaps(const Lap& lap, bool& isDayBest) {
   // This session's best is now the reference: a new PB beats the stored lap, and comparing with
   // today's best, until now that was the PB (no lap today yet)
   if (pb || (dayBest && Settings::get().compareTo == CompareTo::Day)) lapTimer.clearReference();
-  if (selectedIndex < (int)pbCache.size()) pbCache[selectedIndex].read = false;
+  TrackDay::forgetPb(selectedIndex);
   DEBUG_PRINTF("Best lap: %s%s%s\n", pb ? "new PB" : "", pb && dayBest ? ", " : "", dayBest ? "best of the day" : "");
   return pb;
 }
@@ -630,15 +554,8 @@ void enterState(AppState next) {
 
   AutocrossScreens::stateChanging(next);
 
-  if (next == AppState::TrackConfirm && state != AppState::TrackConfirm) readyFromList = state == AppState::TrackSelect;
+  TrackDay::stateChanging(next);
   if (state == AppState::TrackConfirm && next != AppState::TrackConfirm) autoStart = false;
-
-  // Opening the track list from the menu: nearest first. Coming back to it
-  // (from a track's Ready screen or GPS status): stay on the same track.
-  if (next == AppState::TrackSelect) {
-    if (state == AppState::Menu || (int)listOrder.size() != trackListSize()) sortTrackList(state == AppState::Menu ? -1 : selectedIndex);
-    else for (size_t p = 0; p < listOrder.size(); p++) if (listOrder[p] == selectedIndex) listPos = p;
-  }
 
   // Wi-Fi is on only while its screen is shown, never while timing.
   if (next == AppState::Wifi) {
@@ -655,19 +572,23 @@ void enterState(AppState next) {
   lastRender = 0;  // redraw now
 }
 
-// Track day, then + New circuit: created here, start/finish marked on the first pass.
-static void createNewTrack() {
-  if (!gps.hasFix()) return enterState(AppState::Menu);
-  const GpsFix& f = gps.lastFix();
-  int idx = trackDB.createTrack(f.lat, f.lon);
-  if (idx < 0) return enterState(AppState::Menu);
-  selectedIndex = idx;
-  enterState(AppState::Running);
-  layoutChecked = true;  // the driver asked for a new track: don't swap it for one nearby
-}
-
 // The session's track was picked by the driver (a new course), so the layout check doesn't swap it for one nearby
 void sessionKeepLayout() { layoutChecked = true; }
+
+// A track's Ready screen: the driver chose to mark a new start/finish line
+void sessionMarkNewLine() {
+  settingLine = true;
+  layoutChecked = true;
+}
+
+// Is the Ready screen waiting for the car to drive off (AutoStart.h)
+bool autoStartArmed() { return autoStart; }
+
+// A track was picked at boot with the car parked: the Ready screen starts the session when it drives off
+void armAutoStart() {
+  autoStart = true;
+  driveOff.reset();
+}
 
 // A note on the timing screen for showMs
 void sessionNotice(const String& text, uint32_t showMs) {
@@ -737,7 +658,7 @@ static void markStartFinish() {
   trackDB.setStartFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
   settingLine = false;
   beginLapTiming(selectedTrack());
-  if (selectedIndex < (int)pbCache.size()) pbCache[selectedIndex].read = false;  // the PB may not count at the new line
+  TrackDay::forgetPb(selectedIndex);  // the PB may not count at the new line
   loadBestLaps();  // a line put back where it was keeps its best laps
   lapTimer.startLapNow(f.gpsTimeMs, f.rxMillis);
   layoutChecked = true;  // the driver just put the line here
@@ -1112,7 +1033,7 @@ static void refreshNextUp() {
     if (n >= 0) {
       const Track* t = trackDB.get(n);
       uint32_t pb = 0, pbDate = 0;
-      personalBestFor(n, pb, pbDate);
+      TrackDay::personalBestFor(n, pb, pbDate);
       in.circuitIndex = n;
       in.circuitDistM = dist;
       in.circuitName = std::string(t->name.c_str());
@@ -1235,39 +1156,11 @@ static void handleInput(InputEvent ev) {
       break;
 
     case AppState::TrackSelect:
-      if (ev == InputEvent::TapHeader) {  // the top bar: back to the home screen (GPS status is on its top bar)
-        enterState(AppState::Menu);
-        break;
-      }
-      if (ev == InputEvent::Hold) enterState(AppState::Menu);
-      else if (ev == InputEvent::TapLeft) moveInTrackList(-1);
-      else if (ev == InputEvent::TapRight || ev == InputEvent::BootShort) moveInTrackList(1);
-      else if (ev == InputEvent::TapCenter || ev == InputEvent::BootLong) {
-        const int entry = listOrder.empty() ? 0 : listOrder[listPos];
-        if (entry == ENTRY_BACK) {
-          enterState(AppState::Menu);
-        } else if (entry == ENTRY_NEW_CIRCUIT) {
-          if (gps.hasFix()) createNewTrack();  // then tap the screen as you cross the line
-        } else {
-          enterState(AppState::TrackConfirm);
-        }
-      }
-      lastRender = 0;
+      TrackDay::onInputList(ev);
       break;
 
     case AppState::TrackConfirm:
-      if (ev == InputEvent::TapCenter || ev == InputEvent::BootLong) {
-        enterState(AppState::Running);
-      } else if (ev == InputEvent::TapRight && !selectedTrack().bench) {
-        enterState(AppState::Running);
-        settingLine = true;    // mark a new start/finish (replaces the old one)...
-        layoutChecked = true;  // ...on the layout the driver picked, not one the check finds
-      } else if (ev == InputEvent::TapLeft || ev == InputEvent::BootShort) {
-        enterState(readyFromList ? AppState::TrackSelect : AppState::Menu);
-      } else if (ev == InputEvent::TapHeader) {  // next layout of this venue (still waiting for the car to drive off)
-        selectedIndex = trackDB.nextLayout(selectedIndex);
-        lastRender = 0;
-      }
+      TrackDay::onInputReady(ev);
       break;
 
     case AppState::Running:
@@ -1352,21 +1245,6 @@ static void handleInput(InputEvent ev) {
   }
 }
 
-// The selected track's PB, for the track list and Ready screen
-static void showPersonalBest() {
-  static uint32_t peopleSeen = 0xFFFFFFFF;
-  if (Profiles::changeCount() != peopleSeen) {  // another driver or car: their PBs are in other files
-    peopleSeen = Profiles::changeCount();
-    pbCache.clear();
-  }
-  char who[48] = "";
-  if (Profiles::showLabel()) Profiles::label(who, sizeof(who));
-  display.setDriverCar(who);
-  uint32_t ms, date;
-  personalBestFor(selectedIndex, ms, date);
-  display.setPersonalBest(ms, date);
-}
-
 static void render() {
   uint32_t now = millis();
   const uint32_t bootHeld = input.bootHeldMs();
@@ -1403,26 +1281,10 @@ static void render() {
       display.drawHome(nextUp, input.touchAvailable() ? -1 : menuHighlight, gps, input.touchAvailable());
       break;
     case AppState::TrackSelect:
-      // The list opened before the GPS had a fix: sort it once a fix arrives
-      // (to the nearest track, unless the driver has already moved along it).
-      if (!listSorted && gps.hasFix()) sortTrackList(listPos == 0 ? -1 : selectedIndex);
-      {
-        const int entry = listOrder.empty() ? 0 : listOrder[listPos];
-        const int shown = (int)listOrder.size() - (input.touchAvailable() ? 0 : 1);  // (Back isn't counted)
-        if (entry == ENTRY_NEW_CIRCUIT || entry == ENTRY_BACK) {
-          display.drawTrackDayExtra(entry == ENTRY_BACK, listPos, shown, gps, input.touchAvailable());
-          break;
-        }
-        showPersonalBest();
-        display.drawTrackSelect(selectedTrack(), listPos, shown, distanceToTrack(selectedIndex), gps,
-                                input.touchAvailable());
-      }
+      TrackDay::renderList();
       break;
     case AppState::TrackConfirm:
-      showPersonalBest();
-      display.drawTrackConfirm(selectedTrack(), distanceToTrack(selectedIndex), gps.hasFix(),
-                               input.touchAvailable(), trackDB.layoutNumber(selectedIndex),
-                               trackDB.layoutCount(selectedIndex), readyFromList, autoStart);
+      TrackDay::renderReady();
       break;
     case AppState::Running:
       if (settingLine) {
@@ -1492,24 +1354,6 @@ static void render() {
   }
 }
 
-// The world tracks from the SD card's /world tiles (WorldTiles.h) for where we are: read at the first fix and
-// again after moving into another tile, only on the screens before a session (reading a tile takes a moment,
-// and the lap timer runs on this loop). With no card or no /world folder it does nothing.
-static void refreshWorldTracks() {
-  if (!gps.hasFix()) return;
-  if (state != AppState::GpsWait && state != AppState::Menu && state != AppState::TrackSelect) return;
-  const String keepId = trackDB.get(selectedIndex) ? selectedTrack().id : String("");
-  const GpsFix& f = gps.lastFix();
-  if (!trackDB.refreshWorld(f.lat, f.lon)) return;
-  // World tracks' indices changed: what is kept by index is worked out again
-  pbCache.clear();
-  listOrder.clear();  // (the Track day list is made again on entering it)
-  nextUpAt = 0;
-  const int again = keepId.length() ? trackDB.indexOfId(keepId) : -1;
-  selectedIndex = again >= 0 ? again : 0;
-  if (state == AppState::TrackSelect) sortTrackList(selectedIndex);
-}
-
 // Once the GPS has a fix: a track within range is picked. If the car is
 // already moving the session starts on it straight away; if it's parked, the
 // track's Ready screen waits for the car to drive off (so the menu is one
@@ -1539,38 +1383,13 @@ static void autoPickTrack() {
     } else {
       DEBUG_PRINTF("Nearest track: %s (%.0f m) - ready, starts when you drive off\n", selectedTrack().name.c_str(), dist);
       enterState(AppState::TrackConfirm);
-      autoStart = true;
-      driveOff.reset();
+      armAutoStart();
     }
   } else {
     noTrackNearby = true;
     DEBUG_PRINTF("No track within %.0f km\n", TRACK_DETECTION_RADIUS_M / 1000.0);
     if (state == AppState::GpsWait) enterState(AppState::Menu);
   }
-}
-
-// Bench test: picking this track runs a simulated car around this circle
-// (see SimTrack.h and GPSHandler::simulateStep) instead of using the GPS.
-static void addBenchTrack() {
-  Track sim;
-  sim.id = "bench";
-  sim.name = "Bench Test";
-  sim.location = "Simulated car - no GPS needed";
-  sim.bench = true;
-  sim.length = 2 * M_PI * SIM_RADIUS_M;
-  sim.startFinish = {SIM_SF_LAT, SIM_SF_LON, (float)DEFAULT_GATE_HALF_WIDTH_M, 0, HeadingFrom::Set};  // north
-  sim.hasStartFinish = true;
-  sim.centerLat = SIM_SF_LAT;
-  sim.centerLon = SIM_SF_LON;
-  sim.splits.push_back({SIM_SPLIT_LAT, SIM_SPLIT_LON, (float)DEFAULT_GATE_HALF_WIDTH_M, 180, HeadingFrom::Set});
-  std::vector<geo::XYf> outline;  // the circle, for the map screen
-  for (int i = 0; i <= 72; i++) {
-    float a = i * 2 * M_PI / 72;
-    outline.push_back({(float)(SIM_RADIUS_M * (cos(a) - 1.0)), (float)(SIM_RADIUS_M * sin(a))});
-  }
-  sim.map.push_back(outline);
-  sim.hasMap = true;
-  trackDB.add(sim);
 }
 
 // Overrides the Arduino core's: it would call a new firmware good before setup() even starts, and then a bad one
@@ -1616,7 +1435,7 @@ void setup() {
   ObdBle::begin();  // (nothing until an adapter has been chosen in Settings > Engine data)
   CameraBle::begin();  // (nothing until a camera has been paired in Settings > Camera)
 
-  addBenchTrack();
+  TrackDay::addBenchTrack();
   SessionLog::recoverUnfinished(trackDB);  // sessions cut short by a power cut, in the background
   // Re-timing from the Wi-Fi page's track editor: sessions timed again with the track's lines now
   WifiPortal::onRetime([](const String& trackId, const String& logName, String& error) {
@@ -1637,7 +1456,7 @@ void setup() {
   gps.update();
   state = AppState::GpsWait;
   if (!Settings::get().setupDone) enterState(AppState::Setup);  // first boot: which way up, km/h or mph
-  refreshWorldTracks();  // (the same screens as autoPickTrack: the world tracks near here come first)
+  TrackDay::refreshWorldTracks();  // (the same screens as autoPickTrack: the world tracks near here come first)
   autoPickTrack();  // (waits for the setup questions: it only acts on the GPS wait and menu screens)
   if (state == AppState::GpsWait) enterState(AppState::GpsWait);
   SleepControl::begin(millis());
@@ -1809,7 +1628,7 @@ void loop() {
   }
 
   if (summaryDirty && (int32_t)(now - summarySaveAt) >= 0) flushSummary();  // the last lap's, now it is over
-  refreshWorldTracks();
+  TrackDay::refreshWorldTracks();
   autoPickTrack();
   WifiPortal::loop(gps);
   if (WifiPortal::takeCodeChanged()) lastRender = 0;  // a change used the code: show the new one now
@@ -1823,7 +1642,7 @@ void loop() {
   {  // A re-time finished: the PBs it may have rewritten are read from the card again
     static bool wasRetiming = false;
     const bool retiming = SessionLog::retiming();
-    if (wasRetiming && !retiming) pbCache.clear();
+    if (wasRetiming && !retiming) TrackDay::forgetPbs();
     wasRetiming = retiming;
   }
   if (Settings::changeCount() != settingsApplied) applySettings();  // e.g. changed on the Wi-Fi page

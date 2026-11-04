@@ -45,5 +45,15 @@ std::string todayEvent();
 void sessionKeepLayout();
 // A note on the timing screen for showMs
 void sessionNotice(const String& text, uint32_t showMs);
+// The Ready screen's Set new start/finish: the session starts by marking the line, on the layout the driver picked
+void sessionMarkNewLine();
+// Is the Ready screen waiting for the car to drive off (AutoStart.h)
+bool autoStartArmed();
+// A track was picked at boot with the car parked: the Ready screen starts the session when the car drives off
+void armAutoStart();
+// Metres from here to a track's reference point (-1: no GPS fix, or the Bench Test)
+double distanceToTrack(int index);
+// trackDB index of today's course nearby (made today, start within 5 km), or -1
+int todaysCourseNearby();
 
 #endif
