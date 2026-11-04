@@ -22,6 +22,8 @@
 
 #include <Arduino.h>
 #include <sys/time.h>
+#include "app/App.h"
+#include "app/PerformanceMode.h"
 #include "AdjustLoad.h"
 #include "AppRollback.h"
 #include "AutoStart.h"
@@ -46,8 +48,6 @@
 #include "LapTimer.h"
 #include "LogWriter.h"
 #include "Power.h"
-#include "PerfLog.h"
-#include "PerfRun.h"
 #include "RaceBoxBle.h"
 #include "Sectors.h"
 #include "SessionLog.h"
@@ -66,8 +66,6 @@
 #include "UiTheme.h"
 #include "WifiPortal.h"
 
-enum class AppState { GpsWait, Menu, TrackSelect, TrackConfirm, Running, Summary, GpsStatus, FreeRoam, FreeRoamSummary, Performance, Wifi,
-                      Setup, SettingsScreen, EngineScreen, CameraScreen, Autocross, NewCourse, AdjustLine, BatteryScreen };
 static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TRACK_CONFIRM",     "RUNNING",
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
                                     "WIFI",     "SETUP",      "SETTINGS",     "ENGINE_DATA",       "CAMERA",
@@ -90,17 +88,17 @@ static uint32_t finishUndoUntil = 0;
 static bool finishCommitPending = false;
 static void commitFinishLap();
 
-static DisplayManager display;
-static GPSHandler gps;
-static InputManager input;
-static LapTimer lapTimer;
-static TrackDatabase trackDB;
-static FreeRoam freeRoam;
+DisplayManager display;
+GPSHandler gps;
+InputManager input;
+LapTimer lapTimer;
+TrackDatabase trackDB;
+FreeRoam freeRoam;
 
-static AppState state = AppState::GpsWait;
+AppState state = AppState::GpsWait;
 static AppState statusReturn = AppState::Menu;  // where the GPS Status screen goes back to
 static AppState wifiReturn = AppState::Menu;    // where the Wi-Fi screen goes back to
-static int selectedIndex = 0;
+int selectedIndex = 0;
 // Track list: trackDB indices, nearest first (see TrackOrder.h), and where in it we are
 static std::vector<int> listOrder;
 static int listPos = 0;
@@ -184,17 +182,6 @@ static size_t replayPos = 0;      // the next kept fix to time
 static bool replaying = false;
 static DriveOffDetector roamDriveOff;  // the menu with no track nearby: driving off starts Free Roam
 
-// Performance runs (acceleration and braking)
-enum class PerfView { Live, Card, Best };
-static perf::PerfRun perfRun;
-static PerfView perfView = PerfView::Live;
-static int perfCard = 0;            // run shown on the card screen
-static bool perfRollout = PERF_ROLLOUT_DEFAULT;
-static bool perfDemo = false;       // bench test: a simulated car launches and brakes on repeat
-static String perfPath;
-static String perfStamp;
-static perf::SpeedUnit perfUnits() { return Settings::get().units == SpeedUnits::Mph ? perf::SpeedUnit::Mph : perf::SpeedUnit::Kmh; }
-
 // Settings screen and the first-boot questions (the rules are in SettingsFlow.h)
 static SettingsScreenState settingsUi;
 static SetupState setupUi;
@@ -206,12 +193,12 @@ static CameraBle::Found cameraFound[CameraBle::MAX_FOUND];
 static int cameraFoundCount = 0;
 static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
 
-static uint32_t lastRender = 0;
+uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
 
 static SleepTimer sleepTimer(AUTO_SLEEP_IDLE_MS, AUTO_SLEEP_DEEP_AFTER_MS);
 
-static const Track& selectedTrack() { return *trackDB.get(selectedIndex); }
+const Track& selectedTrack() { return *trackDB.get(selectedIndex); }
 
 static double distanceToTrack(int index) {
   const Track* t = trackDB.get(index);
@@ -573,7 +560,7 @@ static std::vector<geo::XYf> lapPath(const std::vector<LapTimer::TracePt>& trace
   return out;
 }
 
-static void enterState(AppState next) {
+void enterState(AppState next) {
   DEBUG_PRINTF("State: %s -> %s\n", STATE_NAMES[(int)state], STATE_NAMES[(int)next]);
 
   // A session's laps and files go with the driver and car it started with, even if they are changed meanwhile
@@ -628,20 +615,8 @@ static void enterState(AppState next) {
   }
   if (state == AppState::Summary) nextSessionArmed = false;  // set again by whoever ends a session by itself
 
-  if (next == AppState::Performance) {
-    perfRun.clear();
-    perfRun.setRollout(perfRollout);
-    perfView = PerfView::Live;
-    perfCard = 0;
-    perfDemo = false;
-    perfPath = "";
-    perfStamp = gps.timestampString();
-    DEBUG_PRINTLN("Performance mode started");
-  }
-  if (state == AppState::Performance && next != AppState::Performance) {
-    if (perfDemo) gps.setSimulated(false);
-    perfDemo = false;
-  }
+  if (next == AppState::Performance) PerformanceMode::enter();
+  if (state == AppState::Performance && next != AppState::Performance) PerformanceMode::leave();
 
   if (next == AppState::FreeRoam) {
     freeRoam.start(millis());
@@ -1201,39 +1176,6 @@ static void onPitEvent(PitWatch::Event ev) {
   }
 }
 
-// Bench test for Performance mode: the simulated car launches, reaches 215 km/h, brakes and repeats.
-static void startPerfDemo() {
-  gps.setSimulated(true, SimMode::Launch);
-  perfDemo = true;
-  perfRun.clear();
-  perfRun.setRollout(perfRollout);
-  perfView = PerfView::Live;
-  perfPath = "";
-  perfStamp = gps.timestampString();
-}
-
-static void onPerfResult() {
-  const perf::PerfResult& r = perfRun.results().back();
-  if (!r.valid) {
-    DEBUG_PRINTF("PERF %s: INVALID (GPS gap)\n",
-                 r.kind == perf::RunKind::Brake ? "brake" : r.kind == perf::RunKind::Roll ? "roll" : "launch");
-  } else if (r.kind == perf::RunKind::Brake) {
-    DEBUG_PRINTF("PERF brake 100-0: %.1f m in %.2f s\n", r.brakeM, r.brakeS);
-  } else if (r.kind == perf::RunKind::Roll) {
-    DEBUG_PRINTF("PERF roll 100-200: %.2f s\n", r.t100to200);
-  } else {
-    DEBUG_PRINTF("PERF launch: 0-60 %.2f  0-100 %.2f  0-60mph %.2f  100-200 %.2f  1/8 %.2f @ %.0f  1/4 %.2f @ %.0f km/h%s\n",
-                 r.t0to60, r.t0to100, r.t0to60mph, r.t100to200, r.et8, r.trap8Kmh, r.et4, r.trap4Kmh,
-                 r.notLevel ? "  NOT LEVEL" : "");
-  }
-  if (perfPath.length() == 0) perfPath = PerfLog::newPath(perfStamp);
-  if (PerfLog::save(perfPath, perfStamp, perfRun)) {
-    DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), perfPath.c_str());
-  }
-  perfCard = (int)perfRun.results().size() - 1;
-  perfView = PerfView::Card;
-}
-
 // One fix of a lap-timing session
 static void onTrackFix(const GpsFix& fix) {
   recordFix(fix, !settingLine && lapTimer.lapRunning() ? lapTimer.currentLapNumber() : 0);
@@ -1543,42 +1485,7 @@ static void handleInput(InputEvent ev) {
       break;
 
     case AppState::Performance: {
-      // Taps are ignored while the car is moving, so a bump can't leave a run. (No fix: the speed is stale.)
-      const bool busy = gps.hasFix() && (perfRun.state() == perf::PerfRun::State::Go || perfRun.speedKmh() > 5.0f);
-      const int runs = (int)perfRun.results().size();
-      if (ev == InputEvent::Hold || ev == InputEvent::BootLong) {
-        enterState(AppState::Menu);
-      } else if (ev == InputEvent::BootShort) {  // Live -> latest run -> session best -> Live
-        if (perfView == PerfView::Live && !gps.hasFix() && !perfDemo) startPerfDemo();
-        else if (perfView == PerfView::Live) perfView = runs ? PerfView::Card : PerfView::Best;
-        else if (perfView == PerfView::Card) perfView = PerfView::Best;
-        else perfView = PerfView::Live;
-        if (perfView == PerfView::Card) perfCard = runs - 1;
-      } else if (!busy && (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight)) {
-        if (perfView == PerfView::Live) {
-          if (ev == InputEvent::TapLeft) {
-            if (!gps.hasFix() && !perfDemo) {
-              startPerfDemo();
-            } else {
-              perfRollout = !perfRollout;
-              perfRun.setRollout(perfRollout);
-            }
-          } else if (ev == InputEvent::TapCenter) {
-            perfView = runs ? PerfView::Card : PerfView::Best;
-            perfCard = runs - 1;
-          } else {
-            enterState(AppState::Menu);
-          }
-        } else if (perfView == PerfView::Card) {
-          if (ev == InputEvent::TapLeft && runs) perfCard = (perfCard + runs - 1) % runs;
-          else if (ev == InputEvent::TapCenter) perfView = PerfView::Best;
-          else if (ev == InputEvent::TapRight) perfView = PerfView::Live;
-        } else {
-          if (ev == InputEvent::TapLeft && runs) perfView = PerfView::Card, perfCard = runs - 1;
-          else if (ev == InputEvent::TapRight) perfView = PerfView::Live;
-        }
-      }
-      lastRender = 0;
+      PerformanceMode::input(ev);
       break;
     }
 
@@ -1841,13 +1748,7 @@ static void render() {
       display.drawFreeRoamSummary(freeRoam, freeRoamDurationMs, freeRoamPath);
       break;
     case AppState::Performance:
-      if (perfRun.state() == perf::PerfRun::State::Go) perfView = PerfView::Live;  // a new run is on
-      if (perfView == PerfView::Live) {
-        const char* left = (!gps.hasFix() && !perfDemo) ? "Demo" : "1 ft";
-        display.drawPerfLive(perfRun, gps, perfUnits(), left, input.touchHeldMs(), input.touchAvailable());
-      } else {
-        display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, perfUnits(), input.touchAvailable());
-      }
+      PerformanceMode::render();
       break;
     case AppState::SettingsScreen:
       settingsUi.setPeople(Profiles::get());  // (the car may have been picked by its VIN meanwhile)
@@ -2260,7 +2161,7 @@ static bool stillScreen(uint32_t now) {
     case AppState::FreeRoam:
       return false;
     case AppState::Performance:
-      return perfView != PerfView::Live;
+      return PerformanceMode::still();
     default:
       return true;  // (a held arrow on Adjust redraws itself, see adjustHeld)
   }
@@ -2301,7 +2202,7 @@ void loop() {
         learnTrack(lp);
 #endif
     } else if (state == AppState::Performance) {
-      if (perfRun.onFix(fix.gpsTimeMs, fix.speedKmh, fix.altM) > 0) onPerfResult();
+      PerformanceMode::onFix(fix);
     } else if ((state == AppState::TrackConfirm && autoStart) || (state == AppState::Summary && nextSessionArmed)) {
       // The next session only starts at the track: driving home from it isn't one
       const double d = state == AppState::Summary ? distanceToTrack(selectedIndex) : 0;
