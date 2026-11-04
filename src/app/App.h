@@ -28,6 +28,9 @@ extern FreeRoam freeRoam;       // the Free Roam session
 extern AppState state;          // the screen being shown
 extern uint32_t lastRender;     // millis() of the last redraw; 0 makes the next loop redraw at once
 extern int selectedIndex;       // the picked track (a trackDB index)
+extern uint32_t syncUntil;      // millis() the SYNC flash ends; 0: not showing
+extern GpsFix cameraFix;        // the latest fix, to turn millis() into GPS time
+extern bool haveCameraFix;      // cameraFix has a date
 
 // Switches screen: ends the old one and starts the new one
 void enterState(AppState next);
@@ -55,5 +58,10 @@ void armAutoStart();
 double distanceToTrack(int index);
 // trackDB index of today's course nearby (made today, start within 5 km), or -1
 int todaysCourseNearby();
+
+// A session ended by itself: the summary starts the next one on driving off
+void armNextSession();
+// "2026-10-20T14:03:12.350Z": the GPS time at millis() `at`, from the latest fix
+String gpsTimeAt(const GpsFix& f, uint32_t at);
 
 #endif
