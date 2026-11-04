@@ -12,7 +12,7 @@ namespace PerformanceMode {
 
 void enter();                   // the screen starts
 void leave();                   // the screen ends
-void input(InputEvent ev);      // a tap, hold or BOOT press
+void onInput(InputEvent ev);    // a tap, hold or BOOT press (not input(): that would hide the global `input`)
 void render();                  // draw the screen
 void onFix(const GpsFix& fix);  // a new GPS fix
 bool still();                   // nothing live on the screen: it can be drawn less often

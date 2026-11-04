@@ -69,7 +69,7 @@ void leave() {
   perfDemo = false;
 }
 
-void input(InputEvent ev) {
+void onInput(InputEvent ev) {
   // Taps are ignored while the car is moving, so a bump can't leave a run. (No fix: the speed is stale.)
   const bool busy = gps.hasFix() && (perfRun.state() == perf::PerfRun::State::Go || perfRun.speedKmh() > 5.0f);
   const int runs = (int)perfRun.results().size();
@@ -112,9 +112,9 @@ void render() {
   if (perfRun.state() == perf::PerfRun::State::Go) perfView = PerfView::Live;  // a new run is on
   if (perfView == PerfView::Live) {
     const char* left = (!gps.hasFix() && !perfDemo) ? "Demo" : "1 ft";
-    display.drawPerfLive(perfRun, gps, perfUnits(), left, ::input.touchHeldMs(), ::input.touchAvailable());
+    display.drawPerfLive(perfRun, gps, perfUnits(), left, input.touchHeldMs(), input.touchAvailable());
   } else {
-    display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, perfUnits(), ::input.touchAvailable());
+    display.drawPerfCard(perfRun, perfView == PerfView::Card ? perfCard : -1, perfUnits(), input.touchAvailable());
   }
 }
 

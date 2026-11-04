@@ -1484,10 +1484,9 @@ static void handleInput(InputEvent ev) {
       if (ev == InputEvent::Hold || ev == InputEvent::BootLong) enterState(AppState::FreeRoamSummary);
       break;
 
-    case AppState::Performance: {
-      PerformanceMode::input(ev);
+    case AppState::Performance:
+      PerformanceMode::onInput(ev);
       break;
-    }
 
     case AppState::Summary:  // MENU button, or on to this track's Ready screen to go out again
       if (ev == InputEvent::TapHeader) startSyncFlash();  // the top bar: SYNC, for lining up a video (6.4)
