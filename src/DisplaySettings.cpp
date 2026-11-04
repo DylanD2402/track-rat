@@ -341,6 +341,40 @@ static const char* phaseText(elm::Client::Phase p) {
   }
 }
 
+// The pick-one page of Find adapter and Pair camera: what the scan found, strongest first
+void DisplayManager::drawFoundList(const char* title, const char* looking, const char* none, const blefound::Found* found, int n,
+                                   bool scanning, const DeviceScreenState& ui, bool touchOk) {
+  char buf[24];
+  if (scanning) text(looking, W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
+  else text(n ? "Tap yours" : none, W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
+  if (n) gfx->fillRoundRect(ES::CARD_X, ES::LIST_Y, ES::CARD_W, n * ES::ROW_H, CORNER, C_SURFACE);
+  for (int i = 0; i < n; i++) {
+    const int ry = ES::listRowY(i), cy = ry + ES::ROW_H / 2;
+    if (ui.showHighlight && ui.highlight == i) {
+      gfx->fillRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_RAISED);
+      gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_BRAND);
+    } else if (i > 0) {
+      gfx->drawFastHLine(ES::CARD_X + 14, ry, ES::CARD_W - 14, C_LINE);
+    }
+    snprintf(buf, sizeof(buf), "%d dBm", found[i].rssi);
+    const int rw = text(buf, ES::CARD_X + ES::CARD_W - 14, cy, Font::Caption, C_TEXT2, MR_DATUM);
+    text(fit(found[i].name, Font::Body, ES::CARD_W - 40 - rw), ES::CARD_X + 14, cy, Font::Body, C_TEXT, ML_DATUM);
+  }
+  header("‹  Back", nullptr);
+  text(title, W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+  if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
+}
+
+// The status pages' two buttons (Find/Pair and Forget) and their header
+void DisplayManager::drawDeviceButtons(const char* findLabel, bool noneChosen, const char* title, const DeviceScreenState& ui,
+                                       bool touchOk) {
+  button(ES::FIND_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, findLabel, noneChosen, ui.showHighlight && ui.highlight == 0);
+  button(ES::FORGET_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Forget", false, ui.showHighlight && ui.highlight == 1);
+  header("‹  Settings", nullptr);
+  text(title, W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
+  if (!touchOk) settingsHint("BOOT: press for the other, hold to choose");
+}
+
 void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::Status& st, const ObdBle::Found* found, int n,
                                     bool scanning, bool touchOk) {
   beginFrame();
@@ -400,30 +434,10 @@ void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::S
         line(buf, C_TEXT2, Font::Caption);
       }
     }
-    button(ES::FIND_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Find adapter", !st.configured, ui.showHighlight && ui.highlight == 0);
-    button(ES::FORGET_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Forget", false, ui.showHighlight && ui.highlight == 1);
-    header("‹  Settings", nullptr);
-    text("Engine data", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
-    if (!touchOk) settingsHint("BOOT: press for the other, hold to choose");
+    drawDeviceButtons("Find adapter", !st.configured, "Engine data", ui, touchOk);
   } else {
-    if (scanning) text("Looking for adapters...", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
-    else text(n ? "Tap yours" : "None found. Ignition on? Try again", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
-    if (n) gfx->fillRoundRect(ES::CARD_X, ES::LIST_Y, ES::CARD_W, n * ES::ROW_H, CORNER, C_SURFACE);
-    for (int i = 0; i < n; i++) {
-      const int ry = ES::listRowY(i), cy = ry + ES::ROW_H / 2;
-      if (ui.showHighlight && ui.highlight == i) {
-        gfx->fillRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_RAISED);
-        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_BRAND);
-      } else if (i > 0) {
-        gfx->drawFastHLine(ES::CARD_X + 14, ry, ES::CARD_W - 14, C_LINE);
-      }
-      snprintf(buf, sizeof(buf), "%d dBm", found[i].rssi);
-      const int rw = text(buf, ES::CARD_X + ES::CARD_W - 14, cy, Font::Caption, C_TEXT2, MR_DATUM);
-      text(fit(found[i].name, Font::Body, ES::CARD_W - 40 - rw), ES::CARD_X + 14, cy, Font::Body, C_TEXT, ML_DATUM);
-    }
-    header("‹  Back", nullptr);
-    text("Find adapter", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
-    if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
+    drawFoundList("Find adapter", "Looking for adapters...", "None found. Ignition on? Try again", found, n, scanning, ui,
+                  touchOk);
   }
   endFrame();
 }
@@ -471,30 +485,10 @@ void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::St
       line(withSessions ? "Records with the sessions (Settings)" : "Recording: its own button (Settings)", C_TEXT2,
            Font::Caption);
     }
-    button(ES::FIND_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Pair camera", !st.configured, ui.showHighlight && ui.highlight == 0);
-    button(ES::FORGET_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Forget", false, ui.showHighlight && ui.highlight == 1);
-    header("‹  Settings", nullptr);
-    text("Camera", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
-    if (!touchOk) settingsHint("BOOT: press for the other, hold to choose");
+    drawDeviceButtons("Pair camera", !st.configured, "Camera", ui, touchOk);
   } else {
-    if (scanning) text("Looking for DJI cameras...", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
-    else text(n ? "Tap yours" : "None found. Camera on? Try again", W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
-    if (n) gfx->fillRoundRect(ES::CARD_X, ES::LIST_Y, ES::CARD_W, n * ES::ROW_H, CORNER, C_SURFACE);
-    for (int i = 0; i < n; i++) {
-      const int ry = ES::listRowY(i), cy = ry + ES::ROW_H / 2;
-      if (ui.showHighlight && ui.highlight == i) {
-        gfx->fillRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_RAISED);
-        gfx->drawRoundRect(ES::CARD_X + 3, ry + 2, ES::CARD_W - 6, ES::ROW_H - 4, CORNER - 3, C_BRAND);
-      } else if (i > 0) {
-        gfx->drawFastHLine(ES::CARD_X + 14, ry, ES::CARD_W - 14, C_LINE);
-      }
-      snprintf(buf, sizeof(buf), "%d dBm", found[i].rssi);
-      const int rw = text(buf, ES::CARD_X + ES::CARD_W - 14, cy, Font::Caption, C_TEXT2, MR_DATUM);
-      text(fit(found[i].name, Font::Body, ES::CARD_W - 40 - rw), ES::CARD_X + 14, cy, Font::Body, C_TEXT, ML_DATUM);
-    }
-    header("‹  Back", nullptr);
-    text("Pair camera", W / 2, HEADER_H / 2, Font::Button, C_TEXT, MC_DATUM);
-    if (!touchOk) settingsHint("BOOT: press for the next, hold to choose");
+    drawFoundList("Pair camera", "Looking for DJI cameras...", "None found. Camera on? Try again", found, n, scanning, ui,
+                  touchOk);
   }
   endFrame();
 }
@@ -538,10 +532,9 @@ void DisplayManager::drawBattery(const battery::Report& r, bool touchOk) {
     } else {
       add("Time left", C_TEXT2, "-");
     }
-    static const char* const NAMES[battery::MODE_COUNT] = {"Screen on", "Screen on, Wi-Fi", "Screen off", "Asleep"};
     for (int i = 0; i < battery::MODE_COUNT; i++) {
       const battery::ModeUsage& u = r.usage[i];
-      add(NAMES[i], u.measured ? C_TEXT : C_TEXT2, "%s%.0f mA  %.1f%%/h", u.measured ? "" : "~", u.milliamps, u.pctPerHour);
+      add(battery::modeName((battery::Mode)i), u.measured ? C_TEXT : C_TEXT2, "%s%.0f mA  %.1f%%/h", u.measured ? "" : "~", u.milliamps, u.pctPerHour);
     }
     hoursText(t, sizeof(t), r.runHours);
     add("Full charge lasts", r.runEstimate ? C_TEXT2 : C_TEXT, "%s%s", r.runEstimate ? "~" : "", t);

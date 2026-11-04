@@ -20,6 +20,7 @@
 #define CAMERA_BLE_H
 
 #include <stdint.h>
+#include "BleFound.h"
 #include "DjiRemote.h"
 #include "GpsFix.h"
 
@@ -58,13 +59,8 @@ struct Status {
 Status status();
 
 // Pair: the scan's list, strongest first
-struct Found {
-  char name[24];
-  char address[18];
-  uint8_t addressType;
-  int rssi;
-};
-constexpr int MAX_FOUND = 6;
+using Found = blefound::Found;
+constexpr int MAX_FOUND = blefound::MAX_FOUND;
 void startScan();
 bool scanning();
 int found(Found* out, int max);

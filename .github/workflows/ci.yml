@@ -109,6 +109,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_profiles.cpp -o /tmp/pr && /tmp/pr
       - name: test_devicelink
         run: g++ -std=c++17 -Iinclude test/test_devicelink.cpp -o /tmp/dl && /tmp/dl
+      - name: test_blefound
+        run: g++ -std=c++17 -Iinclude test/test_blefound.cpp -o /tmp/blef && /tmp/blef
       - name: test_carobd
         run: g++ -std=c++17 -Iinclude test/test_carobd.cpp -o /tmp/car && /tmp/car
       - name: test_obd_car

@@ -158,13 +158,7 @@ static void scanDone(NimBLEScanResults res) {
     copyText(f.address, sizeof(f.address), d.getAddress().toString().c_str());
     f.addressType = d.getAddress().getType();
     f.rssi = d.getRSSI();
-    // strongest first: insert in order, dropping the weakest when full
-    int at = n;
-    while (at > 0 && list[at - 1].rssi < f.rssi) at--;
-    if (at >= MAX_FOUND) continue;
-    for (int k = (n < MAX_FOUND ? n : MAX_FOUND - 1); k > at; k--) list[k] = list[k - 1];
-    list[at] = f;
-    if (n < MAX_FOUND) n++;
+    n = blefound::insert(list, n, f);  // strongest first, dropping the weakest when full
   }
   NimBLEDevice::getScan()->clearResults();
   portENTER_CRITICAL(&lock);

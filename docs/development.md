@@ -280,6 +280,12 @@ g++ -std=c++17 -Iinclude test/test_profiles.cpp -o /tmp/pr && /tmp/pr
 g++ -std=c++17 -Iinclude test/test_devicelink.cpp -o /tmp/dl && /tmp/dl
 ```
 
+`test/test_blefound.cpp` checks the list of devices a Bluetooth scan found, shared by Find adapter and Pair camera (`include/BleFound.h`): strongest signal first, equal signals in the order found, the weakest dropped when the list is full (6) and a newcomer weaker than all of them left out:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_blefound.cpp -o /tmp/blef && /tmp/blef
+```
+
 `test/test_racechrono.cpp` checks the RaceChrono profile's encodings: latitude and longitude, both altitude and speed forms and where they switch (2776.7 m, 327.67 km/h), bearing (never 360.00), HDOP, the time since the hour and the date-hour, the sync bits going up with the hour and wrapping in 3 bits, the invalid values without a fix, CAN packets (the little-endian ID, 1 to 16 bytes), the value packets' equations, and the filter commands (deny all, allow all at an interval, allow one ID at its own, bad lengths ignored):
 
 ```bash
