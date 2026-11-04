@@ -274,9 +274,9 @@ private:
   int tempMaxLine(const LapTimer& timer, int right, int y);
   void settingsHint(const char* line);
   // The pick-one page shared by Find adapter and Pair camera, and the buttons + header of their status pages
-  void drawFoundList(const char* title, const char* looking, const char* none, const blefound::Found* found, int n,
+  void foundListPage(const char* title, const char* looking, const char* none, const blefound::Found* found, int n,
                      bool scanning, const DeviceScreenState& ui, bool touchOk);
-  void drawDeviceButtons(const char* findLabel, bool noneChosen, const char* title, const DeviceScreenState& ui, bool touchOk);
+  void deviceButtons(const char* findLabel, bool noneChosen, const char* title, const DeviceScreenState& ui, bool touchOk);
   void wrappedCaption(const char* note, int x, int y, int maxW, uint16_t color, bool center);
   void button(int x, int y, int w, int h, const char* label, bool primary, bool highlight = false);
   void holdBar(uint32_t holdMs, const char* what);  // progress while the screen is held

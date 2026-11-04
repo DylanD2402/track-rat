@@ -342,7 +342,7 @@ static const char* phaseText(elm::Client::Phase p) {
 }
 
 // The pick-one page of Find adapter and Pair camera: what the scan found, strongest first
-void DisplayManager::drawFoundList(const char* title, const char* looking, const char* none, const blefound::Found* found, int n,
+void DisplayManager::foundListPage(const char* title, const char* looking, const char* none, const blefound::Found* found, int n,
                                    bool scanning, const DeviceScreenState& ui, bool touchOk) {
   char buf[24];
   if (scanning) text(looking, W / 2, ES::TOP + 12, Font::Caption, C_TEXT2, MC_DATUM);
@@ -366,7 +366,7 @@ void DisplayManager::drawFoundList(const char* title, const char* looking, const
 }
 
 // The status pages' two buttons (Find/Pair and Forget) and their header
-void DisplayManager::drawDeviceButtons(const char* findLabel, bool noneChosen, const char* title, const DeviceScreenState& ui,
+void DisplayManager::deviceButtons(const char* findLabel, bool noneChosen, const char* title, const DeviceScreenState& ui,
                                        bool touchOk) {
   button(ES::FIND_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, findLabel, noneChosen, ui.showHighlight && ui.highlight == 0);
   button(ES::FORGET_X, ES::BTN_Y, ES::BTN_W, ES::BTN_H, "Forget", false, ui.showHighlight && ui.highlight == 1);
@@ -434,9 +434,9 @@ void DisplayManager::drawEngineData(const DeviceScreenState& ui, const ObdBle::S
         line(buf, C_TEXT2, Font::Caption);
       }
     }
-    drawDeviceButtons("Find adapter", !st.configured, "Engine data", ui, touchOk);
+    deviceButtons("Find adapter", !st.configured, "Engine data", ui, touchOk);
   } else {
-    drawFoundList("Find adapter", "Looking for adapters...", "None found. Ignition on? Try again", found, n, scanning, ui,
+    foundListPage("Find adapter", "Looking for adapters...", "None found. Ignition on? Try again", found, n, scanning, ui,
                   touchOk);
   }
   endFrame();
@@ -485,9 +485,9 @@ void DisplayManager::drawCamera(const DeviceScreenState& ui, const CameraBle::St
       line(withSessions ? "Records with the sessions (Settings)" : "Recording: its own button (Settings)", C_TEXT2,
            Font::Caption);
     }
-    drawDeviceButtons("Pair camera", !st.configured, "Camera", ui, touchOk);
+    deviceButtons("Pair camera", !st.configured, "Camera", ui, touchOk);
   } else {
-    drawFoundList("Pair camera", "Looking for DJI cameras...", "None found. Camera on? Try again", found, n, scanning, ui,
+    foundListPage("Pair camera", "Looking for DJI cameras...", "None found. Camera on? Try again", found, n, scanning, ui,
                   touchOk);
   }
   endFrame();

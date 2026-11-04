@@ -424,7 +424,8 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            Obd.h (OBD-II values and schedules), CarObd.h (car-specific requests from an OBDb car profile),
            CarProfileJson.h (reading a car profile),
            Elm327.h (the Bluetooth adapter's conversation), RaceChrono.h (RaceChrono's DIY encodings), DjiRemote.h (the DJI camera remote, ported
-           from DJI's demo), DeviceLink.h (is the OBD adapter or camera really there), DeviceScreen.h (Settings > Engine data and Camera), headers
+           from DJI's demo), DeviceLink.h (is the OBD adapter or camera really there), DeviceScreen.h (Settings > Engine data and Camera),
+           BleFound.h (the devices a Bluetooth scan found, strongest first), headers
 src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
            DisplayManager (shared drawing, timing screens), DisplayHome, DisplayAutocross, DisplayAdjust,
            DisplayDebrief (the screens by area), InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
@@ -443,7 +444,8 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)
 data/      tracks.json
-test/      host-side tests (check.h: shared by all of them)
+test/      host-side tests (check.h: shared by all of them; geo_helpers.h: metres per degree, the
+           simulated car's circle and straight-line driving; ubx_helpers.h: a NAV-PVT frame)
 tools/     overlay.py (overlay videos; requirements-overlay.txt), render_screens.py, fetch_track_map.py,
            obd_car.py (car profiles from OBDb)...
 ```

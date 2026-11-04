@@ -644,6 +644,10 @@ Today `data/tracks.json` holds 129 Canadian tracks from OpenStreetMap; 8 have a 
 | 1 | **The device reads world tiles:** load the nearby tiles from the SD card, merge with `tracks.json`, copy a world track before editing it, show an estimated start/finish | Sonnet, medium |
 | 2 | **The workflow and the zip** (done: `world-tracks.yml`, run by hand, rolling `world-tracks` release; docs), the full world run, and the website's analyser naming sessions from the tiles (to do) | Sonnet, low |
 
+### Phase 11: Any screen, and other boards (proposed 2026-11-04)
+
+Run Track Rat on panels other than the ES3C28P's 320×240: bigger, smaller and portrait ones, other touch chips, and boards whose makers ship LVGL. Board files first, then main.cpp split into screen controllers, one drawing interface, layouts that scale, fonts per size, a second board, and an optional LVGL renderer last. The design, the steps and who builds them: [docs/display-plan.md](docs/display-plan.md). The clean-up review that goes with it: [docs/code-review-0.2.md](docs/code-review-0.2.md).
+
 ## Not planned, and why
 
 - **Video recording on Track Rat.** No camera input or video encoder. Cameras and phones do it better, so Phase 6 helps them instead: Track Rat feeds its GPS into an Osmo Action's video, starts and stops it with each session, and feeds GPS and engine data to RaceChrono on a phone.

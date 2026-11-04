@@ -97,6 +97,8 @@ See the [changelog](CHANGELOG.md).
 - [Flashing](docs/flashing.md)
 - [Development](docs/development.md): configuration, tests, code layout.
 - [Code review for 0.1.1](docs/code-review-0.1.1.md): security, efficiency and clean-up findings, and what was fixed.
+- [Code review for 0.2](docs/code-review-0.2.md): unused and duplicated code, readability, speed, and fitting other hardware.
+- [Display plan](docs/display-plan.md): other screen sizes, other panels, and LVGL.
 - [Roadmap](ROADMAP.md), [changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md)
 
 ## Licence and credits

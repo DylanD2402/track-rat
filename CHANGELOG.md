@@ -4,6 +4,16 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- Code clean-up from the [0.2 code review](docs/code-review-0.2.md), with no change to what the device does or shows (every screen renders pixel for pixel as before):
+  - The OBD adapter and the camera share one list of found Bluetooth devices (`BleFound.h`, with a host test), and Settings > Engine data and Settings > Camera share one Find/Pair page.
+  - Settings > Battery uses the battery code's own mode names, session length is worked out in one place, and boot recovery and re-timing share one log reader.
+  - The touch code takes the screen size and the top bar's height from `UiTheme.h` instead of its own copies.
+  - Unused code removed, and the unused-code, comment and truncation warnings the compiler gave with `-Wall -Wextra` are gone.
+  - The host tests share their geometry, simulated-car and UBX helpers (`test/geo_helpers.h`, `test/ubx_helpers.h`).
+- A plan for other screen sizes, other panels and LVGL: [docs/display-plan.md](docs/display-plan.md).
+
 ## [0.2.0-beta.2] - 2026-11-04
 
 A steady battery gauge with a charging icon, and battery figures: draw per mode, time left, cycles and health. Install both the firmware and the file system (the web installer does both): the Wi-Fi page changed.
