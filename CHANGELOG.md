@@ -4,6 +4,10 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.0-beta.2] - 2026-11-04
+
+A steady battery gauge with a charging icon, and battery figures: draw per mode, time left, cycles and health. Install both the firmware and the file system (the web installer does both): the Wi-Fi page changed.
+
 ### Added
 
 - What the battery has been through, worked out from the voltage alone (so it is an estimate that improves with use): the draw in mA and %/hour of each way of running (screen on, screen on with the Wi-Fi page, screen off, deep sleep), the time left at the current draw (the default draws until measured, marked as a guess), the run time on a full charge (from the last full run, or the capacity over the screen-on draw), charge cycles, and a health rating (Good, Fair, Replace) from how big the charger's plug-in step is now compared with when it was new. It is saved to flash every 10 minutes and before sleeping. See it on the Wi-Fi page (Device, a Battery table) and in Settings > Battery.
@@ -185,7 +189,8 @@ First public beta.
 
 Voice notes for the logbook aren't built yet; text notes work.
 
-[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.2.0-beta.1...HEAD
+[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.2.0-beta.2...HEAD
+[0.2.0-beta.2]: https://github.com/DylanD2402/track-rat/releases/tag/v0.2.0-beta.2
 [0.2.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.2.0-beta.1
 [0.1.1-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.1-beta.1
 [0.1.0-beta.3]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.0-beta.3
