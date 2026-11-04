@@ -426,7 +426,8 @@ include/   Config.h, GeoMath.h (gate maths), LayoutMatch.h (layout recognition),
            Elm327.h (the Bluetooth adapter's conversation), RaceChrono.h (RaceChrono's DIY encodings), DjiRemote.h (the DJI camera remote, ported
            from DJI's demo), DeviceLink.h (is the OBD adapter or camera really there), DeviceScreen.h (Settings > Engine data and Camera),
            BleFound.h (the devices a Bluetooth scan found, strongest first), headers
-src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
+src/       main.cpp (setup(), loop(), enterState() and which screen gets input and draws),
+           GPSHandler, UbxParser, GpsSource, LapTimer, TrackDatabase,
            DisplayManager (shared drawing, timing screens), DisplayHome, DisplayAutocross, DisplayAdjust,
            DisplayDebrief (the screens by area), InputManager, Storage, SessionLog, JsonFile (saving JSON safely),
            VboFormat (log format), LogWriter (writes the log on core 0),
@@ -441,6 +442,12 @@ src/       main.cpp (state machine), GPSHandler, UbxParser, GpsSource, LapTimer,
            CameraBle (the DJI camera's GPS remote), RaceBoxBle, RaceChronoBle (the phone's two profiles)
            WifiPortal (Wi-Fi page), Profiles (drivers and cars, kept in flash), CourseRuns, AdjustLoad,
            BestLapStore (best laps), Imu (the motion sensor), Splash
+src/app/   the screens, one group a file, each with its own state: App.h (what they all share, defined in
+           main.cpp), Session (lap timing and its summary, Free Roam, learned tracks, SYNC and the camera),
+           HomeScreen (home, GPS wait and status, Next up, the track picked at boot), TrackDay (the Track day
+           list, a track's Ready screen, world tracks), AutocrossScreens (the hub, New course, Adjust),
+           SettingsScreens (Settings, Engine data, Camera, Battery, first-boot setup), PerformanceMode,
+           SleepControl (auto-sleep, power off, low battery), SdUpdate (firmware from the SD card)
 include/fonts/  the screen fonts (Inter), made by tools/make_fonts.py
 web/       the Wi-Fi page and its fonts (copied into data/web when building)
 data/      tracks.json

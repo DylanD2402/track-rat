@@ -21,7 +21,7 @@ Timings and currents here are estimates from reading the code, not measurements 
 
 **The weak points:**
 
-1. **`main.cpp` is still too big:** 2,450 lines and about 100 statics. `handleInput()` is 286 lines, `loop()` 181, `render()` 156, `enterState()` 147. It's the hardest file to read and the riskiest to change.
+1. **`main.cpp` is still too big:** 2,450 lines and about 100 statics. `handleInput()` is 286 lines, `loop()` 181, `render()` 156, `enterState()` 147. It's the hardest file to read and the riskiest to change. (Since split into `src/app`: see C9.)
 2. **The screens are tied to 320×240 and to TFT_eSPI.** About 320 drawing calls use pixel positions for this panel, and the fonts are fixed sizes. See the [display plan](display-plan.md).
 3. **The board is wired into the code.** Pins, the panel, the touch chip (FT6336 registers read directly), the SD bus (4-bit SDIO) and the battery divider are spread over `Config.h`, `platformio.ini` and the drivers, so a different board means editing all three.
 
@@ -53,8 +53,8 @@ What was looked at and kept:
 
 | ID | Finding | Fix | Size | Status |
 |---|---|---|---|---|
-| C9 | **`main.cpp`: 2,450 lines, about 100 statics,** four functions over 140 lines (from 0.1.1) | Split it into screen controllers, each with its own state, an `enter()`, an input handler and the model its screen draws. A small `App` struct holds what's shared (the GPS, the timer, the track database, the session). About six steps, one group of screens each. This is also step 2 of the display plan | L | Next |
-| C8 | **BOOT navigation is handled screen by screen,** 23 places in `main.cpp`, and the Adjust screen's order is the reverse of the others (from 0.1.1) | One convention, in the screen controllers | M | With C9 |
+| C9 | **`main.cpp`: 2,450 lines, about 100 statics,** four functions over 140 lines (from 0.1.1) | Split it into screen files in `src/app`, each with its own state and its own entry points (state change, input, drawing, fixes), with what every screen shares in `src/app/App.h`. Code moved verbatim, checked line by line. This is also step 2 of the display plan | L | Done: main.cpp is 623 lines (`setup()`, `loop()`, `enterState()` and one line per screen). `Session.cpp` (1,051 lines: lap timing, Free Roam, SYNC) is the next to split, into best laps and the debrief, and Free Roam |
+| C8 | **BOOT navigation is handled screen by screen,** 23 places in `main.cpp`, and the Adjust screen's order is the reverse of the others (from 0.1.1) | One convention, now that each screen's input is in one function in `src/app` | M | Next |
 | C7 | **Three versions of a button:** `DisplayManager::button()`, and lambdas in `DisplayAdjust.cpp` and `DisplayAutocross.cpp` that add a greyed-out state and a font choice (from 0.1.1, now down from about 10) | One `button()` with an enabled flag and a font, checked against the screenshots | S | Later |
 | C10 | **Session file-name rules in five places** (from 0.1.1) | `SessionName.h`, with a fixture shared with the web test | M | Later |
 | C11 | **Three VBO readers** (C++, JavaScript, Python) (from 0.1.1) | One golden file all three are tested against | M | Later |

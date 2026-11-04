@@ -161,7 +161,7 @@ struct Metrics {
 | Step | What | Size | Needs | Built by |
 |---|---|---|---|---|
 | 1 | **Board files:** pins and the panel out of `Config.h` and `[env]` into `boards/<board>.h` and `[env:<board>]`; CI builds each one | S/M | — | Sonnet, medium |
-| 2 | **Split main.cpp into screen controllers** that hand out screen models and take `UiAction`s, with one BOOT-button convention (review items C8, C9) | L | — | Sonnet, medium, in about six steps, one screen group each |
+| 2 | **Split main.cpp into screen controllers** that hand out screen models and take `UiAction`s, with one BOOT-button convention (review items C8, C9). The split itself is done (2026-11-04: the screens are in `src/app`); the `UiAction`s and the BOOT convention are still to do | L | — | Sonnet, medium, in four steps, one screen group each |
 | 3 | **`gfx::Canvas`,** with the TFT_eSPI backend and the PC stand-in as a Canvas. Screenshots identical | M | 2 helps, not needed | Sonnet, medium |
 | 4 | **Services out of the drawing code:** the top bar's status (battery, GPS, BT, OBD, camera, coolant) and the other reads passed in as a model | S/M | 3 | Sonnet, low |
 | 5 | **`ui::Metrics` and layout functions for every screen,** rendered at 480×320 and 240×320 in CI with the overflow check | L | 3, 4 | Sonnet, medium, screen by screen |

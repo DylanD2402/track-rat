@@ -13,6 +13,7 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
   - Unused code removed, and the unused-code, comment and truncation warnings the compiler gave with `-Wall -Wextra` are gone.
   - The host tests share their geometry, simulated-car and UBX helpers (`test/geo_helpers.h`, `test/ubx_helpers.h`).
 - A plan for other screen sizes, other panels and LVGL: [docs/display-plan.md](docs/display-plan.md).
+- `main.cpp` (2,450 lines) is split into screen files in `src/app`, one group of screens each, with what they share in `src/app/App.h`. The code was moved, not rewritten: every line that changed was checked by a script that compares what was removed with what was added. `main.cpp` is now 623 lines.
 
 ## [0.2.0-beta.2] - 2026-11-04
 
