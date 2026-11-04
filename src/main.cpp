@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include "app/App.h"
 #include "app/AutocrossScreens.h"
+#include "app/HomeScreen.h"
 #include "app/PerformanceMode.h"
 #include "app/SdUpdate.h"
 #include "app/SettingsScreens.h"
@@ -89,14 +90,8 @@ TrackDatabase trackDB;
 FreeRoam freeRoam;
 
 AppState state = AppState::GpsWait;
-static AppState statusReturn = AppState::Menu;  // where the GPS Status screen goes back to
 static AppState wifiReturn = AppState::Menu;    // where the Wi-Fi screen goes back to
 int selectedIndex = 0;
-static int menuHighlight = 0;  // the home screen's BOOT place (home::Item)
-static nextcard::Choice nextUp;     // the home screen's Next up card
-uint32_t nextUpAt = 0;     // millis() it was worked out; 0: out of date
-static bool autoPickDone = false;
-static bool noTrackNearby = false;
 
 // Auto-start: a track was picked at boot with the car parked, so the Ready screen starts the session by itself once
 // the car drives off (see AutoStart.h). It ends when the screen is left.
@@ -163,7 +158,6 @@ static learn::LoopFinder loopFinder;
 static learn::FixRing<GpsFix> recentFixes;
 static size_t replayPos = 0;      // the next kept fix to time
 static bool replaying = false;
-static DriveOffDetector roamDriveOff;  // the menu with no track nearby: driving off starts Free Roam
 
 static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
 
@@ -548,9 +542,7 @@ void enterState(AppState next) {
     logPending = false;
     if (next != AppState::Running) recentFixes.release();  // (Running: a learned track, timed from them)
   }
-  if (next == AppState::Menu) roamDriveOff.reset(), nextUpAt = 0;
-
-  if (next == AppState::GpsStatus) statusReturn = state;
+  HomeScreen::stateChanging(next);
 
   AutocrossScreens::stateChanging(next);
 
@@ -1004,95 +996,6 @@ static void replayFixes() {
 }
 #endif
 
-// Works out the home screen's Next up card: today's autocross course nearby, else a circuit within 5 km,
-// else Drive (NextUp.h). The day's runs come from the card a few at a time (CourseRuns.h).
-static void refreshNextUp() {
-  nextcard::Inputs in;
-  in.fix = gps.hasFix();
-  if (in.fix) {
-    const GpsFix& f = gps.lastFix();
-    in.today = todayEvent();
-    const std::vector<courses::Candidate> list = courseCandidates();
-    const int k = courses::forHub(list, in.today, f.lat, f.lon);
-    if (k >= 0) {
-      const Track* c = trackDB.get(list[k].index);
-      in.courseIndex = list[k].index;
-      in.courseEvent = list[k].event;
-      in.courseDistM = geo::distanceM(f.lat, f.lon, list[k].lat, list[k].lon);
-      in.courseName = std::string(c->displayName().c_str());
-      if (in.courseEvent == in.today) {
-        CourseRuns::ensure(c->id, c->event);
-        in.runsKnown = CourseRuns::ready();
-        in.runNext = CourseRuns::day().nextNumber();
-        const int best = CourseRuns::day().best();
-        in.bestRunMs = best >= 0 ? CourseRuns::day().runs()[best].timeMs : 0;
-      }
-    }
-    double dist = -1;
-    const int n = trackDB.findNearest(f.lat, f.lon, TRACK_DETECTION_RADIUS_M, &dist);
-    if (n >= 0) {
-      const Track* t = trackDB.get(n);
-      uint32_t pb = 0, pbDate = 0;
-      TrackDay::personalBestFor(n, pb, pbDate);
-      in.circuitIndex = n;
-      in.circuitDistM = dist;
-      in.circuitName = std::string(t->name.c_str());
-      in.layoutName = std::string(t->layoutName.c_str());
-      in.pbMs = pb;
-    }
-  }
-  nextUp = nextcard::choose(in);
-  nextUpAt = millis() | 1;
-}
-
-// The Next up card was chosen
-static void startNextUp() {
-  refreshNextUp();
-  switch (nextUp.kind) {
-    case nextcard::Kind::Course:  // timing runs on it, armed at the start (as at boot)
-      selectedIndex = nextUp.index;
-      enterState(AppState::Running);
-      break;
-    case nextcard::Kind::Circuit:
-      selectedIndex = nextUp.index;
-      enterState(selectedTrack().stage ? AppState::Running : AppState::TrackConfirm);
-      break;
-    case nextcard::Kind::Drive:
-      enterState(AppState::FreeRoam);
-      break;
-    case nextcard::Kind::NoFix:
-      enterState(AppState::GpsStatus);
-      break;
-  }
-}
-
-static void chooseHomeItem(int item) {
-  switch (item) {
-    case home::NextUp:
-      startNextUp();
-      break;
-    case home::TrackDay:
-      enterState(AppState::TrackSelect);
-      break;
-    case home::Autocross:
-      enterState(AppState::Autocross);
-      break;
-    case home::Drag:  // Performance: works without a fix too, for the bench demo
-      enterState(AppState::Performance);
-      break;
-    case home::Drive:  // Free Roam needs a fix: without one, the GPS status shows what's missing
-      enterState(gps.hasFix() ? AppState::FreeRoam : AppState::GpsStatus);
-      break;
-    case home::Wifi:
-      enterState(AppState::Wifi);
-      break;
-    case home::Settings:
-      SettingsScreens::open();
-      break;
-  }
-  lastRender = 0;
-}
-
 // Make the current settings take effect: the screen and touch the right way
 // up, the backlight, Bluetooth, and the time zone for file names. Called at
 // boot and whenever they change, from the screen or the Wi-Fi page.
@@ -1140,19 +1043,11 @@ static void handleInput(InputEvent ev) {
 
   switch (state) {
     case AppState::GpsWait:
-      if (ev != InputEvent::Hold) {
-        autoPickDone = true;  // the driver chose to go on without waiting
-        enterState(AppState::Menu);
-      }
+      HomeScreen::onInputGpsWait(ev);
       break;
 
     case AppState::Menu:  // the home screen: HomeLayout.h says where a tap lands; BOOT goes through them in order
-      if (ev == InputEvent::TapHeader) enterState(AppState::GpsStatus);
-      else if (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight)
-        chooseHomeItem(home::hit(input.lastTapX(), input.lastTapY()));
-      else if (ev == InputEvent::BootShort) menuHighlight = home::next(menuHighlight);
-      else if (ev == InputEvent::BootLong) chooseHomeItem(menuHighlight);
-      lastRender = 0;
+      HomeScreen::onInputMenu(ev);
       break;
 
     case AppState::TrackSelect:
@@ -1208,7 +1103,7 @@ static void handleInput(InputEvent ev) {
       break;
 
     case AppState::GpsStatus:
-      if (ev != InputEvent::Hold) enterState(statusReturn);
+      HomeScreen::onInputGpsStatus(ev);
       break;
 
     case AppState::SettingsScreen:
@@ -1271,14 +1166,13 @@ static void render() {
                         input.touchAvailable());
   switch (state) {
     case AppState::GpsWait:
-      display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable(), false);
+      HomeScreen::renderGpsWait();
       break;
     case AppState::GpsStatus:
-      display.drawGpsWait(gps, trackDB.count(), trackDB.source(), input.touchAvailable(), true);
+      HomeScreen::renderGpsStatus();
       break;
     case AppState::Menu:
-      if (!nextUpAt || now - nextUpAt >= 500) refreshNextUp();
-      display.drawHome(nextUp, input.touchAvailable() ? -1 : menuHighlight, gps, input.touchAvailable());
+      HomeScreen::renderMenu(now);
       break;
     case AppState::TrackSelect:
       TrackDay::renderList();
@@ -1354,44 +1248,6 @@ static void render() {
   }
 }
 
-// Once the GPS has a fix: a track within range is picked. If the car is
-// already moving the session starts on it straight away; if it's parked, the
-// track's Ready screen waits for the car to drive off (so the menu is one
-// button away). With no track in range, show the menu.
-static void autoPickTrack() {
-  if (autoPickDone || !gps.hasFix()) return;
-  if (state != AppState::GpsWait && state != AppState::Menu) return;
-  autoPickDone = true;
-  double dist;
-  // Today's autocross course nearby: timing starts armed for its next run, so a restart between runs needs no taps
-  const int course = todaysCourseNearby();
-  if (course >= 0) {
-    selectedIndex = course;
-    DEBUG_PRINTF("Today's course: %s - timing runs, armed at the start\n", selectedTrack().name.c_str());
-    enterState(AppState::Running);
-    return;
-  }
-  int nearest = trackDB.findNearest(gps.lastFix().lat, gps.lastFix().lon, TRACK_DETECTION_RADIUS_M, &dist);
-  if (nearest >= 0) {
-    selectedIndex = nearest;
-    if (selectedTrack().stage) {  // a stage: timing from now, so the first run's standing start is caught
-      DEBUG_PRINTF("Nearest track: %s (%.0f m) - a stage, timing runs\n", selectedTrack().name.c_str(), dist);
-      enterState(AppState::Running);
-    } else if (gps.lastFix().speedKmh >= AUTO_START_KMH) {
-      DEBUG_PRINTF("Nearest track: %s (%.0f m) - already moving, starting a session\n", selectedTrack().name.c_str(), dist);
-      enterState(AppState::Running);
-    } else {
-      DEBUG_PRINTF("Nearest track: %s (%.0f m) - ready, starts when you drive off\n", selectedTrack().name.c_str(), dist);
-      enterState(AppState::TrackConfirm);
-      armAutoStart();
-    }
-  } else {
-    noTrackNearby = true;
-    DEBUG_PRINTF("No track within %.0f km\n", TRACK_DETECTION_RADIUS_M / 1000.0);
-    if (state == AppState::GpsWait) enterState(AppState::Menu);
-  }
-}
-
 // Overrides the Arduino core's: it would call a new firmware good before setup() even starts, and then a bad one
 // could never be rolled back. loop() says so after HEALTHY_AFTER_MS (see AppRollback.h).
 extern "C" bool verifyRollbackLater() { return true; }
@@ -1457,7 +1313,7 @@ void setup() {
   state = AppState::GpsWait;
   if (!Settings::get().setupDone) enterState(AppState::Setup);  // first boot: which way up, km/h or mph
   TrackDay::refreshWorldTracks();  // (the same screens as autoPickTrack: the world tracks near here come first)
-  autoPickTrack();  // (waits for the setup questions: it only acts on the GPS wait and menu screens)
+  HomeScreen::autoPickTrack();  // (waits for the setup questions: it only acts on the GPS wait and menu screens)
   if (state == AppState::GpsWait) enterState(AppState::GpsWait);
   SleepControl::begin(millis());
 }
@@ -1581,13 +1437,7 @@ void loop() {
         DEBUG_PRINTLN("Driving off - starting a session");
         enterState(AppState::Running);
       }
-    } else if (TRACK_LEARNING_ENABLED && state == AppState::Menu && noTrackNearby) {
-      // Away from known tracks, driving off records the drive and watches for a loop
-      if (roamDriveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
-        DEBUG_PRINTLN("Driving off with no track nearby - Free Roam, watching for a loop");
-        enterState(AppState::FreeRoam);
-      }
-    }
+    } else if (TRACK_LEARNING_ENABLED && state == AppState::Menu && HomeScreen::awayFromTracks()) HomeScreen::onFix(fix);
   }
 #if TRACK_LEARNING_ENABLED
   if (replaying && state == AppState::Running) replayFixes();
@@ -1629,7 +1479,7 @@ void loop() {
 
   if (summaryDirty && (int32_t)(now - summarySaveAt) >= 0) flushSummary();  // the last lap's, now it is over
   TrackDay::refreshWorldTracks();
-  autoPickTrack();
+  HomeScreen::autoPickTrack();
   WifiPortal::loop(gps);
   if (WifiPortal::takeCodeChanged()) lastRender = 0;  // a change used the code: show the new one now
   {  // A new firmware that has run this long is trusted: it won't be rolled back

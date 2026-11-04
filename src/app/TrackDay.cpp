@@ -5,12 +5,10 @@
 #include "BestLapStore.h"
 #include "Config.h"
 #include "GeoMath.h"
+#include "HomeScreen.h"
 #include "ProfileStore.h"
 #include "SimTrack.h"
 #include "TrackOrder.h"
-
-// The home screen's, in main.cpp for now (step 3b moves it)
-extern uint32_t nextUpAt;
 
 namespace TrackDay {
 
@@ -136,7 +134,7 @@ void refreshWorldTracks() {
   // World tracks' indices changed: what is kept by index is worked out again
   pbCache.clear();
   listOrder.clear();  // (the Track day list is made again on entering it)
-  nextUpAt = 0;
+  HomeScreen::forgetNextUp();
   const int again = keepId.length() ? trackDB.indexOfId(keepId) : -1;
   selectedIndex = again >= 0 ? again : 0;
   if (state == AppState::TrackSelect) sortTrackList(selectedIndex);
