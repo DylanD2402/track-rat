@@ -36,6 +36,7 @@ void DisplayManager::drawBrandLogo(int x, int y) {
 #endif
 }
 
+#if !HAVE_LOGO_IMAGE
 // Draw the placeholder logo into a sprite.
 static void drawPlaceholderLogo(TFT_eSprite& s) {
   const int w = s.width();
@@ -57,6 +58,7 @@ static void drawPlaceholderLogo(TFT_eSprite& s) {
   s.drawString("GPS LAP TIMER", w / 2, s.height() / 2 + 24);
   s.unloadFont();
 }
+#endif
 
 static bool bootPressed() { return digitalRead(BOOT_BUTTON_PIN) == LOW; }
 

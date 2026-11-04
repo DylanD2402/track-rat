@@ -352,12 +352,12 @@ inline Target moduleTarget(const Command& c) {
   }
   if (c.rx) snprintf(t.cmd[Target::RxFilter], 16, c.ext29 ? "ATCRA%08X" : "ATCRA%03X", (unsigned)c.rx);
   else snprintf(t.cmd[Target::RxFilter], 16, "ATCRA");
-  if (c.extAddr >= 0) snprintf(t.cmd[Target::ExtAddr], 16, "ATCEA%02X", (unsigned)c.extAddr);
+  if (c.extAddr >= 0) snprintf(t.cmd[Target::ExtAddr], 16, "ATCEA%02X", (unsigned)(c.extAddr & 0xFF));
   else snprintf(t.cmd[Target::ExtAddr], 16, "ATCEA");
   if (c.fcm1) {
     if (c.ext29) snprintf(t.cmd[Target::FcHeader], 16, "ATFCSH%08X", (unsigned)c.tx);
     else snprintf(t.cmd[Target::FcHeader], 16, "ATFCSH%03X", (unsigned)c.tx);
-    if (c.extAddr >= 0) snprintf(t.cmd[Target::FcData], 16, "ATFCSD%02X300000", (unsigned)c.extAddr);
+    if (c.extAddr >= 0) snprintf(t.cmd[Target::FcData], 16, "ATFCSD%02X300000", (unsigned)(c.extAddr & 0xFF));
     else snprintf(t.cmd[Target::FcData], 16, "ATFCSD300000");
     snprintf(t.cmd[Target::FcMode], 16, "ATFCSM1");
   } else {

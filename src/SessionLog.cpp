@@ -557,6 +557,18 @@ static std::string summaryTrack(fs::FS& fs, const String& jsonPath) {
 }
 
 // Whoever the log says drove: nobody for a log from before drivers and cars
+// Read a whole .vbo into a replay in 4 KB chunks, then close the file and finish the replay.
+static void feedWholeFile(File& f, SessionReplay& replay) {
+  static char chunk[4096];
+  for (;;) {
+    int n = f.read((uint8_t*)chunk, sizeof(chunk));
+    if (n <= 0) break;
+    replay.feed(chunk, n);
+  }
+  f.close();
+  replay.finish();
+}
+
 static Who whoOf(const SessionReplay& r) {
   Who w;
   w.driverId = r.driverId;
@@ -592,14 +604,7 @@ static bool recoverSession(fs::FS& fs, const String& vboPath) {
   // summary names that layout, but the log's header still names the first.
   String base = vboPath.substring(0, vboPath.length() - 4);
   replay->summaryTrackId = summaryTrack(fs, base + ".json");
-  static char chunk[4096];
-  for (;;) {
-    int n = f.read((uint8_t*)chunk, sizeof(chunk));
-    if (n <= 0) break;
-    replay->feed(chunk, n);
-  }
-  f.close();
-  replay->finish();
+  feedWholeFile(f, *replay);
 
   String stamp = replay->stamp.c_str();
   String logName = fileName(vboPath);
@@ -828,14 +833,7 @@ static void retimeAll(fs::FS& fs) {
     replay->summaryTrackId = trackId;
     replay->useLines(t.startFinish, t.splits, t.sectors);
     if (t.stage) replay->useStage(t.finish, t.hasFinish);
-    static char chunk[4096];
-    for (;;) {
-      int n = f.read((uint8_t*)chunk, sizeof(chunk));
-      if (n <= 0) break;
-      replay->feed(chunk, n);
-    }
-    f.close();
-    replay->finish();
+    feedWholeFile(f, *replay);
     if (replay->freeRoam) continue;
 
     const Who who = whoOf(*replay);

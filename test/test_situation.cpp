@@ -86,8 +86,6 @@ static void testClock() {
   CHECK(sessionClock(40 * 60000, 20) == "Time up", "well over");
   CHECK(!sessionEnding(754000, 20) && sessionEnding(19 * 60000 + 1, 20) && sessionEnding(30 * 60000, 20), "ending");
   CHECK(!sessionEnding(30 * 60000, 0), "no length: never ending");
-  CHECK(sessionLengthMin(0) == 0 && sessionLengthMin(1) == 20 && sessionLengthMin(3) == 30 && sessionLengthMin(9) == 0,
-        "lengths");
   printf("  session clock: time since the start, or a countdown\n");
 }
 

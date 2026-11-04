@@ -42,7 +42,8 @@ constexpr uint16_t C_TRACK = rgb(200, 200, 204);  // the track line on maps
 // Layout (landscape 320x240)
 constexpr int W = 320;
 constexpr int H = 240;
-constexpr int HEADER_H = 28;  // InputManager counts taps above y 30 as the top bar
+constexpr int HEADER_H = 28;  // see HEADER_TAP_H for where InputManager counts the top bar
+constexpr int HEADER_TAP_H = 30;  // taps above this count as the top bar (a little taller than HEADER_H)
 constexpr int FOOTER_Y = 200;
 constexpr int FOOTER_H = 36;
 constexpr int CORNER = 10;

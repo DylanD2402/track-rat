@@ -1,5 +1,5 @@
 /**
- * Track Rat - car profiles on the SD card (/obd/*.json)
+ * Track Rat - car profiles on the SD card (one .json file per car in /obd)
  *
  * A car profile lists the car-specific requests to make (brake pressure,
  * steering angle...) in OBDb's own format: its "commands", each with "hdr",
