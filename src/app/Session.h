@@ -34,6 +34,12 @@ void noteCameraStart();                 // loop(): the camera started recording
 void poll(uint32_t now);                // loop(): once a pass
 void flushIfDue(uint32_t now);          // loop(): saves the summary a moment after a lap
 
+// For the other screens
+void flushSummary();                    // saves the summary now if it is waiting (before reading it, sleeping, Wi-Fi)
+void keepLayout();                      // the driver picked this track: the layout check doesn't swap it
+void markNewLine();                     // the Ready screen's Set line: the session starts by marking the line
+void notice(const String& text, uint32_t showMs);  // a note on the timing screen for showMs
+
 }  // namespace Session
 
 #endif

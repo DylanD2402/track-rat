@@ -36,20 +36,12 @@ extern bool haveCameraFix;      // cameraFix has a date
 void enterState(AppState next);
 // The picked track
 const Track& selectedTrack();
-// Saves the session's summary now if it is waiting
-void flushSummary();
 // Makes the current settings take effect (screen and touch the right way up, backlight, Bluetooth, time zone)
 void applySettings();
 // Autocross courses (Courses.h), by trackDB index
 std::vector<courses::Candidate> courseCandidates();
 // Today's local date, "YYYYMMDD" ("" if the GPS hasn't given one)
 std::string todayEvent();
-// The session's track was picked by the driver, so the layout check doesn't swap it for one nearby
-void sessionKeepLayout();
-// A note on the timing screen for showMs
-void sessionNotice(const String& text, uint32_t showMs);
-// The Ready screen's Set new start/finish: the session starts by marking the line, on the layout the driver picked
-void sessionMarkNewLine();
 // Is the Ready screen waiting for the car to drive off (AutoStart.h)
 bool autoStartArmed();
 // A track was picked at boot with the car parked: the Ready screen starts the session when the car drives off

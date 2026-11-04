@@ -150,19 +150,14 @@ static void markSummaryDirty(uint32_t now) {
   if (!summaryDirty) summarySaveAt = now + SUMMARY_SAVE_DELAY_MS;  // (a second after the first change; later ones ride along)
   summaryDirty = true;
 }
-}  // namespace Session
-
 // Save it now if it is waiting. Before anything that reads the summary or ends the session or the power.
 void flushSummary() {
-  using namespace Session;
   if (!summaryDirty) return;
   summaryDirty = false;
   if (sessionPath.length() == 0 || state != AppState::Running) return;
   if (SessionLog::save(sessionPath, selectedTrack(), sessionStamp, sessionNumber, lapTimer, sessionLog, false))
     DEBUG_PRINTF("Saved %s:%s\n", Storage::sessionFSName(), sessionPath.c_str());
 }
-
-namespace Session {
 
 static void saveTrackStats();
 
@@ -1037,19 +1032,20 @@ void flushIfDue(uint32_t now) {
   if (summaryDirty && (int32_t)(now - summarySaveAt) >= 0) flushSummary();  // the last lap's, now it is over
 }
 
-}  // namespace Session
-
-// The session's track was picked by the driver (a new course), so the layout check doesn't swap it for one nearby
-void sessionKeepLayout() { Session::layoutChecked = true; }
+// The session's track was picked by the driver (+ New circuit, a new course), so the layout check doesn't swap it
+// for one nearby
+void keepLayout() { layoutChecked = true; }
 
 // A track's Ready screen: the driver chose to mark a new start/finish line
-void sessionMarkNewLine() {
-  Session::settingLine = true;
-  Session::layoutChecked = true;
+void markNewLine() {
+  settingLine = true;
+  layoutChecked = true;
 }
 
 // A note on the timing screen for showMs
-void sessionNotice(const String& text, uint32_t showMs) {
-  Session::overlay.notice = text;
-  Session::layoutNoticeUntil = millis() + showMs;
+void notice(const String& text, uint32_t showMs) {
+  overlay.notice = text;
+  layoutNoticeUntil = millis() + showMs;
 }
+
+}  // namespace Session

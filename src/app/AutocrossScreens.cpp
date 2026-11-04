@@ -1,6 +1,7 @@
 #include "AutocrossScreens.h"
 
 #include "App.h"
+#include "Session.h"
 #include "AdjustLoad.h"
 #include "AutocrossLayout.h"
 #include "Config.h"
@@ -36,8 +37,8 @@ static void createNewCourse() {
   if (idx < 0) return enterState(AppState::Autocross);
   selectedIndex = idx;
   enterState(AppState::Running);
-  sessionKeepLayout();
-  sessionNotice("Start set: the clock starts as you go", 10000);
+  Session::keepLayout();
+  Session::notice("Start set: the clock starts as you go", 10000);
 }
 
 // --- Adjust start / Adjust finish (AdjustLine.h, AdjustLoad.h): the Autocross hub's course, its line moved in
@@ -65,7 +66,7 @@ static void openAdjust(adjust::Which w) {
 
 // Save: the moved line into tracks.json, then the course's logs timed again; the hub follows when that is done
 static void adjustSave() {
-  flushSummary();  // (nothing waits here: the session's summary was finished when it ended)
+  Session::flushSummary();  // (nothing waits here: the session's summary was finished when it ended)
   adjust::Model& m = AdjustLoad::model();
   if (m.offsetM() == 0 || hubCourse < 0) return enterState(AppState::Autocross);  // nothing moved: nothing to save
   const TrackPoint p = m.moved();

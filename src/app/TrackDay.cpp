@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include "App.h"
+#include "Session.h"
 #include "BestLapStore.h"
 #include "Config.h"
 #include "GeoMath.h"
@@ -119,7 +120,7 @@ void createNewTrack() {
   if (idx < 0) return enterState(AppState::Menu);
   selectedIndex = idx;
   enterState(AppState::Running);
-  sessionKeepLayout();  // the driver asked for a new track: don't swap it for one nearby
+  Session::keepLayout();  // the driver asked for a new track: don't swap it for one nearby
 }
 
 // The world tracks from the SD card's /world tiles (WorldTiles.h) for where we are: read at the first fix and
@@ -216,7 +217,7 @@ void onInputReady(InputEvent ev) {
     enterState(AppState::Running);
   } else if (ev == InputEvent::TapRight && !selectedTrack().bench) {
     enterState(AppState::Running);
-    sessionMarkNewLine();  // mark a new start/finish (replaces the old one)...
+    Session::markNewLine();  // mark a new start/finish (replaces the old one)...
                            // ...on the layout the driver picked, not one the check finds
   } else if (ev == InputEvent::TapLeft || ev == InputEvent::BootShort) {
     enterState(readyFromList ? AppState::TrackSelect : AppState::Menu);

@@ -149,7 +149,7 @@ void enterState(AppState next) {
 
   // Wi-Fi is on only while its screen is shown, never while timing.
   if (next == AppState::Wifi) {
-    flushSummary();  // the page lists and downloads the summaries
+    Session::flushSummary();  // the page lists and downloads the summaries
     wifiReturn = state;
     WifiPortal::start();
   } else if (state == AppState::Wifi) {

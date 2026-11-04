@@ -1,6 +1,7 @@
 #include "SleepControl.h"
 
 #include "App.h"
+#include "Session.h"
 #include "AppRollback.h"
 #include "CameraBle.h"
 #include "Config.h"
@@ -25,7 +26,7 @@ static const uint32_t SLEEP_LOG_WAIT_MS = 3000;  // an SD write can take a few h
 // Close and save whatever is open, so power can go. Anything else that must be
 // flushed before sleep (e.g. an open log file) belongs here too.
 static void saveForSleep() {
-  flushSummary();
+  Session::flushSummary();
   if (state == AppState::Running) enterState(AppState::Summary);  // saves the laps so far
   else if (state == AppState::FreeRoam) enterState(AppState::FreeRoamSummary);
   SessionLog::endLog();
