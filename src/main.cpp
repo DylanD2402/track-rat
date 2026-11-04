@@ -25,6 +25,7 @@
 #include "app/App.h"
 #include "app/PerformanceMode.h"
 #include "app/SdUpdate.h"
+#include "app/SettingsScreens.h"
 #include "app/SleepControl.h"
 #include "AdjustLoad.h"
 #include "AppRollback.h"
@@ -183,15 +184,6 @@ static size_t replayPos = 0;      // the next kept fix to time
 static bool replaying = false;
 static DriveOffDetector roamDriveOff;  // the menu with no track nearby: driving off starts Free Roam
 
-// Settings screen and the first-boot questions (the rules are in SettingsFlow.h)
-static SettingsScreenState settingsUi;
-static SetupState setupUi;
-static DeviceScreenState engineUi;  // Settings > Engine data (DeviceScreen.h)
-static ObdBle::Found engineFound[ObdBle::MAX_FOUND];  // the Find adapter list as last shown
-static int engineFoundCount = 0;
-static DeviceScreenState cameraUi;  // Settings > Camera
-static CameraBle::Found cameraFound[CameraBle::MAX_FOUND];
-static int cameraFoundCount = 0;
 static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
 
 uint32_t lastRender = 0;
@@ -1340,9 +1332,7 @@ static void chooseHomeItem(int item) {
       enterState(AppState::Wifi);
       break;
     case home::Settings:
-      settingsUi.begin(input.touchAvailable());
-      settingsUi.setPeople(Profiles::get());
-      enterState(AppState::SettingsScreen);
+      SettingsScreens::open();
       break;
   }
   lastRender = 0;
@@ -1351,7 +1341,7 @@ static void chooseHomeItem(int item) {
 // Make the current settings take effect: the screen and touch the right way
 // up, the backlight, Bluetooth, and the time zone for file names. Called at
 // boot and whenever they change, from the screen or the Wi-Fi page.
-static void applySettings() {
+void applySettings() {
   const SettingsData s = Settings::get();
   settingsApplied = Settings::changeCount();
   display.setRotation(s.rotation);
@@ -1368,19 +1358,6 @@ static void applySettings() {
     tzset();
   }
   lastRender = 0;
-}
-
-static Key toKey(InputEvent ev) {
-  switch (ev) {
-    case InputEvent::TapLeft: return Key::Left;
-    case InputEvent::TapCenter: return Key::Center;
-    case InputEvent::TapRight: return Key::Right;
-    case InputEvent::TapHeader: return Key::Header;
-    case InputEvent::Hold: return Key::Hold;
-    case InputEvent::BootShort: return Key::BootShort;
-    case InputEvent::BootLong: return Key::BootLong;
-    default: return Key::None;
-  }
 }
 
 // The WI-FI button, in the right third of the menu and summary screens
@@ -1507,73 +1484,20 @@ static void handleInput(InputEvent ev) {
       if (ev != InputEvent::Hold) enterState(statusReturn);
       break;
 
-    case AppState::SettingsScreen: {
-      SettingsData s = Settings::get();
-      settingsUi.setPeople(Profiles::get());
-      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-      SettingsScreenState::Result r = tapped ? settingsUi.tap(input.lastTapX(), input.lastTapY(), s)
-                                             : settingsUi.handle(toKey(ev), s);
-      if (r == SettingsScreenState::Result::Changed) {
-        Settings::set(s);
-        applySettings();
-      } else if (r == SettingsScreenState::Result::Pick) {  // takes effect at the next session
-        Profiles::select(settingsUi.pickKind, settingsUi.pickId);
-      } else if (r == SettingsScreenState::Result::Exit) {
-        enterState(AppState::Menu);
-      } else if (r == SettingsScreenState::Result::PowerOff) {
-        SleepControl::powerOff();
-      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Engine) {
-        engineUi.begin(input.touchAvailable());
-        enterState(AppState::EngineScreen);
-      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Camera) {
-        cameraUi.begin(input.touchAvailable());
-        enterState(AppState::CameraScreen);
-      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Battery) {
-        enterState(AppState::BatteryScreen);
-      }
-      lastRender = 0;
+    case AppState::SettingsScreen:
+      SettingsScreens::onInputList(ev);
       break;
-    }
 
-    case AppState::EngineScreen: {  // the list's taps are on what was drawn: engineFound
-      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-      const DeviceScreenState::Action a = tapped ? engineUi.tap(input.lastTapX(), input.lastTapY(), engineFoundCount)
-                                                 : engineUi.handle(toKey(ev), engineFoundCount);
-      if (a == DeviceScreenState::Action::Back) {
-        enterState(AppState::SettingsScreen);  // (the list keeps its place)
-      } else if (a == DeviceScreenState::Action::Scan) {
-        engineFoundCount = 0;
-        ObdBle::startScan();
-      } else if (a == DeviceScreenState::Action::Choose && engineUi.chosen >= 0 && engineUi.chosen < engineFoundCount) {
-        ObdBle::choose(engineFound[engineUi.chosen]);
-      } else if (a == DeviceScreenState::Action::Forget) {
-        ObdBle::forget();
-      }
-      lastRender = 0;
+    case AppState::EngineScreen:  // the list's taps are on what was drawn: engineFound
+      SettingsScreens::onInputEngine(ev);
       break;
-    }
 
-    case AppState::CameraScreen: {  // the same screen, for the DJI camera
-      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-      const DeviceScreenState::Action a = tapped ? cameraUi.tap(input.lastTapX(), input.lastTapY(), cameraFoundCount)
-                                                 : cameraUi.handle(toKey(ev), cameraFoundCount);
-      if (a == DeviceScreenState::Action::Back) {
-        enterState(AppState::SettingsScreen);
-      } else if (a == DeviceScreenState::Action::Scan) {
-        cameraFoundCount = 0;
-        CameraBle::startScan();
-      } else if (a == DeviceScreenState::Action::Choose && cameraUi.chosen >= 0 && cameraUi.chosen < cameraFoundCount) {
-        CameraBle::choose(cameraFound[cameraUi.chosen]);
-      } else if (a == DeviceScreenState::Action::Forget) {
-        CameraBle::forget();
-      }
-      lastRender = 0;
+    case AppState::CameraScreen:  // the same screen, for the DJI camera
+      SettingsScreens::onInputCamera(ev);
       break;
-    }
 
     case AppState::BatteryScreen:  // read-only: any tap or press goes back to the list
-      enterState(AppState::SettingsScreen);
-      lastRender = 0;
+      SettingsScreens::onInputBattery();
       break;
 
     case AppState::Autocross: {  // Start runs and New course on the top row; Adjust start, Adjust finish and Back below
@@ -1623,20 +1547,9 @@ static void handleInput(InputEvent ev) {
       lastRender = 0;
       break;
 
-    case AppState::Setup: {
-      SettingsData s = Settings::get();
-      if (setupUi.handle(toKey(ev), s)) {
-        Settings::set(s);
-        applySettings();  // the screen turns round as soon as the way up is chosen
-        if (s.setupDone) {
-          DEBUG_PRINTF("Setup: %s, %s\n", settings::upsideDown(s) ? "upside down" : "normal",
-                       s.units == SpeedUnits::Mph ? "mph" : "km/h");
-          enterState(AppState::GpsWait);
-        }
-      }
-      lastRender = 0;
+    case AppState::Setup:
+      SettingsScreens::onInputSetup(ev);
       break;
-    }
   }
 }
 
@@ -1749,26 +1662,19 @@ static void render() {
       PerformanceMode::render();
       break;
     case AppState::SettingsScreen:
-      settingsUi.setPeople(Profiles::get());  // (the car may have been picked by its VIN meanwhile)
-      display.drawSettings(Settings::get(), settingsUi, input.touchAvailable(),
-                           gps.hasFix() ? (int64_t)settings::localTimeOfDayMs(gps.lastFix().gpsTimeMs,
-                                                                               Settings::get().utcOffsetMin)
-                                        : -1);
+      SettingsScreens::renderList();
       break;
     case AppState::EngineScreen:
-      if (engineUi.page == DeviceScreenState::Page::Find) engineFoundCount = ObdBle::found(engineFound, ObdBle::MAX_FOUND);
-      display.drawEngineData(engineUi, ObdBle::status(), engineFound, engineFoundCount, ObdBle::scanning(), input.touchAvailable());
+      SettingsScreens::renderEngine();
       break;
     case AppState::CameraScreen:
-      if (cameraUi.page == DeviceScreenState::Page::Find) cameraFoundCount = CameraBle::found(cameraFound, CameraBle::MAX_FOUND);
-      display.drawCamera(cameraUi, CameraBle::status(), Settings::get().cameraWithSessions, cameraFound, cameraFoundCount,
-                         CameraBle::scanning(), input.touchAvailable());
+      SettingsScreens::renderCamera();
       break;
     case AppState::BatteryScreen:
-      display.drawBattery(Power::batteryReport(), input.touchAvailable());
+      SettingsScreens::renderBattery();
       break;
     case AppState::Setup:
-      display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());
+      SettingsScreens::renderSetup();
       break;
     case AppState::Autocross: {
       AutocrossView v;
@@ -2110,16 +2016,7 @@ void loop() {
   if (bootHeld >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) SleepControl::powerOff();
 
   // A finger dragging the Settings list: the list follows it (and counts as using the board)
-  static bool listDragged = false;
-  if (state == AppState::SettingsScreen && input.dragging()) {
-    SleepControl::noteActivity(now);
-    settingsUi.drag(input.dragDy());
-    listDragged = true;
-  } else if (listDragged) {
-    settingsUi.dragEnd();
-    listDragged = false;
-    lastRender = 0;  // draw the list where it ended
-  }
+  const bool listDragged = SettingsScreens::followDrag(now);
 
   {  // The engine's temperatures against Settings > Coolant: the overheat warning
     float coolC = 0, oilC = 0;

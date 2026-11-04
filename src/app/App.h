@@ -32,5 +32,7 @@ void enterState(AppState next);
 const Track& selectedTrack();
 // Saves the session's summary now if it is waiting
 void flushSummary();
+// Makes the current settings take effect (screen and touch the right way up, backlight, Bluetooth, time zone)
+void applySettings();
 
 #endif
