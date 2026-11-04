@@ -782,6 +782,12 @@ static void testNeedsRestartAndGps() {
 }
 
 static void testConversions() {
+  SettingsData sl = defaults();
+  const int lens[][2] = {{0, 0}, {1, 20}, {2, 25}, {3, 30}, {9, 0}};
+  for (const auto& l : lens) {
+    sl.sessionLength = (uint8_t)l[0];
+    EXPECT(sessionMinutes(sl) == l[1], "sessionLength %d = %d min, got %d", l[0], l[1], sessionMinutes(sl));
+  }
   EXPECT(speedValue(100.0f, SpeedUnits::Kmh) == 100.0f, "km/h unchanged");
   EXPECT(fabs(speedValue(100.0f, SpeedUnits::Mph) - 62.1371f) < 0.001, "100 km/h = %.4f mph", speedValue(100.0f, SpeedUnits::Mph));
   EXPECT(fabs(speedValue(160.934f, SpeedUnits::Mph) - 100.0f) < 0.001, "160.934 km/h = %.4f mph", speedValue(160.934f, SpeedUnits::Mph));

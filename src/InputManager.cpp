@@ -5,10 +5,9 @@
 #include "InputManager.h"
 #include "AddOns.h"
 #include "Config.h"
+#include "UiTheme.h"
 #include <Wire.h>
 
-static const int SCREEN_W = 320;
-static const int SCREEN_H = 240;
 static const uint32_t TAP_MAX_MS = 800;
 static const int DRAG_PX = 12;  // a finger that moves further than this is dragging, not tapping
 
@@ -69,16 +68,16 @@ bool InputManager::readTouch(int16_t& x, int16_t& y) {
   y = rawY;
 #endif
 #if TOUCH_INVERT_X
-  x = SCREEN_W - 1 - x;
+  x = ui::W - 1 - x;
 #endif
 #if TOUCH_INVERT_Y
-  y = SCREEN_H - 1 - y;
+  y = ui::H - 1 - y;
 #endif
   // The mapping above is for DISPLAY_ROTATION; with the screen turned the
   // other way up (the Screen setting), the touch panel is too.
   if (flipped) {
-    x = SCREEN_W - 1 - x;
-    y = SCREEN_H - 1 - y;
+    x = ui::W - 1 - x;
+    y = ui::H - 1 - y;
   }
 
   static bool loggedThisTouch = false;
@@ -133,9 +132,9 @@ InputEvent InputManager::poll() {
       tapX = startX;
       tapY = startY;
       tapHeld = now - touchStart;
-      if (startY < 30) return InputEvent::TapHeader;  // the top bar
-      if (startX < SCREEN_W / 3) return InputEvent::TapLeft;
-      if (startX >= SCREEN_W * 2 / 3) return InputEvent::TapRight;
+      if (startY < ui::HEADER_TAP_H) return InputEvent::TapHeader;  // the top bar
+      if (startX < ui::W / 3) return InputEvent::TapLeft;
+      if (startX >= ui::W * 2 / 3) return InputEvent::TapRight;
       return InputEvent::TapCenter;
     }
   }

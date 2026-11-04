@@ -157,7 +157,6 @@ void unlockSession() {
   locked = false;
   portEXIT_CRITICAL(&lock);
 }
-bool sessionLocked() { return locked; }
 
 Active active() {
   Active a;

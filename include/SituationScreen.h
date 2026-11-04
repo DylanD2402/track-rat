@@ -79,9 +79,6 @@ private:
 };
 
 // The Session length setting's choices, in minutes (0: no countdown).
-constexpr int SESSION_LENGTHS[] = {0, 20, 25, 30};
-constexpr int SESSION_LENGTH_COUNT = 4;
-inline int sessionLengthMin(uint8_t choice) { return choice < SESSION_LENGTH_COUNT ? SESSION_LENGTHS[choice] : 0; }
 
 // "m:ss" (or "h:mm:ss") of a time in ms.
 inline std::string clockText(uint32_t ms) {

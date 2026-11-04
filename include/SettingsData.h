@@ -34,7 +34,7 @@ struct SettingsData {
   CompareTo compareTo;     // the live delta's reference from the first lap (BestLap.h)
   BigNumber bigNumber;
   DeltaColours deltaColours;
-  uint8_t sessionLength;   // 0 = off, 1..3 = 20, 25, 30 minutes (SituationScreen.h): the header counts down
+  uint8_t sessionLength;   // 0 = off, 1..3 = 20, 25, 30 minutes (sessionMinutes below): the header counts down
   GpsMode gpsMode;         // applied when the GPS is set up at boot
   bool bluetooth;          // RaceBox Bluetooth output
   int16_t utcOffsetMin;    // minutes east of UTC, -720..840 (the Wi-Fi page sets it from the phone)

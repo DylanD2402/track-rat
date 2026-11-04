@@ -42,7 +42,6 @@ void label(char* out, size_t n);
 // The pair a session is recorded under: fixed from its start to its end, else the current ones
 void lockSession();    // a session starts (does nothing if one is already locked in)
 void unlockSession();  // no session is running
-bool sessionLocked();
 struct Active {
   int driverId = 1, carId = 1;
   char driver[profiles::NAME_LEN + 1] = "";
