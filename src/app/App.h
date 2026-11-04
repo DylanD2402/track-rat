@@ -30,5 +30,7 @@ extern int selectedIndex;       // the picked track (a trackDB index)
 void enterState(AppState next);
 // The picked track
 const Track& selectedTrack();
+// Saves the session's summary now if it is waiting
+void flushSummary();
 
 #endif

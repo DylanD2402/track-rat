@@ -24,6 +24,8 @@
 #include <sys/time.h>
 #include "app/App.h"
 #include "app/PerformanceMode.h"
+#include "app/SdUpdate.h"
+#include "app/SleepControl.h"
 #include "AdjustLoad.h"
 #include "AppRollback.h"
 #include "AutoStart.h"
@@ -139,7 +141,6 @@ static bool haveCameraFix = false;
 // for SYNC_FLASH_MS, for a camera to film; its GPS time goes into the summary
 static uint32_t syncUntil = 0;  // millis() it ends; 0: not showing
 static void startSyncFlash();
-[[noreturn]] static void powerOff();
 // The overheat warning (6.5): full screen for TEMP_ALERT_MS on any screen when coolant (or oil) reaches its limit
 static tempalert::Alert tempAlert;
 static void setClockFromGps(const GpsFix& f);
@@ -195,8 +196,6 @@ static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were 
 
 uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
-
-static SleepTimer sleepTimer(AUTO_SLEEP_IDLE_MS, AUTO_SLEEP_DEEP_AFTER_MS);
 
 const Track& selectedTrack() { return *trackDB.get(selectedIndex); }
 
@@ -533,7 +532,7 @@ static void markSummaryDirty(uint32_t now) {
   summaryDirty = true;
 }
 // Save it now if it is waiting. Before anything that reads the summary or ends the session or the power.
-static void flushSummary() {
+void flushSummary() {
   if (!summaryDirty) return;
   summaryDirty = false;
   if (sessionPath.length() == 0 || state != AppState::Running) return;
@@ -1522,7 +1521,7 @@ static void handleInput(InputEvent ev) {
       } else if (r == SettingsScreenState::Result::Exit) {
         enterState(AppState::Menu);
       } else if (r == SettingsScreenState::Result::PowerOff) {
-        powerOff();
+        SleepControl::powerOff();
       } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Engine) {
         engineUi.begin(input.touchAvailable());
         enterState(AppState::EngineScreen);
@@ -1889,143 +1888,9 @@ static void addBenchTrack() {
   trackDB.add(sim);
 }
 
-// ---------------------------------------------------------------------------
-// Sleep, power off and battery
-// ---------------------------------------------------------------------------
-
-static const uint32_t SLEEP_LOG_WAIT_MS = 3000;  // an SD write can take a few hundred ms
-
-// Close and save whatever is open, so power can go. Anything else that must be
-// flushed before sleep (e.g. an open log file) belongs here too.
-static void saveForSleep() {
-  flushSummary();
-  if (state == AppState::Running) enterState(AppState::Summary);  // saves the laps so far
-  else if (state == AppState::FreeRoam) enterState(AppState::FreeRoamSummary);
-  SessionLog::endLog();
-  LogWriter::poll();
-  // The writer task only closes the file when it next runs, and deep sleep would stop it first.
-  if (!LogWriter::waitIdle(SLEEP_LOG_WAIT_MS)) DEBUG_PRINTLN("Log: card write still pending at sleep");
-}
-
-// Something happened (a touch, a press, the car moving). Returns true if the screen was off.
-static bool noteActivity(uint32_t now) {
-  if (!sleepTimer.activity(now)) return false;
-  display.setBacklight(true);
-  lastRender = 0;
-  return true;
-}
-
-// The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the
-// screen off, then deep sleep until the screen is touched or BOOT is pressed.
 // Overrides the Arduino core's: it would call a new firmware good before setup() even starts, and then a bad one
 // could never be rolled back. loop() says so after HEALTHY_AFTER_MS (see AppRollback.h).
 extern "C" bool verifyRollbackLater() { return true; }
-
-[[noreturn]] static void sleepNow(bool switchingOff) {
-  approllback::markGood();  // switching off or sleeping is not a crash
-  gps.standby();
-  display.powerDown();
-  Power::deepSleep(switchingOff);
-}
-
-static void lowBatterySleep() {
-  DEBUG_PRINTF("Battery low (%d mV): saving and sleeping\n", Power::batteryMillivolts());
-  saveForSleep();
-  display.setBacklight(true);
-  display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
-  delay(BATTERY_LOW_SCREEN_MS);
-  sleepNow(false);
-}
-
-// Switching off: a recording that follows the sessions stops with the session that just ended (the next
-// fix would have done it). Up to 2 s for the camera to say it has.
-static void stopCameraRecording() {
-  if (!Settings::get().cameraWithSessions || !CameraBle::connected()) return;
-  CameraBle::setRecording(false);
-  const uint32_t start = millis();
-  while (millis() - start < 2000) {
-    CameraBle::poll();
-    const CameraBle::Status cs = CameraBle::status();
-    if (!cs.cam.known || !cs.cam.recording()) return;
-    delay(20);
-  }
-}
-
-// Settings > Power off, or BOOT held for POWER_OFF_HOLD_MS: everything saved, then off until the screen is
-// tapped (or BOOT pressed). It's auto-sleep's deep sleep straight away: nothing on the board can cut the battery.
-static void powerOff() {
-  DEBUG_PRINTLN("Power off: saving, then off until the screen is tapped");
-  display.setBacklight(true);
-  display.drawMessage("POWER OFF", "Switching off…", "Tap the screen to turn it back on", ui::C_ORANGE);
-  const uint32_t shown = millis();
-  saveForSleep();
-  stopCameraRecording();
-  while (millis() - shown < POWER_OFF_MESSAGE_MS) delay(10);  // long enough to read
-  sleepNow(true);
-}
-
-// ---------------------------------------------------------------------------
-// Firmware update from the SD card
-// ---------------------------------------------------------------------------
-
-static void drawInstallProgress(size_t done, size_t total) {
-  static int lastPct = -1;
-  int pct = total ? (int)(done * 100 / total) : 0;
-  if (pct == lastPct) return;
-  lastPct = pct;
-  display.drawFirmwareProgress(pct);
-}
-
-// If /trackrat.bin is on the card, offer to install it: tap the centre or hold
-// BOOT to confirm; anything else (or no answer) skips.
-static void offerFirmwareUpdate() {
-  FirmwareUpdate::Offer offer;
-  if (!FirmwareUpdate::find(offer)) return;
-
-  if (offer.check != firmware::Check::Ok) {
-    display.drawMessage("FIRMWARE FILE SKIPPED", "Can't use trackrat.bin", firmware::describe(offer.check), ui::C_RED);
-    delay(4000);
-    return;
-  }
-
-  char modified[24] = "";
-  if (offer.modified > 0) {
-    struct tm t;
-    localtime_r(&offer.modified, &t);  // back to the local time FAT stores
-    strftime(modified, sizeof(modified), "%Y-%m-%d %H:%M", &t);
-  }
-  display.drawFirmwarePrompt(modified, offer.size, input.touchAvailable());
-  bool install = false;
-  uint32_t start = millis();
-  while (millis() - start < FIRMWARE_PROMPT_TIMEOUT_MS) {
-    gps.update();  // keep draining the GPS while waiting
-    InputEvent ev = input.poll();
-    if (ev == InputEvent::None) {
-      delay(5);
-      continue;
-    }
-    install = ev == InputEvent::TapCenter || ev == InputEvent::BootLong;
-    break;
-  }
-  if (!install) {
-    DEBUG_PRINTLN("Firmware: update skipped");
-    return;
-  }
-
-  DEBUG_PRINTLN("Firmware: installing");
-  approllback::markGood();  // Update refuses to start while this app is still waiting to be trusted
-  const char* error = FirmwareUpdate::install(offer, drawInstallProgress);
-  if (error) {
-    DEBUG_PRINTF("Firmware: install failed: %s\n", error);
-    display.drawMessage("UPDATE FAILED", error, "The old firmware is unchanged", ui::C_RED);
-    delay(5000);
-    return;
-  }
-  display.drawMessage("UPDATE INSTALLED", "Restarting…", "", ui::C_GREEN);
-  delay(1500);
-  approllback::markGood();  // (this app, which is leaving on purpose; the new one starts pending)
-  ESP.restart();
-}
 
 void setup() {
 #if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
@@ -2083,14 +1948,14 @@ void setup() {
     delay(5);
   }
   display.finishSplash();
-  offerFirmwareUpdate();
+  SdUpdate::offer();
   gps.update();
   state = AppState::GpsWait;
   if (!Settings::get().setupDone) enterState(AppState::Setup);  // first boot: which way up, km/h or mph
   refreshWorldTracks();  // (the same screens as autoPickTrack: the world tracks near here come first)
   autoPickTrack();  // (waits for the setup questions: it only acts on the GPS wait and menu screens)
   if (state == AppState::GpsWait) enterState(AppState::GpsWait);
-  sleepTimer.begin(millis());
+  SleepControl::begin(millis());
 }
 
 // "2026-10-20T14:03:12.350Z": the GPS time at millis() `at`, from the latest fix
@@ -2187,7 +2052,7 @@ void loop() {
     CameraBle::setRecording(cameraFollow.update(state == AppState::Running, pitWatch.parked(), fix.speedKmh));
     cameraFix = fix;
     haveCameraFix = fix.year != 0;
-    if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) noteActivity(now);  // moving: never sleep
+    if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) SleepControl::noteActivity(now);  // moving: never sleep
     if (state == AppState::Running) {
       if (!replaying) onTrackFix(fix);
       else if (recentFixes.push(fix) && replayPos > 0) replayPos--;  // timed after the kept ones
@@ -2235,19 +2100,19 @@ void loop() {
 
   LogWriter::poll();
   InputEvent ev = input.poll();
-  if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
+  if (ev != InputEvent::None && SleepControl::noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
   handleInput(ev);
   if (ev != InputEvent::None) busy = true, lastRender = 0;  // (most screens redraw themselves; the still ones rely on this)
   // BOOT held for POWER_OFF_HOLD_MS switches off, on any screen (render() shows the bar on the way, lighting a
   // dark screen for it), but not while firmware is being installed over Wi-Fi
   const uint32_t bootHeld = input.bootHeldMs();
-  if (bootHeld >= POWER_OFF_BAR_MS && sleepTimer.screenOff()) noteActivity(now);
-  if (bootHeld >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) powerOff();
+  if (bootHeld >= POWER_OFF_BAR_MS && SleepControl::screenOff()) SleepControl::noteActivity(now);
+  if (bootHeld >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) SleepControl::powerOff();
 
   // A finger dragging the Settings list: the list follows it (and counts as using the board)
   static bool listDragged = false;
   if (state == AppState::SettingsScreen && input.dragging()) {
-    noteActivity(now);
+    SleepControl::noteActivity(now);
     settingsUi.drag(input.dragDy());
     listDragged = true;
   } else if (listDragged) {
@@ -2262,7 +2127,7 @@ void loop() {
     const bool wasShowing = tempAlert.showing(now);
     if (tempAlert.update(now, coolKnown, coolC, oilKnown, oilC, settings::tempLimits(Settings::get()))) {
       DEBUG_PRINTF("Overheat warning: %s %.0f C\n", tempAlert.current().oil ? "oil" : "coolant", tempAlert.current().c);
-      noteActivity(now);  // the screen comes on for it
+      SleepControl::noteActivity(now);  // the screen comes on for it
       lastRender = 0;
     } else if (wasShowing && !tempAlert.showing(now)) {
       lastRender = 0;  // back to the screen it covered
@@ -2293,33 +2158,7 @@ void loop() {
   // either, where a few ms of flash would be a few ms of GPS bytes unread.
   if (!gps.hasFix() || gps.lastFix().speedKmh < 5.0f) Profiles::applyVin();
 
-  Power::update(now);
-  display.setBatteryPercent(Power::batteryPercent());
-  display.setBatteryCharging(Power::batteryCharging());
-  if (Power::batteryLow(now)) lowBatterySleep();
-#if AUTO_SLEEP_ENABLED
-  // A phone on the Wi-Fi page counts as using the board, even with no taps:
-  // don't turn the screen (and its upload code) off or sleep mid-download.
-  static uint32_t lastWifiCheck = 0;
-  static bool phoneOnWifi = false;
-  if (now - lastWifiCheck >= 1000) {  // asking the Wi-Fi driver every loop is wasteful
-    lastWifiCheck = now;
-    phoneOnWifi = WifiPortal::active() && (WifiPortal::clientCount() > 0 || WifiPortal::busy());
-  }
-  if (phoneOnWifi && sleepTimer.screenOff()) noteActivity(now);
-  switch (sleepTimer.update(now, phoneOnWifi)) {
-    case SleepAction::ScreenOff:
-      DEBUG_PRINTLN("Parked and idle: backlight off");
-      display.setBacklight(false);
-      break;
-    case SleepAction::DeepSleep:
-      saveForSleep();
-      sleepNow(false);
-      break;
-    default:
-      break;
-  }
-#endif
+  SleepControl::poll(now);
 
   if (now - lastStatusLog > 5000) {
     lastStatusLog = now;
@@ -2340,7 +2179,7 @@ void loop() {
   // A screen with nothing moving on it redraws only on input or a change (they set lastRender = 0), else every
   // STILL_FRAME_MS: 350, so the header's 700 ms REC / hot-coolant blink stays even.
   const uint32_t frameMs = listDragged ? 33 : stillScreen(now) ? STILL_FRAME_MS : 1000 / DISPLAY_FPS;
-  if (!sleepTimer.screenOff() && (lastRender == 0 || now - lastRender >= frameMs)) {
+  if (!SleepControl::screenOff() && (lastRender == 0 || now - lastRender >= frameMs)) {
     lastRender = now;
     render();
     busy = true;
