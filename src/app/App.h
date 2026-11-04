@@ -6,6 +6,9 @@
 #define APP_H
 
 #include <Arduino.h>
+#include <string>
+#include <vector>
+#include "Courses.h"
 #include "DisplayManager.h"
 #include "FreeRoam.h"
 #include "GPSHandler.h"
@@ -34,5 +37,13 @@ const Track& selectedTrack();
 void flushSummary();
 // Makes the current settings take effect (screen and touch the right way up, backlight, Bluetooth, time zone)
 void applySettings();
+// Autocross courses (Courses.h), by trackDB index
+std::vector<courses::Candidate> courseCandidates();
+// Today's local date, "YYYYMMDD" ("" if the GPS hasn't given one)
+std::string todayEvent();
+// The session's track was picked by the driver, so the layout check doesn't swap it for one nearby
+void sessionKeepLayout();
+// A note on the timing screen for showMs
+void sessionNotice(const String& text, uint32_t showMs);
 
 #endif
