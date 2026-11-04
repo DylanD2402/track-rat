@@ -20,6 +20,7 @@
 #define OBD_BLE_H
 
 #include <stdint.h>
+#include "BleFound.h"
 #include "Elm327.h"
 
 namespace ObdBle {
@@ -60,13 +61,8 @@ const carobd::Profile* carProfile();
 const carobd::Values& carValues();
 
 // Find adapter
-struct Found {
-  char name[24];
-  char address[18];
-  uint8_t addressType;
-  int rssi;
-};
-constexpr int MAX_FOUND = 6;
+using Found = blefound::Found;
+constexpr int MAX_FOUND = blefound::MAX_FOUND;
 void startScan();             // OBD_SCAN_S seconds, in the background
 bool scanning();
 int found(Found* out, int max);  // the adapters found by the last scan, strongest first

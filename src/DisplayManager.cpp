@@ -792,7 +792,7 @@ void DisplayManager::runningOverlays(const GPSHandler& gps, uint32_t holdMs, con
 String DisplayManager::runningTitle(const Track& track, const LapTimer& timer) {
   const String clock = sessionClock.length() ? sessionClock + "   " : String();
   if (!timer.lapRunning()) return clock + track.displayName();
-  char buf[16];
+  char buf[24];
   if (timer.isStage()) snprintf(buf, sizeof(buf), "Run %d   ", runBase + (int)timer.lapCount() + 1);  // the day's run
   else snprintf(buf, sizeof(buf), "Lap %d   ", timer.currentLapNumber());
   return sessionClock.length() ? buf + sessionClock : buf + track.displayName();
