@@ -23,7 +23,11 @@
 #include <Arduino.h>
 #include <sys/time.h>
 #include "app/App.h"
+#include "app/AutocrossScreens.h"
 #include "app/PerformanceMode.h"
+#include "app/SdUpdate.h"
+#include "app/SettingsScreens.h"
+#include "app/SleepControl.h"
 #include "AdjustLoad.h"
 #include "AppRollback.h"
 #include "AutoStart.h"
@@ -70,18 +74,6 @@ static const char* STATE_NAMES[] = {"GPS_WAIT", "MENU",      "TRACK_SELECT", "TR
                                     "SUMMARY",  "GPS_STATUS", "FREE_ROAM",   "FREE_ROAM_SUMMARY", "PERFORMANCE",
                                     "WIFI",     "SETUP",      "SETTINGS",     "ENGINE_DATA",       "CAMERA",
                                     "AUTOCROSS", "NEW_COURSE", "ADJUST_LINE", "BATTERY"};
-// The Autocross hub (Courses.h): which course it shows (a trackDB index, -1 none), and the BOOT button's place:
-// 0 Start runs, 1 New course, 2 Adjust start, 3 Adjust finish, 4 Back
-static int hubCourse = -1;
-static int autocrossHighlight = 0;
-static int newCourseHighlight = 1;  // the New course screen: 0 Back, 1 Set start here
-// Adjust start / Adjust finish (functions further down, with the other hub code)
-static adjust::Which adjustWhich = adjust::Which::Finish;
-static int adjustHighlight = adjust::BTN_LATER;
-static adjust::View adjustView;
-static bool adjustSaving = false;    // Save pressed: the line is written, the runs are being timed again
-static bool adjustRetiming = false;  // the re-time task was started for this (until it ends)
-static String adjustSaveError;       // the line is saved but the runs could not be timed again
 // The first run's finish tap on a new course can be taken back for FINISH_UNDO_MS. Meanwhile what a finished
 // run does (the best lap, the map, the corner sectors) waits, so an undone finish leaves nothing behind.
 static uint32_t finishUndoUntil = 0;
@@ -139,7 +131,6 @@ static bool haveCameraFix = false;
 // for SYNC_FLASH_MS, for a camera to film; its GPS time goes into the summary
 static uint32_t syncUntil = 0;  // millis() it ends; 0: not showing
 static void startSyncFlash();
-[[noreturn]] static void powerOff();
 // The overheat warning (6.5): full screen for TEMP_ALERT_MS on any screen when coolant (or oil) reaches its limit
 static tempalert::Alert tempAlert;
 static void setClockFromGps(const GpsFix& f);
@@ -182,21 +173,10 @@ static size_t replayPos = 0;      // the next kept fix to time
 static bool replaying = false;
 static DriveOffDetector roamDriveOff;  // the menu with no track nearby: driving off starts Free Roam
 
-// Settings screen and the first-boot questions (the rules are in SettingsFlow.h)
-static SettingsScreenState settingsUi;
-static SetupState setupUi;
-static DeviceScreenState engineUi;  // Settings > Engine data (DeviceScreen.h)
-static ObdBle::Found engineFound[ObdBle::MAX_FOUND];  // the Find adapter list as last shown
-static int engineFoundCount = 0;
-static DeviceScreenState cameraUi;  // Settings > Camera
-static CameraBle::Found cameraFound[CameraBle::MAX_FOUND];
-static int cameraFoundCount = 0;
 static uint32_t settingsApplied = 0;  // Settings::changeCount() when they were last applied
 
 uint32_t lastRender = 0;
 static uint32_t lastStatusLog = 0;
-
-static SleepTimer sleepTimer(AUTO_SLEEP_IDLE_MS, AUTO_SLEEP_DEEP_AFTER_MS);
 
 const Track& selectedTrack() { return *trackDB.get(selectedIndex); }
 
@@ -244,7 +224,7 @@ static int trackListSize() {
 }
 
 // Autocross courses (Courses.h), by trackDB index
-static std::vector<courses::Candidate> courseCandidates() {
+std::vector<courses::Candidate> courseCandidates() {
   std::vector<courses::Candidate> out;
   for (int i = 0; i < trackDB.count(); i++) {
     const Track* t = trackDB.get(i);
@@ -254,7 +234,7 @@ static std::vector<courses::Candidate> courseCandidates() {
 }
 
 // Today's local date, "YYYYMMDD" ("" if the GPS hasn't given one)
-static std::string todayEvent() { return courses::dateOfStamp(std::string(gps.timestampString().c_str())); }
+std::string todayEvent() { return courses::dateOfStamp(std::string(gps.timestampString().c_str())); }
 
 // The runs already made on the selected course's day, before this session (CourseRuns.h); 0 for anything else
 static int courseRunsBefore() {
@@ -533,7 +513,7 @@ static void markSummaryDirty(uint32_t now) {
   summaryDirty = true;
 }
 // Save it now if it is waiting. Before anything that reads the summary or ends the session or the power.
-static void flushSummary() {
+void flushSummary() {
   if (!summaryDirty) return;
   summaryDirty = false;
   if (sessionPath.length() == 0 || state != AppState::Running) return;
@@ -648,29 +628,7 @@ void enterState(AppState next) {
 
   if (next == AppState::GpsStatus) statusReturn = state;
 
-  // The Autocross hub: today's course nearby, else the latest one within 5 km, and its day's runs from the card
-  if (next == AppState::Autocross && state != AppState::NewCourse) {
-    hubCourse = -1;
-    if (gps.hasFix()) {
-      const std::vector<courses::Candidate> list = courseCandidates();
-      const int k = courses::forHub(list, todayEvent(), gps.lastFix().lat, gps.lastFix().lon);
-      if (k >= 0) hubCourse = list[k].index;
-    }
-    autocrossHighlight = hubCourse >= 0 ? 0 : 1;
-    if (hubCourse >= 0) CourseRuns::start(trackDB.get(hubCourse)->id, trackDB.get(hubCourse)->event);
-  }
-  if (next == AppState::NewCourse) newCourseHighlight = 1;
-  // Adjust start / finish: the day's logs are read from the card while the screen is up, and let go on leaving it
-  if (next == AppState::AdjustLine && hubCourse >= 0) {
-    adjustView = adjust::View();
-    adjustHighlight = adjust::BTN_LATER;
-    adjustSaving = false;
-    adjustSaveError = "";
-    AdjustLoad::start(*trackDB.get(hubCourse), adjustWhich);
-  } else if (state == AppState::AdjustLine && next != AppState::AdjustLine) {
-    AdjustLoad::release();
-    adjustView = adjust::View();
-  }
+  AutocrossScreens::stateChanging(next);
 
   if (next == AppState::TrackConfirm && state != AppState::TrackConfirm) readyFromList = state == AppState::TrackSelect;
   if (state == AppState::TrackConfirm && next != AppState::TrackConfirm) autoStart = false;
@@ -708,146 +666,13 @@ static void createNewTrack() {
   layoutChecked = true;  // the driver asked for a new track: don't swap it for one nearby
 }
 
-// The Autocross hub's New course, then Set start here: a course (a stage made for today, Courses.h)
-// starting where the car stands, timing runs from the next movement. The finish is tapped on the
-// first run, with a few seconds to take it back.
-static bool courseStartReady() { return gps.hasFix() && gps.lastFix().speedKmh < STAGE_STOPPED_KMH; }
+// The session's track was picked by the driver (a new course), so the layout check doesn't swap it for one nearby
+void sessionKeepLayout() { layoutChecked = true; }
 
-static void createNewCourse() {
-  if (!courseStartReady()) return;
-  const GpsFix& f = gps.lastFix();
-  int idx = trackDB.createCourse(f.lat, f.lon, gps.timestampString());
-  if (idx < 0) return enterState(AppState::Autocross);
-  selectedIndex = idx;
-  enterState(AppState::Running);
-  layoutChecked = true;
-  overlay.notice = "Start set: the clock starts as you go";
-  layoutNoticeUntil = millis() + 10000;
-}
-
-// --- Adjust start / Adjust finish (AdjustLine.h, AdjustLoad.h): the Autocross hub's course, its line moved in
-// 0.5 m steps with the day's runs re-timed live. BOOT: hold picks the button (Later, Cancel, Save, Earlier, Reset,
-// round again), press uses it. Touch: tap, or hold an arrow to repeat. Save writes the line to tracks.json and times the
-// course's logs again (SessionLog::retime, as the Wi-Fi page's Re-time does).
-static uint32_t adjustRepeatAt = 0;
-static const uint32_t ADJUST_REPEAT_DELAY_MS = 400;  // held this long, an arrow repeats
-
-// Can the hub's Adjust start / Adjust finish be used (adjust::Block::None), and if not, why
-static adjust::Block adjustBlockFor(adjust::Which w) {
-  const bool card = Storage::sessionFS() != nullptr;
-  if (hubCourse < 0) return adjust::block(w, true, true, 0, false, card, SessionLog::retiming());  // no course: needs a run
-  const Track& c = *trackDB.get(hubCourse);
-  const bool have = CourseRuns::wanted(c.id, c.event);
-  return adjust::block(w, c.hasStartFinish, c.hasFinish, have ? (int)CourseRuns::day().count() : 0,
-                       !have || !CourseRuns::ready(), card, SessionLog::retiming());
-}
-
-static void openAdjust(adjust::Which w) {
-  if (adjustBlockFor(w) != adjust::Block::None) return;
-  adjustWhich = w;
-  enterState(AppState::AdjustLine);
-}
-
-// Save: the moved line into tracks.json, then the course's logs timed again; the hub follows when that is done
-static void adjustSave() {
-  flushSummary();  // (nothing waits here: the session's summary was finished when it ended)
-  adjust::Model& m = AdjustLoad::model();
-  if (m.offsetM() == 0 || hubCourse < 0) return enterState(AppState::Autocross);  // nothing moved: nothing to save
-  const TrackPoint p = m.moved();
-  const float heading = p.hasHeading() ? p.heading : -1.0f;
-  if (adjustWhich == adjust::Which::Start) trackDB.setStartFinish(hubCourse, p.lat, p.lon, heading);
-  else trackDB.setFinish(hubCourse, p.lat, p.lon, heading);
-  CourseRuns::markStale();
-  String error;
-  adjustRetiming = SessionLog::retime(*trackDB.get(hubCourse), "", error);
-  adjustSaveError = adjustRetiming ? String() : error;
-  adjustSaving = true;
-  DEBUG_PRINTF("Adjust: %s moved %+.1f m, %s\n", adjustWhich == adjust::Which::Start ? "start" : "finish", m.offsetM(),
-               adjustRetiming ? "re-timing" : error.c_str());
-}
-
-// The re-time task ended: the day's runs in the summaries are right again
-static void adjustRetimeTick() {
-  if (!adjustRetiming || SessionLog::retiming()) return;
-  adjustRetiming = false;
-  CourseRuns::markStale();
-  if (state == AppState::AdjustLine) enterState(AppState::Autocross);  // (reads the runs again)
-  else if (state == AppState::Autocross && hubCourse >= 0)
-    CourseRuns::start(trackDB.get(hubCourse)->id, trackDB.get(hubCourse)->event);
-}
-
-static bool adjustReady() { return !adjustSaving && !AdjustLoad::reading() && !AdjustLoad::failed(); }
-
-static void adjustPress(int button) {
-  adjust::Model& m = AdjustLoad::model();
-  switch (button) {
-    case adjust::BTN_EARLIER: m.nudge(-1); break;
-    case adjust::BTN_LATER: m.nudge(1); break;
-    case adjust::BTN_RESET: m.reset(); break;
-    case adjust::BTN_CANCEL: enterState(AppState::Autocross); break;
-    case adjust::BTN_SAVE: adjustSave(); break;
-  }
-}
-
-static void adjustInput(InputEvent ev) {
-  const bool tap = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-  if (!adjustReady()) {  // reading, nothing to adjust, or saving: only a way back
-    if (ev == InputEvent::TapHeader || ev == InputEvent::BootShort || ev == InputEvent::BootLong || (tap && input.lastTapY() >= adjust::ROW_B_Y - 1))
-      enterState(AppState::Autocross);
-    return;
-  }
-  if (tap) {
-    const int b = adjust::buttonAt(input.lastTapX(), input.lastTapY());
-    // A long press on an arrow was already repeated while it was held
-    const bool arrow = b == adjust::BTN_EARLIER || b == adjust::BTN_LATER;
-    if (b >= 0 && !(arrow && input.lastTapHeldMs() >= ADJUST_REPEAT_DELAY_MS)) adjustPress(b);
-  } else if (ev == InputEvent::TapHeader) {
-    enterState(AppState::Autocross);  // Cancel, as the top bar goes back elsewhere
-  } else if (ev == InputEvent::BootShort) {
-    adjustPress(adjustHighlight);
-  } else if (ev == InputEvent::BootLong) {
-    adjustHighlight = (adjustHighlight + 1) % adjust::BTN_COUNT;
-  }  // (a touch held for 2 s, Hold, does nothing here: an arrow being held goes on)
-}
-
-// Each loop: an arrow held on the screen repeats, faster the longer it is held
-static void adjustHeld(uint32_t now) {
-  if (state != AppState::AdjustLine || !adjustReady() || !input.touchAvailable()) return;
-  const uint32_t held = input.touchDownMs();
-  if (held < ADJUST_REPEAT_DELAY_MS) return;
-  const int b = adjust::buttonAt(input.touchX(), input.touchY());
-  if ((b != adjust::BTN_EARLIER && b != adjust::BTN_LATER) || now - adjustRepeatAt < (held < 2000 ? 150u : 70u)) return;
-  adjustRepeatAt = now;
-  AdjustLoad::model().nudge((b == adjust::BTN_LATER ? 1 : -1) * (held < 2000 ? 1 : 2));
-  lastRender = 0;
-}
-
-// What to draw now
-static const adjust::View& adjustViewNow() {
-  adjust::View& v = adjustView;
-  if (adjustSaving) {
-    const SessionLog::RetimeStatus st = SessionLog::retimeStatus();
-    v.finish = adjustWhich == adjust::Which::Finish;
-    v.phase = adjustSaveError.length() ? adjust::Phase::SaveFailed : adjust::Phase::Saving;
-    v.done = st.done;
-    v.total = st.total;
-    v.message = adjustSaveError.length() ? std::string(adjustSaveError.c_str()) + ". Re-time it on the Wi-Fi page."
-                                         : std::string("The line is saved. Timing the day's sessions again.");
-  } else if (AdjustLoad::failed()) {
-    v.finish = adjustWhich == adjust::Which::Finish;
-    v.phase = adjust::Phase::NoLogs;
-    v.message = AdjustLoad::failure().c_str();
-  } else if (AdjustLoad::reading()) {
-    v.finish = adjustWhich == adjust::Which::Finish;
-    v.phase = adjust::Phase::Reading;
-    v.done = AdjustLoad::logsDone();
-    v.total = AdjustLoad::logsTotal();
-    v.message = v.total ? "Log " + std::to_string(v.done + 1) + " of " + std::to_string(v.total) + ". Only the fixes near the line are kept."
-                        : std::string("Looking for the day's logs.");
-  } else {
-    AdjustLoad::model().fillView(v);
-  }
-  return v;
+// A note on the timing screen for showMs
+void sessionNotice(const String& text, uint32_t showMs) {
+  overlay.notice = text;
+  layoutNoticeUntil = millis() + showMs;
 }
 
 static void onLapEvent(const LapEvent& ev);
@@ -1341,9 +1166,7 @@ static void chooseHomeItem(int item) {
       enterState(AppState::Wifi);
       break;
     case home::Settings:
-      settingsUi.begin(input.touchAvailable());
-      settingsUi.setPeople(Profiles::get());
-      enterState(AppState::SettingsScreen);
+      SettingsScreens::open();
       break;
   }
   lastRender = 0;
@@ -1352,7 +1175,7 @@ static void chooseHomeItem(int item) {
 // Make the current settings take effect: the screen and touch the right way
 // up, the backlight, Bluetooth, and the time zone for file names. Called at
 // boot and whenever they change, from the screen or the Wi-Fi page.
-static void applySettings() {
+void applySettings() {
   const SettingsData s = Settings::get();
   settingsApplied = Settings::changeCount();
   display.setRotation(s.rotation);
@@ -1369,19 +1192,6 @@ static void applySettings() {
     tzset();
   }
   lastRender = 0;
-}
-
-static Key toKey(InputEvent ev) {
-  switch (ev) {
-    case InputEvent::TapLeft: return Key::Left;
-    case InputEvent::TapCenter: return Key::Center;
-    case InputEvent::TapRight: return Key::Right;
-    case InputEvent::TapHeader: return Key::Header;
-    case InputEvent::Hold: return Key::Hold;
-    case InputEvent::BootShort: return Key::BootShort;
-    case InputEvent::BootLong: return Key::BootLong;
-    default: return Key::None;
-  }
 }
 
 // The WI-FI button, in the right third of the menu and summary screens
@@ -1508,136 +1318,37 @@ static void handleInput(InputEvent ev) {
       if (ev != InputEvent::Hold) enterState(statusReturn);
       break;
 
-    case AppState::SettingsScreen: {
-      SettingsData s = Settings::get();
-      settingsUi.setPeople(Profiles::get());
-      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-      SettingsScreenState::Result r = tapped ? settingsUi.tap(input.lastTapX(), input.lastTapY(), s)
-                                             : settingsUi.handle(toKey(ev), s);
-      if (r == SettingsScreenState::Result::Changed) {
-        Settings::set(s);
-        applySettings();
-      } else if (r == SettingsScreenState::Result::Pick) {  // takes effect at the next session
-        Profiles::select(settingsUi.pickKind, settingsUi.pickId);
-      } else if (r == SettingsScreenState::Result::Exit) {
-        enterState(AppState::Menu);
-      } else if (r == SettingsScreenState::Result::PowerOff) {
-        powerOff();
-      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Engine) {
-        engineUi.begin(input.touchAvailable());
-        enterState(AppState::EngineScreen);
-      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Camera) {
-        cameraUi.begin(input.touchAvailable());
-        enterState(AppState::CameraScreen);
-      } else if (r == SettingsScreenState::Result::Open && settingsUi.item == SettingItem::Battery) {
-        enterState(AppState::BatteryScreen);
-      }
-      lastRender = 0;
+    case AppState::SettingsScreen:
+      SettingsScreens::onInputList(ev);
       break;
-    }
 
-    case AppState::EngineScreen: {  // the list's taps are on what was drawn: engineFound
-      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-      const DeviceScreenState::Action a = tapped ? engineUi.tap(input.lastTapX(), input.lastTapY(), engineFoundCount)
-                                                 : engineUi.handle(toKey(ev), engineFoundCount);
-      if (a == DeviceScreenState::Action::Back) {
-        enterState(AppState::SettingsScreen);  // (the list keeps its place)
-      } else if (a == DeviceScreenState::Action::Scan) {
-        engineFoundCount = 0;
-        ObdBle::startScan();
-      } else if (a == DeviceScreenState::Action::Choose && engineUi.chosen >= 0 && engineUi.chosen < engineFoundCount) {
-        ObdBle::choose(engineFound[engineUi.chosen]);
-      } else if (a == DeviceScreenState::Action::Forget) {
-        ObdBle::forget();
-      }
-      lastRender = 0;
+    case AppState::EngineScreen:  // the list's taps are on what was drawn: engineFound
+      SettingsScreens::onInputEngine(ev);
       break;
-    }
 
-    case AppState::CameraScreen: {  // the same screen, for the DJI camera
-      const bool tapped = ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight;
-      const DeviceScreenState::Action a = tapped ? cameraUi.tap(input.lastTapX(), input.lastTapY(), cameraFoundCount)
-                                                 : cameraUi.handle(toKey(ev), cameraFoundCount);
-      if (a == DeviceScreenState::Action::Back) {
-        enterState(AppState::SettingsScreen);
-      } else if (a == DeviceScreenState::Action::Scan) {
-        cameraFoundCount = 0;
-        CameraBle::startScan();
-      } else if (a == DeviceScreenState::Action::Choose && cameraUi.chosen >= 0 && cameraUi.chosen < cameraFoundCount) {
-        CameraBle::choose(cameraFound[cameraUi.chosen]);
-      } else if (a == DeviceScreenState::Action::Forget) {
-        CameraBle::forget();
-      }
-      lastRender = 0;
+    case AppState::CameraScreen:  // the same screen, for the DJI camera
+      SettingsScreens::onInputCamera(ev);
       break;
-    }
 
     case AppState::BatteryScreen:  // read-only: any tap or press goes back to the list
-      enterState(AppState::SettingsScreen);
-      lastRender = 0;
+      SettingsScreens::onInputBattery();
       break;
 
-    case AppState::Autocross: {  // Start runs and New course on the top row; Adjust start, Adjust finish and Back below
-      const bool canStart = hubCourse >= 0, canMake = gps.hasFix();
-      int choice = -1;  // 0 Start runs, 1 New course, 2 Adjust start, 3 Adjust finish, 4 Back
-      if (ev == InputEvent::TapHeader || ev == InputEvent::Hold) choice = 4;
-      else if (ev == InputEvent::TapLeft || ev == InputEvent::TapCenter || ev == InputEvent::TapRight)
-        choice = autocross_layout::buttonAt(input.lastTapX(), input.lastTapY());  // the rectangles the screen draws (AutocrossLayout.h)
-      else if (ev == InputEvent::BootShort) {  // the buttons that work
-        for (int step = 1; step <= 5; step++) {
-          const int next = (autocrossHighlight + step) % 5;
-          if ((next == 0 && canStart) || (next == 1 && canMake) || next == 4 ||
-              (next == 2 && adjustBlockFor(adjust::Which::Start) == adjust::Block::None) ||
-              (next == 3 && adjustBlockFor(adjust::Which::Finish) == adjust::Block::None)) {
-            autocrossHighlight = next;
-            break;
-          }
-        }
-      } else if (ev == InputEvent::BootLong) choice = autocrossHighlight;
-      if (choice == 0 && canStart) {
-        selectedIndex = hubCourse;
-        enterState(AppState::Running);
-      } else if (choice == 1 && canMake) {
-        enterState(AppState::NewCourse);
-      } else if (choice == 2 || choice == 3) {
-        openAdjust(choice == 2 ? adjust::Which::Start : adjust::Which::Finish);
-      } else if (choice == 4) {
-        enterState(AppState::Menu);
-      }
-      lastRender = 0;
+    case AppState::Autocross:  // Start runs and New course on the top row; Adjust start, Adjust finish and Back below
+      AutocrossScreens::onInputHub(ev);
       break;
-    }
 
     case AppState::AdjustLine:
-      adjustInput(ev);
-      lastRender = 0;
+      AutocrossScreens::onInputAdjust(ev);
       break;
 
     case AppState::NewCourse:  // Back on the left, Set start here across the other two thirds
-      if (ev == InputEvent::TapLeft || ev == InputEvent::TapHeader || ev == InputEvent::Hold) enterState(AppState::Autocross);
-      else if (ev == InputEvent::TapCenter || ev == InputEvent::TapRight) createNewCourse();
-      else if (ev == InputEvent::BootShort) newCourseHighlight ^= 1;
-      else if (ev == InputEvent::BootLong) {
-        if (newCourseHighlight == 1) createNewCourse();
-        else enterState(AppState::Autocross);
-      }
-      lastRender = 0;
+      AutocrossScreens::onInputNewCourse(ev);
       break;
 
-    case AppState::Setup: {
-      SettingsData s = Settings::get();
-      if (setupUi.handle(toKey(ev), s)) {
-        Settings::set(s);
-        applySettings();  // the screen turns round as soon as the way up is chosen
-        if (s.setupDone) {
-          DEBUG_PRINTF("Setup: %s, %s\n", settings::upsideDown(s) ? "upside down" : "normal",
-                       s.units == SpeedUnits::Mph ? "mph" : "km/h");
-          enterState(AppState::GpsWait);
-        }
-      }
-      lastRender = 0;
+    case AppState::Setup:
+      SettingsScreens::onInputSetup(ev);
       break;
-    }
   }
 }
 
@@ -1750,55 +1461,28 @@ static void render() {
       PerformanceMode::render();
       break;
     case AppState::SettingsScreen:
-      settingsUi.setPeople(Profiles::get());  // (the car may have been picked by its VIN meanwhile)
-      display.drawSettings(Settings::get(), settingsUi, input.touchAvailable(),
-                           gps.hasFix() ? (int64_t)settings::localTimeOfDayMs(gps.lastFix().gpsTimeMs,
-                                                                               Settings::get().utcOffsetMin)
-                                        : -1);
+      SettingsScreens::renderList();
       break;
     case AppState::EngineScreen:
-      if (engineUi.page == DeviceScreenState::Page::Find) engineFoundCount = ObdBle::found(engineFound, ObdBle::MAX_FOUND);
-      display.drawEngineData(engineUi, ObdBle::status(), engineFound, engineFoundCount, ObdBle::scanning(), input.touchAvailable());
+      SettingsScreens::renderEngine();
       break;
     case AppState::CameraScreen:
-      if (cameraUi.page == DeviceScreenState::Page::Find) cameraFoundCount = CameraBle::found(cameraFound, CameraBle::MAX_FOUND);
-      display.drawCamera(cameraUi, CameraBle::status(), Settings::get().cameraWithSessions, cameraFound, cameraFoundCount,
-                         CameraBle::scanning(), input.touchAvailable());
+      SettingsScreens::renderCamera();
       break;
     case AppState::BatteryScreen:
-      display.drawBattery(Power::batteryReport(), input.touchAvailable());
+      SettingsScreens::renderBattery();
       break;
     case AppState::Setup:
-      display.drawSetup(setupUi.step, setupUi.highlight, input.touchAvailable());
+      SettingsScreens::renderSetup();
       break;
-    case AppState::Autocross: {
-      AutocrossView v;
-      v.gpsFix = gps.hasFix();
-      if (hubCourse >= 0) {
-        const Track& c = *trackDB.get(hubCourse);
-        v.haveCourse = true;
-        v.name = c.displayName();
-        v.today = c.event.length() && c.event == todayEvent().c_str();
-        if (!v.today && c.event.length()) v.dateText = courses::shortDate(std::string(c.event.c_str())).c_str();
-        if (CourseRuns::wanted(c.id, c.event)) {
-          v.runs = CourseRuns::day().runs();
-          v.loading = !CourseRuns::ready();
-        }
-        v.nextRun = (int)v.runs.size() + 1;
-        v.best = CourseRuns::day().best();
-        v.last = CourseRuns::day().last();
-      }
-      v.retiming = SessionLog::retiming();
-      v.adjustReason[0] = adjust::blockText(adjustBlockFor(adjust::Which::Start));
-      v.adjustReason[1] = adjust::blockText(adjustBlockFor(adjust::Which::Finish));
-      display.drawAutocross(v, gps, input.touchAvailable() ? -1 : autocrossHighlight, input.touchAvailable());
+    case AppState::Autocross:
+      AutocrossScreens::renderHub();
       break;
-    }
     case AppState::AdjustLine:
-      display.drawAdjust(adjustViewNow(), input.touchAvailable() ? -1 : adjustHighlight, input.touchAvailable());
+      AutocrossScreens::renderAdjust();
       break;
     case AppState::NewCourse:
-      display.drawNewCourse(gps, courseStartReady(), input.touchAvailable() ? -1 : newCourseHighlight, input.touchAvailable());
+      AutocrossScreens::renderNewCourse();
       break;
     case AppState::Wifi:
       display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),
@@ -1889,143 +1573,9 @@ static void addBenchTrack() {
   trackDB.add(sim);
 }
 
-// ---------------------------------------------------------------------------
-// Sleep, power off and battery
-// ---------------------------------------------------------------------------
-
-static const uint32_t SLEEP_LOG_WAIT_MS = 3000;  // an SD write can take a few hundred ms
-
-// Close and save whatever is open, so power can go. Anything else that must be
-// flushed before sleep (e.g. an open log file) belongs here too.
-static void saveForSleep() {
-  flushSummary();
-  if (state == AppState::Running) enterState(AppState::Summary);  // saves the laps so far
-  else if (state == AppState::FreeRoam) enterState(AppState::FreeRoamSummary);
-  SessionLog::endLog();
-  LogWriter::poll();
-  // The writer task only closes the file when it next runs, and deep sleep would stop it first.
-  if (!LogWriter::waitIdle(SLEEP_LOG_WAIT_MS)) DEBUG_PRINTLN("Log: card write still pending at sleep");
-}
-
-// Something happened (a touch, a press, the car moving). Returns true if the screen was off.
-static bool noteActivity(uint32_t now) {
-  if (!sleepTimer.activity(now)) return false;
-  display.setBacklight(true);
-  lastRender = 0;
-  return true;
-}
-
-// The GPS into standby (it keeps its satellites, so it has a fix again seconds after waking), the
-// screen off, then deep sleep until the screen is touched or BOOT is pressed.
 // Overrides the Arduino core's: it would call a new firmware good before setup() even starts, and then a bad one
 // could never be rolled back. loop() says so after HEALTHY_AFTER_MS (see AppRollback.h).
 extern "C" bool verifyRollbackLater() { return true; }
-
-[[noreturn]] static void sleepNow(bool switchingOff) {
-  approllback::markGood();  // switching off or sleeping is not a crash
-  gps.standby();
-  display.powerDown();
-  Power::deepSleep(switchingOff);
-}
-
-static void lowBatterySleep() {
-  DEBUG_PRINTF("Battery low (%d mV): saving and sleeping\n", Power::batteryMillivolts());
-  saveForSleep();
-  display.setBacklight(true);
-  display.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
-  delay(BATTERY_LOW_SCREEN_MS);
-  sleepNow(false);
-}
-
-// Switching off: a recording that follows the sessions stops with the session that just ended (the next
-// fix would have done it). Up to 2 s for the camera to say it has.
-static void stopCameraRecording() {
-  if (!Settings::get().cameraWithSessions || !CameraBle::connected()) return;
-  CameraBle::setRecording(false);
-  const uint32_t start = millis();
-  while (millis() - start < 2000) {
-    CameraBle::poll();
-    const CameraBle::Status cs = CameraBle::status();
-    if (!cs.cam.known || !cs.cam.recording()) return;
-    delay(20);
-  }
-}
-
-// Settings > Power off, or BOOT held for POWER_OFF_HOLD_MS: everything saved, then off until the screen is
-// tapped (or BOOT pressed). It's auto-sleep's deep sleep straight away: nothing on the board can cut the battery.
-static void powerOff() {
-  DEBUG_PRINTLN("Power off: saving, then off until the screen is tapped");
-  display.setBacklight(true);
-  display.drawMessage("POWER OFF", "Switching off…", "Tap the screen to turn it back on", ui::C_ORANGE);
-  const uint32_t shown = millis();
-  saveForSleep();
-  stopCameraRecording();
-  while (millis() - shown < POWER_OFF_MESSAGE_MS) delay(10);  // long enough to read
-  sleepNow(true);
-}
-
-// ---------------------------------------------------------------------------
-// Firmware update from the SD card
-// ---------------------------------------------------------------------------
-
-static void drawInstallProgress(size_t done, size_t total) {
-  static int lastPct = -1;
-  int pct = total ? (int)(done * 100 / total) : 0;
-  if (pct == lastPct) return;
-  lastPct = pct;
-  display.drawFirmwareProgress(pct);
-}
-
-// If /trackrat.bin is on the card, offer to install it: tap the centre or hold
-// BOOT to confirm; anything else (or no answer) skips.
-static void offerFirmwareUpdate() {
-  FirmwareUpdate::Offer offer;
-  if (!FirmwareUpdate::find(offer)) return;
-
-  if (offer.check != firmware::Check::Ok) {
-    display.drawMessage("FIRMWARE FILE SKIPPED", "Can't use trackrat.bin", firmware::describe(offer.check), ui::C_RED);
-    delay(4000);
-    return;
-  }
-
-  char modified[24] = "";
-  if (offer.modified > 0) {
-    struct tm t;
-    localtime_r(&offer.modified, &t);  // back to the local time FAT stores
-    strftime(modified, sizeof(modified), "%Y-%m-%d %H:%M", &t);
-  }
-  display.drawFirmwarePrompt(modified, offer.size, input.touchAvailable());
-  bool install = false;
-  uint32_t start = millis();
-  while (millis() - start < FIRMWARE_PROMPT_TIMEOUT_MS) {
-    gps.update();  // keep draining the GPS while waiting
-    InputEvent ev = input.poll();
-    if (ev == InputEvent::None) {
-      delay(5);
-      continue;
-    }
-    install = ev == InputEvent::TapCenter || ev == InputEvent::BootLong;
-    break;
-  }
-  if (!install) {
-    DEBUG_PRINTLN("Firmware: update skipped");
-    return;
-  }
-
-  DEBUG_PRINTLN("Firmware: installing");
-  approllback::markGood();  // Update refuses to start while this app is still waiting to be trusted
-  const char* error = FirmwareUpdate::install(offer, drawInstallProgress);
-  if (error) {
-    DEBUG_PRINTF("Firmware: install failed: %s\n", error);
-    display.drawMessage("UPDATE FAILED", error, "The old firmware is unchanged", ui::C_RED);
-    delay(5000);
-    return;
-  }
-  display.drawMessage("UPDATE INSTALLED", "Restarting…", "", ui::C_GREEN);
-  delay(1500);
-  approllback::markGood();  // (this app, which is leaving on purpose; the new one starts pending)
-  ESP.restart();
-}
 
 void setup() {
 #if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
@@ -2083,14 +1633,14 @@ void setup() {
     delay(5);
   }
   display.finishSplash();
-  offerFirmwareUpdate();
+  SdUpdate::offer();
   gps.update();
   state = AppState::GpsWait;
   if (!Settings::get().setupDone) enterState(AppState::Setup);  // first boot: which way up, km/h or mph
   refreshWorldTracks();  // (the same screens as autoPickTrack: the world tracks near here come first)
   autoPickTrack();  // (waits for the setup questions: it only acts on the GPS wait and menu screens)
   if (state == AppState::GpsWait) enterState(AppState::GpsWait);
-  sleepTimer.begin(millis());
+  SleepControl::begin(millis());
 }
 
 // "2026-10-20T14:03:12.350Z": the GPS time at millis() `at`, from the latest fix
@@ -2187,7 +1737,7 @@ void loop() {
     CameraBle::setRecording(cameraFollow.update(state == AppState::Running, pitWatch.parked(), fix.speedKmh));
     cameraFix = fix;
     haveCameraFix = fix.year != 0;
-    if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) noteActivity(now);  // moving: never sleep
+    if (fix.speedKmh >= AUTO_SLEEP_MOVING_KMH) SleepControl::noteActivity(now);  // moving: never sleep
     if (state == AppState::Running) {
       if (!replaying) onTrackFix(fix);
       else if (recentFixes.push(fix) && replayPos > 0) replayPos--;  // timed after the kept ones
@@ -2224,9 +1774,7 @@ void loop() {
   if (replaying && state == AppState::Running) replayFixes();
 #endif
   noteCameraStart();
-  if (state == AppState::AdjustLine) AdjustLoad::poll();  // the day's logs, a little at a time (this is not the timing screen)
-  adjustRetimeTick();
-  adjustHeld(now);
+  AutocrossScreens::poll(now);
   if (!(state == AppState::Running && lapTimer.lapRunning())) CourseRuns::poll();  // the day's runs from the card, a little at a time, never mid-run
   if (state == AppState::Running) {
     CourseRuns::setSkip(sessionPath);  // this session's own summary is followed from the lap timer
@@ -2235,26 +1783,17 @@ void loop() {
 
   LogWriter::poll();
   InputEvent ev = input.poll();
-  if (ev != InputEvent::None && noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
+  if (ev != InputEvent::None && SleepControl::noteActivity(now)) ev = InputEvent::None;  // the press that wakes the screen does nothing else
   handleInput(ev);
   if (ev != InputEvent::None) busy = true, lastRender = 0;  // (most screens redraw themselves; the still ones rely on this)
   // BOOT held for POWER_OFF_HOLD_MS switches off, on any screen (render() shows the bar on the way, lighting a
   // dark screen for it), but not while firmware is being installed over Wi-Fi
   const uint32_t bootHeld = input.bootHeldMs();
-  if (bootHeld >= POWER_OFF_BAR_MS && sleepTimer.screenOff()) noteActivity(now);
-  if (bootHeld >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) powerOff();
+  if (bootHeld >= POWER_OFF_BAR_MS && SleepControl::screenOff()) SleepControl::noteActivity(now);
+  if (bootHeld >= POWER_OFF_HOLD_MS && !WifiPortal::busy()) SleepControl::powerOff();
 
   // A finger dragging the Settings list: the list follows it (and counts as using the board)
-  static bool listDragged = false;
-  if (state == AppState::SettingsScreen && input.dragging()) {
-    noteActivity(now);
-    settingsUi.drag(input.dragDy());
-    listDragged = true;
-  } else if (listDragged) {
-    settingsUi.dragEnd();
-    listDragged = false;
-    lastRender = 0;  // draw the list where it ended
-  }
+  const bool listDragged = SettingsScreens::followDrag(now);
 
   {  // The engine's temperatures against Settings > Coolant: the overheat warning
     float coolC = 0, oilC = 0;
@@ -2262,7 +1801,7 @@ void loop() {
     const bool wasShowing = tempAlert.showing(now);
     if (tempAlert.update(now, coolKnown, coolC, oilKnown, oilC, settings::tempLimits(Settings::get()))) {
       DEBUG_PRINTF("Overheat warning: %s %.0f C\n", tempAlert.current().oil ? "oil" : "coolant", tempAlert.current().c);
-      noteActivity(now);  // the screen comes on for it
+      SleepControl::noteActivity(now);  // the screen comes on for it
       lastRender = 0;
     } else if (wasShowing && !tempAlert.showing(now)) {
       lastRender = 0;  // back to the screen it covered
@@ -2293,33 +1832,7 @@ void loop() {
   // either, where a few ms of flash would be a few ms of GPS bytes unread.
   if (!gps.hasFix() || gps.lastFix().speedKmh < 5.0f) Profiles::applyVin();
 
-  Power::update(now);
-  display.setBatteryPercent(Power::batteryPercent());
-  display.setBatteryCharging(Power::batteryCharging());
-  if (Power::batteryLow(now)) lowBatterySleep();
-#if AUTO_SLEEP_ENABLED
-  // A phone on the Wi-Fi page counts as using the board, even with no taps:
-  // don't turn the screen (and its upload code) off or sleep mid-download.
-  static uint32_t lastWifiCheck = 0;
-  static bool phoneOnWifi = false;
-  if (now - lastWifiCheck >= 1000) {  // asking the Wi-Fi driver every loop is wasteful
-    lastWifiCheck = now;
-    phoneOnWifi = WifiPortal::active() && (WifiPortal::clientCount() > 0 || WifiPortal::busy());
-  }
-  if (phoneOnWifi && sleepTimer.screenOff()) noteActivity(now);
-  switch (sleepTimer.update(now, phoneOnWifi)) {
-    case SleepAction::ScreenOff:
-      DEBUG_PRINTLN("Parked and idle: backlight off");
-      display.setBacklight(false);
-      break;
-    case SleepAction::DeepSleep:
-      saveForSleep();
-      sleepNow(false);
-      break;
-    default:
-      break;
-  }
-#endif
+  SleepControl::poll(now);
 
   if (now - lastStatusLog > 5000) {
     lastStatusLog = now;
@@ -2340,7 +1853,7 @@ void loop() {
   // A screen with nothing moving on it redraws only on input or a change (they set lastRender = 0), else every
   // STILL_FRAME_MS: 350, so the header's 700 ms REC / hot-coolant blink stays even.
   const uint32_t frameMs = listDragged ? 33 : stillScreen(now) ? STILL_FRAME_MS : 1000 / DISPLAY_FPS;
-  if (!sleepTimer.screenOff() && (lastRender == 0 || now - lastRender >= frameMs)) {
+  if (!SleepControl::screenOff() && (lastRender == 0 || now - lastRender >= frameMs)) {
     lastRender = now;
     render();
     busy = true;
