@@ -23,7 +23,8 @@ if (!m) {
   console.log("FAIL: session names section not found in web/index.html");
   process.exit(1);
 }
-const {parseFile, groupSessions, trackName} = new Function(m[1] + "\nreturn {parseFile, groupSessions, trackName};")();
+const {parseFile, groupSessions, trackName, lapCountOf, deleteConfirmText} =
+    new Function(m[1] + "\nreturn {parseFile, groupSessions, trackName, lapCountOf, deleteConfirmText};")();
 
 const fm = html.match(/\/\/ ---- firmware check \(begin[^\n]*\n([\s\S]*?)\/\/ ---- firmware check \(end\)/);
 if (!fm) {
@@ -56,7 +57,16 @@ const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistan
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
                         " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart," +
                         " nudgeShift, sliceNear, crossingsMs, crossingTimeMs, pathHeadingDeg, standingStartHolds, newRunMs, nudgeFixes," +
-                        " nudgeLines, nudgeRuns, alongM};")();
+                        " nudgeLines, nudgeRuns, alongM, canClearLine, clearLine};")();
+
+const hm = html.match(/\/\/ ---- helpers \(begin[^\n]*\n([\s\S]*?)\/\/ ---- helpers \(end\) ----/);
+const flm = html.match(/\/\/ ---- files \(begin[^\n]*\n([\s\S]*?)\/\/ ---- files \(end\) ----/);
+if (!hm || !flm) {
+  console.log("FAIL: helpers or files section not found in web/index.html");
+  process.exit(1);
+}
+const FS = new Function(hm[1] + flm[1] + "\nreturn {esc, size, fsSafePath, fsNameProblem, fsJoin, fsName, fsParent, fsCrumbs, fsSort," +
+                        " fsTouchesRestart, fsDeleteOrder, fsDeleteQuestion, fsUploadPlan, fsOverwrites, fsOverwriteQuestion, fsSpaceText};")();
 
 let failures = 0;
 function check(cond, msg) {
@@ -161,6 +171,15 @@ check(parseFile(file("20261018_093012_calabogie.json", "sd")).key !== parseFile(
 check(trackName("calabogie") === "Calabogie", "track name");
 check(trackName("nurburgring-gp") === "Nurburgring Gp", "hyphens");
 check(trackName("my-track-3") === "My Track 3", "my-track-3");
+
+// Deleting a session: laps come from the summary, and the question says what stays
+check(lapCountOf({lapCount: 5}) === 5 && lapCountOf({lapCount: 0}) === 0, "lap count from the summary");
+check(lapCountOf({laps: [{}, {}]}) === 2 && lapCountOf({}) === null && lapCountOf(null) === null && lapCountOf("x") === null,
+      "lap count from the laps list, or unknown");
+check(deleteConfirmText(0) === "Delete this session's log, summary and note? This can't be undone.", "no laps: no best-lap line");
+check(/best laps stay saved/i.test(deleteConfirmText(3)) && /^Delete this session's log, summary and note\? This can't be undone\./.test(deleteConfirmText(3)),
+      "laps: says the best laps stay");
+check(/best laps stay saved/i.test(deleteConfirmText(null)), "laps unknown: says it too");
 check(trackName("freeroam") === "Free Roam" && trackName("bench") === "Bench Test", "special names");
 check(trackName("perf") === "Performance", "perf is Performance");
 p = parseFile(file("SIM_12_perf.json"));
@@ -471,6 +490,131 @@ console.log("Wi-Fi page track editor tests");
   check(ED.addLayout(d, "calabogie.short", "  ") === null, "no name");
   check(ED.addLayout(d, "calabogie.short", "Club") === "calabogie.club" && v.layouts.length === 3, "a third layout");
   check(ED.addLayout(d, "nope", "X") === null, "no such track");
+}
+
+// Removing a start/finish put in the wrong place (a session started at the desk)
+{
+  const d = {tracks: [
+    {id: "desk", name: "Desk", center: {lat: 45, lon: -76}, startFinish: {lat: 45, lon: -76, radius: 15, heading: 90},
+     splits: [{lat: 45.001, lon: -76, radius: 15, heading: 0}], sectors: [{lat: 45.002, lon: -76, radius: 15}], map: [[[45, -76], [45.1, -76.1]]]},
+    {id: "ring", name: "Ring", layouts: [{name: "GP", startFinish: {lat: 44, lon: -78, radius: 15}, sectors: [{lat: 44.1, lon: -78}]},
+                                         {name: "Short", startFinish: {lat: 44.5, lon: -78.5, radius: 15}}]},
+    {id: "course-2026-10-20", name: "Course 2026-10-20", type: "stage", kind: "course", startFinish: {lat: 45.1, lon: -76.1}},
+    {id: "bare", name: "Bare", center: {lat: 46, lon: -77}},
+  ]};
+  const desk = ED.findTrack(d, "desk");
+  check(ED.canClearLine(desk) && !ED.canClearLine(ED.findTrack(d, "course-2026-10-20")) && !ED.canClearLine(ED.findTrack(d, "bare")) &&
+            !ED.canClearLine(null), "only a track with a line, not a stage or course, can lose it");
+  check(!ED.clearLine(ED.findTrack(d, "course-2026-10-20")) && d.tracks[2].startFinish, "a course keeps its start");
+  check(!ED.clearLine(ED.findTrack(d, "bare")), "nothing to remove from a track with no line");
+  check(ED.clearLine(desk) && !("startFinish" in d.tracks[0]) && !("sectors" in d.tracks[0]), "line and sectors go");
+  check(d.tracks[0].splits.length === 1 && d.tracks[0].map.length === 1 && d.tracks[0].center.lat === 45 && d.tracks[0].name === "Desk",
+        "splits, map, centre and name stay");
+  check(!ED.canClearLine(desk) && !ED.clearLine(desk), "second time: nothing left");
+  // A layout loses only its own line
+  ED.clearLine(ED.findTrack(d, "ring.gp"));
+  check(!("startFinish" in d.tracks[1].layouts[0]) && !("sectors" in d.tracks[1].layouts[0]) && d.tracks[1].layouts[1].startFinish.lat === 44.5,
+        "only the layout's line goes");
+  // The file still goes through the page's own checks and the editor, as a track that has no line yet
+  const saved = JSON.parse(JSON.stringify(d, null, 2) + "\n");
+  check(Array.isArray(saved.tracks) && saved.tracks.length === 4, "still a tracks.json with a tracks list");
+  const lineless = ED.findTrack(saved, "desk");
+  check(lineless && ED.trackList(saved).length === 5, "the track is still listed");
+  const lines = ED.nudgeLines(lineless, {lat: 45, lon: -76});
+  check(lines.sf === null && lines.splits.length === 1, "no start/finish line to time with");
+  check(Array.isArray(ED.nudgeRuns([{lap: 1, ms: 0, kmh: 50, x: 0, y: 0}, {lap: 1, ms: 1000, kmh: 50, x: 10, y: 0}], lines, false)),
+        "runs can still be worked out without it");
+  // Setting a new line puts it straight back
+  ED.setLine(lineless.obj, 45.0001, -76.0001, 180);
+  check(lineless.obj.startFinish.heading === 180 && ED.canClearLine(lineless), "a new line can be set");
+}
+
+// The Files tab's helpers
+{
+  // Escaping: a file name is never markup
+  const hostile = `<img src=x onerror="alert(1)">&'`;
+  const e = FS.esc(hostile);
+  check(!/[<>"']/.test(e) && e === "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;", "names are escaped: " + e);
+  check(FS.esc("caf\u00e9 \u65e5\u672c.txt") === "caf\u00e9 \u65e5\u672c.txt" && FS.esc(5) === "5", "plain names are left alone");
+  // The rows and the trail only put escaped text, sizes and counters into the page
+  const rowsSrc = html.slice(html.indexOf("function fsDrawCrumbs"), html.indexOf("// Runs one action on the files"));
+  const holes = [...rowsSrc.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1]);
+  check(holes.length >= 8 && holes.every((h) => /^(esc\(|size\(|i$|i === )/.test(h)),
+        "every value in the file rows is escaped: " + holes.filter((h) => !/^(esc\(|size\(|i$|i === )/.test(h)).join(" | "));
+  check(!/innerHTML\s*=[^;]*\be\.name\b(?!\))/.test(rowsSrc.replace(/esc\(e\.name\)/g, "")), "no raw name in innerHTML");
+
+  // Readable sizes
+  check(FS.size(0) === "0 B" && FS.size(1023) === "1023 B" && FS.size(1024) === "1 KB" && FS.size(1536) === "2 KB", "small sizes");
+  check(FS.size(1024 * 1024) === "1.0 MB" && FS.size(5.5 * 1024 * 1024) === "5.5 MB" && FS.size(1073741823) === "1024.0 MB" &&
+            FS.size(1073741824) === "1.0 GB" && FS.size(29.67 * 1073741824) === "29.7 GB", "large sizes");
+  check(FS.fsSpaceText(1048576, 31116288) === "1.0 GB free of 29.7 GB" && FS.fsSpaceText(0, 512) === "0 B free of 512 KB", "free space text");
+
+  // Paths: the same rules as portal::isSafePath
+  const ok = ["/", "/sessions", "/sessions/20261018_093012_calabogie.vbo", "/My Folder/lap times (1).csv", "/caf\u00e9/\u65e5\u672c.txt",
+              "/.hidden", "/a.b.c", "/a..b", "/..a", "/a..", "/#1 [best] {x} 'y' ~ ! @ $ % ^ & + = , ;", "/" + "x".repeat(199)];
+  const bad = ["", "a", "a/b", "./a", "../a", "/..", "/../a", "/a/..", "/a/../b", "/.", "/a/./b", "/...", "/a/..../b", "//", "//a", "/a//b",
+               "/a/", "/a\\b", "/\\", "/a:b", "/a*", "/a?", '/a"b', "/a<b", "/a>b", "/a|b", "/a\nb", "/a\tb", "/a\u0000b", "/a\u007fb",
+               "/" + "x".repeat(200), "/" + "\u00e9".repeat(100), null, undefined, 5];
+  check(ok.every(FS.fsSafePath), "safe paths: " + ok.filter((p) => !FS.fsSafePath(p)).join(" | "));
+  check(bad.every((p) => !FS.fsSafePath(p)), "unsafe paths: " + bad.filter((p) => FS.fsSafePath(p)).join(" | "));
+  check(FS.fsSafePath("/" + "\u00e9".repeat(99)) && !FS.fsSafePath("/" + "\u00e9".repeat(100)), "the limit is in bytes (UTF-8), not letters");
+  check(FS.fsNameProblem("lap 1.csv") === "" && FS.fsNameProblem("caf\u00e9") === "", "a good name");
+  check(FS.fsNameProblem("") && FS.fsNameProblem("a/b") && FS.fsNameProblem("..") && FS.fsNameProblem(".") && FS.fsNameProblem("a:b") &&
+            FS.fsNameProblem("a\\b") && FS.fsNameProblem('a"b') && FS.fsNameProblem("a|b") && FS.fsNameProblem("a\nb"), "bad names say why");
+
+  // Joining and walking paths
+  check(FS.fsJoin("/", "a") === "/a" && FS.fsJoin("/a", "b") === "/a/b" && FS.fsJoin("/a/b", "c d.txt") === "/a/b/c d.txt", "join");
+  check(FS.fsName("/a/b/c.txt") === "c.txt" && FS.fsName("/a") === "a", "last name");
+  check(FS.fsParent("/a/b/c") === "/a/b" && FS.fsParent("/a") === "/" && FS.fsParent("/") === "/", "parent");
+  check(JSON.stringify(FS.fsCrumbs("/")) === JSON.stringify([{name: "SD card", path: "/"}]) &&
+            JSON.stringify(FS.fsCrumbs("/a/b c")) === JSON.stringify([{name: "SD card", path: "/"}, {name: "a", path: "/a"}, {name: "b c", path: "/a/b c"}]),
+        "breadcrumbs");
+
+  // Folders first, then by name
+  const sorted = FS.fsSort([{name: "b.txt", isDir: false}, {name: "Zed", isDir: true}, {name: "a.txt", isDir: false}, {name: "lap10", isDir: false},
+                            {name: "lap2", isDir: false}, {name: "alpha", isDir: true}]).map((e) => e.name);
+  check(sorted.join() === "alpha,Zed,a.txt,b.txt,lap2,lap10", "folders first: " + sorted.join());
+
+  // Deleting a folder: files, then folders with the deepest first
+  const tree = [{path: "/d/sub/deep", isDir: true}, {path: "/d/a.txt", isDir: false}, {path: "/d/sub", isDir: true}, {path: "/d/x", isDir: true},
+                {path: "/d/sub/deep/z.txt", isDir: false}, {path: "/d/sub/b.txt", isDir: false}];
+  const order = FS.fsDeleteOrder(tree);
+  check(order.length === tree.length && tree.every((t) => order.includes(t)), "nothing lost or added");
+  const at = (p) => order.findIndex((o) => o.path === p);
+  check(order.slice(0, 3).every((o) => !o.isDir) && order.slice(3).every((o) => o.isDir), "files first");
+  check(order.every((o, i) => order.every((p, j) => !(o.isDir && p.path.startsWith(o.path + "/")) || j < i)), "everything in a folder goes before it");
+  check(at("/d/sub/deep") < at("/d/sub"), "deeper folders first");
+  check(JSON.stringify(FS.fsDeleteOrder([])) === "[]" && FS.fsDeleteOrder([{path: "/f", isDir: false}]).length === 1, "none, one");
+
+  // The question before a delete
+  check(FS.fsDeleteQuestion("/a/b.txt", false) === 'Delete the file "b.txt"? This can\'t be undone.', "file question");
+  check(FS.fsDeleteQuestion("/a/old", true, {files: 0, folders: 0}) === 'Delete the empty folder "old"? This can\'t be undone.', "empty folder question");
+  check(FS.fsDeleteQuestion("/a/old", true, {files: 12, folders: 3}) === 'Delete the folder "old" and everything in it (12 files and 3 folders)? This can\'t be undone.',
+        "folder question names it and counts");
+  check(/\(1 file\)\?/.test(FS.fsDeleteQuestion("/old", true, {files: 1, folders: 0})) && /\(1 folder\)\?/.test(FS.fsDeleteQuestion("/old", true, {files: 0, folders: 1})),
+        "one of each");
+  check(/track list/.test(FS.fsDeleteQuestion("/tracks.json", false)) && /tracks\.json\.bak/.test(FS.fsDeleteQuestion("/tracks.json", false)) &&
+            !/track list/.test(FS.fsDeleteQuestion("/sub/tracks.json", false)), "deleting tracks.json adds a warning");
+
+  // What needs a restart
+  check(["/tracks.json", "/world", "/world/44/-78.json", "/obd/car.json", "/tracks", "/tracks/calabogie/best.json", "/TRACKS.JSON", "/World/x"].every(FS.fsTouchesRestart),
+        "these need a restart");
+  check(!["/", "/tracks.json.bak", "/sessions/x.vbo", "/tracksfoo", "/worldwide", "/obd2", "/a/tracks.json"].some(FS.fsTouchesRestart), "these don't");
+
+  // Uploads: where each file goes, and what it would write over
+  const picked = [{name: "a.txt", rel: "", size: 5}, {name: "b.txt", rel: "Photos/2026/b.txt", size: 7}, {name: "bad:name", rel: "", size: 1},
+                  {name: "c.txt", rel: "Photos/c.txt", size: 3}];
+  const plan = FS.fsUploadPlan("/", picked);
+  check(plan.items.map((i) => i.path).join() === "/a.txt,/Photos/2026/b.txt,/Photos/c.txt" && plan.skipped.join() === "bad:name" && plan.bytes === 15 &&
+            plan.items[1].index === 1 && plan.items[2].index === 3, "upload plan in the top folder");
+  check(FS.fsUploadPlan("/sessions/2026", [{name: "a.txt", rel: "", size: 1}]).items[0].path === "/sessions/2026/a.txt", "and in a folder");
+  check(FS.fsUploadPlan("/" + "x".repeat(150), [{name: "y".repeat(60), rel: "", size: 1}]).skipped.length === 1, "a path that gets too long is left out");
+  const have = [{name: "A.TXT", isDir: false}, {name: "photos", isDir: true}, {name: "other", isDir: true}, {name: "b.txt", isDir: true}];
+  const over = FS.fsOverwrites(plan, have);
+  check(over.files.join() === "A.TXT" && over.folders.join() === "photos", "writes over: " + JSON.stringify(over));
+  check(FS.fsOverwrites(FS.fsUploadPlan("/", [{name: "new.txt", rel: "", size: 1}]), have).files.length === 0 &&
+            FS.fsOverwriteQuestion(FS.fsOverwrites(FS.fsUploadPlan("/", [{name: "new.txt", rel: "", size: 1}]), have)) === "", "nothing to write over: no question");
+  check(/"A\.TXT"/.test(FS.fsOverwriteQuestion(over)) && /contents of "photos"/.test(FS.fsOverwriteQuestion(over)), "the question names them");
 }
 
 // Point to point: a course made on the device ("type": "stage") gets its finish set on the page
@@ -1183,7 +1327,7 @@ console.log("Sample session tests");
   // No protected request is sent twice for one action: each handler asks once and posts once
   const asks = (html.match(/askCode\(/g) || []).length - 1;  // (minus the definition)
   const protectedPosts = (html.match(/uploadResult\(await post\(/g) || []).length;
-  check(asks === protectedPosts && protectedPosts === 8, `one code per change: ${asks} prompts, ${protectedPosts} changes`);
+  check(asks === protectedPosts && protectedPosts === 10, `one code per change: ${asks} prompts, ${protectedPosts} changes`);
   check(!/\buploadCode\b/.test(html), "no code is kept for later changes");
 
   // Downloads: two at a time, a 503 is tried again

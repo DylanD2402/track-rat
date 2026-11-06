@@ -349,6 +349,161 @@ int main() {
             !roomFor(0, 1) && roomFor(100000, 1000) && !roomFor(65536, 1),
         "room for an upload");
 
+  // Paths for the Files tab
+  CHECK(isSafePath("/") && isRootPath("/") && !isRootPath("/a") && !isRootPath("") && !isRootPath("//"), "root");
+  CHECK(isSafePath("/sessions") && isSafePath("/sessions/20261018_093012_calabogie.vbo") && isSafePath("/a/b/c/d.txt"),
+        "plain paths");
+  CHECK(isSafePath("/My Folder/lap times (1).csv") && isSafePath("/caf\xC3\xA9/\xE6\x97\xA5\xE6\x9C\xAC.txt") &&
+            isSafePath("/a b") && isSafePath("/.hidden") && isSafePath("/a.b.c") && isSafePath("/a..b") &&
+            isSafePath("/..a") && isSafePath("/a.."),
+        "spaces, UTF-8 and dots inside names");
+  CHECK(isSafePath("/#1 [best] {x} 'y' ~ ! @ $ % ^ & + = , ;"), "other punctuation FAT takes");
+  CHECK(!isSafePath("") && !isSafePath("a") && !isSafePath("a/b") && !isSafePath("./a") && !isSafePath("../a") &&
+            !isSafePath(nullptr),
+        "must start with /");
+  CHECK(!isSafePath("/..") && !isSafePath("/../a") && !isSafePath("/a/..") && !isSafePath("/a/../b") &&
+            !isSafePath("/a/../../b") && !isSafePath("/.") && !isSafePath("/a/./b") && !isSafePath("/...") &&
+            !isSafePath("/a/..../b"),
+        "no .. segment, nor . or names of dots");
+  CHECK(!isSafePath("//") && !isSafePath("//a") && !isSafePath("/a//b") && !isSafePath("/a/") && !isSafePath("/a/b/"),
+        "no empty segment, no trailing /");
+  CHECK(!isSafePath("/a\\b") && !isSafePath("/\\") && !isSafePath("/a\\..\\b"), "no backslash");
+  {
+    const char bad[] = ":*?\"<>|";
+    bool refused = true;
+    for (const char* b = bad; *b; b++) {
+      std::string head = std::string("/a") + *b, mid = std::string("/a/b") + *b + "c", tail = std::string("/a/") + *b;
+      refused = refused && !isSafePath(head.c_str()) && !isSafePath(mid.c_str()) && !isSafePath(tail.c_str());
+    }
+    CHECK(refused, "none of : * ? \" < > |, anywhere in a name");
+    bool control = true;
+    for (int c = 1; c < 0x20; c++) {
+      std::string p = std::string("/a") + (char)c + "b";
+      control = control && !isSafePath(p.c_str());
+    }
+    std::string del = std::string("/a") + (char)0x7F;
+    CHECK(control && !isSafePath(del.c_str()) && !isSafePath("/a\nb") && !isSafePath("/a\tb") && !isSafePath("/a\rb"),
+          "no control characters");
+  }
+  {
+    std::string at200 = "/" + std::string(199, 'x'), at201 = "/" + std::string(200, 'x');
+    CHECK(isSafePath(at200.c_str()) && !isSafePath(at201.c_str()), "200 bytes, not 201");
+    std::string utf = "/";
+    for (int i = 0; i < 99; i++) utf += "\xC3\xA9";  // 198 bytes of letters
+    CHECK(isSafePath(utf.c_str()) && !isSafePath((utf + "\xC3\xA9\xC3\xA9").c_str()), "the limit is in bytes, not letters");
+  }
+  CHECK(isSameOrInside("/", "/a") && isSameOrInside("/", "/") && isSameOrInside("/a", "/a") && isSameOrInside("/a", "/a/b") &&
+            isSameOrInside("/A", "/a/b/c") && isSameOrInside("/a/b", "/A/B"),
+        "inside, whatever the case");
+  CHECK(!isSameOrInside("/a", "/ab") && !isSameOrInside("/a", "/") && !isSameOrInside("/a/b", "/a") &&
+            !isSameOrInside("/a", "/b/a") && !isSameOrInside("/abc", "/ab"),
+        "not inside: a longer name, the parent, somewhere else");
+  CHECK(parentLength("/a") == 0 && parentLength("/a/b") == 2 && parentLength("/a/b/c.txt") == 4, "where a path's folder ends");
+  printf("  paths: safe, unsafe, inside\n");
+
+  // The Files tab's token
+  {
+    FsUnlock u;
+    const uint32_t rnd[4] = {0x0123abcd, 0xFFFFFFFF, 0, 0x89abcdef};
+    char token[FsUnlock::TOKEN_CHARS + 1];
+    CHECK(!u.unlocked() && !u.check("", 1, 0) && !u.check("00000000000000000000000000000000", 1, 0), "nothing before an unlock");
+    u.issue(rnd, 0xC0A80402, 1000, token);
+    CHECK(strcmp(token, "0123abcdffffffff0000000089abcdef") == 0 && strlen(token) == 32, "128 bits of hex");
+    CHECK(u.unlocked() && u.check(token, 0xC0A80402, 1000), "the token opens it");
+    CHECK(!u.check("0123abcdffffffff0000000089abcdee", 0xC0A80402, 1001), "one digit wrong");
+    CHECK(!u.check("1123abcdffffffff0000000089abcdef", 0xC0A80402, 1001), "first digit wrong");
+    CHECK(!u.check("0123abcdffffffff0000000089abcde", 0xC0A80402, 1001) && !u.check("", 0xC0A80402, 1001) &&
+              !u.check("0123abcdffffffff0000000089abcdefX", 0xC0A80402, 1001) && !u.check(nullptr, 0xC0A80402, 1001),
+          "too short, empty, too long");
+    CHECK(!u.check("0123ABCDFFFFFFFF0000000089ABCDEF", 0xC0A80402, 1001), "hex is lower case");
+    CHECK(!u.check(token, 0xC0A80403, 1001), "another phone");
+    CHECK(u.check(token, 0xC0A80402, 1002), "wrong tries don't spoil it");
+
+    // 15 minutes from the last use
+    const uint32_t T = FsUnlock::IDLE_MS;
+    CHECK(T == 15u * 60 * 1000, "15 minutes");
+    CHECK(u.check(token, 0xC0A80402, 1002 + T), "good until 15 minutes");
+    CHECK(u.check(token, 0xC0A80402, 1002 + T + T), "each use renews it");
+    CHECK(u.check(token, 0xC0A80402, 1002 + 2 * T + T / 2) && u.check(token, 0xC0A80402, 1002 + 2 * T + T), "and again");
+    CHECK(!u.check(token, 0xC0A80402, 1002 + 2 * T + T + T + 1), "idle for more than 15 minutes");
+    CHECK(!u.unlocked() && !u.check(token, 0xC0A80402, 1002 + 2 * T + T + T + 2), "and it's forgotten, not just late");
+
+    // millis() wraps after 49 days: the clock passing 2^32 mustn't end it, or revive an old one
+    u.issue(rnd, 7, 0xFFFFFFFFu - 1000, token);
+    CHECK(u.check(token, 7, 0xFFFFFFFFu - 500), "just before the wrap");
+    CHECK(u.check(token, 7, 500), "just after it (1000 ms later)");
+    CHECK(u.check(token, 7, 500 + T), "a use after the wrap renews it");
+    CHECK(!u.check(token, 7, 500 + 2 * T + 1), "and it runs out across the wrap too");
+    u.issue(rnd, 7, 0xFFFFFFFFu - 100, token);
+    CHECK(!u.check(token, 7, T + 1000), "idle across the wrap");
+
+    // One at a time; forgotten when asked
+    const uint32_t rnd2[4] = {1, 2, 3, 4};
+    char t1[FsUnlock::TOKEN_CHARS + 1], t2[FsUnlock::TOKEN_CHARS + 1];
+    u.issue(rnd, 7, 0, t1);
+    u.issue(rnd2, 8, 10, t2);
+    CHECK(strcmp(t1, t2) != 0 && !u.check(t1, 7, 20) && !u.check(t1, 8, 20) && u.check(t2, 8, 20), "a new unlock replaces the old");
+    u.forget();
+    CHECK(!u.unlocked() && !u.check(t2, 8, 30), "forgotten when Wi-Fi stops");
+    u.issue(rnd2, 8, 40, t2);
+    CHECK(u.check(t2, 8, 41), "and a later unlock works again");
+    printf("  files token: wrong token, wrong phone, 15 minute sliding expiry across the wrap, one at a time, forgotten\n");
+  }
+
+  // The list of a folder, sent in pieces like the session list
+  {
+    FsListJson<std::string> json;
+    json.addEntry("sessions", 0, true);
+    json.addEntry("tracks \"x\".json", 2048, false);
+    json.addEntry("caf\xC3\xA9", 4294967295u, false);
+    json.finish(1234, 56789);
+    std::vector<uint8_t> buf(64);
+    std::string all;
+    for (;;) {
+      size_t n = json.fill(buf.data(), buf.size(), 4, [] {});
+      if (!n) break;
+      all.append((const char*)buf.data(), n);
+    }
+    CHECK(all == "{\"entries\":[{\"name\":\"sessions\",\"size\":0,\"isDir\":true},{\"name\":\"tracks \\\"x\\\".json\",\"size\":2048,"
+                 "\"isDir\":false},{\"name\":\"caf\xC3\xA9\",\"size\":4294967295,\"isDir\":false}],\"freeKB\":1234,\"totalKB\":56789}",
+          "folder list as JSON: %s", all.c_str());
+    FsListJson<std::string> empty;
+    empty.finish(0, 0);
+    std::string e;
+    for (size_t n; (n = empty.fill(buf.data(), buf.size(), 4, [] {})) > 0;) e.append((const char*)buf.data(), n);
+    CHECK(e == "{\"entries\":[],\"freeKB\":0,\"totalKB\":0}", "an empty folder");
+  }
+
+  // 1 GB uploads to the Files tab
+  CHECK(postRefusal("/api/fs/upload", FS_UPLOAD_MAX_BYTES, false, nullptr, IP, SLOT) == 0, "a 1 GB file");
+  CHECK(postRefusal("/api/fs/upload", FS_UPLOAD_MAX_BYTES + MULTIPART_SLACK, false, nullptr, IP, SLOT) == 0, "1 GB with its wrapping");
+  CHECK(postRefusal("/api/fs/upload", FS_UPLOAD_MAX_BYTES + MULTIPART_SLACK + 1, false, nullptr, IP, SLOT) == 413, "over 1 GB");
+  CHECK(postRefusal("/api/fs/upload", 5000, false, "http://example.com", IP, SLOT) == 403, "not from another site");
+  CHECK(postRefusal("/api/fs/upload", 5000, true, nullptr, IP, SLOT) == 411, "not chunked");
+  CHECK(postRefusal("/api/fs/delete", FORM_MAX_BYTES + 1, false, nullptr, IP, SLOT) == 413 &&
+            postRefusal("/api/fs/rename", 2000, false, nullptr, IP, SLOT) == 0 &&
+            postRefusal("/api/fs/unlock", 40, false, nullptr, IP, SLOT) == 0,
+        "the other file routes take a form");
+  printf("  files uploads: up to 1 GB, other routes 4 KB\n");
+
+  // A session's files, for Delete: the log, summary, note and a cut-off save of each, nothing else
+  CHECK(SESSION_FILE_COUNT == 6, "six file kinds");
+  bool suffixesOk = true;
+  for (int i = 0; i < SESSION_FILE_COUNT; i++) {
+    const char* x = SESSION_FILE_SUFFIXES[i];
+    suffixesOk = suffixesOk && (x[0] == '.' || x[0] == '_') && !strchr(x, '/');
+    for (int j = 0; j < i; j++) suffixesOk = suffixesOk && strcmp(x, SESSION_FILE_SUFFIXES[j]) != 0;
+  }
+  CHECK(suffixesOk, "suffixes are distinct and add to the base name only");
+  bool hasVbo = false, hasNote = false, hasTmp = false;
+  for (int i = 0; i < SESSION_FILE_COUNT; i++) {
+    hasVbo = hasVbo || strcmp(SESSION_FILE_SUFFIXES[i], ".vbo") == 0;
+    hasNote = hasNote || strcmp(SESSION_FILE_SUFFIXES[i], "_note.json") == 0;
+    hasTmp = hasTmp || strcmp(SESSION_FILE_SUFFIXES[i], "_note.json.tmp") == 0;
+  }
+  CHECK(hasVbo && hasNote && hasTmp, "log, note and a cut-off note save");
+  printf("  session delete: %d file kinds\n", SESSION_FILE_COUNT);
+
   // Downloads at once
   DownloadGate dl;
   CHECK(dl.enter() && dl.enter() && !dl.enter() && dl.count() == 2, "third download refused");

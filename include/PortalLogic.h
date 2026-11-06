@@ -27,6 +27,66 @@ inline bool isSafeFileName(const char* name) {
   return true;
 }
 
+// --- The Files tab: paths on the SD card ---------------------------------------------------------------------------
+
+static const size_t MAX_PATH_BYTES = 200;
+
+// A path the Files tab may name: from the root, folder and file names between "/", nothing that climbs out
+// (".." or any name that is only dots, which FAT reads as the folder itself) and nothing the card can't hold:
+// no empty names ("//", or a "/" at the end), no backslash, control characters or any of : * ? " < > |.
+// Spaces and UTF-8 (any byte over 127) are fine. "/" alone is the root.
+inline bool isSafePath(const char* path) {
+  if (!path || path[0] != '/') return false;
+  const size_t n = strlen(path);
+  if (n > MAX_PATH_BYTES) return false;
+  if (n == 1) return true;
+  size_t start = 1;
+  bool onlyDots = true;
+  for (size_t i = 1; i <= n; i++) {
+    const unsigned char c = i < n ? (unsigned char)path[i] : '/';  // (the end closes the last name)
+    if (c < 0x20 || c == 0x7F || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' ||
+        c == '|')
+      return false;
+    if (c != '/') {
+      if (c != '.') onlyDots = false;
+      continue;
+    }
+    if (i == start || onlyDots) return false;  // empty, or ".", "..", "..."
+    start = i + 1;
+    onlyDots = true;
+  }
+  return true;
+}
+
+inline bool isRootPath(const char* path) { return path && path[0] == '/' && path[1] == '\0'; }
+
+// Is `path` the folder `parent` or something in it? FAT doesn't tell A from a, so neither does this.
+// Both are safe paths. Moving a folder into itself is refused with it.
+inline bool isSameOrInside(const char* parent, const char* path) {
+  if (isRootPath(parent)) return true;
+  const size_t n = strlen(parent);
+  for (size_t i = 0; i < n; i++) {
+    char a = parent[i], b = path[i];
+    if (!b) return false;
+    if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
+    if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
+    if (a != b) return false;
+  }
+  return path[n] == '\0' || path[n] == '/';
+}
+
+// Where the folder holding `path` ends: its length, 0 for something in the root (whose folder is "/")
+inline size_t parentLength(const char* path) {
+  const char* slash = strrchr(path, '/');
+  return slash ? (size_t)(slash - path) : 0;
+}
+
+// What a session is made of, after its base name (the file name without .vbo or .json): the log, its summary, its
+// note, and a save of any of them that was cut off (.tmp). Deleting a session removes these and nothing else.
+static const char* const SESSION_FILE_SUFFIXES[] = {".vbo",     ".json",     "_note.json",
+                                                    ".vbo.tmp", ".json.tmp", "_note.json.tmp"};
+static const int SESSION_FILE_COUNT = sizeof(SESSION_FILE_SUFFIXES) / sizeof(SESSION_FILE_SUFFIXES[0]);
+
 inline bool endsWith(const char* s, const char* suffix) {
   size_t n = strlen(s), m = strlen(suffix);
   return n >= m && strcmp(s + n - m, suffix) == 0;
@@ -59,40 +119,13 @@ void appendJsonString(Str& out, const char* s) {
   out += '"';
 }
 
-// The session list: {"files":[{"name":"a.json","size":1234,"fs":"sd"},...],"tzMin":-240}
-// A card can hold thousands of files, so the reply is built a few files at a
-// time as it's sent (fill()), never all at once. Str: Arduino String or std::string.
+// A reply built a few entries at a time as it's sent (fill()), never all at once: a card can hold thousands of
+// files. A list adds to `text` and sets `finished` when its last piece is in. Str: Arduino String or std::string.
 template <class Str>
-class SessionListJson {
+class ChunkedReply {
 public:
-  SessionListJson() { text += "{\"files\":["; }
-
-  // fsName: "sd" or "flash"
-  void addFile(const char* name, uint32_t size, const char* fsName) {
-    char num[12];
-    snprintf(num, sizeof(num), "%lu", (unsigned long)size);
-    if (count++) text += ',';
-    text += "{\"name\":";
-    appendJsonString(text, name);
-    text += ",\"size\":";
-    text += num;
-    text += ",\"fs\":\"";
-    text += fsName;
-    text += "\"}";
-  }
-
-  // tzMin: the time zone the file names are written in
-  void finish(int tzMin) {
-    char num[12];
-    snprintf(num, sizeof(num), "%d", tzMin);
-    text += "],\"tzMin\":";
-    text += num;
-    text += '}';
-    finished = true;
-  }
-
   // The reply's next piece: up to maxLen (> 0) bytes into buf. next() reads
-  // one directory entry and adds it (or nothing, for a folder), or calls
+  // one directory entry and adds it (or nothing, if the list leaves it out), or calls
   // finish() when there are none left; it's called until buf is full or
   // maxReads times. 0 ends the reply, so it's returned only once everything
   // has been sent: until then this reads on until it has something.
@@ -105,6 +138,11 @@ public:
     }
     return n;
   }
+
+protected:
+  Str text;
+  uint32_t count = 0;  // entries added
+  bool finished = false;
 
 private:
   // What's waiting to be sent, as much as fits
@@ -120,10 +158,65 @@ private:
     return n;
   }
 
-  Str text;
   size_t sent = 0;
-  uint32_t count = 0;
-  bool finished = false;
+};
+
+// The session list: {"files":[{"name":"a.json","size":1234,"fs":"sd"},...],"tzMin":-240}
+template <class Str>
+class SessionListJson : public ChunkedReply<Str> {
+public:
+  SessionListJson() { this->text += "{\"files\":["; }
+
+  // fsName: "sd" or "flash"
+  void addFile(const char* name, uint32_t size, const char* fsName) {
+    char num[12];
+    snprintf(num, sizeof(num), "%lu", (unsigned long)size);
+    if (this->count++) this->text += ',';
+    this->text += "{\"name\":";
+    appendJsonString(this->text, name);
+    this->text += ",\"size\":";
+    this->text += num;
+    this->text += ",\"fs\":\"";
+    this->text += fsName;
+    this->text += "\"}";
+  }
+
+  // tzMin: the time zone the file names are written in
+  void finish(int tzMin) {
+    char num[12];
+    snprintf(num, sizeof(num), "%d", tzMin);
+    this->text += "],\"tzMin\":";
+    this->text += num;
+    this->text += '}';
+    this->finished = true;
+  }
+};
+
+// A folder on the SD card for the Files tab:
+//   {"entries":[{"name":"a.vbo","size":1234,"isDir":false},...],"freeKB":123,"totalKB":456}
+// Entries come in the card's order: the page puts folders first.
+template <class Str>
+class FsListJson : public ChunkedReply<Str> {
+public:
+  FsListJson() { this->text += "{\"entries\":["; }
+
+  void addEntry(const char* name, uint32_t size, bool isDir) {
+    char num[12];
+    snprintf(num, sizeof(num), "%lu", (unsigned long)size);
+    if (this->count++) this->text += ',';
+    this->text += "{\"name\":";
+    appendJsonString(this->text, name);
+    this->text += ",\"size\":";
+    this->text += num;
+    this->text += isDir ? ",\"isDir\":true}" : ",\"isDir\":false}";
+  }
+
+  void finish(uint32_t freeKB, uint32_t totalKB) {
+    char num[40];
+    snprintf(num, sizeof(num), "],\"freeKB\":%lu,\"totalKB\":%lu}", (unsigned long)freeKB, (unsigned long)totalKB);
+    this->text += num;
+    this->finished = true;
+  }
 };
 
 // The phone's time zone, in minutes east of UTC ("-240", "+330", "0").
@@ -283,6 +376,7 @@ inline bool isPortalOrigin(const char* origin, const char* ip) {
 }
 
 static const size_t TRACKS_MAX_BYTES = 2 * 1024 * 1024;  // a tracks.json upload
+static const size_t FS_UPLOAD_MAX_BYTES = 1024UL * 1024 * 1024;  // one file sent to the Files tab: 1 GB
 static const size_t FORM_MAX_BYTES = 4096;                // every other POST (a note is up to 1000 bytes, +30% escaped)
 static const size_t MULTIPART_SLACK = 1024;               // a file's body is a little more than the file
 
@@ -290,6 +384,7 @@ static const size_t MULTIPART_SLACK = 1024;               // a file's body is a 
 // firmwareMax: the app slot.
 inline size_t bodyLimit(const char* url, size_t firmwareMax) {
   if (strcmp(url, "/api/tracks") == 0) return TRACKS_MAX_BYTES + MULTIPART_SLACK;
+  if (strcmp(url, "/api/fs/upload") == 0) return FS_UPLOAD_MAX_BYTES + MULTIPART_SLACK;
   if (strcmp(url, "/api/firmware") == 0) return firmwareMax + MULTIPART_SLACK;
   return FORM_MAX_BYTES;
 }
@@ -310,6 +405,60 @@ inline int postRefusal(const char* url, size_t contentLength, bool chunked, cons
   if (contentLength > bodyLimit(url, firmwareMax)) return 413;
   return 0;
 }
+
+// The Files tab changes a lot, and a code that is used up on every change would be unbearable per file. So one code
+// (checked and spent by /api/fs/unlock) buys a token, which every /api/fs request then carries as t=<token>.
+//  - It is 128 random bits, sent in hex, and compared without stopping at the first wrong byte.
+//  - It belongs to the address it was handed to. The network is open, so someone who reads the token off the air
+//    still has to use that phone's address too (which they can: this is a limit, not a lock).
+//  - It lasts IDLE_MS after its last use: each request that carries it renews it.
+//  - There is one: unlocking again replaces it. forget() drops it, which WifiPortal does when Wi-Fi stops.
+// Times are millis() from the caller (wrapping after 49 days is fine), so this is tested on a PC.
+class FsUnlock {
+public:
+  static const int TOKEN_CHARS = 32;
+  static const uint32_t IDLE_MS = 15UL * 60 * 1000;
+
+  // random: four words of the board's random number generator. `out` gets the token (TOKEN_CHARS + 1 bytes).
+  void issue(const uint32_t random[4], uint32_t ip, uint32_t now, char* out) {
+    static const char hex[] = "0123456789abcdef";
+    for (int w = 0; w < 4; w++)
+      for (int k = 0; k < 8; k++) token[w * 8 + k] = hex[(random[w] >> (28 - 4 * k)) & 15];
+    token[TOKEN_CHARS] = '\0';
+    memcpy(out, token, TOKEN_CHARS + 1);
+    owner = ip;
+    lastUse = now;
+    open = true;
+  }
+
+  // Is this the token, from the address it was given to, and not idle too long? Renews it if so.
+  bool check(const char* given, uint32_t ip, uint32_t now) {
+    if (!open || !given) return false;
+    if ((uint32_t)(now - lastUse) > IDLE_MS) {
+      forget();
+      return false;
+    }
+    const size_t n = strlen(given);
+    unsigned diff = (unsigned)(n ^ (size_t)TOKEN_CHARS);
+    for (int i = 0; i < TOKEN_CHARS; i++) diff |= (unsigned char)token[i] ^ (i < (int)n ? (unsigned char)given[i] : 0u);
+    diff |= (unsigned)(ip ^ owner);
+    if (diff != 0) return false;
+    lastUse = now;
+    return true;
+  }
+
+  void forget() {
+    open = false;
+    memset(token, 0, sizeof(token));
+  }
+  bool unlocked() const { return open; }
+
+private:
+  char token[TOKEN_CHARS + 1] = {};
+  uint32_t owner = 0;
+  uint32_t lastUse = 0;
+  bool open = false;
+};
 
 // Session downloads at once: more would keep the logger waiting for the card.
 class DownloadGate {
