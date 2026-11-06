@@ -167,6 +167,7 @@
 // Lap timing
 // ---------------------------------------------------------------------------
 #define TRACK_DETECTION_RADIUS_M 5000.0  // auto-select a track if its S/F is this close
+#define TRACK_RANGE_M 15000.0  // further than this from a track's centre: no session on it, and no line for it
 #define AUTO_START_KMH 20.0              // at boot a parked car waits on the Ready screen; this speed starts the session
 #define AUTO_START_HOLD_MS 2000          // ...once it has stayed that fast this long (GPS time)
 #define DEFAULT_GATE_HALF_WIDTH_M 15.0   // used when a track has no "radius"

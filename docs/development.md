@@ -92,6 +92,7 @@ What a driver chooses (units, brightness and so on) is a [setting](user-guide.md
 | `MIN_LAP_TIME_MS` | 20000 | Start/finish crossings sooner than this are ignored |
 | `PERF_ROLLOUT_DEFAULT` | 0 | 1 = Performance starts with the 1-foot rollout on |
 | `TRACK_DETECTION_RADIUS_M` | 5000 | Range for automatic track selection |
+| `TRACK_RANGE_M` | 15000 | Further than this from a track's centre: no session on it, and a line set there is ignored |
 | `PIT_PARK_KMH`, `PIT_PARK_MS` | 5, 60 s | Parked this slow for this long while timing: in the pits, the summary shows |
 | `SESSION_RESUME_MS` | 10 minutes | Driving off within this of stopping carries on the same session; parked longer, the session ends |
 | `SECTOR_BRAKE_DROP_KMH`, `SECTOR_MIN_MS` | 10, 3000 | Corner sectors: a braking zone loses at least this much speed; pieces shorter than this are joined |
@@ -278,6 +279,12 @@ g++ -std=c++17 -Iinclude test/test_profiles.cpp -o /tmp/pr && /tmp/pr
 
 ```bash
 g++ -std=c++17 -Iinclude test/test_devicelink.cpp -o /tmp/dl && /tmp/dl
+```
+
+`test/test_trackrange.cpp` checks how far from a track is too far (`include/TrackRange.h`): a start/finish line more than `TRACK_RANGE_M` (15 km) from its track's centre is ignored, and a session can't start on a track that far from the GPS fix. It covers the edge of the limit, Wasaga's line set 354 km away at home, tracks with no centre, the bench (always fine) and no fix:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_trackrange.cpp -o /tmp/trr && /tmp/trr
 ```
 
 `test/test_dns.cpp` checks the captive portal's DNS answer (`include/CaptiveDns.h`): A and ANY queries get the board's address (TTL 30 s), AAAA, HTTPS and other types get an empty NOERROR so the phone moves on to its A query, an EDNS0 OPT record in the query doesn't stop the reply and isn't echoed, a wrong opcode or question count gets NOTIMP or FORMERR, and responses, truncated names, compression pointers, names over 255 bytes and a too-small output buffer get no reply:
