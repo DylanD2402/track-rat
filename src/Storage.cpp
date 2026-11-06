@@ -140,7 +140,7 @@ bool DirLister::open(fs::FS& fs, const char* path) {
     sdmmc_card_t* card = SdMmcCard::of(SD_MMC);
     BYTE drive = card ? ff_diskio_get_pdrv_card(card) : 0xFF;
     if (drive < FF_VOLUMES) {
-      char full[48];
+      char full[224];  // (a path from the Files tab is up to 200 bytes: cut short, it would list another folder)
       snprintf(full, sizeof(full), "%u:%s", (unsigned)drive, path);
       if (f_opendir(&s->fatDir, full) == FR_OK) s->fat = true;
       else return false;  // no such folder

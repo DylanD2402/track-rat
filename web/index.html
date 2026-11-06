@@ -97,6 +97,9 @@ select { width: 100%; margin: 6px 0; }
 .tools button.on { outline: 2px solid var(--brand); }
 canvas.chart { display: block; width: 100%; margin: 6px 0 4px; border-radius: 10px; background: var(--bg); }
 .row select { width: auto; flex: 1 1 140px; margin: 0; }
+/* Files tab */
+.fsname { flex: 1 1 150px; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
 /* Drivers and cars card */
 .prof { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 0; border-top: 1px solid var(--line); }
 .prof .pname { flex: 1 1 120px; font-weight: 500; overflow-wrap: anywhere; }
@@ -173,6 +176,7 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
   <nav id="tabs">
     <button data-tab="sessions" class="on">Sessions</button>
     <button data-tab="tracks" class="board-only">Tracks</button>
+    <button data-tab="files" class="board-only">Files</button>
     <button data-tab="compare">Compare</button>
     <button data-tab="firmware" class="board-only">Firmware</button>
     <button data-tab="device" class="board-only">Device</button>
@@ -305,6 +309,31 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
   </div>
 </section>
 
+<section id="files" class="board-only">
+  <div class="card">
+    <h3>Files on the SD card</h3>
+    <p class="note">Look through the SD card, download, upload, rename and delete. The card is sealed in the case, so this
+      is how to tidy it. One code from Track Rat's screen opens the files for 15 minutes of use, then it asks again.</p>
+    <div class="crumbs" id="fsCrumbs"></div>
+    <p id="fsSpace" class="note"></p>
+    <div class="tools" id="fsTools" hidden>
+      <button class="btn plain" data-fs="upload">Upload files</button>
+      <button class="btn plain" data-fs="uploadDir">Upload a folder</button>
+      <button class="btn plain" data-fs="mkdir">New folder</button>
+    </div>
+    <input type="file" id="fsPickFiles" multiple hidden>
+    <input type="file" id="fsPickDir" webkitdirectory hidden>
+    <div id="fsProg" hidden>
+      <progress id="fsBar" max="100" value="0"></progress>
+      <p id="fsProgText" class="note"></p>
+      <button class="btn plain" id="fsCancel">Cancel</button>
+    </div>
+    <p id="fsRestart" class="note" hidden>Restart Track Rat (Device tab) so it reads what you changed again.</p>
+    <p id="fsMsg" class="note"></p>
+    <div id="fsList"></div>
+  </div>
+</section>
+
 <section id="firmware" class="board-only">
   <div class="card">
     <h3>Install firmware</h3>
@@ -357,11 +386,12 @@ function showTab(name) {
   if (name === "device") { loadInfo(); infoTimer = setInterval(loadInfo, 2000); }
   if (name === "settings") { loadProfiles(); loadSettings(); }
   if (name === "tracks") edLoadLogs();
+  if (name === "files") fsShow();
   if (name === "compare") cmpLoad();
 }
 $("tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
 
-// ---- helpers ----
+// ---- helpers (begin: tested by test/test_web.js) ----
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 }
@@ -371,6 +401,7 @@ function size(bytes) {
   if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB";
   return (bytes / 1024 / 1024 / 1024).toFixed(1) + " GB";
 }
+// ---- helpers (end) ----
 function post(url, body, onProgress) {
   return new Promise((resolve) => {
     const x = new XMLHttpRequest();
@@ -559,7 +590,7 @@ function lapCountOf(summary) {
 }
 function deleteConfirmText(lapCount) {
   return "Delete this session's log, summary and note? This can't be undone." +
-         (lapCount === 0 ? "" : " Its best laps stay saved on the board; re-timing replaces one only with a quicker lap or a lap timed at a moved line.");
+         (lapCount === 0 ? "" : " Its best laps stay saved on the board (the Files tab can remove them from /tracks); re-timing replaces one only with a quicker lap or a lap timed at a moved line.");
 }
 // ---- session names (end) ----
 
@@ -2641,6 +2672,334 @@ async function afterOpening() {
   await loadSessions();
   if ($("compare").classList.contains("on")) cmpLoad();
 }
+
+// ---- files (begin: tested by test/test_web.js) ----
+// The Files tab's rules. Paths are on the SD card, from "/". They are checked here as include/PortalLogic.h's
+// isSafePath checks them on the board (which is the one that matters).
+const FS_RESTART = ["/tracks.json", "/world", "/obd", "/tracks"];  // read once when Track Rat starts
+
+function fsSafePath(path) {
+  if (typeof path !== "string" || path[0] !== "/" || new TextEncoder().encode(path).length > 200) return false;
+  if (path === "/") return true;
+  for (const seg of path.slice(1).split("/")) {
+    if (seg === "" || /^\.+$/.test(seg)) return false;  // empty, ".", "..", "..."
+    if (/[\\:*?"<>|\u0000-\u001f\u007f]/.test(seg)) return false;
+  }
+  return true;
+}
+// Why a name can't be used in a folder, or "" if it can
+function fsNameProblem(name) {
+  if (!name) return "Type a name.";
+  if (name.includes("/")) return "A name can't have a / in it.";
+  if (!fsSafePath("/" + name)) return "A name can't be only dots, or have any of \\ : * ? \" < > | in it.";
+  return "";
+}
+function fsJoin(dir, name) { return (dir === "/" ? "" : dir) + "/" + name; }
+function fsName(path) { return path.slice(path.lastIndexOf("/") + 1); }
+function fsParent(path) { const i = path.lastIndexOf("/"); return i <= 0 ? "/" : path.slice(0, i); }
+// The trail above the list: [{name, path}], the card first
+function fsCrumbs(path) {
+  const out = [{name: "SD card", path: "/"}];
+  let p = "";
+  for (const seg of path.split("/").filter(Boolean)) { p += "/" + seg; out.push({name: seg, path: p}); }
+  return out;
+}
+// Folders first, then by name (numbers in names in order: lap2 before lap10)
+function fsSort(entries) {
+  return [...entries].sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: "base"}));
+}
+// Does a change to this path touch something Track Rat reads only when it starts?
+function fsTouchesRestart(path) {
+  const p = String(path).toLowerCase();
+  return FS_RESTART.some((d) => p === d || p.startsWith(d + "/"));
+}
+// What to delete, in the order to delete it: every file first, then the folders, the deepest first, so a folder is
+// empty when its turn comes. items: [{path, isDir}] of everything in the folder, not the folder itself.
+function fsDeleteOrder(items) {
+  const depth = (p) => p.split("/").length;
+  return [...items.filter((i) => !i.isDir), ...items.filter((i) => i.isDir).sort((a, b) => depth(b.path) - depth(a.path))];
+}
+function fsCount(n, one, many) { return n + " " + (n === 1 ? one : many); }
+// The question before a delete. counts: for a folder, what is in it {files, folders}
+function fsDeleteQuestion(path, isDir, counts) {
+  const name = '"' + fsName(path) + '"';
+  let q;
+  if (!isDir) q = `Delete the file ${name}?`;
+  else if (!counts || (!counts.files && !counts.folders)) q = `Delete the empty folder ${name}?`;
+  else {
+    const parts = [];
+    if (counts.files) parts.push(fsCount(counts.files, "file", "files"));
+    if (counts.folders) parts.push(fsCount(counts.folders, "folder", "folders"));
+    q = `Delete the folder ${name} and everything in it (${parts.join(" and ")})?`;
+  }
+  q += " This can't be undone.";
+  if (path.toLowerCase() === "/tracks.json")
+    q += "\n\nThis is Track Rat's track list, with every track and line you made. When it restarts, Track Rat puts back the newest" +
+         " copy it finds next to it (tracks.json.bak, .tmp or .upload), or else uses its built-in tracks.";
+  return q;
+}
+// What is picked to upload -> where each file goes. picked: [{name, rel, size}], rel the path inside a picked
+// folder ("Folder/sub/a.txt") or "". Names the card can't hold are left out (skipped), not sent.
+function fsUploadPlan(dir, picked) {
+  const items = [], skipped = [];
+  let bytes = 0;
+  picked.forEach((p, index) => {
+    const rel = p.rel || p.name, path = fsJoin(dir, rel);
+    if (!fsSafePath(path)) { skipped.push(rel); return; }
+    items.push({index, path, size: p.size, top: p.rel ? p.rel.split("/")[0] : ""});
+    bytes += p.size;
+  });
+  return {items, skipped, bytes};
+}
+// Which of the folder's entries an upload would write over: files with the same name, and picked folders that are
+// there already (their files with the same names are replaced). The card doesn't tell A from a.
+function fsOverwrites(plan, entries) {
+  const have = new Map(entries.map((e) => [e.name.toLowerCase(), e]));
+  const files = [], folders = [];
+  for (const it of plan.items) {
+    const name = it.top || fsName(it.path), e = have.get(name.toLowerCase());
+    if (!e) continue;
+    if (it.top) { if (e.isDir && !folders.includes(e.name)) folders.push(e.name); }
+    else if (!e.isDir) files.push(e.name);
+  }
+  return {files, folders};
+}
+function fsOverwriteQuestion(over) {
+  const parts = [];
+  if (over.files.length) parts.push(over.files.length > 3 ? fsCount(over.files.length, "file", "files") : over.files.map((n) => `"${n}"`).join(", "));
+  if (over.folders.length) parts.push("the contents of " + over.folders.map((n) => `"${n}"`).join(", "));
+  return over.files.length || over.folders.length ? `This replaces ${parts.join(" and ")} already on the card. Go on?` : "";
+}
+function fsSpaceText(freeKB, totalKB) {
+  return `${size(freeKB * 1024)} free of ${size(totalKB * 1024)}`;
+}
+// ---- files (end) ----
+
+// ---- files: the screen part ----
+let fsToken = "", fsPath = "/", fsEntries = [], fsCancelled = false, fsBusy = false;
+const fsHold = {};  // abort() for the request that is running
+function fsMsg(text, bad) { $("fsMsg").className = bad ? "err" : "note"; $("fsMsg").textContent = text || ""; }
+
+function fsSend(method, url, body, onProgress) {
+  return new Promise((resolve) => {
+    const x = new XMLHttpRequest();
+    x.open(method, url);
+    fsHold.abort = () => x.abort();
+    if (onProgress) x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded);
+    x.onload = () => resolve({ok: x.status === 200, status: x.status, text: x.responseText});
+    x.onerror = () => resolve({ok: false, status: 0, text: "Lost the connection to Track Rat"});
+    x.onabort = () => resolve({ok: false, status: -1, text: "Cancelled"});
+    x.send(body);
+  });
+}
+
+// One code opens the files for a while: the board hands back a token that every request then carries
+async function fsUnlock() {
+  const code = askCode("Open the files on the SD card? This code opens them for 15 minutes of use.");
+  if (code === null) return false;
+  const r = uploadResult(await post("/api/fs/unlock", new URLSearchParams({code})));
+  if (!r.ok) { fsMsg(r.text || "Couldn't open the files.", true); return false; }
+  try { fsToken = JSON.parse(r.text).token || ""; } catch (e) { fsToken = ""; }
+  return !!fsToken;
+}
+
+// A request to /api/fs/<route>. A 401 (idle too long, or Track Rat started again) clears the token and asks for a code
+// once more; quiet doesn't ask (when the tab is only being opened). o: {body, onProgress, quiet}
+async function fsApi(method, route, params, o = {}) {
+  for (let tries = 0; tries < 2; tries++) {
+    if (!fsToken && (o.quiet || !(await fsUnlock()))) return {ok: false, status: 401, text: "Enter the code to open the files."};
+    const q = new URLSearchParams({...params, t: fsToken});
+    const inUrl = method === "GET" || route === "upload";
+    const r = await fsSend(method, "/api/fs/" + route + (inUrl ? "?" + q : ""), inUrl ? o.body : q, o.onProgress);
+    if (r.status !== 401) return r;
+    fsToken = "";
+  }
+  return {ok: false, status: 401, text: "The code didn't open the files."};
+}
+
+function fsProgress(text, frac) {
+  $("fsProg").hidden = text === null;
+  if (text === null) return;
+  $("fsProgText").textContent = text;
+  $("fsBar").value = Math.round((frac || 0) * 100);
+}
+// A change went through: some of them need Track Rat started again
+function fsChanged(...paths) {
+  if (paths.some(fsTouchesRestart)) $("fsRestart").hidden = false;
+}
+const fsDlUrl = (path) => "/api/fs/dl?path=" + encodeURIComponent(path) + "&t=" + fsToken;
+
+function fsDrawCrumbs() {
+  $("fsCrumbs").innerHTML = fsCrumbs(fsPath).map((c, i, all) =>
+    `<button class="chip${i === all.length - 1 ? " on" : ""}" data-fs="go" data-p="${esc(c.path)}">${esc(c.name)}</button>`).join(" / ");
+}
+function fsShow() {
+  if (fsBusy) return;
+  if (fsToken) fsLoad(fsPath, true);
+  else fsLocked();
+}
+function fsLocked() {
+  fsDrawCrumbs();
+  $("fsSpace").textContent = "";
+  $("fsTools").hidden = true;
+  $("fsList").innerHTML = `<p class="note">The files need the 4-digit code on Track Rat's screen.</p>` +
+                          `<button class="btn" data-fs="unlock">Open the files</button>`;
+}
+async function fsLoad(path, quiet) {
+  fsPath = path;
+  fsDrawCrumbs();
+  const r = await fsApi("GET", "list", {path}, {quiet});
+  if (r.status === 404 && path !== "/") { fsLoad(fsParent(path), quiet); return; }
+  if (r.status === 401) { fsLocked(); return; }
+  let list = null;
+  try { list = r.ok ? JSON.parse(r.text) : null; } catch (e) { /* shown below */ }
+  if (!list) { fsMsg(r.text || "Couldn't read the folder.", true); return; }
+  fsEntries = fsSort(list.entries);
+  $("fsSpace").textContent = fsSpaceText(list.freeKB, list.totalKB);
+  $("fsTools").hidden = false;
+  $("fsList").innerHTML = fsEntries.length ? fsEntries.map((e, i) => {
+    const full = fsJoin(path, e.name);
+    return `<div class="row"><span class="fsname">` +
+           (e.isDir ? `<button class="chip" data-fs="open" data-i="${i}">${esc(e.name)}/</button>` : esc(e.name)) + `</span>` +
+           (e.isDir ? "" : `<small class="tag">${size(e.size)}</small> <a class="chip" href="${esc(fsDlUrl(full))}" download="${esc(e.name)}">Download</a>`) +
+           ` <button class="chip" data-fs="rename" data-i="${i}">Rename</button>` +
+           ` <button class="chip" data-fs="delete" data-i="${i}">Delete</button></div>`;
+  }).join("") : `<p class="note">Nothing in this folder.</p>`;
+}
+
+// Runs one action on the files with the buttons off, then lists the folder again
+async function fsRun(action) {
+  if (fsBusy) return;
+  fsBusy = true;
+  fsCancelled = false;
+  fsMsg("");
+  try { await action(); } finally { fsProgress(null); fsBusy = false; }
+  await fsLoad(fsPath);
+}
+
+async function fsUploadFiles(picked) {
+  const plan = fsUploadPlan(fsPath, picked);
+  if (!plan.items.length) { fsMsg(plan.skipped.length ? "None of those names fit on the card." : "No files picked.", true); return; }
+  const ask = fsOverwriteQuestion(fsOverwrites(plan, fsEntries));
+  if (ask && !confirm(ask)) return;
+  await fsRun(async () => {
+    let sent = 0, sentBytes = 0, why = "";
+    for (const it of plan.items) {
+      if (fsCancelled) break;
+      fsProgress(`Sending ${sent + 1} of ${plan.items.length}: ${fsName(it.path)}`, plan.bytes ? sentBytes / plan.bytes : 0);
+      const form = new FormData();
+      form.append("file", picked[it.index].file, "upload");
+      const r = await fsApi("POST", "upload", {path: it.path}, {body: form, onProgress: (loaded) =>
+        fsProgress(`Sending ${sent + 1} of ${plan.items.length}: ${fsName(it.path)}`, plan.bytes ? (sentBytes + Math.min(loaded, it.size)) / plan.bytes : 0)});
+      if (!r.ok) { if (r.status !== -1) why = `${it.path}: ${r.text}`; break; }
+      sent++;
+      sentBytes += it.size;
+      fsChanged(it.path);
+    }
+    const left = plan.items.length - sent;
+    fsMsg((sent ? `Sent ${fsCount(sent, "file", "files")}. ` : "") +
+          (why ? `Stopped at ${why}` : fsCancelled ? `Cancelled: ${fsCount(left, "file", "files")} not sent.` : "") +
+          (plan.skipped.length ? ` Left out, names the card can't hold: ${plan.skipped.slice(0, 3).join(", ")}${plan.skipped.length > 3 ? "…" : ""}` : ""),
+          !!why);
+  });
+}
+
+// Everything under a folder, by listing each folder in turn: [{path, isDir}], with a count shown as it goes
+async function fsWalk(root) {
+  const items = [], todo = [root];
+  while (todo.length) {
+    if (fsCancelled) return null;
+    const dir = todo.pop();
+    const r = await fsApi("GET", "list", {path: dir});
+    if (!r.ok) { fsMsg(r.text || "Couldn't read a folder.", true); return null; }
+    for (const e of JSON.parse(r.text).entries) {
+      const p = fsJoin(dir, e.name);
+      items.push({path: p, isDir: e.isDir});
+      if (e.isDir) todo.push(p);
+    }
+    fsProgress(`Counting what is in it… ${items.length} so far`, 0);
+  }
+  return items;
+}
+
+async function fsDelete(e) {
+  const path = fsJoin(fsPath, e.name);
+  await fsRun(async () => {
+    let order = [];
+    if (e.isDir) {
+      $("fsProg").hidden = false;
+      const items = await fsWalk(path);
+      if (!items) { if (fsCancelled) fsMsg("Cancelled. Nothing was deleted."); return; }
+      const folders = items.filter((i) => i.isDir).length;
+      fsProgress(null);
+      if (!confirm(fsDeleteQuestion(path, true, {files: items.length - folders, folders}))) return;
+      order = fsDeleteOrder(items);
+    } else if (!confirm(fsDeleteQuestion(path, false))) return;
+    order.push({path, isDir: e.isDir});
+    let done = 0;
+    for (const it of order) {
+      if (fsCancelled) { fsMsg(`Cancelled: ${done} of ${order.length} deleted.`); return; }
+      fsProgress(`Deleting ${done + 1} of ${order.length}`, done / order.length);
+      const r = await fsApi("POST", "delete", {path: it.path});
+      if (!r.ok && r.status !== 404) { fsMsg(`Stopped at ${it.path}: ${r.text} (${done} of ${order.length} deleted)`, true); return; }
+      done++;
+    }
+    fsChanged(path);
+    fsMsg(`Deleted ${fsCount(order.length, "item", "items")}.`);
+  });
+}
+
+async function fsRename(e) {
+  const typed = prompt(`New name for "${e.name}":`, e.name);
+  if (typed === null) return;
+  const name = typed.trim(), to = fsJoin(fsPath, name), from = fsJoin(fsPath, e.name);
+  const bad = fsNameProblem(name) || (fsSafePath(to) ? "" : "That makes the path longer than the card's limit of 200 bytes.");
+  if (bad) { fsMsg(bad, true); return; }
+  if (name === e.name) return;
+  if (fsEntries.some((x) => x.name.toLowerCase() === name.toLowerCase())) { fsMsg(`"${name}" is already used in this folder.`, true); return; }
+  await fsRun(async () => {
+    const r = await fsApi("POST", "rename", {from, to});
+    if (r.ok) fsChanged(from, to);
+    fsMsg(r.ok ? "Renamed." : r.text, !r.ok);
+  });
+}
+
+async function fsMkdir() {
+  const typed = prompt("Name of the new folder:");
+  if (typed === null) return;
+  const name = typed.trim(), path = fsJoin(fsPath, name);
+  const bad = fsNameProblem(name) || (fsSafePath(path) ? "" : "That makes the path longer than the card's limit of 200 bytes.");
+  if (bad) { fsMsg(bad, true); return; }
+  await fsRun(async () => {
+    const r = await fsApi("POST", "mkdir", {path});
+    if (r.ok) fsChanged(path);
+    fsMsg(r.ok ? "Made the folder." : r.text, !r.ok);
+  });
+}
+
+$("files").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-fs]");
+  if (!b) return;
+  const entry = fsEntries[+b.dataset.i];
+  switch (b.dataset.fs) {
+    case "go": fsMsg(""); fsLoad(b.dataset.p); break;
+    case "open": if (entry) { fsMsg(""); fsLoad(fsJoin(fsPath, entry.name)); } break;
+    case "unlock": if (await fsUnlock()) fsLoad(fsPath); break;
+    case "upload": $("fsPickFiles").click(); break;
+    case "uploadDir": $("fsPickDir").click(); break;
+    case "mkdir": fsMkdir(); break;
+    case "rename": if (entry) fsRename(entry); break;
+    case "delete": if (entry) fsDelete(entry); break;
+  }
+});
+function fsPicked(input) {
+  const picked = [...input.files].map((f) => ({name: f.name, rel: f.webkitRelativePath || "", size: f.size, file: f}));
+  input.value = "";
+  if (picked.length) fsUploadFiles(picked);
+}
+$("fsPickFiles").addEventListener("change", () => fsPicked($("fsPickFiles")));
+$("fsPickDir").addEventListener("change", () => fsPicked($("fsPickDir")));
+$("fsCancel").addEventListener("click", () => { fsCancelled = true; if (fsHold.abort) fsHold.abort(); });
 
 // The sample session beside the page (made by tools/make_sample_session.py)
 async function loadSample() {

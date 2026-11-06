@@ -59,6 +59,15 @@ const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, t
                         " nudgeShift, sliceNear, crossingsMs, crossingTimeMs, pathHeadingDeg, standingStartHolds, newRunMs, nudgeFixes," +
                         " nudgeLines, nudgeRuns, alongM, canClearLine, clearLine};")();
 
+const hm = html.match(/\/\/ ---- helpers \(begin[^\n]*\n([\s\S]*?)\/\/ ---- helpers \(end\) ----/);
+const flm = html.match(/\/\/ ---- files \(begin[^\n]*\n([\s\S]*?)\/\/ ---- files \(end\) ----/);
+if (!hm || !flm) {
+  console.log("FAIL: helpers or files section not found in web/index.html");
+  process.exit(1);
+}
+const FS = new Function(hm[1] + flm[1] + "\nreturn {esc, size, fsSafePath, fsNameProblem, fsJoin, fsName, fsParent, fsCrumbs, fsSort," +
+                        " fsTouchesRestart, fsDeleteOrder, fsDeleteQuestion, fsUploadPlan, fsOverwrites, fsOverwriteQuestion, fsSpaceText};")();
+
 let failures = 0;
 function check(cond, msg) {
   if (!cond) {
@@ -518,6 +527,94 @@ console.log("Wi-Fi page track editor tests");
   // Setting a new line puts it straight back
   ED.setLine(lineless.obj, 45.0001, -76.0001, 180);
   check(lineless.obj.startFinish.heading === 180 && ED.canClearLine(lineless), "a new line can be set");
+}
+
+// The Files tab's helpers
+{
+  // Escaping: a file name is never markup
+  const hostile = `<img src=x onerror="alert(1)">&'`;
+  const e = FS.esc(hostile);
+  check(!/[<>"']/.test(e) && e === "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;", "names are escaped: " + e);
+  check(FS.esc("caf\u00e9 \u65e5\u672c.txt") === "caf\u00e9 \u65e5\u672c.txt" && FS.esc(5) === "5", "plain names are left alone");
+  // The rows and the trail only put escaped text, sizes and counters into the page
+  const rowsSrc = html.slice(html.indexOf("function fsDrawCrumbs"), html.indexOf("// Runs one action on the files"));
+  const holes = [...rowsSrc.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1]);
+  check(holes.length >= 8 && holes.every((h) => /^(esc\(|size\(|i$|i === )/.test(h)),
+        "every value in the file rows is escaped: " + holes.filter((h) => !/^(esc\(|size\(|i$|i === )/.test(h)).join(" | "));
+  check(!/innerHTML\s*=[^;]*\be\.name\b(?!\))/.test(rowsSrc.replace(/esc\(e\.name\)/g, "")), "no raw name in innerHTML");
+
+  // Readable sizes
+  check(FS.size(0) === "0 B" && FS.size(1023) === "1023 B" && FS.size(1024) === "1 KB" && FS.size(1536) === "2 KB", "small sizes");
+  check(FS.size(1024 * 1024) === "1.0 MB" && FS.size(5.5 * 1024 * 1024) === "5.5 MB" && FS.size(1073741823) === "1024.0 MB" &&
+            FS.size(1073741824) === "1.0 GB" && FS.size(29.67 * 1073741824) === "29.7 GB", "large sizes");
+  check(FS.fsSpaceText(1048576, 31116288) === "1.0 GB free of 29.7 GB" && FS.fsSpaceText(0, 512) === "0 B free of 512 KB", "free space text");
+
+  // Paths: the same rules as portal::isSafePath
+  const ok = ["/", "/sessions", "/sessions/20261018_093012_calabogie.vbo", "/My Folder/lap times (1).csv", "/caf\u00e9/\u65e5\u672c.txt",
+              "/.hidden", "/a.b.c", "/a..b", "/..a", "/a..", "/#1 [best] {x} 'y' ~ ! @ $ % ^ & + = , ;", "/" + "x".repeat(199)];
+  const bad = ["", "a", "a/b", "./a", "../a", "/..", "/../a", "/a/..", "/a/../b", "/.", "/a/./b", "/...", "/a/..../b", "//", "//a", "/a//b",
+               "/a/", "/a\\b", "/\\", "/a:b", "/a*", "/a?", '/a"b', "/a<b", "/a>b", "/a|b", "/a\nb", "/a\tb", "/a\u0000b", "/a\u007fb",
+               "/" + "x".repeat(200), "/" + "\u00e9".repeat(100), null, undefined, 5];
+  check(ok.every(FS.fsSafePath), "safe paths: " + ok.filter((p) => !FS.fsSafePath(p)).join(" | "));
+  check(bad.every((p) => !FS.fsSafePath(p)), "unsafe paths: " + bad.filter((p) => FS.fsSafePath(p)).join(" | "));
+  check(FS.fsSafePath("/" + "\u00e9".repeat(99)) && !FS.fsSafePath("/" + "\u00e9".repeat(100)), "the limit is in bytes (UTF-8), not letters");
+  check(FS.fsNameProblem("lap 1.csv") === "" && FS.fsNameProblem("caf\u00e9") === "", "a good name");
+  check(FS.fsNameProblem("") && FS.fsNameProblem("a/b") && FS.fsNameProblem("..") && FS.fsNameProblem(".") && FS.fsNameProblem("a:b") &&
+            FS.fsNameProblem("a\\b") && FS.fsNameProblem('a"b') && FS.fsNameProblem("a|b") && FS.fsNameProblem("a\nb"), "bad names say why");
+
+  // Joining and walking paths
+  check(FS.fsJoin("/", "a") === "/a" && FS.fsJoin("/a", "b") === "/a/b" && FS.fsJoin("/a/b", "c d.txt") === "/a/b/c d.txt", "join");
+  check(FS.fsName("/a/b/c.txt") === "c.txt" && FS.fsName("/a") === "a", "last name");
+  check(FS.fsParent("/a/b/c") === "/a/b" && FS.fsParent("/a") === "/" && FS.fsParent("/") === "/", "parent");
+  check(JSON.stringify(FS.fsCrumbs("/")) === JSON.stringify([{name: "SD card", path: "/"}]) &&
+            JSON.stringify(FS.fsCrumbs("/a/b c")) === JSON.stringify([{name: "SD card", path: "/"}, {name: "a", path: "/a"}, {name: "b c", path: "/a/b c"}]),
+        "breadcrumbs");
+
+  // Folders first, then by name
+  const sorted = FS.fsSort([{name: "b.txt", isDir: false}, {name: "Zed", isDir: true}, {name: "a.txt", isDir: false}, {name: "lap10", isDir: false},
+                            {name: "lap2", isDir: false}, {name: "alpha", isDir: true}]).map((e) => e.name);
+  check(sorted.join() === "alpha,Zed,a.txt,b.txt,lap2,lap10", "folders first: " + sorted.join());
+
+  // Deleting a folder: files, then folders with the deepest first
+  const tree = [{path: "/d/sub/deep", isDir: true}, {path: "/d/a.txt", isDir: false}, {path: "/d/sub", isDir: true}, {path: "/d/x", isDir: true},
+                {path: "/d/sub/deep/z.txt", isDir: false}, {path: "/d/sub/b.txt", isDir: false}];
+  const order = FS.fsDeleteOrder(tree);
+  check(order.length === tree.length && tree.every((t) => order.includes(t)), "nothing lost or added");
+  const at = (p) => order.findIndex((o) => o.path === p);
+  check(order.slice(0, 3).every((o) => !o.isDir) && order.slice(3).every((o) => o.isDir), "files first");
+  check(order.every((o, i) => order.every((p, j) => !(o.isDir && p.path.startsWith(o.path + "/")) || j < i)), "everything in a folder goes before it");
+  check(at("/d/sub/deep") < at("/d/sub"), "deeper folders first");
+  check(JSON.stringify(FS.fsDeleteOrder([])) === "[]" && FS.fsDeleteOrder([{path: "/f", isDir: false}]).length === 1, "none, one");
+
+  // The question before a delete
+  check(FS.fsDeleteQuestion("/a/b.txt", false) === 'Delete the file "b.txt"? This can\'t be undone.', "file question");
+  check(FS.fsDeleteQuestion("/a/old", true, {files: 0, folders: 0}) === 'Delete the empty folder "old"? This can\'t be undone.', "empty folder question");
+  check(FS.fsDeleteQuestion("/a/old", true, {files: 12, folders: 3}) === 'Delete the folder "old" and everything in it (12 files and 3 folders)? This can\'t be undone.',
+        "folder question names it and counts");
+  check(/\(1 file\)\?/.test(FS.fsDeleteQuestion("/old", true, {files: 1, folders: 0})) && /\(1 folder\)\?/.test(FS.fsDeleteQuestion("/old", true, {files: 0, folders: 1})),
+        "one of each");
+  check(/track list/.test(FS.fsDeleteQuestion("/tracks.json", false)) && /tracks\.json\.bak/.test(FS.fsDeleteQuestion("/tracks.json", false)) &&
+            !/track list/.test(FS.fsDeleteQuestion("/sub/tracks.json", false)), "deleting tracks.json adds a warning");
+
+  // What needs a restart
+  check(["/tracks.json", "/world", "/world/44/-78.json", "/obd/car.json", "/tracks", "/tracks/calabogie/best.json", "/TRACKS.JSON", "/World/x"].every(FS.fsTouchesRestart),
+        "these need a restart");
+  check(!["/", "/tracks.json.bak", "/sessions/x.vbo", "/tracksfoo", "/worldwide", "/obd2", "/a/tracks.json"].some(FS.fsTouchesRestart), "these don't");
+
+  // Uploads: where each file goes, and what it would write over
+  const picked = [{name: "a.txt", rel: "", size: 5}, {name: "b.txt", rel: "Photos/2026/b.txt", size: 7}, {name: "bad:name", rel: "", size: 1},
+                  {name: "c.txt", rel: "Photos/c.txt", size: 3}];
+  const plan = FS.fsUploadPlan("/", picked);
+  check(plan.items.map((i) => i.path).join() === "/a.txt,/Photos/2026/b.txt,/Photos/c.txt" && plan.skipped.join() === "bad:name" && plan.bytes === 15 &&
+            plan.items[1].index === 1 && plan.items[2].index === 3, "upload plan in the top folder");
+  check(FS.fsUploadPlan("/sessions/2026", [{name: "a.txt", rel: "", size: 1}]).items[0].path === "/sessions/2026/a.txt", "and in a folder");
+  check(FS.fsUploadPlan("/" + "x".repeat(150), [{name: "y".repeat(60), rel: "", size: 1}]).skipped.length === 1, "a path that gets too long is left out");
+  const have = [{name: "A.TXT", isDir: false}, {name: "photos", isDir: true}, {name: "other", isDir: true}, {name: "b.txt", isDir: true}];
+  const over = FS.fsOverwrites(plan, have);
+  check(over.files.join() === "A.TXT" && over.folders.join() === "photos", "writes over: " + JSON.stringify(over));
+  check(FS.fsOverwrites(FS.fsUploadPlan("/", [{name: "new.txt", rel: "", size: 1}]), have).files.length === 0 &&
+            FS.fsOverwriteQuestion(FS.fsOverwrites(FS.fsUploadPlan("/", [{name: "new.txt", rel: "", size: 1}]), have)) === "", "nothing to write over: no question");
+  check(/"A\.TXT"/.test(FS.fsOverwriteQuestion(over)) && /contents of "photos"/.test(FS.fsOverwriteQuestion(over)), "the question names them");
 }
 
 // Point to point: a course made on the device ("type": "stage") gets its finish set on the page
@@ -1230,7 +1327,7 @@ console.log("Sample session tests");
   // No protected request is sent twice for one action: each handler asks once and posts once
   const asks = (html.match(/askCode\(/g) || []).length - 1;  // (minus the definition)
   const protectedPosts = (html.match(/uploadResult\(await post\(/g) || []).length;
-  check(asks === protectedPosts && protectedPosts === 9, `one code per change: ${asks} prompts, ${protectedPosts} changes`);
+  check(asks === protectedPosts && protectedPosts === 10, `one code per change: ${asks} prompts, ${protectedPosts} changes`);
   check(!/\buploadCode\b/.test(html), "no code is kept for later changes");
 
   // Downloads: two at a time, a 503 is tried again

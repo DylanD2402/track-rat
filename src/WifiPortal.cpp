@@ -839,6 +839,317 @@ static bool beginDownload(AsyncWebServerRequest* req) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Files tab: the SD card's files, to browse, download, upload, rename and delete from the page. The SD card only,
+// never flash. The routes:
+//
+//   POST /api/fs/unlock  code             -> {"token":"..."}: checks and spends the code (see portal::FsUnlock)
+//   GET  /api/fs/list    path, t          a folder as JSON, a piece at a time (FsList)
+//   GET  /api/fs/dl      path, t          a file as an attachment
+//   POST /api/fs/upload  path, t          one file (multipart) to the full path given, via <path>.upload
+//   POST /api/fs/delete  path, t          a file, or a folder if it is empty
+//   POST /api/fs/mkdir   path, t          one new folder
+//   POST /api/fs/rename  from, to, t      refused if `to` is there
+//
+// Every route but unlock carries the token, which only opens for the address it was given to (401 otherwise: the page
+// asks for a code again). Every path goes through portal::isSafePath. Changes are refused with 409 while the logger,
+// boot recovery or re-timing use the card. Each handler does a few short SD calls, since they run in the AsyncTCP task.
+
+static portal::FsUnlock fsUnlock;
+
+static uint32_t clientIp(AsyncWebServerRequest* req) { return (uint32_t)req->client()->remoteIP(); }
+
+// False (and the reply sent) unless the token is good and there is a card. change: also not while the logger has it.
+static bool fsAllowed(AsyncWebServerRequest* req, bool change) {
+  if (!fsUnlock.check(req->arg("t").c_str(), clientIp(req), millis())) {
+    req->send(401, "text/plain", "Enter the code again to open the files.");
+    return false;
+  }
+  if (!Storage::sdMounted()) {
+    req->send(503, "text/plain", "No SD card");
+    return false;
+  }
+  if (change && sessionFilesBusy()) {
+    req->send(409, "text/plain", "Track Rat is logging or re-timing. Try again when it's done.");
+    return false;
+  }
+  return true;
+}
+
+// The argument `name` as a path. False (and the reply sent) if it isn't a safe one.
+static bool fsPathArg(AsyncWebServerRequest* req, const char* name, String& path) {
+  path = req->arg(name);
+  if (portal::isSafePath(path.c_str())) return true;
+  req->send(400, "text/plain", "Bad path");
+  return false;
+}
+
+static bool sdIsDir(const String& path) {
+  File f = SD_MMC.open(path);
+  const bool dir = f && f.isDirectory();
+  f.close();
+  return dir;
+}
+
+// The folder `path` is in
+static String sdParent(const String& path) {
+  const size_t n = portal::parentLength(path.c_str());
+  return n ? path.substring(0, n) : String("/");
+}
+
+// Makes the folders above `path` that aren't there yet. False if a file is in the way or the card refuses.
+static bool sdMakeParents(const String& path) {
+  for (size_t i = 1; i < path.length(); i++) {
+    if (path[i] != '/') continue;
+    const String dir = path.substring(0, i);
+    if (sdIsDir(dir)) continue;
+    if (SD_MMC.exists(dir) || !SD_MMC.mkdir(dir)) return false;
+  }
+  return true;
+}
+
+static void onFsUnlock(AsyncWebServerRequest* req) {
+  if (!Storage::sdMounted()) {
+    req->send(503, "text/plain", "No SD card");
+    return;
+  }
+  if (!codeOk(req)) return;
+  const uint32_t rnd[4] = {esp_random(), esp_random(), esp_random(), esp_random()};
+  char token[portal::FsUnlock::TOKEN_CHARS + 1];
+  fsUnlock.issue(rnd, clientIp(req), millis(), token);
+  AsyncWebServerResponse* res = req->beginResponse(200, "application/json", String("{\"token\":\"") + token + "\"}");
+  res->addHeader("Cache-Control", "no-store");
+  req->send(res);
+  DEBUG_PRINTLN("Wi-Fi: files unlocked");
+  spendCode();
+}
+
+// A folder, sent a piece at a time like the session list (a folder can hold thousands of files)
+class FsList {
+public:
+  explicit FsList(const String& folder) : path(folder) {}
+
+  size_t fill(uint8_t* buf, size_t maxLen) {
+    return json.fill(buf, maxLen, LIST_READS_PER_CALL, [this]() { next(); });
+  }
+
+private:
+  void next() {
+    if (!opened) {
+      opened = true;
+      good = lister.open(SD_MMC, path.c_str());
+    }
+    Storage::DirLister::Entry e;
+    if (good && lister.next(e)) {
+      json.addEntry(e.name.c_str(), e.size, e.isDir);
+      return;
+    }  // (next() closed the folder at its end)
+    const StorageSpace& sp = storageSpace();
+    json.finish(sp.sdTotalKB > sp.sdUsedKB ? sp.sdTotalKB - sp.sdUsedKB : 0, sp.sdTotalKB);
+  }
+
+  portal::FsListJson<String> json;
+  String path;
+  bool opened = false, good = false;
+  Storage::DirLister lister;
+};
+
+static void onFsList(AsyncWebServerRequest* req) {
+  String path;
+  if (!fsAllowed(req, false) || !fsPathArg(req, "path", path)) return;
+  if (!sdIsDir(path)) {
+    req->send(404, "text/plain", "No such folder");
+    return;
+  }
+  std::shared_ptr<FsList> list = std::make_shared<FsList>(path);
+  AsyncWebServerResponse* res = req->beginChunkedResponse(
+      "application/json", [list](uint8_t* buf, size_t maxLen, size_t) { return list->fill(buf, maxLen); });
+  res->addHeader("Cache-Control", "no-store");
+  req->send(res);
+}
+
+static void onFsDownload(AsyncWebServerRequest* req) {
+  String path;
+  if (!fsAllowed(req, false) || !fsPathArg(req, "path", path)) return;
+  File f = SD_MMC.open(path);
+  const bool isFile = f && !f.isDirectory();
+  f.close();
+  if (!isFile) {
+    req->send(404, "text/plain", "No such file");
+    return;
+  }
+  if (!beginDownload(req)) return;
+  const String name = path.substring(path.lastIndexOf('/') + 1);
+  req->send(req->beginResponse(SD_MMC, path, portal::contentTypeFor(name.c_str()), true));
+}
+
+static void onFsDelete(AsyncWebServerRequest* req) {
+  String path;
+  if (!fsAllowed(req, true) || !fsPathArg(req, "path", path)) return;
+  if (portal::isRootPath(path.c_str())) {
+    req->send(400, "text/plain", "The top folder can't be deleted");
+    return;
+  }
+  if (!SD_MMC.exists(path)) {
+    req->send(404, "text/plain", "Not there");
+    return;
+  }
+  const bool dir = sdIsDir(path);
+  if (dir) {
+    Storage::DirLister lister;
+    Storage::DirLister::Entry e;
+    if (lister.open(SD_MMC, path.c_str()) && lister.next(e)) {
+      req->send(409, "text/plain", "That folder isn't empty");
+      return;
+    }
+  }
+  const bool ok = dir ? SD_MMC.rmdir(path) : SD_MMC.remove(path);
+  spaceValid = false;
+  DEBUG_PRINTF("Wi-Fi: files: delete %s %s\n", path.c_str(), ok ? "done" : "FAILED");
+  if (!ok) {
+    req->send(500, "text/plain", "The card wouldn't delete it");
+    return;
+  }
+  req->send(200, "text/plain", "Deleted");
+}
+
+static void onFsMkdir(AsyncWebServerRequest* req) {
+  String path;
+  if (!fsAllowed(req, true) || !fsPathArg(req, "path", path)) return;
+  if (SD_MMC.exists(path)) {
+    req->send(409, "text/plain", "That name is already used here");
+    return;
+  }
+  if (!sdIsDir(sdParent(path))) {
+    req->send(404, "text/plain", "The folder to put it in isn't there");
+    return;
+  }
+  const bool ok = SD_MMC.mkdir(path);
+  DEBUG_PRINTF("Wi-Fi: files: new folder %s %s\n", path.c_str(), ok ? "done" : "FAILED");
+  req->send(ok ? 200 : 500, "text/plain", ok ? "Made" : "The card wouldn't make the folder");
+}
+
+static void onFsRename(AsyncWebServerRequest* req) {
+  String from, to;
+  if (!fsAllowed(req, true) || !fsPathArg(req, "from", from) || !fsPathArg(req, "to", to)) return;
+  if (portal::isRootPath(from.c_str()) || portal::isRootPath(to.c_str())) {
+    req->send(400, "text/plain", "The top folder can't be renamed");
+    return;
+  }
+  if (!SD_MMC.exists(from)) {
+    req->send(404, "text/plain", "Not there");
+    return;
+  }
+  if (SD_MMC.exists(to)) {
+    req->send(409, "text/plain", "That name is already used here");
+    return;
+  }
+  if (portal::isSameOrInside(from.c_str(), to.c_str())) {
+    req->send(400, "text/plain", "A folder can't go inside itself");
+    return;
+  }
+  if (!sdIsDir(sdParent(to))) {
+    req->send(404, "text/plain", "The folder to move it to isn't there");
+    return;
+  }
+  const bool ok = SD_MMC.rename(from, to);
+  DEBUG_PRINTF("Wi-Fi: files: rename %s to %s %s\n", from.c_str(), to.c_str(), ok ? "done" : "FAILED");
+  req->send(ok ? 200 : 500, "text/plain", ok ? "Renamed" : "The card wouldn't rename it");
+}
+
+// An upload is written to <path>.upload and only replaces the old file when it is whole. One at a time (fsUpSlot).
+static portal::UploadSlot fsUpSlot;
+static File fsUpFile;
+static String fsUpDest, fsUpTmp, fsUpError;
+static bool fsUpOk = false, fsUpTmpMade = false;
+static int fsUpStatus = 400;
+
+static void fsUpFail(int status, const char* why) {
+  fsUpOk = false;
+  fsUpStatus = status;
+  fsUpError = why;
+}
+
+static void dropFsUpload() {
+  if (fsUpFile) fsUpFile.close();
+  if (fsUpTmpMade) SD_MMC.remove(fsUpTmp);
+  fsUpTmpMade = false;
+}
+
+// A new upload's first piece: the token and path, room on the card, the folders above it, the temporary file
+static void startFsUpload(AsyncWebServerRequest* req) {
+  fsUpOk = true;
+  fsUpError = "";
+  fsUpStatus = 400;
+  fsUpTmpMade = false;
+  fsUpDest = req->arg("path");
+  fsUpTmp = fsUpDest + ".upload";
+  if (!Storage::sdMounted()) fsUpFail(503, "No SD card");
+  else if (!portal::isSafePath(fsUpDest.c_str()) || portal::isRootPath(fsUpDest.c_str())) fsUpFail(400, "Bad path");
+  else if (sessionFilesBusy()) fsUpFail(409, "Track Rat is logging or re-timing. Try again when it's done.");
+  else if (req->contentLength() > portal::FS_UPLOAD_MAX_BYTES + portal::MULTIPART_SLACK)
+    fsUpFail(413, "That file is over 1 GB");
+  else if (!roomForUpload(SD_MMC, req->contentLength())) fsUpFail(507, "Not enough room on the SD card for that file");
+  else if (sdIsDir(fsUpDest)) fsUpFail(409, "A folder with that name is there");
+  else if (!sdMakeParents(fsUpDest)) fsUpFail(400, "Can't make the folders for that: a file has the name of one");
+  else {
+    fsUpFile = SD_MMC.open(fsUpTmp, "w");
+    fsUpTmpMade = (bool)fsUpFile;
+    if (!fsUpFile) fsUpFail(500, "Can't write to the SD card");
+  }
+  req->onDisconnect([req]() {  // phone went away half way (or Cancel): keep the old file
+    if (!fsUpSlot.owns(req)) return;
+    dropFsUpload();
+    fsUpSlot.release(req);
+  });
+}
+
+static void onFsUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data, size_t len,
+                       bool final) {
+  if (index == 0) {
+    if (!fsUnlock.check(req->arg("t").c_str(), clientIp(req), millis())) return;  // refused in the reply
+    if (!fsUpSlot.claim(req)) return;                                               // another upload is running
+    startFsUpload(req);
+  }
+  if (!fsUpSlot.owns(req)) return;
+  if (fsUpOk && index + len > portal::FS_UPLOAD_MAX_BYTES) fsUpFail(413, "That file is over 1 GB");
+  if (fsUpOk && len && fsUpFile.write(data, len) != len) fsUpFail(507, "The SD card is full or the write failed");
+  if (!fsUpOk && fsUpTmpMade) dropFsUpload();  // no use keeping what's been written
+  if (!final) return;
+
+  if (fsUpFile) fsUpFile.close();
+  // tracks.json is read by Track Rat at start: only a good one replaces it (as the Tracks tab checks)
+  if (fsUpOk && fsUpDest == TRACK_DATABASE_FILE) {
+    File f = SD_MMC.open(fsUpTmp);
+    const size_t bytes = f ? f.size() : 0;
+    f.close();
+    if (bytes > portal::TRACKS_MAX_BYTES) fsUpFail(413, "Track Rat takes a tracks.json up to 2 MB");
+    else if (!validTracksUpload(SD_MMC, fsUpTmp.c_str()))
+      fsUpFail(400, "That isn't a good tracks.json: it needs a \"tracks\" list");
+  }
+  if (fsUpOk && !replaceFile(SD_MMC, fsUpTmp, fsUpDest)) fsUpFail(500, "Couldn't put the file in place");
+  if (!fsUpOk) dropFsUpload();
+  else fsUpTmpMade = false;  // (renamed: nothing left to remove)
+  DEBUG_PRINTF("Wi-Fi: files: upload %s %s (%u bytes)%s\n", fsUpDest.c_str(), fsUpOk ? "saved" : "FAILED",
+               (unsigned)(index + len), fsUpOk ? "" : (" - " + fsUpError).c_str());
+}
+
+static void onFsUploadDone(AsyncWebServerRequest* req) {
+  if (!fsUpSlot.owns(req)) {
+    if (!fsUnlock.check(req->arg("t").c_str(), clientIp(req), millis()))
+      req->send(401, "text/plain", "Enter the code again to open the files.");
+    else if (fsUpSlot.busy())
+      req->send(409, "text/plain", "Another upload is running. Try again when it's done.");
+    else
+      req->send(400, "text/plain", "No file received");
+    return;
+  }
+  spaceValid = false;
+  if (fsUpOk) req->send(200, "text/plain", "Saved");
+  else req->send(fsUpStatus, "text/plain", fsUpError);
+  fsUpSlot.release(req);
+}
+
 static void setupRoutes() {
   AsyncWebServer& s = *server;
   s.addHandler(new PostGate());
@@ -906,6 +1217,15 @@ static void setupRoutes() {
   s.on("/api/tracks", HTTP_POST, onTracksDone, onTracksUpload);
   s.on("/api/note", HTTP_POST, onNotePost);
   s.on("/api/session/delete", HTTP_POST, onSessionDelete);
+
+  // The Files tab (see above)
+  s.on("/api/fs/unlock", HTTP_POST, onFsUnlock);
+  s.on("/api/fs/list", HTTP_GET, onFsList);
+  s.on("/api/fs/dl", HTTP_GET, onFsDownload);
+  s.on("/api/fs/upload", HTTP_POST, onFsUploadDone, onFsUpload);
+  s.on("/api/fs/delete", HTTP_POST, onFsDelete);
+  s.on("/api/fs/mkdir", HTTP_POST, onFsMkdir);
+  s.on("/api/fs/rename", HTTP_POST, onFsRename);
   s.on("/api/firmware", HTTP_POST, onFirmwareDone, onFirmwareUpload);
 
   // The page sends the phone's time zone: tz = minutes east of UTC
@@ -1033,6 +1353,7 @@ void stop() {
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_OFF);
   on = false;
+  fsUnlock.forget();  // (a token isn't good for a later network)
   DEBUG_PRINTLN("Wi-Fi: off");
 }
 
