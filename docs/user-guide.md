@@ -29,6 +29,8 @@ Using Track Rat day to day: driving, settings, tracks, power, the Wi-Fi page and
 
 **Tracks with no start/finish line yet** (from the Canada list, or created on the timer) ask you to tap the screen as you cross the line the first time. **SET LINE** on a track's Ready screen marks a new line for any track, for example if a stored line is in the wrong place. The direction you're driving when you tap is saved with the line, so crossing it the other way later doesn't count. This needs you to be doing at least 15 km/h when you tap; slower than that the GPS direction is too rough, and the line is saved without one.
 
+**Too far from the track:** a session can only start on a track within 15 km of where you are (`TRACK_RANGE_M`), judged from the track's centre. Further away, or before the GPS has a fix, the Ready screen shows why ("354 km from this track", or "No GPS fix yet") and only the way back (**MENU** or **BACK**; BOOT press): START and SET LINE do nothing. The Bench Test is exempt. In the same way, a start/finish line more than 15 km from its track's centre (set at home by mistake, say) is ignored: the track then asks for a new line, and the Wi-Fi page's Tracks tab lists it so you can fix it. Tapping a line further than that from the track is refused with "Too far from this track: line not set".
+
 **Layouts:** a venue with several layouts (Full, Short, the kart track) lists each one separately, and its Ready screen shows which layout is picked. Tap the top bar of the Ready screen for the next layout. You don't have to get it right: after your first full lap, the timer compares your lap with the map of each layout there (and any other track within 3 km that has a map). If another one clearly fits better, it switches to it and shows **Layout: ...** on screen. If you haven't crossed the picked layout's line after 2 km, it checks the same way. It doesn't when you're putting a line down yourself (SET LINE, + New circuit): the line goes on the track you chose.
 
 | Screen | Touch | BOOT button (or big button) |
@@ -402,6 +404,8 @@ The same page also runs at [trackrat.ca/analyze](https://trackrat.ca/analyze/), 
 ### Track editor and re-timing
 
 Record first, decide later: a wrong start/finish, a missing split or a layout Track Rat didn't know never costs a session, because every fix is in the log.
+
+**No session needed:** the session picker's **No session: just the track's lines** option opens any track on its own map (if it has one), with its lines on top. Move line, Flip direction, Add/Remove split, Remove start/finish and Save lines all work; run times and re-timing a session need a session. A track with no map can't have a line placed by tapping (pick a session for that), but its line can still be removed. A line far from its track is listed at the top of the Tracks tab ("Wasaga Speedway's line is 354 km from the track, so Track Rat ignores it.") with a button that opens it here. Nothing is saved until you tap **Save lines** (a second button appears under the map as soon as there is something to save).
 
 1. On the **Tracks** tab, pick a session (any `.vbo` log on the SD card). Its laps are drawn from the log on your phone, no map download needed: every lap in grey, one in full, with the track's start/finish (green, with an arrow the way the track runs), splits (blue, S1, S2...) and corners (purple, T1, T2... or their names) on top. The track is the one the log names; pick another from the list if it was timed at the wrong one.
 2. Edit:

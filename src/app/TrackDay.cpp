@@ -10,6 +10,7 @@
 #include "ProfileStore.h"
 #include "SimTrack.h"
 #include "TrackOrder.h"
+#include "TrackRange.h"
 
 namespace TrackDay {
 
@@ -212,10 +213,21 @@ void renderList() {
   }
 }
 
+// Can a session start on the selected track from here? Judged from the track's centre, never its line: a line
+// set far from the track is ignored (TrackDatabase), and the centre is what says where the track is.
+static trackrange::Start readyRange() {
+  const Track& t = selectedTrack();
+  const GpsFix& f = gps.lastFix();
+  return trackrange::canStart(t.bench, gps.hasFix(), t.centerLat, t.centerLon, f.lat, f.lon);
+}
+
+bool readyCanStart() { return readyRange() == trackrange::Start::Ok; }
+
 void onInputReady(InputEvent ev) {
-  if (ev == InputEvent::TapCenter || ev == InputEvent::BootLong) {
+  const bool canStart = readyCanStart();
+  if ((ev == InputEvent::TapCenter || ev == InputEvent::BootLong) && canStart) {
     enterState(AppState::Running);
-  } else if (ev == InputEvent::TapRight && !selectedTrack().bench) {
+  } else if (ev == InputEvent::TapRight && canStart && !selectedTrack().bench) {
     enterState(AppState::Running);
     Session::markNewLine();  // mark a new start/finish (replaces the old one)...
                            // ...on the layout the driver picked, not one the check finds
@@ -229,9 +241,15 @@ void onInputReady(InputEvent ev) {
 
 void renderReady() {
   showPersonalBest();
-  display.drawTrackConfirm(selectedTrack(), distanceToTrack(selectedIndex), gps.hasFix(),
-                           input.touchAvailable(), trackDB.layoutNumber(selectedIndex),
-                           trackDB.layoutCount(selectedIndex), readyFromList, autoStartArmed());
+  const trackrange::Start range = readyRange();
+  const Track& t = selectedTrack();
+  const GpsFix& f = gps.lastFix();
+  // Too far: say how far from the track's centre (the pill says "354 km from this track")
+  const double shown = range == trackrange::Start::TooFar ? geo::distanceM(f.lat, f.lon, t.centerLat, t.centerLon)
+                                                          : distanceToTrack(selectedIndex);
+  display.drawTrackConfirm(t, shown, gps.hasFix(), input.touchAvailable(), trackDB.layoutNumber(selectedIndex),
+                           trackDB.layoutCount(selectedIndex), readyFromList, range == trackrange::Start::Ok && autoStartArmed(),
+                           range);
 }
 
 }  // namespace TrackDay

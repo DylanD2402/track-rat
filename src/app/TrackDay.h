@@ -16,6 +16,7 @@ void onInputList(InputEvent ev);    // a tap or press on the Track day list (not
 void renderList();
 void onInputReady(InputEvent ev);   // a track's Ready screen
 void renderReady();
+bool readyCanStart();  // the Ready screen's track may start a session from here (TrackRange.h)
 
 // A track's best lap, read from the card once and kept (ms 0: none)
 void personalBestFor(int index, uint32_t& ms, uint32_t& date);

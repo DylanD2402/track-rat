@@ -529,7 +529,7 @@ void loop() {
       if (d > TRACK_DETECTION_RADIUS_M || d < 0) {
         nextSessionArmed = false;
         DEBUG_PRINTLN("Left the track - no next session");
-      } else if (driveOff.onFix(fix.speedKmh, fix.gpsTimeMs)) {
+      } else if (driveOff.onFix(fix.speedKmh, fix.gpsTimeMs) && (state != AppState::TrackConfirm || TrackDay::readyCanStart())) {
         DEBUG_PRINTLN("Driving off - starting a session");
         enterState(AppState::Running);
       }

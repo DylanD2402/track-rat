@@ -26,6 +26,7 @@
 #include "ObdBle.h"
 #include "CameraBle.h"
 #include "TrackDatabase.h"
+#include "TrackRange.h"
 #include "Debrief.h"
 #include "Courses.h"
 #include "AdjustView.h"
@@ -112,8 +113,10 @@ public:
   // layoutNumber is 0-based; layoutCount > 1 offers "tap the top bar for the next layout".
   // fromList: reached from the track list, so the left button is "Back" (otherwise "Menu").
   // autoStart: waiting for the car to drive off, which starts the session by itself.
+  // range: TooFar (distanceM is then the distance to the track's centre) or NoFix leave only the way back.
   void drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk, int layoutNumber = 0,
-                        int layoutCount = 1, bool fromList = false, bool autoStart = false);
+                        int layoutCount = 1, bool fromList = false, bool autoStart = false,
+                        trackrange::Start range = trackrange::Start::Ok);
   void drawRunning(const Track& track, const LapTimer& timer, const GPSHandler& gps,
                    const RunningOverlay& overlay, uint32_t holdMs);
   void drawRunningMap(const Track& track, const LapTimer& timer, const GPSHandler& gps,
