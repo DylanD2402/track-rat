@@ -219,6 +219,7 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
         <button class="btn plain" data-mode="remove">Remove split</button>
         <button class="btn plain" data-mode="finish" id="edFinish" hidden>Set finish</button>
         <button class="btn plain" id="edLayout">New layout</button>
+        <button class="btn plain" id="edClear" hidden>Remove start/finish</button>
       </div>
       <h2>Nudge a line</h2>
       <p class="note">Tapping while driving puts a line a little late or early. Pick it, then slide it along the
@@ -918,6 +919,18 @@ function setFinish(obj, lat, lon, heading) {
   obj.finish = radius ? {lat: round7(lat), lon: round7(lon), radius, heading} : {lat: round7(lat), lon: round7(lon), heading};
 }
 
+// Takes the start/finish off a track, for a line put in the wrong place (a session started at your desk): the line and
+// the corner sectors numbered from it go, the splits and the map stay. Not for a stage or course, whose runs need
+// their start. Track Rat reads a track with no startFinish as "no line yet" (src/TrackDatabase.cpp readLayout), so it
+// still lists it and takes the next line you set. Returns false if there was nothing to remove.
+function canClearLine(t) { return !!t && !isStage(t) && !!t.obj.startFinish; }
+function clearLine(t) {
+  if (!canClearLine(t)) return false;
+  delete t.obj.startFinish;
+  delete t.obj.sectors;
+  return true;
+}
+
 function flipLine(obj) {
   if (!obj.startFinish || typeof obj.startFinish.heading !== "number") return false;
   obj.startFinish.heading = Math.round(((obj.startFinish.heading + 180) % 360) * 10) / 10;
@@ -1607,7 +1620,15 @@ $("edTools").addEventListener("click", (e) => {
   if (!b) return;
   const t = findTrack(ed.db, ed.trackId);
   if (b.dataset.mode) edMode(b.dataset.mode);
-  else if (b.id === "edFlip" && t) { if (flipLine(t.obj)) edChanged(); else edMsg("The line has no direction yet: move it onto the path first.", true); }
+  else if (b.id === "edClear" && t) {
+    if (!canClearLine(t)) return;
+    if (!confirm("Remove this track's start/finish line? Track Rat will show \"No start/finish line yet\" there until you set one. " +
+                 "Save the lines to apply it.")) return;
+    clearLine(t);
+    edMode("");
+    edChanged();
+    edMsg("Start/finish removed. Save the lines to apply it, or tap Move line to set a new one.");
+  } else if (b.id === "edFlip" && t) { if (flipLine(t.obj)) edChanged(); else edMsg("The line has no direction yet: move it onto the path first.", true); }
   else if (b.id === "edLayout" && t) {
     const id = addLayout(ed.db, ed.trackId, prompt("Name of the new layout (e.g. Short, Club):") || "");
     if (!id) { edMsg("Give the layout a name no other layout of this venue has.", true); return; }
@@ -1679,6 +1700,7 @@ function edLines() {
   const t = findTrack(ed.db, ed.trackId);
   if (!t) return;
   const list = edNudgeable(t);
+  $("edClear").hidden = !canClearLine(t);
   if (!list.some((l) => l.key === ed.sel)) ed.sel = list.length ? list[0].key : "";
   $("edSel").innerHTML = list.map((l) => `<option value="${esc(l.key)}"${l.key === ed.sel ? " selected" : ""}>${esc(l.name)}</option>`).join("");
   $("edSel").hidden = $("edNudge").hidden = !list.length;

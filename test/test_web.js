@@ -57,7 +57,7 @@ const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistan
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
                         " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart," +
                         " nudgeShift, sliceNear, crossingsMs, crossingTimeMs, pathHeadingDeg, standingStartHolds, newRunMs, nudgeFixes," +
-                        " nudgeLines, nudgeRuns, alongM};")();
+                        " nudgeLines, nudgeRuns, alongM, canClearLine, clearLine};")();
 
 let failures = 0;
 function check(cond, msg) {
@@ -481,6 +481,43 @@ console.log("Wi-Fi page track editor tests");
   check(ED.addLayout(d, "calabogie.short", "  ") === null, "no name");
   check(ED.addLayout(d, "calabogie.short", "Club") === "calabogie.club" && v.layouts.length === 3, "a third layout");
   check(ED.addLayout(d, "nope", "X") === null, "no such track");
+}
+
+// Removing a start/finish put in the wrong place (a session started at the desk)
+{
+  const d = {tracks: [
+    {id: "desk", name: "Desk", center: {lat: 45, lon: -76}, startFinish: {lat: 45, lon: -76, radius: 15, heading: 90},
+     splits: [{lat: 45.001, lon: -76, radius: 15, heading: 0}], sectors: [{lat: 45.002, lon: -76, radius: 15}], map: [[[45, -76], [45.1, -76.1]]]},
+    {id: "ring", name: "Ring", layouts: [{name: "GP", startFinish: {lat: 44, lon: -78, radius: 15}, sectors: [{lat: 44.1, lon: -78}]},
+                                         {name: "Short", startFinish: {lat: 44.5, lon: -78.5, radius: 15}}]},
+    {id: "course-2026-10-20", name: "Course 2026-10-20", type: "stage", kind: "course", startFinish: {lat: 45.1, lon: -76.1}},
+    {id: "bare", name: "Bare", center: {lat: 46, lon: -77}},
+  ]};
+  const desk = ED.findTrack(d, "desk");
+  check(ED.canClearLine(desk) && !ED.canClearLine(ED.findTrack(d, "course-2026-10-20")) && !ED.canClearLine(ED.findTrack(d, "bare")) &&
+            !ED.canClearLine(null), "only a track with a line, not a stage or course, can lose it");
+  check(!ED.clearLine(ED.findTrack(d, "course-2026-10-20")) && d.tracks[2].startFinish, "a course keeps its start");
+  check(!ED.clearLine(ED.findTrack(d, "bare")), "nothing to remove from a track with no line");
+  check(ED.clearLine(desk) && !("startFinish" in d.tracks[0]) && !("sectors" in d.tracks[0]), "line and sectors go");
+  check(d.tracks[0].splits.length === 1 && d.tracks[0].map.length === 1 && d.tracks[0].center.lat === 45 && d.tracks[0].name === "Desk",
+        "splits, map, centre and name stay");
+  check(!ED.canClearLine(desk) && !ED.clearLine(desk), "second time: nothing left");
+  // A layout loses only its own line
+  ED.clearLine(ED.findTrack(d, "ring.gp"));
+  check(!("startFinish" in d.tracks[1].layouts[0]) && !("sectors" in d.tracks[1].layouts[0]) && d.tracks[1].layouts[1].startFinish.lat === 44.5,
+        "only the layout's line goes");
+  // The file still goes through the page's own checks and the editor, as a track that has no line yet
+  const saved = JSON.parse(JSON.stringify(d, null, 2) + "\n");
+  check(Array.isArray(saved.tracks) && saved.tracks.length === 4, "still a tracks.json with a tracks list");
+  const lineless = ED.findTrack(saved, "desk");
+  check(lineless && ED.trackList(saved).length === 5, "the track is still listed");
+  const lines = ED.nudgeLines(lineless, {lat: 45, lon: -76});
+  check(lines.sf === null && lines.splits.length === 1, "no start/finish line to time with");
+  check(Array.isArray(ED.nudgeRuns([{lap: 1, ms: 0, kmh: 50, x: 0, y: 0}, {lap: 1, ms: 1000, kmh: 50, x: 10, y: 0}], lines, false)),
+        "runs can still be worked out without it");
+  // Setting a new line puts it straight back
+  ED.setLine(lineless.obj, 45.0001, -76.0001, 180);
+  check(lineless.obj.startFinish.heading === 180 && ED.canClearLine(lineless), "a new line can be set");
 }
 
 // Point to point: a course made on the device ("type": "stage") gets its finish set on the page
