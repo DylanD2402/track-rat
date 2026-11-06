@@ -547,7 +547,8 @@ void DisplayManager::drawTrackSelect(const Track& track, int index, int count, d
 }
 
 void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool gpsFix, bool touchOk,
-                                      int layoutNumber, int layoutCount, bool fromList, bool autoStart) {
+                                      int layoutNumber, int layoutCount, bool fromList, bool autoStart,
+                                      trackrange::Start range) {
   beginFrame();
   char buf[64];
   if (layoutCount > 1 && touchOk) {
@@ -569,6 +570,7 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   String status;
   uint16_t color;
   if (track.bench) status = "Simulated car, no GPS needed", color = C_YELLOW;
+  else if (range == trackrange::Start::TooFar) status = distanceText(distanceM) + " from this track", color = C_RED;
   else if (gpsFix && distanceM >= 0) status = String(what) + " is " + distanceText(distanceM) + " away", color = distanceM < 2000 ? C_GREEN : C_YELLOW;
   else status = "No GPS fix yet", color = C_YELLOW;
   int pw = textWidth(status, Font::Body) + 34;
@@ -580,7 +582,12 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   if (driverCar[0] && track.layoutName.length()) y -= 8;  // room for whose PB it is
   // A world track's line is a guess from the map (ROADMAP Phase 10): timing uses it, and the driver is told to check
   const bool estimated = track.estimated && track.hasStartFinish;
-  if (autoStart) {
+  // Too far from the track, or no fix yet: nothing to start, so say why instead of how timing begins
+  const bool blocked = range != trackrange::Start::Ok;
+  if (blocked) {
+    centered(range == trackrange::Start::TooFar ? "Too far away to start a session here" : "Waiting for GPS to start", y + 4,
+             Font::Body, range == trackrange::Start::TooFar ? C_RED : C_YELLOW);
+  } else if (autoStart) {
     centered("Starts by itself when you drive off", y, Font::Body, C_GREEN);
     if (estimated) {
       centered("Start/finish estimated: check it after a lap", y + 21, Font::Caption, C_YELLOW);
@@ -603,8 +610,14 @@ void DisplayManager::drawTrackConfirm(const Track& track, double distanceM, bool
   if (driverCar[0]) centered(fit(driverCar, Font::Caption, W - 20), y + 62, Font::Caption, C_TEXT2);
   if (!pbMs) centered(String("Laps are saved to ") + Storage::sessionFSName(), y + 46, Font::Caption, C_TEXT3);
 
-  if (touchOk) footerButtons(fromList ? "Back" : "Menu", "Start", track.bench ? "" : "Set line");
-  else centered(fromList ? "BOOT: hold to start, press to go back" : "BOOT: hold to start, press for menu", 212, Font::Body, C_TEXT3);
+  if (touchOk) {
+    if (blocked) footerButtons(fromList ? "Back" : "Menu", "", "");  // only the way back
+    else footerButtons(fromList ? "Back" : "Menu", "Start", track.bench ? "" : "Set line");
+  } else if (blocked) {
+    centered(fromList ? "BOOT: press to go back" : "BOOT: press for menu", 212, Font::Body, C_TEXT3);
+  } else {
+    centered(fromList ? "BOOT: hold to start, press to go back" : "BOOT: hold to start, press for menu", 212, Font::Body, C_TEXT3);
+  }
   endFrame();
 }
 

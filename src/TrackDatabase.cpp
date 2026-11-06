@@ -12,6 +12,7 @@
 #include "PsramAlloc.h"
 #include "Settings.h"
 #include "Storage.h"
+#include "TrackRange.h"
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include <algorithm>
@@ -149,6 +150,18 @@ static void readLayout(JsonObject src, Track& track) {
         track.centerLon = first[first.size() / 2][1] | 0.0;
       }
     }
+  }
+
+  // A line far from the track's centre (set at home by mistake) isn't this track's line: ignore it, here, now
+  // that the centre is settled and before anything works out positions from refLat()/refLon() (maps, splits,
+  // the map cache). tracks.json isn't rewritten: the next line set or saved replaces it.
+  if (track.hasStartFinish &&
+      !trackrange::lineBelongs(track.centerLat, track.centerLon, track.startFinish.lat, track.startFinish.lon)) {
+    DEBUG_PRINTF("Tracks: '%s' start/finish is %.0f km from the track, so it is ignored\n", track.displayName().c_str(),
+                 trackrange::kmFrom(track.centerLat, track.centerLon, track.startFinish.lat, track.startFinish.lon));
+    track.hasStartFinish = false;
+    track.estimated = false;
+    track.startFinish = {0, 0, track.startFinish.radius};
   }
 }
 

@@ -274,6 +274,14 @@ int main(int argc, char** argv) {
     save(d, "06f_track_select_estimated");
     d.setPersonalBest(163611, 20260914);
   }
+  {  // 15 km or more from the track (TrackRange.h): only the way back; the distance is to the track's centre
+    d.drawTrackConfirm(layout, 354000, true, true, 0, 3, false, false, trackrange::Start::TooFar);
+    save(d, "07h_ready_too_far");
+    d.drawTrackConfirm(layout, 354000, true, false, 0, 3, true, false, trackrange::Start::TooFar);  // BOOT only
+    save(d, "07i_ready_too_far_boot");
+    d.drawTrackConfirm(layout, -1, false, true, 0, 3, false, false, trackrange::Start::NoFix);
+    save(d, "07j_ready_no_fix");
+  }
 
   // --- a session: drive laps through the real lap timer ---
   LapTimer timer;

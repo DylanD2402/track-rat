@@ -28,6 +28,7 @@
 #include "TrackDatabase.h"
 #include "TrackDay.h"
 #include "TrackLearn.h"
+#include "TrackRange.h"
 
 namespace Session {
 
@@ -377,10 +378,23 @@ static bool saveBestLaps(const Lap& lap, bool& isDayBest);
 static void makeSectors(const Lap& lap);
 static void commitFinishLap();
 
+// Is the fix further than TRACK_RANGE_M from the selected track's centre? A line tapped there would be in the
+// wrong place for this track (and ignored at the next start), so it is refused with a notice.
+static bool tooFarForLine(const GpsFix& f, const char* what) {
+  const Track& t = selectedTrack();
+  if (trackrange::canStart(t.bench, true, t.centerLat, t.centerLon, f.lat, f.lon) != trackrange::Start::TooFar) return false;
+  overlay.notice = "Too far from this track: line not set";
+  layoutNoticeUntil = millis() + 6000;
+  DEBUG_PRINTF("%s: %.0f km from '%s' - not set\n", what, trackrange::kmFrom(t.centerLat, t.centerLon, f.lat, f.lon),
+               t.displayName().c_str());
+  return true;
+}
+
 // A stage with no finish yet: the driver tapped crossing it. Saves it and ends the run there.
 static void markFinish() {
   if (!gps.hasFix()) return;
   const GpsFix& f = gps.lastFix();
+  if (tooFarForLine(f, "Finish")) return;
   const bool courseOk = f.courseValid && f.speedKmh >= LINE_HEADING_MIN_KMH;
   LapEvents evs = lapTimer.finishRunNow(f.lat, f.lon, f.gpsTimeMs);
   trackDB.setFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
@@ -428,6 +442,7 @@ static void markStartFinish() {
     return;
   }
   const GpsFix& f = gps.lastFix();
+  if (tooFarForLine(f, "Start/finish")) return;
   // The direction of travel is saved with the line, so crossing it the other way doesn't count
   bool courseOk = f.courseValid && f.speedKmh >= LINE_HEADING_MIN_KMH;
   trackDB.setStartFinish(selectedIndex, f.lat, f.lon, courseOk ? f.courseDeg : -1);
