@@ -3,7 +3,8 @@
  *
  * Opens an open Wi-Fi network "TrackRat-XXXX" with a captive portal: a DNS
  * server answers every name with the board's address, so a phone that joins
- * opens the page by itself (it's also at http://192.168.4.1).
+ * opens the page by itself. By hand it is at trackrat.local (mDNS, which
+ * iPhones use for .local names instead of DNS) or http://192.168.4.1.
  *
  * The page (data/web, gzipped, in LittleFS) lists and downloads session
  * files, downloads and replaces tracks.json, installs firmware, and shows
@@ -32,6 +33,7 @@ void loop(const GPSHandler& gps);
 
 const String& networkName();  // "TrackRat-1A2B"
 String address();             // "192.168.4.1"
+String shortAddress();        // "trackrat.local"
 int clientCount();            // phones joined
 
 // Firmware install: -1 = none, 0-100 = percent received. True while the

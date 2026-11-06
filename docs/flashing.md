@@ -56,7 +56,7 @@ The file is renamed `trackrat.installed.bin` afterwards, so it isn't offered aga
 **From the Wi-Fi page**
 
 1. Tap **WI-FI** on the menu or on a session summary. The screen shows the network name, the address and an upload code.
-2. Join the network **TrackRat-XXXX** on your phone or computer (no password) and open **http://192.168.4.1**.
+2. Join the network **TrackRat-XXXX** on your phone or computer (no password) and open **trackrat.local**, or **http://192.168.4.1** with the `http://` typed.
 3. On the **Firmware** tab, choose `trackrat.bin` and enter the upload code. A progress bar shows while it's sent; then Track Rat restarts with Wi-Fi off. Keep it powered until it does.
 
 ## Build from source with PlatformIO

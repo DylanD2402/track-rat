@@ -280,6 +280,12 @@ g++ -std=c++17 -Iinclude test/test_profiles.cpp -o /tmp/pr && /tmp/pr
 g++ -std=c++17 -Iinclude test/test_devicelink.cpp -o /tmp/dl && /tmp/dl
 ```
 
+`test/test_dns.cpp` checks the captive portal's DNS answer (`include/CaptiveDns.h`): A and ANY queries get the board's address (TTL 30 s), AAAA, HTTPS and other types get an empty NOERROR so the phone moves on to its A query, an EDNS0 OPT record in the query doesn't stop the reply and isn't echoed, a wrong opcode or question count gets NOTIMP or FORMERR, and responses, truncated names, compression pointers, names over 255 bytes and a too-small output buffer get no reply:
+
+```bash
+g++ -std=c++17 -Iinclude test/test_dns.cpp -o /tmp/dns && /tmp/dns
+```
+
 `test/test_blefound.cpp` checks the list of devices a Bluetooth scan found, shared by Find adapter and Pair camera (`include/BleFound.h`): strongest signal first, equal signals in the order found, the weakest dropped when the list is full (6) and a newcomer weaker than all of them left out:
 
 ```bash

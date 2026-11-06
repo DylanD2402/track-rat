@@ -367,7 +367,7 @@ Get your sessions onto your phone without taking the SD card out.
 
 1. In the pits, tap **Wi-Fi** on the home screen or **WI-FI** on a session summary (or hold BOOT on a summary). The screen shows the network name, the address and a code for changes.
 2. On your phone, join the Wi-Fi network **TrackRat-XXXX**. There's no password (see the notes below). The last 4 characters are different on each board.
-3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **http://192.168.4.1** in your browser.
+3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **trackrat.local** in your browser, or **http://192.168.4.1** with the `http://` typed. On an iPhone the page only opens by itself if Auto-Login is on (Settings > Wi-Fi > the TrackRat network).
 4. When you're done, tap the Track Rat screen (or press BOOT) to turn Wi-Fi off.
 
 What the page does:
@@ -385,7 +385,7 @@ Each time the page opens it tells Track Rat your phone's time zone, which become
 Good to know:
 
 - **Wi-Fi is off while timing.** It's only on while the Wi-Fi screen shows, and starting a session turns it off. Bluetooth (RaceBox) keeps working while it's on.
-- **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open http://192.168.4.1 in Safari or Chrome while still on the TrackRat network.
+- **Downloads in the sign-in window:** the window phones open by themselves often can't save files. If a download doesn't start, open trackrat.local (or http://192.168.4.1) in Safari or Chrome while still on the TrackRat network.
 - **Mobile data:** some phones keep using mobile data for everything when a Wi-Fi network has no internet. If the page won't load, tell the phone to stay connected or turn mobile data off.
 - **The code works once.** Every change asks for the 4-digit code on Track Rat's Wi-Fi screen: installing firmware, replacing `tracks.json` (or saving the track editor's lines), re-timing, restarting, saving a note and changing a setting or a driver or car. Once the change has gone through, Track Rat shows a new code, and the page asks you to enter it for the next change ("That code is used up"). So a code someone saw on the network is no use to them. A change that is refused (a setting out of range, say) doesn't use the code up. Setting the phone's time zone, which the page does by itself, needs no code.
 - **Wrong codes lock changes for a while.** After 5 wrong codes Track Rat refuses every code for 30 seconds, and shows a new code. Each time it happens again the wait doubles, up to 8 minutes. A right code starts it over at 30 seconds. The page says how long to wait. Turning Wi-Fi off and on again clears it too.

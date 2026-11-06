@@ -1205,7 +1205,7 @@ void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& 
   };
   step(1, HEADER_H + 12, "ON YOUR PHONE, JOIN THE NETWORK", network);
   gfx->drawFastHLine(cx + 40, HEADER_H + 55, cw - 52, C_LINE);
-  step(2, HEADER_H + 60, "THE PAGE OPENS BY ITSELF, OR GO TO", "http://" + address);
+  step(2, HEADER_H + 60, "THE PAGE OPENS BY ITSELF, OR GO TO", address);
 
   char buf[40];
   const int y = HEADER_H + 112;
