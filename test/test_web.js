@@ -23,7 +23,8 @@ if (!m) {
   console.log("FAIL: session names section not found in web/index.html");
   process.exit(1);
 }
-const {parseFile, groupSessions, trackName} = new Function(m[1] + "\nreturn {parseFile, groupSessions, trackName};")();
+const {parseFile, groupSessions, trackName, lapCountOf, deleteConfirmText} =
+    new Function(m[1] + "\nreturn {parseFile, groupSessions, trackName, lapCountOf, deleteConfirmText};")();
 
 const fm = html.match(/\/\/ ---- firmware check \(begin[^\n]*\n([\s\S]*?)\/\/ ---- firmware check \(end\)/);
 if (!fm) {
@@ -161,6 +162,15 @@ check(parseFile(file("20261018_093012_calabogie.json", "sd")).key !== parseFile(
 check(trackName("calabogie") === "Calabogie", "track name");
 check(trackName("nurburgring-gp") === "Nurburgring Gp", "hyphens");
 check(trackName("my-track-3") === "My Track 3", "my-track-3");
+
+// Deleting a session: laps come from the summary, and the question says what stays
+check(lapCountOf({lapCount: 5}) === 5 && lapCountOf({lapCount: 0}) === 0, "lap count from the summary");
+check(lapCountOf({laps: [{}, {}]}) === 2 && lapCountOf({}) === null && lapCountOf(null) === null && lapCountOf("x") === null,
+      "lap count from the laps list, or unknown");
+check(deleteConfirmText(0) === "Delete this session's log, summary and note? This can't be undone.", "no laps: no best-lap line");
+check(/best laps stay saved/i.test(deleteConfirmText(3)) && /^Delete this session's log, summary and note\? This can't be undone\./.test(deleteConfirmText(3)),
+      "laps: says the best laps stay");
+check(/best laps stay saved/i.test(deleteConfirmText(null)), "laps unknown: says it too");
 check(trackName("freeroam") === "Free Roam" && trackName("bench") === "Bench Test", "special names");
 check(trackName("perf") === "Performance", "perf is Performance");
 p = parseFile(file("SIM_12_perf.json"));
@@ -1183,7 +1193,7 @@ console.log("Sample session tests");
   // No protected request is sent twice for one action: each handler asks once and posts once
   const asks = (html.match(/askCode\(/g) || []).length - 1;  // (minus the definition)
   const protectedPosts = (html.match(/uploadResult\(await post\(/g) || []).length;
-  check(asks === protectedPosts && protectedPosts === 8, `one code per change: ${asks} prompts, ${protectedPosts} changes`);
+  check(asks === protectedPosts && protectedPosts === 9, `one code per change: ${asks} prompts, ${protectedPosts} changes`);
   check(!/\buploadCode\b/.test(html), "no code is kept for later changes");
 
   // Downloads: two at a time, a 503 is tried again

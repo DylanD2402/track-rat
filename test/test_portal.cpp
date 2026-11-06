@@ -349,6 +349,24 @@ int main() {
             !roomFor(0, 1) && roomFor(100000, 1000) && !roomFor(65536, 1),
         "room for an upload");
 
+  // A session's files, for Delete: the log, summary, note and a cut-off save of each, nothing else
+  CHECK(SESSION_FILE_COUNT == 6, "six file kinds");
+  bool suffixesOk = true;
+  for (int i = 0; i < SESSION_FILE_COUNT; i++) {
+    const char* x = SESSION_FILE_SUFFIXES[i];
+    suffixesOk = suffixesOk && (x[0] == '.' || x[0] == '_') && !strchr(x, '/');
+    for (int j = 0; j < i; j++) suffixesOk = suffixesOk && strcmp(x, SESSION_FILE_SUFFIXES[j]) != 0;
+  }
+  CHECK(suffixesOk, "suffixes are distinct and add to the base name only");
+  bool hasVbo = false, hasNote = false, hasTmp = false;
+  for (int i = 0; i < SESSION_FILE_COUNT; i++) {
+    hasVbo = hasVbo || strcmp(SESSION_FILE_SUFFIXES[i], ".vbo") == 0;
+    hasNote = hasNote || strcmp(SESSION_FILE_SUFFIXES[i], "_note.json") == 0;
+    hasTmp = hasTmp || strcmp(SESSION_FILE_SUFFIXES[i], "_note.json.tmp") == 0;
+  }
+  CHECK(hasVbo && hasNote && hasTmp, "log, note and a cut-off note save");
+  printf("  session delete: %d file kinds\n", SESSION_FILE_COUNT);
+
   // Downloads at once
   DownloadGate dl;
   CHECK(dl.enter() && dl.enter() && !dl.enter() && dl.count() == 2, "third download refused");

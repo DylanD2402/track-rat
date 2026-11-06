@@ -472,6 +472,46 @@ static void onNotePost(AsyncWebServerRequest* req) {
   spendCode();
 }
 
+// The logger, boot recovery and re-timing all use the card's session files: nothing is deleted under them
+static bool sessionFilesBusy() { return SessionLog::logging() || SessionLog::recovering() || SessionLog::retiming(); }
+
+// POST /api/session/delete: code, fs (sd or flash), base (as /api/note takes it). Removes the session's log, summary
+// and note, and any half-saved copy of them (portal::SESSION_FILE_SUFFIXES), and says how many files went. The best
+// laps kept in /tracks/<id> aren't a session's: they stay. A few removes, so done here.
+static void onSessionDelete(AsyncWebServerRequest* req) {
+  if (!codeOk(req)) return;
+  fs::FS* fs = fsByName(req->arg("fs"));
+  const String base = req->arg("base");
+  if (!fs || !logbook::validBase(base.c_str())) {
+    req->send(400, "text/plain", "Bad session");
+    return;
+  }
+  if (sessionFilesBusy()) {
+    req->send(409, "text/plain", "Track Rat is logging or re-timing. Try again when it's done.");
+    return;
+  }
+  int removed = 0;
+  bool failed = false;
+  for (int i = 0; i < portal::SESSION_FILE_COUNT; i++) {
+    const String path = String(SESSION_DIR) + "/" + base + portal::SESSION_FILE_SUFFIXES[i];
+    if (!fs->exists(path)) continue;
+    if (fs->remove(path)) removed++;
+    else failed = true;
+  }
+  spaceValid = false;
+  DEBUG_PRINTF("Wi-Fi: deleted session %s (%d files%s)\n", base.c_str(), removed, failed ? ", some NOT removed" : "");
+  if (failed) {
+    req->send(500, "text/plain", "Couldn't remove all of that session's files");
+    return;
+  }
+  if (!removed) {
+    req->send(404, "text/plain", "No such session");
+    return;
+  }
+  req->send(200, "application/json", "{\"removed\":" + String(removed) + "}");
+  spendCode();
+}
+
 // The note in <base>_note.json, or empty
 static std::string readNote(fs::FS& fs, const String& base) {
   File f = fs.open(logbook::notePath(SESSION_DIR, base.c_str()).c_str());
@@ -865,6 +905,7 @@ static void setupRoutes() {
 
   s.on("/api/tracks", HTTP_POST, onTracksDone, onTracksUpload);
   s.on("/api/note", HTTP_POST, onNotePost);
+  s.on("/api/session/delete", HTTP_POST, onSessionDelete);
   s.on("/api/firmware", HTTP_POST, onFirmwareDone, onFirmwareUpload);
 
   // The page sends the phone's time zone: tz = minutes east of UTC

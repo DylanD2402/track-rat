@@ -27,6 +27,12 @@ inline bool isSafeFileName(const char* name) {
   return true;
 }
 
+// What a session is made of, after its base name (the file name without .vbo or .json): the log, its summary, its
+// note, and a save of any of them that was cut off (.tmp). Deleting a session removes these and nothing else.
+static const char* const SESSION_FILE_SUFFIXES[] = {".vbo",     ".json",     "_note.json",
+                                                    ".vbo.tmp", ".json.tmp", "_note.json.tmp"};
+static const int SESSION_FILE_COUNT = sizeof(SESSION_FILE_SUFFIXES) / sizeof(SESSION_FILE_SUFFIXES[0]);
+
 inline bool endsWith(const char* s, const char* suffix) {
   size_t n = strlen(s), m = strlen(suffix);
   return n >= m && strcmp(s + n - m, suffix) == 0;

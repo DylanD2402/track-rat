@@ -547,6 +547,19 @@ function groupSessions(files, dayOf, tzMin = 0) {
   }
   return {days: [...days].map(([day, tracks]) => [day, [...tracks]]), other};
 }
+
+// Deleting a session: what the summary says about its laps (null if it can't be told), and the question asked first.
+// Best laps live apart from the session (/tracks/<id> on the board), so they stay: Re-time (include/Retime.h)
+// only puts a quicker lap, or one timed at a moved line, in place of the saved one; it never takes one out.
+function lapCountOf(summary) {
+  if (!summary || typeof summary !== "object") return null;
+  if (typeof summary.lapCount === "number") return summary.lapCount;
+  return Array.isArray(summary.laps) ? summary.laps.length : null;
+}
+function deleteConfirmText(lapCount) {
+  return "Delete this session's log, summary and note? This can't be undone." +
+         (lapCount === 0 ? "" : " Its best laps stay saved on the board; re-timing replaces one only with a quicker lap or a lap timed at a moved line.");
+}
 // ---- session names (end) ----
 
 function fileLink(f, label) {
@@ -591,7 +604,8 @@ async function loadSessions() {
                 (s.files.some((x) => x.label === "VBO") ? ` <button class="chip" data-csv="${s.files.findIndex((x) => x.label === "VBO")}" data-n="${notes.length - 1}">CSV</button>` : "") +
                 (s.fs === "flash" ? ` <span class="tag">in flash</span>` : "") +
                 (s.files.some((x) => x.label === "JSON") ? ` <button class="chip" data-who="${notes.length - 1}">Driver and car</button>` : "") +
-                (VIEWER ? "" : ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>`) +
+                (VIEWER ? "" : ` <button class="chip" data-note="${id}">${s.noteFile ? "Edit note" : "Add note"}</button>` +
+                               ` <button class="chip" data-del="${id}">Delete</button>`) +
                 `<div class="lognote" id="${id}">${s.noteFile ? `<span class="note">Loading note…</span>` : ""}</div></div>`;
       }
       html += `</div>`;
@@ -669,8 +683,26 @@ async function loadNotes() {
   }
 }
 
+// Delete: asks first (saying what stays), then for the code, then lists the sessions again
+async function deleteSession(btn) {
+  const n = noteOf(btn.dataset.del);
+  if (!n) return;
+  btn.disabled = true;
+  const summary = n.s.files.find((x) => x.label === "JSON");
+  let laps = null;
+  if (summary) {
+    try { laps = lapCountOf(JSON.parse(await data.text(summary.f))); } catch (e) { /* unreadable: ask as if it had laps */ }
+  }
+  const code = confirm(deleteConfirmText(laps)) ? askCode("Delete this session?") : null;
+  if (code === null) { btn.disabled = false; return; }
+  const r = uploadResult(await post("/api/session/delete", new URLSearchParams({code, fs: n.s.fs, base: n.s.base})));
+  if (!r.ok) { btn.disabled = false; alert(r.text || "Couldn't delete the session."); return; }
+  loadSessions();
+}
+
 $("sessionList").addEventListener("click", async (e) => {
   if (e.target.dataset.csv !== undefined) return downloadCsv(e.target);
+  if (e.target.dataset.del !== undefined) return deleteSession(e.target);
   if (e.target.dataset.who !== undefined) return showWho(e.target);
   const saveBtn = e.target.closest("[data-save]");
   if (saveBtn) return saveLocal(saveBtn.dataset.save);
