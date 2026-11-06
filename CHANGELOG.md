@@ -4,6 +4,20 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+Install both the firmware and the file system (the web installer does both): the Wi-Fi page changed.
+
+### Added
+
+- A **Files** tab on the Wi-Fi page for the whole SD card, so the card doesn't have to come out of its case: browse, download, upload files or a folder, make folders, rename and delete (a folder with what's in it). One code from the screen opens it for 15 minutes from the last use, for that phone.
+- Delete a session on the Sessions tab: its log, summary and note. Its best laps stay; the Files tab can remove them (`/tracks`).
+- Remove start/finish in the Tracks tab's editor, for a line set by mistake.
+- The Wi-Fi page at **trackrat.local**, shown on the Wi-Fi screen. `http://trackrat/` and any other name reach it too in a browser that takes them as an address.
+
+### Fixed
+
+- The Wi-Fi page not opening by itself: the board's DNS gave an empty answer to any lookup with an EDNS record, which many modern phones and resolvers add, and answered AAAA and HTTPS lookups with the wrong type. It now has its own DNS answer (`CaptiveDns.h`, with a host test).
+- A folder listing with a path over about 44 characters could list the wrong folder.
+
 ### Changed
 
 - Code clean-up from the [0.2 code review](docs/code-review-0.2.md), with no change to what the device does or shows (every screen renders pixel for pixel as before):

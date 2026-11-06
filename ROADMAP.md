@@ -491,7 +491,7 @@ Phase 8 starts after the 0.1 beta ships, so its README changes don't collide wit
 The Wi-Fi page already compares two laps: speed and gap against distance, and the map coloured by the faster lap. It also has a season view, all tested in test_web.js. So 8.1 grows that page rather than starting another, and the website uses the same page.
 
 - **8.1a The viewer.** The same web/index.html runs off the board too, in a viewer mode:
-  - **Opening files:** the page opens `.vbo` and `.json` files picked or dropped from your PC; nothing is uploaded. The Sessions and Compare tabs work on them, and the board-only tabs (Firmware, Device, Settings, uploads) are hidden.
+  - **Opening files:** the page opens `.vbo` and `.json` files picked or dropped from your PC; nothing is uploaded. The Sessions and Compare tabs work on them, and the board-only tabs (Firmware, Device, Settings, Files, uploads) are hidden.
   - **The sample:** `tools/make_sample_session.py` makes a sample session: a simulated car at Calabogie from tracks.json's map, labelled as simulated.
   - **The website:** installer.yml publishes the page at **trackrat.ca/analyze/**, with its fonts and the sample, and the install page links to it.
   - **On the board:** nothing changes there. Font links become relative so both places work.
