@@ -15,7 +15,7 @@ Install both the firmware and the file system (the web installer does both): the
 
 ### Fixed
 
-- The Wi-Fi page not opening by itself: the board's DNS gave an empty answer to any lookup with an EDNS record, which many modern phones and resolvers add, and answered AAAA and HTTPS lookups with the wrong type. It now has its own DNS answer (`CaptiveDns.h`, with a host test).
+- The board's DNS gave an empty answer to any lookup with an EDNS record, which many modern phones and resolvers add, and answered AAAA and HTTPS lookups with the wrong type. It now has its own DNS answer (`CaptiveDns.h`, with a host test). An iPhone can also stop opening the page by itself because of its own saved settings for the network: the user guide says how to reset them.
 - A folder listing with a path over about 44 characters could list the wrong folder.
 
 ### Changed
