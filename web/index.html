@@ -206,16 +206,25 @@ body.drop::after { content: "Drop session files to open them"; position: fixed; 
 </section>
 
 <section id="tracks" class="board-only">
+  <div class="card" id="tkFlags" hidden>
+    <h3>Lines in the wrong place</h3>
+    <div id="tkFlagList"></div>
+  </div>
   <div class="card">
     <h3>Track editor</h3>
     <p class="note">Draws a session's laps from its log, with the track's start/finish, splits and corners on top.
       Move the line, flip its direction, add or remove splits, name the corners, or make a new layout.
+      With no session, it shows the track's own map and lines.
       Saving needs the upload code and restarts Track Rat. Then re-time to apply the lines to saved sessions.</p>
-    <select id="edLog"><option value="">Pick a session…</option></select>
+    <select id="edLog"><option value="">Pick a session…</option><option value="(none)">No session: just the track's lines</option></select>
     <div id="edTools" hidden>
       <select id="edTrack"></select>
       <canvas id="edMap"></canvas>
       <p id="edHint" class="note"></p>
+      <div class="tools" id="edUnsaved" hidden>
+        <span class="err">Changes not saved yet.</span>
+        <button class="btn" id="edSave2">Save lines</button>
+      </div>
       <div class="tools">
         <button class="btn plain" data-mode="line">Move line</button>
         <button class="btn plain" id="edFlip">Flip direction</button>
@@ -1021,6 +1030,59 @@ function addLayout(db, id, name) {
   return added[added.length - 1].id;
 }
 
+// How far a line may be from its track: the rule of include/TrackRange.h (TRACK_RANGE_M). A start/finish further than
+// this from the track's centre isn't the track's (it was set somewhere else by mistake): Track Rat ignores it.
+const TRACK_RANGE_M = 15000;
+function distanceM(lat1, lon1, lat2, lon2) {
+  const dLat = (lat2 - lat1) * DEG, dLon = (lon2 - lon1) * DEG;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+// A real place: (0, 0) means "none", as on the device
+const hasPlace = (p) => !!p && ((+p.lat || 0) !== 0 || (+p.lon || 0) !== 0);
+// False only when the track has a centre and the line is further than TRACK_RANGE_M from it
+function lineBelongs(center, line) {
+  if (!hasPlace(center) || !hasPlace(line)) return true;
+  return distanceM(center.lat, center.lon, line.lat, line.lon) <= TRACK_RANGE_M;
+}
+// The tracks whose start/finish is too far from their centre: [{id, name, km}]
+function wrongLines(db) {
+  const out = [];
+  for (const t of trackList(db || {})) {
+    const c = t.venue.center, sf = t.obj.startFinish;
+    if (hasPlace(sf) && hasPlace(c) && !lineBelongs(c, sf)) {
+      out.push({id: t.id, name: t.name, km: Math.round(distanceM(c.lat, c.lon, sf.lat, sf.lon) / 1000)});
+    }
+  }
+  return out;
+}
+const wrongLineText = (w) => `${w.name}'s line is ${w.km} km from the track, so Track Rat ignores it.`;
+
+// A track's map ("map": lines of [lat, lon]) as lines of {lat, lon}
+function mapLines(t) {
+  const m = t && Array.isArray(t.obj.map) ? t.obj.map : [];
+  return m.filter((l) => Array.isArray(l) && l.length >= 2).map((l) => l.map((p) => ({lat: +p[0], lon: +p[1]})))
+          .filter((l) => l.every((p) => isFinite(p.lat) && isFinite(p.lon)));
+}
+// Where the editor's metres are measured from: the start/finish when it is the track's; else the log's first fix (fix),
+// else the track's centre, else its map; else nowhere in particular
+function editorRef(t, fix) {
+  const sf = t && t.obj.startFinish, c = t && t.venue.center;
+  if (hasPlace(sf) && lineBelongs(c, sf)) return {lat: sf.lat, lon: sf.lon};
+  if (fix) return {lat: fix.lat, lon: fix.lon};
+  if (hasPlace(c)) return {lat: c.lat, lon: c.lon};
+  const m = mapLines(t);
+  if (m.length) { const p = m[0][m[0].length >> 1]; return {lat: p.lat, lon: p.lon}; }
+  return {lat: 0, lon: 0};
+}
+// With no session the map is the path: its lines in metres from ref, and the longest one, which a tapped line snaps to
+function mapPath(t, ref) {
+  const lines = mapLines(t).map((l) => l.map((p) => toLocal(p.lat, p.lon, ref.lat, ref.lon)));
+  let main = [];
+  for (const l of lines) if (l.length > main.length) main = l;
+  return {lines, main};
+}
+
 // ---- nudging a line: the maths of include/LineNudge.h, repeated here ----
 // Moves a start, finish or split along its heading in small steps and times every run again
 // from the fixes near it. x, y are metres from a shared reference, ms is GPS time, kmh is speed.
@@ -1514,44 +1576,79 @@ function gapText(ms) { return (ms > 0 ? "+" : ms < 0 ? "−" : "") + (Math.abs(m
 
 // ---- track editor: the screen part ----
 const ed = {db: null, log: null, trackId: "", mode: "", ref: null, pts: [], lapPts: [], dirty: false, file: "",
-            logs: [], base: null, sel: "sf", moved: {}, orig: {}};
+            logs: [], base: null, sel: "sf", moved: {}, orig: {}, lines: []};
+const ED_NO_SESSION = "(none)";  // the session picker's "No session: just the track's lines"
 
 function edMsg(text, bad) {
   $("edMsg").className = bad ? "err" : "note";
   $("edMsg").textContent = text;
 }
 
+// The tracks whose line is in the wrong place, one line each, with a button that opens the track in the editor
+function edFlags() {
+  const list = ed.db ? wrongLines(ed.db) : [];
+  $("tkFlags").hidden = !list.length;
+  $("tkFlagList").innerHTML = list.map((w) => `<div class="row"><span>${esc(wrongLineText(w))}</span>` +
+    `<button class="btn plain" data-flag="${esc(w.id)}">Open in the editor</button></div>`).join("");
+}
+$("tkFlagList").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-flag]");
+  if (!b) return;
+  ed.trackId = b.dataset.flag;
+  $("edLog").value = ED_NO_SESSION;
+  $("edLog").dispatchEvent(new Event("change"));
+  $("edLog").scrollIntoView({block: "start"});
+});
+// The track picker: a track whose line is in the wrong place says so
+function edTrackOptions(want) {
+  const wrong = new Map(wrongLines(ed.db).map((w) => [w.id, w.km]));
+  $("edTrack").innerHTML = trackList(ed.db).map((t) => `<option value="${esc(t.id)}"${t.id === want ? " selected" : ""}>` +
+    `${wrong.has(t.id) ? "⚠ " : ""}${esc(t.name)}${wrong.has(t.id) ? ` (line ${wrong.get(t.id)} km away)` : ""}</option>`).join("");
+}
+
 // The .vbo logs on the SD card, newest first, for the session picker
 async function edLoadLogs() {
+  if (!ed.db) { try { ed.db = await data.tracks(); } catch (e) { /* opening a track says so */ } }
+  edFlags();
   let files;
   try { files = (await data.list()).files; } catch (e) { return; }
   const logs = files.filter((f) => f.fs === "sd" && f.name.endsWith(".vbo") && !/_freeroam(_\d+)?\.vbo$/.test(f.name))
                     .sort((a, b) => b.name.localeCompare(a.name));
-  $("edLog").innerHTML = `<option value="">Pick a session…</option>` +
+  const keep = $("edLog").value;
+  $("edLog").innerHTML = `<option value="">Pick a session…</option><option value="${ED_NO_SESSION}">No session: just the track's lines</option>` +
     logs.map((f) => `<option value="${esc(f.name)}">${esc(f.name.replace(/\.vbo$/, ""))} (${size(f.size)})</option>`).join("");
+  $("edLog").value = keep;
 }
 
 $("edLog").addEventListener("change", async () => {
   const name = $("edLog").value;
   if (!name) return;
-  edMsg("Loading " + name + "…");
+  const none = name === ED_NO_SESSION;  // no log: the track's own map and lines
+  edMsg(none ? "Loading the track list…" : "Loading " + name + "…");
   try {
     const [log, db] = await Promise.all([
-      data.text({fs: "sd", name}).then((t) => t || ""),
+      none ? Promise.resolve("") : data.text({fs: "sd", name}).then((t) => t || ""),
       ed.db ? Promise.resolve(ed.db) : data.tracks(),
     ]);
+    if (!db || !Array.isArray(db.tracks)) throw new Error("no tracks");
     ed.db = db;
-    ed.log = parseVbo(log);
-    ed.file = name;
-    ed.logs = [{file: name, log: ed.log}];
+    if (none) {
+      ed.log = null;
+      ed.file = "";
+      ed.logs = [];
+    } else {
+      ed.log = parseVbo(log);
+      ed.file = name;
+      ed.logs = [{file: name, log: ed.log}];
+    }
   } catch (e) {
-    edMsg("Couldn't read that session or tracks.json.", true);
+    edMsg(none ? "Couldn't read tracks.json." : "Couldn't read that session or tracks.json.", true);
     return;
   }
-  if (!ed.log.points.length) { edMsg("That log has no GPS fixes.", true); return; }
+  if (ed.log && !ed.log.points.length) { edMsg("That log has no GPS fixes.", true); return; }
   const tracks = trackList(ed.db);
-  const want = ed.log.comments["Track"] || "";
-  $("edTrack").innerHTML = tracks.map((t) => `<option value="${esc(t.id)}"${t.id === want ? " selected" : ""}>${esc(t.name)}</option>`).join("");
+  const want = ed.log ? ed.log.comments["Track"] || "" : tracks.some((t) => t.id === ed.trackId) ? ed.trackId : (wrongLines(ed.db)[0] || {}).id || "";
+  edTrackOptions(want);
   if (!tracks.some((t) => t.id === want)) $("edTrack").value = tracks.length ? tracks[0].id : "";
   ed.trackId = $("edTrack").value;
   $("edTools").hidden = false;
@@ -1562,21 +1659,33 @@ $("edTrack").addEventListener("change", () => { ed.trackId = $("edTrack").value;
 // Metres from the start/finish (or the first fix), and one lap's points in order from the line
 function edSetUp() {
   const t = findTrack(ed.db, ed.trackId);
-  const sf = t && t.obj.startFinish;
-  const p0 = ed.log.points[0];
-  ed.ref = sf && (sf.lat || sf.lon) ? {lat: sf.lat, lon: sf.lon} : {lat: p0.lat, lon: p0.lon};
-  ed.pts = ed.log.points.map((p) => Object.assign(toLocal(p.lat, p.lon, ed.ref.lat, ed.ref.lon), {lap: p.lap}));
-  const laps = ed.pts.filter((p) => p.lap > 0).map((p) => p.lap);
-  const first = laps.length ? Math.min(...laps) : 0;
-  ed.lapPts = first ? ed.pts.filter((p) => p.lap === first) : ed.pts;
+  ed.ref = editorRef(t, ed.log && ed.log.points[0]);
+  let laps = [];
+  if (ed.log) {
+    ed.pts = ed.log.points.map((p) => Object.assign(toLocal(p.lat, p.lon, ed.ref.lat, ed.ref.lon), {lap: p.lap}));
+    laps = ed.pts.filter((p) => p.lap > 0).map((p) => p.lap);
+    const first = laps.length ? Math.min(...laps) : 0;
+    ed.lapPts = first ? ed.pts.filter((p) => p.lap === first) : ed.pts;
+    ed.lines = [];
+  } else {  // no session: the track's map is the path
+    const m = mapPath(t, ed.ref);
+    ed.lines = m.lines;
+    ed.pts = [].concat(...m.lines);
+    ed.lapPts = m.main;
+  }
   $("edFinish").hidden = !isStage(t);
+  $("edDay").hidden = $("rtOne").hidden = !ed.log;  // both are about this session
   for (const l of ed.logs) l.fixes = nudgeFixes(l.log.points, ed.ref);
-  edRebase(t);
+  if (t) edRebase(t);
   edMode("");
   edDraw();
   edSectors();
   edLines();
-  edMsg(`${ed.log.points.length} fixes, ${new Set(laps).size} laps.`);
+  if (ed.log) { edMsg(`${ed.log.points.length} fixes, ${new Set(laps).size} laps.`); return; }
+  const w = wrongLines(ed.db).find((x) => x.id === ed.trackId);
+  edMsg((w ? wrongLineText(w) + " Remove start/finish, or Move line to put it on the map, then Save lines. " : "") +
+        (ed.lapPts.length ? "No session: the track's map and lines. Pick a session to see run times."
+                          : "This track has no map, so Move line needs a session: pick one. Remove start/finish works without."), !!w);
 }
 
 // The canvas: every lap in grey, the first in white, the lines on top
@@ -1589,9 +1698,14 @@ function edDraw() {
   c.style.height = h + "px";
   g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   g.clearRect(0, 0, w, h);
+  const t = findTrack(ed.db, ed.trackId);
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const p of ed.pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
-  const pad = 20, s = Math.min((w - 2 * pad) / Math.max(maxX - minX, 1), (h - 2 * pad) / Math.max(maxY - minY, 1));
+  // With no path (no session, no map) the view is round the lines that belong to the track, else 300 m across
+  const fit = ed.pts.length ? ed.pts : t ? edGates(t) : [];
+  for (const p of fit) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  if (!fit.length) { minX = minY = -150; maxX = maxY = 150; }
+  const span = ed.log ? 1 : 150;  // (a lone line is not zoomed right in)
+  const pad = 20, s = Math.min((w - 2 * pad) / Math.max(maxX - minX, span), (h - 2 * pad) / Math.max(maxY - minY, span));
   const cx = w / 2 - (minX + maxX) / 2 * s, cy = h / 2 + (minY + maxY) / 2 * s;
   edView = {s, cx, cy};
   const X = (x) => cx + x * s, Y = (y) => cy - y * s;
@@ -1601,12 +1715,19 @@ function edDraw() {
     g.stroke();
   };
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  path(ed.pts, dark ? "#48484a" : "#c7c7cc", 1.5);
+  if (ed.log) path(ed.pts, dark ? "#48484a" : "#c7c7cc", 1.5);
+  else for (const l of ed.lines) path(l, dark ? "#48484a" : "#c7c7cc", 1.5);  // (separate lines: not joined up)
   path(ed.lapPts, dark ? "#f5f5f7" : "#111113", 2);
-  const t = findTrack(ed.db, ed.trackId);
   if (!t) return;
+  if (!ed.pts.length) {
+    g.fillStyle = dark ? "#8e8e93" : "#6e6e73";
+    g.font = "500 13px Inter, sans-serif";
+    g.textAlign = "center";
+    g.fillText("No map for this track", w / 2, h - 12);
+    g.textAlign = "start";
+  }
   const gate = (pt, colour, label) => {
-    if (!pt) return;
+    if (!pt || !lineBelongs(t.venue.center, pt)) return;  // (a line far from the track is ignored by Track Rat: not drawn)
     const p = toLocal(pt.lat, pt.lon, ed.ref.lat, ed.ref.lon), r = (pt.radius || (isKart(t) ? 8 : 15)) * s;
     const hd = typeof pt.heading === "number" ? pt.heading * DEG : null;
     g.strokeStyle = colour; g.fillStyle = colour; g.lineWidth = 3;
@@ -1625,6 +1746,12 @@ function edDraw() {
   (t.obj.splits || []).forEach((sp, i) => gate(sp, "#0a84ff", "S" + (i + 1)));
   gate(t.obj.startFinish, "#30d158", isStage(t) ? "Start" : "Start/finish");
   if (isStage(t)) gate(t.obj.finish, "#ff453a", "Finish");
+}
+
+// The track's lines that belong to it, in metres from ed.ref: what a map-less view is drawn round
+function edGates(t) {
+  return [t.obj.startFinish, isStage(t) ? t.obj.finish : null, ...(t.obj.splits || []), ...(t.obj.sectors || [])]
+    .filter((pt) => hasPlace(pt) && lineBelongs(t.venue.center, pt)).map((pt) => toLocal(pt.lat, pt.lon, ed.ref.lat, ed.ref.lon));
 }
 
 // The corners, with a name each
@@ -1654,18 +1781,16 @@ $("edTools").addEventListener("click", (e) => {
   else if (b.id === "edClear" && t) {
     if (!canClearLine(t)) return;
     if (!confirm("Remove this track's start/finish line? Track Rat will show \"No start/finish line yet\" there until you set one. " +
-                 "Save the lines to apply it.")) return;
+                 "It is only removed from this page until you tap Save lines.")) return;
     clearLine(t);
     edMode("");
     edChanged();
-    edMsg("Start/finish removed. Save the lines to apply it, or tap Move line to set a new one.");
+    edMsg("Start/finish removed here, but NOT saved yet: tap Save lines to send it to Track Rat. Or tap Move line to set a new one first.");
   } else if (b.id === "edFlip" && t) { if (flipLine(t.obj)) edChanged(); else edMsg("The line has no direction yet: move it onto the path first.", true); }
   else if (b.id === "edLayout" && t) {
     const id = addLayout(ed.db, ed.trackId, prompt("Name of the new layout (e.g. Short, Club):") || "");
     if (!id) { edMsg("Give the layout a name no other layout of this venue has.", true); return; }
-    const sel = $("edTrack");
-    sel.innerHTML = trackList(ed.db).map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
-    sel.value = id;
+    edTrackOptions(id);
     ed.trackId = id;
     edChanged();
     edSetUp();
@@ -1683,12 +1808,16 @@ $("edMap").addEventListener("click", (e) => {
     if (i < 0 || Math.hypot(splits[i].x - x, splits[i].y - y) * edView.s > 30) { edMsg("Tap closer to a split.", true); return; }
     removeSplit(t.obj, i);
   } else {
+    if (!ed.lapPts.length) { edMsg("This track has no map, so Move line needs a session: pick one above.", true); return; }
     const i = nearestIndex(ed.lapPts, x, y);
-    if (i < 0 || Math.hypot(ed.lapPts[i].x - x, ed.lapPts[i].y - y) * edView.s > 30) { edMsg("Tap on the path.", true); return; }
+    if (i < 0 || Math.hypot(ed.lapPts[i].x - x, ed.lapPts[i].y - y) * edView.s > 30) { edMsg(ed.log ? "Tap on the path." : "Tap on the map's line.", true); return; }
     const p = fromLocal(ed.lapPts[i].x, ed.lapPts[i].y, ed.ref.lat, ed.ref.lon);
     const heading = headingAt(ed.lapPts, i);
     if (ed.mode === "line") {
-      if (setLine(t.obj, p.lat, p.lon, heading)) edMsg("The corner sectors go with the old line: Track Rat makes them again from the next clean lap.");
+      const sectors = setLine(t.obj, p.lat, p.lon, heading);
+      edMsg((sectors ? "The corner sectors go with the old line: Track Rat makes them again from the next clean lap. " : "") +
+            (ed.log ? "" : "The direction follows how the map is drawn: Flip direction if it points the wrong way. ") +
+            "Not saved yet: tap Save lines.");
       edMode("");
     } else if (ed.mode === "finish") {
       setFinish(t.obj, p.lat, p.lon, heading);
@@ -1703,7 +1832,9 @@ $("edMap").addEventListener("click", (e) => {
 
 function edChanged(nudged) {
   ed.dirty = true;
-  $("edSave").disabled = false;
+  $("edSave").disabled = $("edSave2").disabled = false;
+  $("edUnsaved").hidden = false;
+  if (ed.db) edTrackOptions(ed.trackId);  // (a line put right no longer says it is wrong)
   if (nudged !== true) { ed.moved = {}; ed.orig = {}; }  // the lines changed some other way: count nudges from here
   edDraw();
   edSectors();
@@ -1721,7 +1852,8 @@ function edRebase(t) {
 // The lines that can be nudged: [{key, name, pt}]
 function edNudgeable(t) {
   const out = [];
-  if (t.obj.startFinish) out.push({key: "sf", name: isStage(t) ? "Start" : "Start/finish", pt: t.obj.startFinish});
+  // (a line far from the track can't be nudged: Track Rat ignores it; remove it or move it onto the map)
+  if (t.obj.startFinish && lineBelongs(t.venue.center, t.obj.startFinish)) out.push({key: "sf", name: isStage(t) ? "Start" : "Start/finish", pt: t.obj.startFinish});
   if (isStage(t) && t.obj.finish) out.push({key: "fin", name: "Finish", pt: t.obj.finish});
   (t.obj.splits || []).forEach((sp, i) => out.push({key: "s" + i, name: "Split " + (i + 1), pt: sp}));
   return out;
@@ -1736,7 +1868,8 @@ function edLines() {
   $("edSel").innerHTML = list.map((l) => `<option value="${esc(l.key)}"${l.key === ed.sel ? " selected" : ""}>${esc(l.name)}</option>`).join("");
   $("edSel").hidden = $("edNudge").hidden = !list.length;
   const m = ed.moved[ed.sel] || 0;
-  $("edMoved").textContent = list.length ? (m ? `Moved ${m > 0 ? "+" : "−"}${Math.abs(m).toFixed(1)} m (${m > 0 ? "later" : "earlier"})` : "Not moved.") : "Set a start/finish first.";
+  $("edMoved").textContent = list.length ? (m ? `Moved ${m > 0 ? "+" : "−"}${Math.abs(m).toFixed(1)} m (${m > 0 ? "later" : "earlier"})` : "Not moved.")
+    : t.obj.startFinish ? "The start/finish is far from the track: remove it, or move it onto the map." : "Set a start/finish first.";
   edRuns(t, list);
 }
 function edClock(ms) { return ms === null || ms === undefined ? "—" : lapTimeText(ms); }
@@ -1744,6 +1877,7 @@ function edRuns(t, list) {
   const box = $("edRuns");
   const sel = list.find((l) => l.key === ed.sel);
   if (!sel || !ed.base) { box.innerHTML = ""; return; }
+  if (!ed.logs.length) { box.innerHTML = `<p class="note">Pick a session to see how moving a line changes its run times.</p>`; return; }
   const stage = isStage(t);
   const before = nudgeLines({obj: ed.base, venue: t.venue}, ed.ref), after = nudgeLines(t, ed.ref);
   const split = /^s(\d+)$/.exec(sel.key);
@@ -1779,6 +1913,10 @@ function edNudge(metres) {
   const sel = t && edNudgeable(t).find((l) => l.key === ed.sel);
   if (!sel) return;
   const pt = sel.pt;
+  if (!ed.logs.length && typeof pt.heading !== "number") {
+    edMsg("This line has no direction to slide along: Move line onto the map first, or pick a session.", true);
+    return;
+  }
   if (!ed.orig[sel.key]) ed.orig[sel.key] = {lat: pt.lat, lon: pt.lon};
   const total = Math.round(((ed.moved[sel.key] || 0) + metres) * 100) / 100;
   const o = ed.orig[sel.key];
@@ -1836,18 +1974,20 @@ $("edDay").addEventListener("click", async () => {
 });
 
 // Saved the way an uploaded tracks.json is: behind the code, then Track Rat restarts to load it
-$("edSave").addEventListener("click", async () => {
+async function edSave() {
   if (!ed.db) return;
   const code = askCode("Save these lines to Track Rat's track list? It restarts to load them. Re-time afterwards to apply them to saved sessions.");
   if (code === null) return;
-  $("edSave").disabled = true;
+  $("edSave").disabled = $("edSave2").disabled = true;
   const form = new FormData();
   form.append("tracks", new Blob([JSON.stringify(ed.db, null, 2) + "\n"], {type: "application/json"}), "tracks.json");
   const r = uploadResult(await post("/api/tracks?code=" + encodeURIComponent(code), form));
   edMsg(r.ok ? r.text + " Turn Wi-Fi on again from its menu, then re-time." : r.text, !r.ok);
-  if (r.ok) { ed.dirty = false; const t = findTrack(ed.db, ed.trackId); if (t) edRebase(t); edLines(); }
-  else $("edSave").disabled = false;
-});
+  if (r.ok) { ed.dirty = false; $("edUnsaved").hidden = true; const t = findTrack(ed.db, ed.trackId); if (t) edRebase(t); edLines(); edFlags(); }
+  else $("edSave").disabled = $("edSave2").disabled = false;
+}
+$("edSave").addEventListener("click", edSave);
+$("edSave2").addEventListener("click", edSave);
 
 // Re-timing: Track Rat times the session (or every session at the track) again from its log
 async function edRetime(all) {

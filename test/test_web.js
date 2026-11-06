@@ -57,7 +57,8 @@ const CMP = new Function(em[1] + cm[1] + "\nreturn {parseVbo, lapTrace, atDistan
 const ED = new Function(em[1] + "\nreturn {toLocal, fromLocal, parseVbo, slug, trackList, findTrack, nearestIndex, headingAt," +
                         " setLine, flipLine, addSplit, removeSplit, renameSector, addLayout, isStage, setFinish, isKart," +
                         " nudgeShift, sliceNear, crossingsMs, crossingTimeMs, pathHeadingDeg, standingStartHolds, newRunMs, nudgeFixes," +
-                        " nudgeLines, nudgeRuns, alongM, canClearLine, clearLine};")();
+                        " nudgeLines, nudgeRuns, alongM, canClearLine, clearLine, TRACK_RANGE_M, distanceM, lineBelongs, wrongLines, wrongLineText," +
+                        " mapLines, mapPath, editorRef, hasPlace};")();
 
 const hm = html.match(/\/\/ ---- helpers \(begin[^\n]*\n([\s\S]*?)\/\/ ---- helpers \(end\) ----/);
 const flm = html.match(/\/\/ ---- files \(begin[^\n]*\n([\s\S]*?)\/\/ ---- files \(end\) ----/);
@@ -527,6 +528,60 @@ console.log("Wi-Fi page track editor tests");
   // Setting a new line puts it straight back
   ED.setLine(lineless.obj, 45.0001, -76.0001, 180);
   check(lineless.obj.startFinish.heading === 180 && ED.canClearLine(lineless), "a new line can be set");
+}
+
+// A line far from its track (include/TrackRange.h): the page flags it and opens the track with no session
+{
+  const cfg = readText("include", "Config.h");
+  const range = /#define TRACK_RANGE_M ([\d.]+)/.exec(cfg);
+  check(range && +range[1] === ED.TRACK_RANGE_M, "the page's range is Config.h's TRACK_RANGE_M: " + (range && range[1]) + " / " + ED.TRACK_RANGE_M);
+  const wasaga = {id: "wasaga-speedway", name: "Wasaga Speedway", center: {lat: 44.4852149, lon: -80.0437177},
+                  startFinish: {lat: 45.2150716, lon: -75.6728516, radius: 15}};
+  const km = ED.distanceM(44.4852149, -80.0437177, 45.2150716, -75.6728516) / 1000;
+  check(Math.round(km) === 354, "Wasaga to home is 354 km: " + km);
+  const north = (m) => 44.4852149 + m / 6371000 / (Math.PI / 180);
+  const c = wasaga.center;
+  check(ED.lineBelongs(c, c) && ED.lineBelongs(c, {lat: north(14990), lon: c.lon}) && !ED.lineBelongs(c, {lat: north(15010), lon: c.lon}),
+        "the line belongs up to 15 km from the centre");
+  check(!ED.lineBelongs(c, wasaga.startFinish), "Wasaga's line does not belong");
+  check(ED.lineBelongs({lat: 0, lon: 0}, wasaga.startFinish) && ED.lineBelongs(undefined, wasaga.startFinish) && ED.lineBelongs(c, undefined),
+        "no centre (or no line): nothing to judge");
+  check(!ED.hasPlace({lat: 0, lon: 0}) && !ED.hasPlace(undefined) && ED.hasPlace({lat: 0, lon: -80}), "(0, 0) is no place");
+  const db = {tracks: [
+    wasaga,
+    {id: "ring", name: "Ring", center: {lat: 44, lon: -78}, layouts: [{name: "GP", startFinish: {lat: 44.01, lon: -78.01}},
+                                                                       {name: "Far", startFinish: {lat: 45.5, lon: -78}}]},
+    {id: "nocentre", name: "No Centre", startFinish: {lat: 10, lon: 10}},
+    {id: "bare", name: "Bare", center: {lat: 46, lon: -77}},
+  ]};
+  const w = ED.wrongLines(db);
+  check(w.length === 2 && w[0].id === "wasaga-speedway" && w[0].km === 354 && w[1].id === "ring.far" && w[1].km === 167, "the tracks with a wrong line: " + JSON.stringify(w));
+  check(ED.wrongLineText(w[0]) === "Wasaga Speedway's line is 354 km from the track, so Track Rat ignores it.", "the line shown: " + ED.wrongLineText(w[0]));
+  check(ED.wrongLines({}).length === 0 && ED.wrongLines(null).length === 0 && ED.wrongLines({tracks: []}).length === 0, "an empty or missing list flags nothing");
+  // The editor's reference point: a line that belongs, else the log's fix, else the centre, else the map
+  const t = (id) => ED.findTrack(db, id);
+  check(ED.editorRef(t("ring.gp"), null).lat === 44.01, "a line that belongs is the reference");
+  check(ED.editorRef(t("wasaga-speedway"), null).lat === 44.4852149, "a far line is not: the centre is");
+  check(ED.editorRef(t("wasaga-speedway"), {lat: 44.5, lon: -80}).lat === 44.5, "a log's first fix comes before the centre");
+  check(ED.editorRef(t("bare"), null).lat === 46, "no line: the centre");
+  const mapOnly = {tracks: [{id: "m", name: "M", map: [[[45, -76], [45.001, -76], [45.002, -76]]]}]};
+  check(ED.editorRef(ED.findTrack(mapOnly, "m"), null).lat === 45.001, "no line or centre: the middle of the map");
+  check(ED.editorRef(null, null).lat === 0 && ED.editorRef(ED.findTrack({tracks: [{id: "x", name: "X"}]}, "x"), null).lon === 0, "nothing at all: (0, 0), and no exception");
+  // The map is the path when there is no session
+  const withMap = {tracks: [{id: "m", name: "M", center: {lat: 45, lon: -76}, map: [[[45, -76], [45.001, -76]], [[45, -76.001], [45.003, -76.001], [45.004, -76.001]], [[1, 1]], "junk", [["a", "b"], [1, 2]]]}]};
+  const mt = ED.findTrack(withMap, "m");
+  check(ED.mapLines(mt).length === 2 && ED.mapLines(ED.findTrack(db, "bare")).length === 0 && ED.mapLines(null).length === 0, "map lines: short, junk and non-number lines left out");
+  const mp = ED.mapPath(mt, {lat: 45, lon: -76});
+  check(mp.lines.length === 2 && mp.main.length === 3 && Math.abs(mp.lines[0][0].x) < 1e-6 && mp.lines[0][1].y > 100 && mp.lines[0][1].y < 120,
+        "the path in metres from the reference, the longest line the one to snap to");
+  check(ED.mapPath(ED.findTrack(db, "bare"), {lat: 46, lon: -77}).main.length === 0, "no map: no path");
+  // Removing the far line and saving gives a file the device reads as a track with no line yet
+  const gone = JSON.parse(JSON.stringify(db));
+  check(ED.clearLine(ED.findTrack(gone, "wasaga-speedway")) && ED.wrongLines(gone).length === 1 && gone.tracks[0].center.lat === 44.4852149, "removed: no longer flagged, centre kept");
+  ED.setLine(ED.findTrack(gone, "ring.far").obj, 44.0, -78.0, 90);
+  check(ED.wrongLines(gone).length === 0, "a line moved back to the track: no longer flagged");
+  // The page's pieces are all there
+  check(html.includes('id="tkFlags"') && html.includes("No session: just the track's lines") && html.includes('id="edSave2"'), "flag card, no-session option and the second Save button");
 }
 
 // The Files tab's helpers
