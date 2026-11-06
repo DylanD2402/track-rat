@@ -9,6 +9,7 @@
  */
 
 #include "WifiPortal.h"
+#include "CaptiveDns.h"
 #include "Config.h"
 #include "FirmwareUpdate.h"
 #include "JsonFile.h"
@@ -20,12 +21,13 @@
 #include "Settings.h"
 #include "Storage.h"
 #include <ArduinoJson.h>
-#include <DNSServer.h>
+#include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <SD_MMC.h>
 #include <Update.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <memory>
 #include <mutex>
 #include "esp_task_wdt.h"
@@ -41,7 +43,7 @@ static const char* TRACKS_BACKUP = "/tracks.json.bak";
 
 static bool on = false;
 static String ssid;
-static DNSServer dns;
+static WiFiUDP dnsUdp;  // port 53, answered by captivedns::reply
 static AsyncWebServer* server = nullptr;
 static volatile uint32_t rebootAt = 0;
 
@@ -964,8 +966,7 @@ bool start() {
   codeChanged = true;
   downloads = portal::DownloadGate();  // (none can be running with the network down)
   spaceValid = false;
-  dns.setErrorReplyCode(DNSReplyCode::NoError);
-  dns.start(53, "*", WiFi.softAPIP());
+  dnsUdp.begin(53);
 
   if (!server) {  // created once, after the network stack is up
     // On every reply. The page has inline scripts and styles, nothing from elsewhere: its own files, the fonts, the
@@ -980,6 +981,9 @@ bool start() {
     setupRoutes();
     server->begin();
   }
+  // iPhones look up .local names by mDNS only, never through our DNS. Wi-Fi works without it.
+  if (MDNS.begin("trackrat")) MDNS.addService("http", "tcp", 80);
+  else DEBUG_PRINTLN("Wi-Fi: mDNS (trackrat.local) did not start");
   on = true;
   DEBUG_PRINTF("Wi-Fi: %s on, page at http://%s (%lu ms, %u bytes RAM free)\n", ssid.c_str(),
                WiFi.softAPIP().toString().c_str(), (unsigned long)(millis() - t0), ESP.getFreeHeap());
@@ -988,7 +992,8 @@ bool start() {
 
 void stop() {
   if (!on) return;
-  dns.stop();
+  MDNS.end();
+  dnsUdp.stop();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_OFF);
   on = false;
@@ -1007,7 +1012,25 @@ void loop(const GPSHandler& gps) {
     ESP.restart();
   }
   if (!on) return;
-  dns.processNextRequest();
+  // Answer the DNS queries waiting (up to 8 a call, so a flood can't hold up the main loop)
+  for (int i = 0; i < 8; i++) {
+    const int size = dnsUdp.parsePacket();
+    if (size <= 0) break;
+    uint8_t query[512], answer[512];
+    if (size > (int)sizeof(query)) {  // bigger than any question we answer: drop it
+      dnsUdp.flush();
+      continue;
+    }
+    const int got = dnsUdp.read(query, sizeof(query));
+    const IPAddress ip = WiFi.softAPIP();
+    const uint8_t ip4[4] = {ip[0], ip[1], ip[2], ip[3]};
+    const size_t n = got > 0 ? captivedns::reply(query, (size_t)got, ip4, answer, sizeof(answer)) : 0;
+    if (n) {
+      dnsUdp.beginPacket(dnsUdp.remoteIP(), dnsUdp.remotePort());
+      dnsUdp.write(answer, n);
+      dnsUdp.endPacket();
+    }
+  }
 
   // Re-timing asked for: started here, where the track list may be read
   String track, log;
@@ -1054,6 +1077,8 @@ const String& networkName() {
 }
 
 String address() { return on ? WiFi.softAPIP().toString() : String("192.168.4.1"); }
+
+String shortAddress() { return "trackrat.local"; }
 
 int clientCount() { return on ? WiFi.softAPgetStationNum() : 0; }
 

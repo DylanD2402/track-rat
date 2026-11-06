@@ -371,7 +371,7 @@ static void render() {
       AutocrossScreens::renderNewCourse();
       break;
     case AppState::Wifi:
-      display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::address(),
+      display.drawWifi(WifiPortal::active(), WifiPortal::networkName(), WifiPortal::shortAddress(),
                        WifiPortal::clientCount(), WifiPortal::uploadCodeValue(), WifiPortal::updateProgress(),
                        WifiPortal::restarting(), input.touchAvailable());
       break;

@@ -523,9 +523,9 @@ int main(int argc, char** argv) {
   save(d, "24_perf_best");
 
   // --- Wi-Fi, power and firmware ---
-  d.drawWifi(true, "TrackRat-3F2A", "192.168.4.1", 1, 4821, -1, false, true);
+  d.drawWifi(true, "TrackRat-3F2A", "trackrat.local", 1, 4821, -1, false, true);
   save(d, "25_wifi");
-  d.drawWifi(true, "TrackRat-3F2A", "192.168.4.1", 1, 4821, 63, false, true);
+  d.drawWifi(true, "TrackRat-3F2A", "trackrat.local", 1, 4821, 63, false, true);
   save(d, "26_wifi_installing");
   d.drawMessage("BATTERY LOW", "Saved. Going to sleep.", "Charge it, then touch or press BOOT", ui::C_YELLOW);
   save(d, "27_battery_low");
