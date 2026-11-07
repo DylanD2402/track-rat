@@ -1241,8 +1241,8 @@ void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& 
   }
 
   if (progress < 0 && !restarting) {
-    if (touchOk) footerButtons("", "Wi-Fi off", "");
-    else centered("Press BOOT to turn Wi-Fi off", 212, Font::Body, C_TEXT3);
+    if (touchOk) footerButtons("", "Back", "");
+    else centered("Press BOOT to go back", 212, Font::Body, C_TEXT3);
   }
   endFrame();
 }

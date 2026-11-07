@@ -49,7 +49,7 @@ Using Track Rat day to day: driving, settings, tracks, power, the Wi-Fi page and
 | Performance | left: rollout / demo, centre: results, right: menu, hold 2 s: menu | press: next screen, hold 1 s: menu |
 | Lap session summary | left button: menu, centre button or any other tap: Ready screen again, right button: Wi-Fi page. After a session that ended by itself, driving off starts the next | press: Ready screen again, hold 1 s: Wi-Fi page |
 | Free Roam summary | tap: menu; WI-FI button: Wi-Fi page | press: menu, hold 1 s: Wi-Fi page |
-| Wi-Fi | tap: Wi-Fi off (not while firmware installs) | press: Wi-Fi off |
+| Wi-Fi | tap: back, which turns Wi-Fi off (not while firmware installs) | press: back, which turns Wi-Fi off |
 | Settings | tap a row, drag to scroll, top bar: back (to the home screen from the list) | press: next row, hold 1 s: open or flip it (on a choice page: choose it; on Brightness and Time zone: press is +, hold goes back; on Coolant: press is + on the highlighted value (past the top it goes round to just above the limit below it), hold goes to the next, and back after the last) |
 | First-boot setup | tap the choice on the left or right | press: the other choice, hold 1 s: choose it |
 | Any screen | Settings → **Power off**; when it's off, a tap turns it back on | hold 3 s: [power off](#battery-power-off-and-sleep) (BOOT only, not the big button). When it's off, a press turns it back on |
@@ -370,7 +370,7 @@ Get your sessions onto your phone without taking the SD card out.
 1. In the pits, tap **Wi-Fi** on the home screen or **WI-FI** on a session summary (or hold BOOT on a summary). The screen shows the network name, the address and a code for changes.
 2. On your phone, join the Wi-Fi network **TrackRat-XXXX**. There's no password (see the notes below). The last 4 characters are different on each board.
 3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **trackrat.local** in your browser, or **http://192.168.4.1** with the `http://` typed. On an iPhone the page only opens by itself if Auto-Login is on (Settings > Wi-Fi > the TrackRat network). If it has stopped opening, for example after tapping Cancel and Use Without Internet on the sign-in sheet, tap **Forget This Network** on that same page and join again.
-4. When you're done, tap the Track Rat screen (or press BOOT) to turn Wi-Fi off.
+4. When you're done, tap **Back** on the Track Rat screen (or press BOOT). Wi-Fi is on only while this screen is showing, so going back turns it off.
 
 What the page does:
 
