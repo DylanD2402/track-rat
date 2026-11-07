@@ -254,7 +254,7 @@ static void handleInput(InputEvent ev) {
       Session::onInputFreeRoamSummary(ev);
       break;
 
-    case AppState::Wifi:  // any tap or press turns Wi-Fi off, except mid firmware update
+    case AppState::Wifi:  // any tap or press goes back (which turns Wi-Fi off), except mid firmware update
       if (ev != InputEvent::Hold && !WifiPortal::busy()) enterState(wifiReturn);
       break;
 
