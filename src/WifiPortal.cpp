@@ -54,7 +54,7 @@ static AsyncWebServer* server = nullptr;
 static volatile uint32_t rebootAt = 0;
 
 // The network coming up. WiFi.softAP() only asks the radio to start; the driver says when it has
-// (the event runs in the Wi-Fi task). loop() watches for it and starts the radio again if it is late.
+// (the event comes on Arduino's event task). loop() watches for it and starts the radio again if it is late.
 static volatile bool apStarted = false;
 static bool eventRegistered = false;
 static bool networkIsUp = false;
