@@ -498,7 +498,7 @@ private:
 };
 
 // Watches the Wi-Fi network come up. WiFi.softAP() only asks the radio to start, so the
-// network can be slow to appear (or not appear). Feed update() the AP-start flag each loop:
+// network can be slow to appear (or not appear). Feed update() whether the network is ready each loop:
 // Retry means start the radio again, GaveUp means stop. Wait and Idle ask for nothing.
 class ApStartWatch {
 public:
@@ -514,9 +514,9 @@ public:
   void reset() { watching = false; }
   bool isWatching() const { return watching; }
 
-  Result update(uint32_t now, bool apStarted) {
+  Result update(uint32_t now, bool ready) {
     if (!watching) return Idle;
-    if (apStarted) {
+    if (ready) {
       watching = false;
       return Up;
     }

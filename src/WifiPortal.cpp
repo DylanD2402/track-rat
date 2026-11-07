@@ -36,6 +36,7 @@
 #include <memory>
 #include <mutex>
 #include "esp_task_wdt.h"
+#include "esp_netif.h"
 #include "AppRollback.h"
 
 #include "Version.h"
@@ -57,6 +58,26 @@ static volatile uint32_t rebootAt = 0;
 static volatile bool apStarted = false;
 static bool eventRegistered = false;
 static bool networkIsUp = false;
+
+// What has happened of the three steps that make the network usable: the driver's AP-start event, the network
+// interface up, and the DHCP server running (a phone gets no address without it).
+struct ApSteps {
+  bool event, netif, dhcp;
+  bool all() const { return event && netif && dhcp; }
+};
+
+static ApSteps apSteps() {
+  ApSteps s = {apStarted, false, false};
+  esp_netif_t* ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  if (ap) {  // (null until the Wi-Fi driver has made it: not ready)
+    s.netif = esp_netif_is_netif_up(ap);
+    esp_netif_dhcp_status_t st = ESP_NETIF_DHCP_INIT;
+    s.dhcp = esp_netif_dhcps_get_status(ap, &st) == ESP_OK && st == ESP_NETIF_DHCP_STARTED;
+  }
+  return s;
+}
+
+static const char* yn(bool b) { return b ? "yes" : "no"; }
 static portal::ApStartWatch startWatch(WIFI_START_TIMEOUT_MS, WIFI_START_ATTEMPTS);
 
 // GPS status for the Device page, copied from loop() so handlers never read
@@ -1403,7 +1424,8 @@ bool networkUp() { return on && networkIsUp; }
 
 // While the network is coming up: say when it is, start the radio again if it is late, give up after the last try.
 static void watchStart(uint32_t now) {
-  switch (startWatch.update(now, apStarted)) {
+  const ApSteps steps = apSteps();
+  switch (startWatch.update(now, steps.all())) {
     case portal::ApStartWatch::Up: {
       networkIsUp = true;
       codeChanged = true;  // draw the screen again: it no longer says starting
@@ -1412,14 +1434,16 @@ static void watchStart(uint32_t now) {
 #else
       const bool phone = false;
 #endif
-      DEBUG_PRINTF("Wi-Fi: network up after %lu ms, attempt %d, Bluetooth: phone %s, OBD %s, camera %s, %u bytes RAM free\n",
-                   (unsigned long)startWatch.elapsedMs(now), startWatch.attempt(), phone ? "yes" : "no",
+      DEBUG_PRINTF("Wi-Fi: network up after %lu ms, attempt %d, event=%s netif=%s dhcp=%s, Bluetooth: phone %s, OBD %s, camera %s, %u bytes RAM free\n",
+                   (unsigned long)startWatch.elapsedMs(now), startWatch.attempt(), yn(steps.event), yn(steps.netif),
+                   yn(steps.dhcp), phone ? "yes" : "no",
                    ObdBle::connected() ? "yes" : "no", CameraBle::connected() ? "yes" : "no", ESP.getFreeHeap());
       break;
     }
     case portal::ApStartWatch::Retry:
-      DEBUG_PRINTF("Wi-Fi: network not up after %lu ms, restarting the radio (attempt %d of %d)\n",
-                   (unsigned long)startWatch.elapsedMs(now), startWatch.attempt(), startWatch.attempts());
+      DEBUG_PRINTF("Wi-Fi: network not up after %lu ms (event=%s netif=%s dhcp=%s), restarting the radio (attempt %d of %d)\n",
+                   (unsigned long)startWatch.elapsedMs(now), yn(steps.event), yn(steps.netif), yn(steps.dhcp),
+                   startWatch.attempt(), startWatch.attempts());
       stopRadio();
       if (startRadio()) {
         startNameServices();
@@ -1430,8 +1454,9 @@ static void watchStart(uint32_t now) {
       }
       break;
     case portal::ApStartWatch::GaveUp:
-      DEBUG_PRINTF("Wi-Fi: network not up after %lu ms and %d attempts, giving up\n",
-                   (unsigned long)startWatch.elapsedMs(now), startWatch.attempts());
+      DEBUG_PRINTF("Wi-Fi: network not up after %lu ms and %d attempts (event=%s netif=%s dhcp=%s), giving up\n",
+                   (unsigned long)startWatch.elapsedMs(now), startWatch.attempts(), yn(steps.event), yn(steps.netif),
+                   yn(steps.dhcp));
       stop();
       codeChanged = true;  // the screen now says Wi-Fi didn't start
       break;
