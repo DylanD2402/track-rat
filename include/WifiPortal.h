@@ -25,7 +25,8 @@ namespace WifiPortal {
 
 bool start();   // Wi-Fi network, DNS and web server on
 void stop();    // all off
-bool active();
+bool active();      // on, or trying to be: the network may not be up yet
+bool networkUp();   // the network, its interface and DHCP are all running (the radio is late sometimes; loop() tries again)
 
 // Call every loop: answers DNS, copies the GPS status for the page, and
 // restarts the board after a firmware update.

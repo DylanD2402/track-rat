@@ -497,6 +497,51 @@ private:
   const void* owner = nullptr;
 };
 
+// Watches the Wi-Fi network come up. WiFi.softAP() only asks the radio to start, so the
+// network can be slow to appear (or not appear). Feed update() whether the network is ready each loop:
+// Retry means start the radio again, GaveUp means stop. Wait and Idle ask for nothing.
+class ApStartWatch {
+public:
+  enum Result { Idle, Wait, Up, Retry, GaveUp };
+
+  ApStartWatch(uint32_t timeoutMs = 8000, int attempts = 3) : timeout(timeoutMs), maxAttempts(attempts) {}
+
+  void begin(uint32_t now) {
+    watching = true;
+    tries = 1;
+    firstAt = attemptAt = now;
+  }
+  void reset() { watching = false; }
+  bool isWatching() const { return watching; }
+
+  Result update(uint32_t now, bool ready) {
+    if (!watching) return Idle;
+    if (ready) {
+      watching = false;
+      return Up;
+    }
+    if ((uint32_t)(now - attemptAt) < timeout) return Wait;
+    if (tries >= maxAttempts) {
+      watching = false;
+      return GaveUp;
+    }
+    tries++;
+    attemptAt = now;
+    return Retry;
+  }
+
+  int attempt() const { return tries; }
+  int attempts() const { return maxAttempts; }
+  uint32_t elapsedMs(uint32_t now) const { return (uint32_t)(now - firstAt); }
+
+private:
+  uint32_t timeout;
+  int maxAttempts;
+  bool watching = false;
+  int tries = 0;
+  uint32_t firstAt = 0, attemptAt = 0;
+};
+
 }  // namespace portal
 
 #endif  // PORTAL_LOGIC_H

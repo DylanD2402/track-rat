@@ -11,6 +11,11 @@
 #include "WifiPortal.h"
 #include "CaptiveDns.h"
 #include "Config.h"
+#include "CameraBle.h"
+#include "ObdBle.h"
+#if BLE_ENABLED
+#include "RaceBoxBle.h"
+#endif
 #include "FirmwareUpdate.h"
 #include "JsonFile.h"
 #include "Logbook.h"
@@ -31,6 +36,7 @@
 #include <memory>
 #include <mutex>
 #include "esp_task_wdt.h"
+#include "esp_netif.h"
 #include "AppRollback.h"
 
 #include "Version.h"
@@ -46,6 +52,33 @@ static String ssid;
 static WiFiUDP dnsUdp;  // port 53, answered by captivedns::reply
 static AsyncWebServer* server = nullptr;
 static volatile uint32_t rebootAt = 0;
+
+// The network coming up. WiFi.softAP() only asks the radio to start; the driver says when it has
+// (the event runs in the Wi-Fi task). loop() watches for it and starts the radio again if it is late.
+static volatile bool apStarted = false;
+static bool eventRegistered = false;
+static bool networkIsUp = false;
+
+// What has happened of the three steps that make the network usable: the driver's AP-start event, the network
+// interface up, and the DHCP server running (a phone gets no address without it).
+struct ApSteps {
+  bool event, netif, dhcp;
+  bool all() const { return event && netif && dhcp; }
+};
+
+static ApSteps apSteps() {
+  ApSteps s = {apStarted, false, false};
+  esp_netif_t* ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  if (ap) {  // (null until the Wi-Fi driver has made it: not ready)
+    s.netif = esp_netif_is_netif_up(ap);
+    esp_netif_dhcp_status_t st = ESP_NETIF_DHCP_INIT;
+    s.dhcp = esp_netif_dhcps_get_status(ap, &st) == ESP_OK && st == ESP_NETIF_DHCP_STARTED;
+  }
+  return s;
+}
+
+static const char* yn(bool b) { return b ? "yes" : "no"; }
+static portal::ApStartWatch startWatch(WIFI_START_TIMEOUT_MS, WIFI_START_ATTEMPTS);
 
 // GPS status for the Device page, copied from loop() so handlers never read
 // the GPS handler while it's being updated.
@@ -1312,22 +1345,48 @@ static void buildNetworkName() {
   ssid = buf;
 }
 
-bool start() {
-  if (on) return true;
-  if (ssid.length() == 0) buildNetworkName();
-  uint32_t t0 = millis();
-
+// Asks the radio for the open network. The network is up when the AP-start event comes, not when this returns.
+static bool startRadio() {
+  apStarted = false;
   WiFi.persistent(false);
   if (!WiFi.mode(WIFI_AP) || !WiFi.softAP(ssid.c_str())) {  // open network, 192.168.4.1
     DEBUG_PRINTLN("Wi-Fi: could not start the network");
     WiFi.mode(WIFI_OFF);
     return false;
   }
+  return true;
+}
+
+// mDNS and the DNS socket go with the radio: down before it, back after it
+static void startNameServices() {
+  dnsUdp.begin(53);
+  // iPhones look up .local names by mDNS only, never through our DNS. Wi-Fi works without it.
+  if (MDNS.begin("trackrat")) MDNS.addService("http", "tcp", 80);
+  else DEBUG_PRINTLN("Wi-Fi: mDNS (trackrat.local) did not start");
+}
+
+static void stopRadio() {
+  MDNS.end();
+  dnsUdp.stop();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_OFF);
+}
+
+bool start() {
+  if (on) return true;
+  if (ssid.length() == 0) buildNetworkName();
+  uint32_t t0 = millis();
+
+  if (!eventRegistered) {  // once only: the handler stays for the life of the program
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { apStarted = true; }, ARDUINO_EVENT_WIFI_AP_START);
+    eventRegistered = true;
+  }
+  networkIsUp = false;
+  if (!startRadio()) return false;
   uploadCode.reset(esp_random());
   codeChanged = true;
   downloads = portal::DownloadGate();  // (none can be running with the network down)
   spaceValid = false;
-  dnsUdp.begin(53);
 
   if (!server) {  // created once, after the network stack is up
     // On every reply. The page has inline scripts and styles, nothing from elsewhere: its own files, the fonts, the
@@ -1342,24 +1401,68 @@ bool start() {
     setupRoutes();
     server->begin();
   }
-  // iPhones look up .local names by mDNS only, never through our DNS. Wi-Fi works without it.
-  if (MDNS.begin("trackrat")) MDNS.addService("http", "tcp", 80);
-  else DEBUG_PRINTLN("Wi-Fi: mDNS (trackrat.local) did not start");
+  startNameServices();
   on = true;
-  DEBUG_PRINTF("Wi-Fi: %s on, page at http://%s (%lu ms, %u bytes RAM free)\n", ssid.c_str(),
+  startWatch.begin(millis());
+  DEBUG_PRINTF("Wi-Fi: %s asked to start, page at http://%s (%lu ms, %u bytes RAM free)\n", ssid.c_str(),
                WiFi.softAPIP().toString().c_str(), (unsigned long)(millis() - t0), ESP.getFreeHeap());
   return true;
 }
 
 void stop() {
+  startWatch.reset();  // nothing retries after this
+  apStarted = false;
+  networkIsUp = false;
   if (!on) return;
-  MDNS.end();
-  dnsUdp.stop();
-  WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_OFF);
+  stopRadio();
   on = false;
   fsUnlock.forget();  // (a token isn't good for a later network)
   DEBUG_PRINTLN("Wi-Fi: off");
+}
+
+bool networkUp() { return on && networkIsUp; }
+
+// While the network is coming up: say when it is, start the radio again if it is late, give up after the last try.
+static void watchStart(uint32_t now) {
+  const ApSteps steps = apSteps();
+  switch (startWatch.update(now, steps.all())) {
+    case portal::ApStartWatch::Up: {
+      networkIsUp = true;
+      codeChanged = true;  // draw the screen again: it no longer says starting
+#if BLE_ENABLED
+      const bool phone = RaceBoxBle::connected();
+#else
+      const bool phone = false;
+#endif
+      DEBUG_PRINTF("Wi-Fi: network up after %lu ms, attempt %d, event=%s netif=%s dhcp=%s, Bluetooth: phone %s, OBD %s, camera %s, %u bytes RAM free\n",
+                   (unsigned long)startWatch.elapsedMs(now), startWatch.attempt(), yn(steps.event), yn(steps.netif),
+                   yn(steps.dhcp), phone ? "yes" : "no",
+                   ObdBle::connected() ? "yes" : "no", CameraBle::connected() ? "yes" : "no", ESP.getFreeHeap());
+      break;
+    }
+    case portal::ApStartWatch::Retry:
+      DEBUG_PRINTF("Wi-Fi: network not up after %lu ms (event=%s netif=%s dhcp=%s), restarting the radio (attempt %d of %d)\n",
+                   (unsigned long)startWatch.elapsedMs(now), yn(steps.event), yn(steps.netif), yn(steps.dhcp),
+                   startWatch.attempt(), startWatch.attempts());
+      stopRadio();
+      if (startRadio()) {
+        startNameServices();
+      } else {
+        DEBUG_PRINTLN("Wi-Fi: the radio would not start again, giving up");
+        stop();
+        codeChanged = true;
+      }
+      break;
+    case portal::ApStartWatch::GaveUp:
+      DEBUG_PRINTF("Wi-Fi: network not up after %lu ms and %d attempts (event=%s netif=%s dhcp=%s), giving up\n",
+                   (unsigned long)startWatch.elapsedMs(now), startWatch.attempts(), yn(steps.event), yn(steps.netif),
+                   yn(steps.dhcp));
+      stop();
+      codeChanged = true;  // the screen now says Wi-Fi didn't start
+      break;
+    default:
+      break;
+  }
 }
 
 bool active() { return on; }
@@ -1374,6 +1477,8 @@ void loop(const GPSHandler& gps) {
     ESP.restart();
   }
   if (!on) return;
+  watchStart(now);
+  if (!on) return;  // (it may have given up)
   // Answer the DNS queries waiting (up to 8 a call, so a flood can't hold up the main loop)
   for (int i = 0; i < 8; i++) {
     const int size = dnsUdp.parsePacket();

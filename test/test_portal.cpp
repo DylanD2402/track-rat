@@ -515,6 +515,38 @@ int main() {
   CHECK(dl.count() == 0 && dl.enter(), "back to none");
   printf("  downloads: two at once\n");
 
+  // Wi-Fi start watch
+  {
+    ApStartWatch w(8000, 3);
+    CHECK(w.update(0, true) == ApStartWatch::Idle, "idle before begin");
+    w.begin(1000);
+    CHECK(w.update(1500, false) == ApStartWatch::Wait && w.attempt() == 1, "waits");
+    CHECK(w.update(2000, true) == ApStartWatch::Up, "up on the first try");
+    CHECK(w.elapsedMs(2000) == 1000, "elapsed since begin");
+    CHECK(w.update(2100, true) == ApStartWatch::Idle && w.update(99999, false) == ApStartWatch::Idle, "Up only once");
+
+    w.begin(0);
+    CHECK(w.update(7999, false) == ApStartWatch::Wait, "not yet at 7999");
+    CHECK(w.update(8000, false) == ApStartWatch::Retry && w.attempt() == 2, "retry at the timeout");
+    CHECK(w.update(15999, false) == ApStartWatch::Wait, "second attempt has its own timer");
+    CHECK(w.update(16000, false) == ApStartWatch::Retry && w.attempt() == 3, "third attempt");
+    CHECK(w.elapsedMs(16000) == 16000, "elapsed counts from the first begin");
+    CHECK(w.update(24000, false) == ApStartWatch::GaveUp, "gives up after the last attempt");
+    CHECK(w.update(40000, false) == ApStartWatch::Idle && w.update(40001, true) == ApStartWatch::Idle, "settled after giving up");
+
+    w.begin(0);
+    w.update(8000, false);
+    CHECK(w.update(8500, true) == ApStartWatch::Up && w.attempt() == 2, "up on a retry");
+
+    w.begin(0xFFFFF000u);  // millis() wraps during the wait
+    CHECK(w.update(0xFFFFF000u + 7000u, false) == ApStartWatch::Wait, "wait before the wrap");
+    CHECK(w.update(6000u, false) == ApStartWatch::Retry, "retry across the wrap");
+    CHECK(w.elapsedMs(6000u) == 0x1000u + 6000u, "elapsed across the wrap");
+    w.reset();
+    CHECK(w.update(0, false) == ApStartWatch::Idle, "reset stops it");
+  }
+  printf("  Wi-Fi start watch: ok\n");
+
   printf(failures ? "\n%d FAILURE(S)\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

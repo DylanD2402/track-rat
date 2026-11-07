@@ -1194,10 +1194,18 @@ void DisplayManager::wifiButton(int y, int h, bool highlight, bool holdHint, int
   if (holdHint) text("or hold BOOT", x + w / 2, y + h - 5, Font::Caption, C_TEXT3, BC_DATUM);
 }
 
-void DisplayManager::drawWifi(bool wifiOn, const String& network, const String& address, int phones,
+void DisplayManager::drawWifi(bool wifiOn, bool networkUp, const String& network, const String& address, int phones,
                               int uploadCode, int progress, bool restarting, bool touchOk) {
   beginFrame();
-  header(wifiOn ? "Wi-Fi on" : "Wi-Fi", nullptr);
+  header(wifiOn && networkUp ? "Wi-Fi on" : "Wi-Fi", nullptr);
+  if (wifiOn && !networkUp) {  // asked for, not up yet (the radio is slow sometimes)
+    centered("Starting Wi-Fi…", 80, Font::Title, C_YELLOW);
+    text(fit(network, Font::Body, W - 24), W / 2, 116, Font::Body, C_TEXT2, TC_DATUM);
+    if (touchOk) footerButtons("", "Back", "");
+    else centered("Press BOOT to go back", 212, Font::Body, C_TEXT3);
+    endFrame();
+    return;
+  }
   if (!wifiOn) {
     centered("Wi-Fi didn't start", 80, Font::Title, C_RED);
     centered("The serial log says why", 116, Font::Body, C_TEXT2);
