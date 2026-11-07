@@ -280,6 +280,10 @@
 #define BATTERY_DRAW_SLEEP_MA 1           // ... deep sleep
 #define BATTERY_STATS_SAVE_MS (10UL * 60UL * 1000UL)  // saved at most this often (flash wear), and before sleeping
 
+// Wi-Fi page: the radio is asked to start, and may be slow to do it (WifiPortal.cpp)
+#define WIFI_START_TIMEOUT_MS 8000  // wait this long for the network to come up before restarting the radio
+#define WIFI_START_ATTEMPTS 3       // radio starts to try in all, then the screen says Wi-Fi didn't start
+
 // ---------------------------------------------------------------------------
 // Auto-sleep: parked with no touch or BOOT press. Waking is by BOOT (IO0) or a touch (INT, IO17).
 // Power off (Settings > Power off, or BOOT held POWER_OFF_HOLD_MS) is the same deep sleep, straight away.

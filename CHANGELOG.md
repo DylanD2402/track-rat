@@ -23,6 +23,7 @@ Install both the firmware and the file system (the web installer does both): the
 - A session or a start/finish line can't be set far from a track any more: more than 15 km from the track's centre (`TRACK_RANGE_M`), the Ready screen offers only the way back, and a tap at the line is refused. Start also waits for a GPS fix. A line already that far from its track is ignored, so it no longer makes the track look nearby and open at every start.
 - The board's DNS gave an empty answer to any lookup with an EDNS record, which many modern phones and resolvers add, and answered AAAA and HTTPS lookups with the wrong type. It now has its own DNS answer (`CaptiveDns.h`, with a host test). An iPhone can also stop opening the page by itself because of its own saved settings for the network: the user guide says how to reset them.
 - A folder listing with a path over about 44 characters could list the wrong folder.
+- The Wi-Fi screen said "Wi-Fi on" before the network was up, which could take a minute or never happen. It now says "Starting Wi-Fi…" until the network is up, starts the radio again after 8 s (up to 3 tries), then says Wi-Fi didn't start. The serial log says how long it took.
 
 ### Changed
 

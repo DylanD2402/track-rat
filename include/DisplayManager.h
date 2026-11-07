@@ -189,7 +189,7 @@ public:
   void drawFirmwarePrompt(const char* modified, uint32_t sizeBytes, bool touchOk);
   void drawFirmwareProgress(int percent);
   // Wi-Fi screen: network name, address and upload code. progress: firmware install, -1 = none
-  void drawWifi(bool wifiOn, const String& network, const String& address, int phones, int uploadCode,
+  void drawWifi(bool wifiOn, bool networkUp, const String& network, const String& address, int phones, int uploadCode,
                 int progress, bool restarting, bool touchOk);
 
   // Settings (DisplaySettings.cpp). The screen turns round at once when the Screen setting changes.
