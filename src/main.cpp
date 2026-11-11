@@ -126,6 +126,16 @@ int todaysCourseNearby() {
   return k < 0 ? -1 : list[k].index;
 }
 
+// Bluetooth shares the radio with Wi-Fi: while the Wi-Fi screen is open the phone link, the OBD adapter and
+// the camera are let go (and found again afterwards). Nothing remembered changes.
+void pauseBluetooth(bool on) {
+#if BLE_ENABLED
+  RaceBoxBle::setPaused(on);
+#endif
+  ObdBle::setPaused(on);
+  CameraBle::setPaused(on);
+}
+
 void enterState(AppState next) {
   DEBUG_PRINTF("State: %s -> %s\n", STATE_NAMES[(int)state], STATE_NAMES[(int)next]);
 
@@ -151,9 +161,11 @@ void enterState(AppState next) {
   if (next == AppState::Wifi) {
     Session::flushSummary();  // the page lists and downloads the summaries
     wifiReturn = state;
+    pauseBluetooth(true);
     WifiPortal::start();
   } else if (state == AppState::Wifi) {
     WifiPortal::stop();
+    pauseBluetooth(false);
   }
 
   if (!sessionNext) Profiles::unlockSession();  // (the summaries and best laps above were saved under the session's pair)
@@ -502,6 +514,14 @@ void loop() {
   CanObd::poll();
   ObdBle::poll();
   CameraBle::poll();
+
+  // Test keys on the USB serial monitor, to time Wi-Fi with and without Bluetooth in one visit
+  if (const char k = Power::takeTestKey()) {
+    if (state == AppState::Wifi || k == 'r') {  // ('p' off the Wi-Fi screen would never be undone)
+      pauseBluetooth(k == 'p');
+      DEBUG_PRINTLN(k == 'p' ? "BLE test: paused" : "BLE test: resumed");
+    }
+  }
 
   bool busy = false;  // something happened this pass: no nap at its end
   GpsFix fix;

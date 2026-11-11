@@ -164,13 +164,30 @@ static void printHistory() {
 }
 #endif
 
-void update(uint32_t nowMs) {
-#if BATTERY_ENABLED
+// The one place that reads the USB serial: 'b' prints the battery history here, any other key waits for
+// takeTestKey() (main.cpp acts on 'p' and 'r', the Bluetooth pause test)
+static char testKey = 0;
+char takeTestKey() {
+  const char k = testKey;
+  testKey = 0;
+  return k;
+}
+
+static void readSerialKeys() {
 #if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
   while (Serial.available()) {
-    if (Serial.read() == 'b') printHistory();
+    const int c = Serial.read();
+#if BATTERY_ENABLED
+    if (c == 'b') printHistory();
+#endif
+    if (c == 'p' || c == 'r') testKey = (char)c;
   }
 #endif
+}
+
+void update(uint32_t nowMs) {
+  readSerialKeys();
+#if BATTERY_ENABLED
   if (!firstRead && nowMs - lastRead < BATTERY_READ_MS) return;
   firstRead = false;
   lastRead = nowMs;

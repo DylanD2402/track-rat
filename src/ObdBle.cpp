@@ -32,6 +32,7 @@ static Found foundList[MAX_FOUND];
 static int foundCount = 0;
 static volatile bool scanAsked = false, scanOn = false;
 static volatile bool settingsChanged = false;  // choose() or forget(): the task reloads
+static volatile bool paused = false;           // the Wi-Fi screen is open: no link, no connecting, no scanning
 static char wantAddr[18] = "", wantName[24] = "";
 static uint8_t wantType = 0;
 
@@ -198,6 +199,7 @@ static void publish() {
 
 static void taskMain(void*) {
   uint32_t retryAt = 0, retryMs = RETRY_MIN_MS;
+  bool wasPaused = false;
   for (;;) {
     const uint32_t now = millis();
 
@@ -208,6 +210,27 @@ static void taskMain(void*) {
       writeChr = nullptr;
       wasConnected = false;
       retryAt = now;
+      retryMs = RETRY_MIN_MS;
+    }
+
+    if (paused) {  // (also catches a connect that finished after the pause began)
+      if (!wasPaused) DEBUG_PRINTLN("OBD: paused for Wi-Fi");
+      wasPaused = true;
+      scanAsked = false;  // a scan asked for now is dropped
+      if (client && client->isConnected()) client->disconnect();
+      if (wasConnected) {
+        elmc.end();
+        writeChr = nullptr;
+        wasConnected = false;
+      }
+      publish();
+      vTaskDelay(pdMS_TO_TICKS(50));
+      continue;
+    }
+    if (wasPaused) {
+      wasPaused = false;
+      DEBUG_PRINTLN("OBD: resumed");
+      retryAt = now;  // reconnect promptly
       retryMs = RETRY_MIN_MS;
     }
 
@@ -246,7 +269,7 @@ static void taskMain(void*) {
     wasConnected = linked;
 
     if (!linked) {
-      if (addr[0] && !scanOn && (int32_t)(now - retryAt) >= 0) {
+      if (addr[0] && !scanOn && !paused && (int32_t)(now - retryAt) >= 0) {
         if (connectTo(addr, type)) {
           wasConnected = true;
           retryMs = RETRY_MIN_MS;
@@ -359,6 +382,8 @@ void choose(const Found& f) {
   DEBUG_PRINTF("OBD: chose %s (%s)\n", f.name, f.address);
 }
 
+void setPaused(bool on) { paused = on; }
+
 void forget() {
   Preferences p;
   if (p.begin("obd", false)) {
@@ -393,6 +418,7 @@ bool scanning() { return false; }
 int found(Found*, int) { return 0; }
 void choose(const Found&) {}
 void forget() {}
+void setPaused(bool) {}
 }  // namespace ObdBle
 
 #endif

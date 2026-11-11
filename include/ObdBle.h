@@ -69,6 +69,10 @@ int found(Found* out, int max);  // the adapters found by the last scan, stronge
 void choose(const Found& f);  // remember it and connect
 void forget();                // disconnect and forget it
 
+// Let go of the adapter and don't look for it (true), or look for it again (false). The Wi-Fi screen
+// pauses Bluetooth: the radio is shared with Wi-Fi. Changes nothing that is remembered
+void setPaused(bool on);
+
 }  // namespace ObdBle
 
 #endif  // OBD_BLE_H

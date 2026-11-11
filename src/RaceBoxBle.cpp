@@ -23,6 +23,7 @@ static String name;
 static uint32_t sent = 0;
 static bool started = false;  // begin() has run
 static bool enabled = false;  // the Bluetooth setting is on
+static volatile bool paused = false;  // the Wi-Fi screen is open: no advertising, no phone
 
 // A read-only text characteristic. As a std::string: NimBLE's setValue(const T&)
 // would send a string literal with its terminating zero, and a char pointer
@@ -144,7 +145,7 @@ void begin() {
   if (raceChrono) {
     RaceChronoBle::build(server);  // and nothing else: iOS drops DIY data beside a UART-style service
     adv->setScanResponse(true);
-    adv->start();
+    if (!paused) adv->start();
     DEBUG_PRINTF("BLE: advertising as \"%s\" (RaceChrono DIY device)\n", name.c_str());
     started = true;
     enabled = true;
@@ -168,7 +169,7 @@ void begin() {
 
   adv->addServiceUUID(SERVICE_UUID);
   adv->setScanResponse(true);
-  adv->start();
+  if (!paused) adv->start();
   DEBUG_PRINTF("BLE: advertising as \"%s\"\n", name.c_str());
   started = true;
   enabled = true;
@@ -186,14 +187,32 @@ void setEnabled(bool on) {
   enabled = on;
   NimBLEServer* server = NimBLEDevice::getServer();
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  server->advertiseOnDisconnect(on);
+  server->advertiseOnDisconnect(on && !paused);
   if (on) {
-    adv->start();
+    if (!paused) adv->start();
   } else {
     adv->stop();
     for (uint16_t handle : server->getPeerDevices()) server->disconnect(handle);
   }
   DEBUG_PRINTF("BLE: %s\n", on ? "on" : "off");
+}
+
+// The Wi-Fi screen: stop advertising and let the phone go, then advertise again (if the
+// setting is on) when it closes. Leaves the setting itself alone.
+void setPaused(bool on) {
+  if (on == paused) return;
+  paused = on;
+  if (!started) return;  // begin() looks at paused when it starts
+  NimBLEServer* server = NimBLEDevice::getServer();
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  server->advertiseOnDisconnect(enabled && !on);  // (before the disconnects)
+  if (on) {
+    adv->stop();
+    for (uint16_t handle : server->getPeerDevices()) server->disconnect(handle);
+  } else if (enabled) {
+    adv->start();
+  }
+  DEBUG_PRINTF("BLE: %s for Wi-Fi\n", on ? "paused" : "resumed");
 }
 
 void sendFix(const GpsFix& fix, const GPSHandler& gps) {
@@ -272,7 +291,7 @@ void radioUnlock() {
 
 // After the OBD adapter connects: advertising carries on if the phone isn't connected
 void resumeAdvertising() {
-  if (!started || !enabled || isConnected) return;
+  if (!started || !enabled || paused || isConnected) return;
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   if (!adv->isAdvertising()) adv->start();
 }

@@ -114,6 +114,16 @@ What a driver chooses (units, brightness and so on) is a [setting](user-guide.md
 | `GPS_ASSISTNOW_AUTONOMOUS` | 1 | The GPS predicts satellite orbits 3 to 6 days ahead, for quick fixes after days off. 0 = leave it off |
 | `FIRMWARE_FILE` | `/trackrat.bin` | File on the SD card offered as a firmware update |
 
+## Serial debug keys
+
+With the board on USB, these single characters typed in the serial monitor do something (`src/Power.cpp` reads them, `src/main.cpp` acts):
+
+| Key | Does |
+|---|---|
+| `b` | Prints the last 10 minutes of battery readings, 1 s apart, oldest first |
+| `p` | Pauses Bluetooth (the phone link, the OBD adapter, the camera), as the Wi-Fi screen does. Only while the Wi-Fi screen is showing. Prints `BLE test: paused` |
+| `r` | Brings Bluetooth back even while the Wi-Fi screen is showing. Prints `BLE test: resumed`. Leaving the Wi-Fi screen resumes it too, and entering it pauses again. With `p` it lets a script time Wi-Fi downloads both ways in one visit |
+
 ## Tests
 
 GitHub Actions (`.github/workflows/ci.yml`) runs all of the tests below on Linux for every push and pull request, and also builds the firmware and the filesystem image. The built `firmware.bin` is attached to the run. When you add a test, add its command to the workflow too.

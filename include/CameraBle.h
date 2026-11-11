@@ -67,6 +67,10 @@ int found(Found* out, int max);
 void choose(const Found& f);  // pair with it (the camera asks the driver to accept)
 void forget();
 
+// Let go of the camera and don't look for it (true), or look for it again (false). The Wi-Fi screen
+// pauses Bluetooth: the radio is shared with Wi-Fi. Changes no setting and forgets no pairing
+void setPaused(bool on);
+
 }  // namespace CameraBle
 
 #endif  // CAMERA_BLE_H
