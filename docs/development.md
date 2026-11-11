@@ -42,6 +42,10 @@ Text is placed and drawn as on the board, with the same fonts; shapes are close 
 
 `python tools/readme_images.py` turns the renders into the README pictures in `docs/images`. The CI job "Screens" runs `python tools/check_screens.py`, which renders fresh and fails if any of those pictures is stale, so after changing a screen run both scripts and commit `docs/images`.
 
+### The website's demo video
+
+The homepage's video is the real screen code playing a scripted session at Calabogie through the real lap timer. Nothing is filmed. `python tools/make_demo.py` builds it (needs g++ or CXX, Pillow and ffmpeg) and writes `site/assets/demo.mp4`, `demo-poster.png` and `demo.json`, which has the captions. The storyboard and the captions are in `tools/screens/demo.cpp`. `build/demo/sheet.png` shows a frame a second, for checking. After changing a screen, run the script again and commit `site/assets`.
+
 ## Track maps
 
 While timing, press the screen (or BOOT) to switch between the timing screen and a **map view**. The map view shows the track layout with your car as a white dot and a **ghost**, a grey ring where your reference lap was at this moment into the lap, plus the lap time, live diff, best and last lap down the right-hand side.

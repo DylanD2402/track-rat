@@ -1,0 +1,41 @@
+{
+ "fps": 20,
+ "frames": 784,
+ "duration": 39.2,
+ "cues": [
+  {
+   "t": 0.0,
+   "text": "Switch on. It finds the track by GPS."
+  },
+  {
+   "t": 4.0,
+   "text": "Timing starts by itself at the start/finish line."
+  },
+  {
+   "t": 11.7,
+   "text": "Live delta against your best lap, 20 times a second."
+  },
+  {
+   "t": 17.2,
+   "text": "Tap for the map, with your best lap as a ghost."
+  },
+  {
+   "t": 21.2,
+   "text": "Every lap timed at the line. Purple is a new personal best."
+  },
+  {
+   "t": 27.7,
+   "text": "Green when you're ahead, red when you're behind."
+  },
+  {
+   "t": 31.2,
+   "text": "Park, and it shows where the time went."
+  },
+  {
+   "t": 36.2,
+   "text": "Download sessions over Wi-Fi. No app."
+  }
+ ],
+ "width": 960,
+ "height": 720
+}

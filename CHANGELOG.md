@@ -8,6 +8,7 @@ Install both the firmware and the file system (the web installer does both): the
 
 ### Added
 
+- A demo on the homepage: the real screens through a session at Calabogie, made from the screen code by `tools/make_demo.py`.
 - A **Files** tab on the Wi-Fi page for the whole SD card, so the card doesn't have to come out of its case: browse, download, upload files or a folder, make folders, rename and delete (a folder with what's in it). One code from the screen opens it for 15 minutes from the last use, for that phone.
 - Delete a session on the Sessions tab: its log, summary and note. Its best laps stay; the Files tab can remove them (`/tracks`).
 - Remove start/finish in the Tracks tab's editor, for a line set by mistake.

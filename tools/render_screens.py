@@ -26,8 +26,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCREENS = os.path.join(ROOT, "tools", "screens")
-SOURCES = [
-    os.path.join(SCREENS, "screens.cpp"),
+COMMON_SOURCES = [
     os.path.join(SCREENS, "mock", "TFT_eSPI.cpp"),
     os.path.join(ROOT, "src", "DisplayManager.cpp"),
     os.path.join(ROOT, "src", "DisplayPerf.cpp"),
@@ -60,6 +59,18 @@ def write_track(track_id, out):
         f.write(f"static const double TRACK_PTS[] = {{{pts}}};\n")
 
 
+def build(main_source, out, name):
+    """Compiles a driver (screens.cpp or demo.cpp) with the shared display code; returns the exe path.
+    track_data.h must already be in out."""
+    exe = os.path.join(out, name + ".exe" if os.name == "nt" else name)
+    cmd = [*shlex.split(os.environ.get("CXX", "g++")), "-std=c++17", "-O1", "-DDEBUG_MODE=0", "-DBLE_ENABLED=1",
+           '-DTRACKRAT_VERSION="b65364c"', '-DTRACKRAT_BUILT="Oct 24 2026 17:03:12"',
+           "-I" + os.path.join(SCREENS, "mock"), "-I" + os.path.join(ROOT, "include"), "-I" + out,
+           main_source, *COMMON_SOURCES, "-o", exe]
+    subprocess.run(cmd, check=True)
+    return exe
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--track", default="calabogie", help="id of a track in data/tracks.json with a map")
@@ -68,12 +79,7 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     write_track(args.track, args.out)
 
-    exe = os.path.join(args.out, "screens.exe" if os.name == "nt" else "screens")
-    cmd = [*shlex.split(os.environ.get("CXX", "g++")), "-std=c++17", "-O1", "-DDEBUG_MODE=0", "-DBLE_ENABLED=1",
-           '-DTRACKRAT_VERSION="b65364c"', '-DTRACKRAT_BUILT="Oct 24 2026 17:03:12"',
-           "-I" + os.path.join(SCREENS, "mock"), "-I" + os.path.join(ROOT, "include"), "-I" + args.out,
-           *SOURCES, "-o", exe]
-    subprocess.run(cmd, check=True)
+    exe = build(os.path.join(SCREENS, "screens.cpp"), args.out, "screens")
     subprocess.run([exe, args.out], check=True)
 
     names = sorted(n for n in os.listdir(args.out) if n.endswith(".ppm"))
