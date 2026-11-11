@@ -19,13 +19,17 @@ const size_t FRAME_BYTES = LCD_W * LCD_H * 3;
 const size_t FADE_FRAMES = 8;  // the last frames fade to black, so the loop restarts cleanly
 
 // --- the speed round the lap ----------------------------------------------------
+// The car's speed is the lap's shape times a pace: p, a slow swing of +-a round the lap, and one short
+// stretch driven better or worse (gain, centred `at` of the way round, about 2 x widthM long), placed
+// where the story is watching, so the delta moves while it is on screen.
 struct Pace {
   double p, a, ph;
+  double at = 0, gain = 0, widthM = 1;
 };
 Pace paceFor(int lapNo) {
   if (lapNo <= 0) return {0.93, 0, 0};  // the out lap
-  if (lapNo == 1) return {1.012, 0.020, 0.6};
-  if (lapNo == 2) return {0.990, 0.020, 2.4};
+  if (lapNo == 1) return {1.012, 0.020, 0.6, 0.435, 0.08, 60};   // a good exit, in scene 5
+  if (lapNo == 2) return {0.990, 0.020, 2.4, 0.309, -0.10, 40};  // a mistake, in scene 8
   if (lapNo == 3) return {1.003, 0.020, 4.1};
   return {0.997, 0.020, 5.3};
 }
@@ -156,7 +160,9 @@ int main(int argc, char** argv) {
   auto kmhAt = [&](double s, Pace pc) {
     const double u = fmod(fmod(s, L) + L, L);
     const double base = 118 + 52 * sin(TAU * 3 * u / L) + 18 * sin(TAU * 8 * u / L);
-    return base * (pc.p + pc.a * sin(TAU * 2 * u / L + pc.ph));
+    const double du = u - pc.at * L;
+    const double stretch = pc.gain * exp(-du * du / (pc.widthM * pc.widthM));
+    return base * (pc.p + pc.a * sin(TAU * 2 * u / L + pc.ph) + stretch);
   };
 
   // --- the stored personal best, made before any frame: a lap timer at pace 1.000 through two laps
@@ -315,7 +321,7 @@ int main(int argc, char** argv) {
   play(8, false);
 
   // 6. The map, 80 frames
-  cue("Tap for the map, with your best lap as a ghost.");
+  cue("Tap for the map.");
   play(80, true);
 
   // 7. The line and the lap flash, 130 frames

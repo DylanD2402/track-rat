@@ -6,7 +6,7 @@ real LapTimer and draws every frame with the real display code (the same stand-i
 as render_screens.py), then encodes the frames with ffmpeg:
 
     site/assets/demo.mp4          the video, 960x720, 20 frames a second
-    site/assets/demo-poster.png   the first frame of the lap, for the video's poster
+    site/assets/demo-poster.png   a frame from lap 1, shown until the video loads
     site/assets/demo.json         the frame rate, length and captions (cues)
 
     python tools/make_demo.py                   # the site's files
