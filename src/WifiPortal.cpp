@@ -37,6 +37,10 @@
 #include <mutex>
 #include "esp_task_wdt.h"
 #include "esp_netif.h"
+#include "esp_wifi.h"
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "AppRollback.h"
 
 #include "Version.h"
@@ -58,6 +62,56 @@ static volatile uint32_t rebootAt = 0;
 static volatile bool apStarted = false;
 static bool eventRegistered = false;
 static bool networkIsUp = false;
+
+// DIAGNOSTIC for the Wi-Fi stall (connections to port 80 unanswered, DNS sends failing with ENOMEM):
+// one "Wi-Fi diag:" line every 3 s. Remove once the stall is understood.
+// PostGate::canHandle is called once per request (AsyncWebServer::_attachHandler tries the handlers in order and
+// PostGate is first, with the default filter), so it counts every request, on the async_tcp task.
+static volatile uint32_t diagHttpReqs = 0, diagHttpLastMs = 0;
+static volatile uint32_t diagDnsIn = 0, diagDnsOk = 0, diagDnsFail = 0;
+static uint32_t diagStartMs = 0, diagUpMs = 0, diagLastPrint = 0;
+static bool diagUp = false;
+static void diagReset(uint32_t now) {
+  diagHttpReqs = 0;
+  diagHttpLastMs = 0;
+  diagDnsIn = 0;
+  diagDnsOk = 0;
+  diagDnsFail = 0;
+  diagStartMs = now;
+  diagLastPrint = now;
+  diagUp = false;
+}
+static const char* diagTask(const char* name, char* out, size_t outLen) {
+  TaskHandle_t h = xTaskGetHandle(name);
+  if (!h) { snprintf(out, outLen, "%s ?", name); return out; }
+  static const char* const STATES[] = {"run", "ready", "blocked", "suspended", "deleted"};
+  const int st = (int)eTaskGetState(h);
+  snprintf(out, outLen, "%s %s hw %u", name, st >= 0 && st < 5 ? STATES[st] : "?", (unsigned)uxTaskGetStackHighWaterMark(h));
+  return out;
+}
+static void diagPrint(uint32_t now) {
+  if (now - diagLastPrint < 3000) return;
+  diagLastPrint = now;
+  char rssi[40] = "";
+  wifi_sta_list_t list;
+  if (esp_wifi_ap_get_sta_list(&list) == ESP_OK) {
+    size_t n = 0;
+    for (int i = 0; i < list.num && n < sizeof(rssi) - 8; i++) n += snprintf(rssi + n, sizeof(rssi) - n, i ? ",%d" : "%d", list.sta[i].rssi);
+  }
+  const uint32_t reqs = diagHttpReqs, lastReq = diagHttpLastMs;
+  char http[32];
+  if (reqs) snprintf(http, sizeof(http), "%u req last %lu s", (unsigned)reqs, (unsigned long)((now - lastReq) / 1000));
+  else snprintf(http, sizeof(http), "0 req");
+  char a[40], t[40];
+  DEBUG_PRINTF("Wi-Fi diag: up %lu s%s, sta %d (rssi %s), int %u free %u min %u blk, dma %u, psram %u, http %s, dns %u in %u ok %u fail, %s, %s\n",
+               (unsigned long)((now - (diagUp ? diagUpMs : diagStartMs)) / 1000), diagUp ? "" : " (not up)",
+               WiFi.softAPgetStationNum(), rssi,
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), http,
+               (unsigned)diagDnsIn, (unsigned)diagDnsOk, (unsigned)diagDnsFail,
+               diagTask("async_tcp", a, sizeof(a)), diagTask("tiT", t, sizeof(t)));
+}
 
 // What has happened of the three steps that make the network usable: the driver's AP-start event, the network
 // interface up, and the DHCP server running (a phone gets no address without it).
@@ -841,7 +895,11 @@ static void onFirmwareDone(AsyncWebServerRequest* req) {
 // instead of keeping it, so a big one costs time on the Wi-Fi link and no memory. Added first, so it sees every POST.
 class PostGate : public AsyncWebHandler {
 public:
-  bool canHandle(AsyncWebServerRequest* req) const override { return req->method() == HTTP_POST && refusal(req) != 0; }
+  bool canHandle(AsyncWebServerRequest* req) const override {
+    diagHttpReqs = diagHttpReqs + 1;  // (diagnostic: every request passes here once)
+    diagHttpLastMs = millis();
+    return req->method() == HTTP_POST && refusal(req) != 0;
+  }
 
   void handleRequest(AsyncWebServerRequest* req) override {
     switch (refusal(req)) {
@@ -1403,6 +1461,7 @@ bool start() {
   }
   startNameServices();
   on = true;
+  diagReset(millis());
   startWatch.begin(millis());
   DEBUG_PRINTF("Wi-Fi: %s asked to start, page at http://%s (%lu ms, %u bytes RAM free)\n", ssid.c_str(),
                WiFi.softAPIP().toString().c_str(), (unsigned long)(millis() - t0), ESP.getFreeHeap());
@@ -1428,6 +1487,8 @@ static void watchStart(uint32_t now) {
   switch (startWatch.update(now, steps.all())) {
     case portal::ApStartWatch::Up: {
       networkIsUp = true;
+      diagUp = true;
+      diagUpMs = now;
       codeChanged = true;  // draw the screen again: it no longer says starting
 #if BLE_ENABLED
       const bool phone = RaceBoxBle::connected();
@@ -1492,12 +1553,15 @@ void loop(const GPSHandler& gps) {
     const IPAddress ip = WiFi.softAPIP();
     const uint8_t ip4[4] = {ip[0], ip[1], ip[2], ip[3]};
     const size_t n = got > 0 ? captivedns::reply(query, (size_t)got, ip4, answer, sizeof(answer)) : 0;
+    diagDnsIn = diagDnsIn + 1;
     if (n) {
       dnsUdp.beginPacket(dnsUdp.remoteIP(), dnsUdp.remotePort());
       dnsUdp.write(answer, n);
-      dnsUdp.endPacket();
+      if (dnsUdp.endPacket()) diagDnsOk = diagDnsOk + 1;
+      else diagDnsFail = diagDnsFail + 1;
     }
   }
+  diagPrint(now);
 
   // Re-timing asked for: started here, where the track list may be read
   String track, log;
