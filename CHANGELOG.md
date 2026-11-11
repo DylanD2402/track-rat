@@ -17,6 +17,7 @@ Install both the firmware and the file system (the web installer does both): the
 ### Changed
 
 - The Wi-Fi screen's button says **Back** instead of Wi-Fi off. Going back still turns Wi-Fi off.
+- Bluetooth (the OBD adapter, the camera and the phone link) pauses while the Wi-Fi screen is open and reconnects when you leave it, so Wi-Fi gets the radio to itself.
 
 ### Fixed
 

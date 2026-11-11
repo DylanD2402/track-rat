@@ -370,7 +370,7 @@ Get your sessions onto your phone without taking the SD card out.
 1. In the pits, tap **Wi-Fi** on the home screen or **WI-FI** on a session summary (or hold BOOT on a summary). The screen shows the network name, the address and a code for changes. It says **Starting Wi-Fi…** until the network is up, and tries again by itself if it is slow.
 2. On your phone, join the Wi-Fi network **TrackRat-XXXX**. There's no password (see the notes below). The last 4 characters are different on each board.
 3. The page opens by itself, like a hotel Wi-Fi login. If it doesn't, open **trackrat.local** in your browser, or **http://192.168.4.1** with the `http://` typed. On an iPhone the page only opens by itself if Auto-Login is on (Settings > Wi-Fi > the TrackRat network). If it has stopped opening, for example after tapping Cancel and Use Without Internet on the sign-in sheet, tap **Forget This Network** on that same page and join again.
-4. When you're done, tap **Back** on the Track Rat screen (or press BOOT). Wi-Fi is on only while this screen is showing, so going back turns it off.
+4. When you're done, tap **Back** on the Track Rat screen (or press BOOT). Wi-Fi is on only while this screen is showing, so going back turns it off. Bluetooth (the OBD adapter, the camera and the phone app link) pauses while the Wi-Fi screen is open and reconnects when you leave it.
 
 What the page does:
 

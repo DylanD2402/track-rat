@@ -21,6 +21,10 @@ void begin();
 // Call every loop. Reads the battery about once a second.
 void update(uint32_t nowMs);
 
+// Test keys typed on the USB serial monitor: 'p' or 'r' (the last one since the last call), else 0.
+// For the Bluetooth pause test (main.cpp); a build without USB serial never gives one
+char takeTestKey();
+
 int batteryPercent();               // 0..100, or -1 when no battery is fitted
 int batteryMillivolts();            // 0 when no battery is fitted
 bool batteryCharging();             // USB charger in (worked out from the voltage; no pin tells us)

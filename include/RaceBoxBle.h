@@ -20,6 +20,7 @@ namespace RaceBoxBle {
 void initRadio();  // start the Bluetooth stack (once); begin() and the OBD adapter both need it
 void begin();
 void setEnabled(bool on);  // the Bluetooth setting: the first "on" starts Bluetooth
+void setPaused(bool on);   // the Wi-Fi screen: no advertising, no phone while true. Leaves the setting alone
 void sendFix(const GpsFix& fix, const GPSHandler& gps);
 bool connected();
 void onSubscribed(uint16_t connHandle);  // a phone subscribed to data: its connection stays
