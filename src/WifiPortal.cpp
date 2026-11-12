@@ -1407,6 +1407,10 @@ static void buildNetworkName() {
 static bool startRadio() {
   apStarted = false;
   WiFi.persistent(false);
+  // Fixed send buffers, set aside when Wi-Fi starts. The core's default takes up to 32 from the internal RAM as
+  // traffic needs them, and a phone loading the page at once used it all up (65 KB free to under 2 KB), so the
+  // network couldn't send its beacons, addresses or DNS answers. Read when the radio starts.
+  WiFi.useStaticBuffers(true);
   if (!WiFi.mode(WIFI_AP) || !WiFi.softAP(ssid.c_str())) {  // open network, 192.168.4.1
     DEBUG_PRINTLN("Wi-Fi: could not start the network");
     WiFi.mode(WIFI_OFF);
