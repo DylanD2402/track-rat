@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try Track Rat in your browser</title>
+<meta name="description" content="The real Track Rat firmware, running in your browser. Tap the screen as you would the device.">
+<meta property="og:title" content="Try Track Rat">
+<meta property="og:description" content="The real firmware, running in your browser.">
+<meta property="og:image" content="https://trackrat.ca/assets/social-preview.png">
+<link rel="icon" type="image/png" href="../favicon.png">
+<style>
+  @font-face { font-family: "Inter"; font-weight: 400; font-display: swap; src: url(/fonts/inter-regular.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 500; font-display: swap; src: url(/fonts/inter-medium.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 600; font-display: swap; src: url(/fonts/inter-semibold.woff2) format("woff2"); }
+  :root { --bg: #000; --fg: #fff; --dim: #98989f; --panel: #1c1c1e; --raised: #2c2c2e; --line: #38383a; --text2: #98989f; --text3: #636366; --brand: #26B7FF; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 500 16px/1.55 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--brand); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  .nav { position: sticky; top: 0; z-index: 10; background: rgba(0,0,0,.92); border-bottom: 1px solid var(--line); }
+  .nav-in { max-width: 960px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; min-height: 52px; flex-wrap: wrap; }
+  .brand { color: var(--fg); font-weight: 600; text-decoration: none; display: flex; align-items: center; }
+  .brand img { display: block; height: 26px; width: auto; }
+  .nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
+  .nav li { margin: 0; }
+  .nav ul a { display: block; padding: 8px 12px; border-radius: 10px; color: #fff; text-decoration: none; font-size: .95rem; }
+  .nav ul a:hover { background: var(--raised); color: var(--brand); }
+  .nav ul a[aria-current] { color: var(--brand); }
+  .menu-btn { display: none; background: var(--panel); border: 0; color: var(--fg); border-radius: 10px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  @media (max-width: 720px) {
+    .menu-btn { display: block; }
+    .nav ul { display: none; flex-direction: column; width: 100%; padding-bottom: 8px; }
+    .nav ul.open { display: flex; }
+  }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  .intro { padding: 32px 0 16px; text-align: center; }
+  h1 { margin: 0 0 8px; font-size: 1.8rem; font-weight: 600; line-height: 1.2; }
+  .intro p { margin: 0 auto; max-width: 34em; color: #fff; }
+
+  .stage { max-width: 680px; margin: 0 auto; }
+  .device { background: #0c0c0e; border: 1px solid var(--line); border-radius: 24px; padding: 14px; box-shadow: 0 24px 80px rgba(38,183,255,.14); }
+  .screen-box { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+  #screen { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; image-rendering: pixelated;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: pointer; }
+  .off-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 16px; background: rgba(0,0,0,.72); color: #fff; font-weight: 600; pointer-events: none; }
+  .off-note[hidden] { display: none; }
+
+  .status { text-align: center; min-height: 1.55em; margin: 12px 0 0; color: #fff; font-variant-numeric: tabular-nums; }
+  .boot-row { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 12px; }
+  .boot { min-height: 44px; min-width: 140px; padding: 10px 28px; border: 0; border-radius: 12px; background: var(--panel); color: #fff;
+    font: inherit; font-weight: 600; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .boot:hover { background: var(--raised); }
+  .boot.down { background: var(--brand); color: #000; }
+  .hint { margin: 0; font-size: .85rem; color: var(--dim); text-align: center; }
+
+  .controls { background: var(--panel); border-radius: 14px; padding: 16px; margin-top: 20px; }
+  .controls h2 { text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; font-weight: 600; color: var(--text2); margin: 0 0 8px; }
+  .controls .group + h2 { margin-top: 16px; }
+  .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 3px; }
+  .seg button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 8px 6px; border: 0; border-radius: 10px; background: none; color: #fff;
+    font: inherit; font-size: .95rem; cursor: pointer; }
+  .seg button:hover:not(:disabled) { background: var(--raised); }
+  .seg button[aria-pressed="true"] { background: var(--raised); color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+  .seg button:disabled { color: var(--text3); cursor: default; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .row .label { color: var(--dim); font-size: .9rem; min-width: 4.5em; }
+  .row .seg { flex: 1 1 180px; }
+  .btn { min-height: 44px; padding: 10px 22px; border: 0; border-radius: 12px; background: #fff; color: #000; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: #e5e5ea; }
+  .btn.plain { background: var(--raised); color: #fff; }
+  .btn.plain:hover { background: var(--line); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .loc-status { margin: 12px 0 0; color: #fff; }
+  .src-note { margin: 12px 0 0; color: var(--dim); font-size: .9rem; }
+  [hidden] { display: none !important; }
+  .reset-row { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+  .notes { max-width: 680px; margin: 24px auto 0; padding: 0; list-style: none; color: var(--text3); font-size: .85rem; }
+  .notes li { margin: 4px 0; }
+  footer { margin-top: 40px; padding: 24px 0 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: .85rem; }
+  footer p { margin: 4px 0; }
+</style>
+</head>
+<body>
+<header class="nav"><div class="nav-in">
+  <a class="brand" href="../"><img src="../assets/logo.png" alt="Track Rat" width="120" height="25"></a>
+  <button class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu">Menu</button>
+  <ul id="menu">
+    <li><a href="../">Home</a></li>
+    <li><a href="./" aria-current="page">Try it</a></li>
+    <li><a href="../install/">Install</a></li>
+    <li><a href="../analyze/">Analyze</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat/tree/main/docs">Docs</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat/releases">Downloads</a></li>
+    <li><a href="https://github.com/DylanD2402/track-rat">GitHub</a></li>
+  </ul>
+</div></header>
+<main class="wrap">
+  <section class="intro">
+    <h1>Try it</h1>
+    <p>This is the firmware itself, running in your browser. Tap the screen as you would the device.</p>
+  </section>
+
+  <div class="stage">
+    <div class="device">
+      <div class="screen-box">
+        <canvas id="screen" width="320" height="240" aria-label="Track Rat's screen"></canvas>
+        <div class="off-note" id="off-note" hidden>Off. Tap the screen to switch on.</div>
+      </div>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite">Loading the firmware…</p>
+
+    <div class="boot-row">
+      <button class="boot" id="boot" type="button">BOOT</button>
+      <p class="hint">BOOT: press to move, hold to select. Hold longer to switch off.</p>
+    </div>
+
+    <section class="controls" aria-label="Controls">
+      <h2>GPS source</h2>
+      <div class="seg" id="source" role="group" aria-label="GPS source">
+        <button type="button" data-source="car" aria-pressed="true">Simulated car</button>
+        <button type="button" data-source="loc" aria-pressed="false">My location</button>
+        <button type="button" data-source="off" aria-pressed="false">Off</button>
+      </div>
+
+      <div id="panel-car">
+        <div class="row">
+          <button class="btn" id="drive" type="button">Drive</button>
+        </div>
+      </div>
+      <div class="row" id="speed-row">
+        <span class="label">Speed</span>
+        <div class="seg" id="speed" role="group" aria-label="Clock speed">
+          <button type="button" data-speed="1" aria-pressed="true">1×</button>
+          <button type="button" data-speed="4" aria-pressed="false">4×</button>
+          <button type="button" data-speed="10" aria-pressed="false">10×</button>
+        </div>
+      </div>
+      <p class="loc-status" id="loc-status" role="status" aria-live="polite" hidden></p>
+      <p class="src-note" id="off-info" hidden>The GPS is off. The unit shows that it is waiting for GPS.</p>
+
+      <div class="reset-row">
+        <button class="btn plain" id="reset" type="button">Start again as new</button>
+      </div>
+    </section>
+
+    <ul class="notes">
+      <li>Your location stays in this browser. Nothing is uploaded.</li>
+      <li>Not in the browser: the Wi-Fi page, Bluetooth and engine data, and the SD card slot.</li>
+      <li>What it saves stays in this browser.</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Track Rat is open source. Read the <a href="https://github.com/DylanD2402/track-rat/blob/main/LICENSE">licence</a> on <a href="https://github.com/DylanD2402/track-rat">GitHub</a>.</p>
+    <p>Track data &copy; OpenStreetMap contributors (ODbL)</p>
+  </footer>
+</main>
+<script>
+  var mb = document.getElementById("menu-btn");
+  mb.addEventListener("click", function () {
+    var o = document.getElementById("menu").classList.toggle("open");
+    mb.setAttribute("aria-expanded", o);
+  });
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
