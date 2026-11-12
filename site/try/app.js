@@ -209,7 +209,10 @@ function frame(nowReal) {
 
   if (!sim.halted) {
     const dt = lastFrameReal === null ? 0 : Math.min(MAX_FRAME_MS, nowReal - lastFrameReal);
-    advance(dt * (source === "car" ? speed : 1));
+    // A press is timed by the unit's clock (tap or hold): while a finger or BOOT is down the clock runs at 1x,
+    // or a tap at 10x would count as a hold.
+    const pressing = screenPointer !== null || bootHeld;
+    advance(dt * (source === "car" && !pressing ? speed : 1));
   }
   lastFrameReal = nowReal;
 
