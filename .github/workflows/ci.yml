@@ -164,6 +164,13 @@ jobs:
       - name: Build filesystem image
         run: pio run -e es3c28p -t buildfs
 
+      # Checks that the website's simulator (the firmware as WebAssembly, site/try) still builds and runs from the firmware
+      - name: Build and run the simulator
+        run: |
+          pip install ziglang==0.16.0
+          python tools/build_sim.py --out /tmp/sim
+          node tools/sim/smoke.mjs /tmp/sim/trackrat.wasm
+
       - uses: actions/upload-artifact@v7
         with:
           name: firmware

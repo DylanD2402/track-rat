@@ -46,6 +46,14 @@ Text is placed and drawn as on the board, with the same fonts; shapes are close 
 
 The homepage's video is the real screen code playing a scripted session at Calabogie through the real lap timer. Nothing is filmed. `python tools/make_demo.py` builds it (needs g++ or CXX, Pillow and ffmpeg) and writes `site/assets/demo.mp4`, `demo-poster.png` and `demo.json`, which has the captions. The storyboard and the captions are in `tools/screens/demo.cpp`. `build/demo/sheet.png` shows a frame a second, for checking. After changing a screen, run the script again and commit `site/assets`.
 
+### The firmware in the browser
+
+The website's "Try it" page runs the real firmware in the browser, as a WebAssembly module: `site/try/trackrat.wasm`, run by `site/try/host.js`. `python tools/build_sim.py` builds it. It needs zig 0.16 (`pip install ziglang==0.16.0`, or set `ZIG`) and the ArduinoJson library that `pio run` downloads into `.pio/libdeps` (or set `ARDUINOJSON_DIR`). It prints the module's size.
+
+The firmware's own code runs unchanged: `src/main.cpp`, every screen, the lap timer, the saved settings, the track list, the session files. Only the hardware is stood in for, by files in `tools/sim`: the GPS (fixes come from JavaScript), the battery, Wi-Fi, Bluetooth, the logo animation, and a clock that JavaScript sets. `tools/sim/hal` has the Arduino and ESP libraries the firmware calls, with the two file systems (flash and SD card) kept in memory. The touch controller and the BOOT button are answered from the finger and the button on the page, so `src/InputManager.cpp` runs as it is. A stand-in has the same header in `include/` as the file it replaces. When the firmware gains a module that talks to hardware, add a stand-in for it and list its `.cpp` in `STOOD_IN` in `tools/build_sim.py`.
+
+`node tools/sim/smoke.mjs` runs the built module through a drive at Calabogie: the Setup questions, finding the track, two and a half laps, the debrief, saving and starting again, switching off with BOOT, and the Bench Test. It writes a picture of the screen at each step to `build/sim`. CI runs it too. After changing the firmware, run `python tools/build_sim.py` and commit `site/try/trackrat.wasm`.
+
 ## Track maps
 
 While timing, press the screen (or BOOT) to switch between the timing screen and a **map view**. The map view shows the track layout with your car as a white dot and a **ghost**, a grey ring where your reference lap was at this moment into the lap, plus the lap time, live diff, best and last lap down the right-hand side.
