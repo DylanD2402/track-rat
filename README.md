@@ -10,7 +10,7 @@ An open-source GPS lap timer you build for about $50. Offline, no app, no subscr
 
 These screenshots are the real display code, rendered on a PC by `tools/render_screens.py`.
 
-Homepage: **[trackrat.ca](https://trackrat.ca/)**. Try the analysis on a sample session at [trackrat.ca/analyze](https://trackrat.ca/analyze/).
+Homepage: **[trackrat.ca](https://trackrat.ca/)**. Try the analysis on a sample session at [trackrat.ca/analyze](https://trackrat.ca/analyze/). You can also [try it in your browser](https://trackrat.ca/try/).
 
 ## What it does
 
