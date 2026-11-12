@@ -11,6 +11,7 @@
 #include <cstring>
 #include <stdarg.h>
 #include <string>
+#include <type_traits>
 #include <time.h>
 
 using std::max;
@@ -141,8 +142,11 @@ public:
   friend String operator+(const String& a, const String& b) { return String(a.s_ + b.s_); }
   friend String operator+(const String& a, const char* b) { return String(a.s_ + b); }
   friend String operator+(const char* a, const String& b) { return String(std::string(a) + b.s_); }
-  friend String operator+(const String& a, char b) { return String(a.s_ + b); }
-  friend String operator+(char a, const String& b) { return String(std::string(1, a) + b.s_); }
+  // (a template, so that only a char matches: an int must still turn into its digits, as String(int) does)
+  template <class C, class = typename std::enable_if<std::is_same<C, char>::value>::type>
+  friend String operator+(const String& a, C b) { return String(a.s_ + b); }
+  template <class C, class = typename std::enable_if<std::is_same<C, char>::value>::type>
+  friend String operator+(C a, const String& b) { return String(std::string(1, a) + b.s_); }
 
 private:
   static std::string num(unsigned long long v, unsigned char base) {
