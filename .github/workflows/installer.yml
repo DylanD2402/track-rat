@@ -73,6 +73,8 @@ jobs:
           # the sample sessions, which go under analyze/ below
           cp -r site/. _site/
           rm -rf _site/samples
+          # The firmware in the browser (site/try) loads the built-in track list from beside it
+          cp data/tracks.json _site/try/
           mkdir -p _site/assets _site/fonts
           cp web/fonts/*.woff2 web/fonts/OFL.txt _site/fonts/
           cp docs/images/social-preview.png _site/assets/
