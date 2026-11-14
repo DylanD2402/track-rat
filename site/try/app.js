@@ -9,10 +9,17 @@ const START_MS = 1000;      // the virtual clock at power-on
 const SAVE_EVERY_MS = 3000;
 const MAX_STATE_BYTES = 24 * 1024 * 1024;
 const LOC_TIMEOUT_MS = 5000;
+const MIN_PRESS_MS = 60;    // the unit reads the screen and BOOT every 20 ms: a shorter press could be missed
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("screen");
 const ctx = canvas.getContext("2d");
+// The unit's 320 x 240 picture goes onto a small canvas, then onto the page's at a whole multiple with hard
+// pixels, which the browser scales smoothly to whatever size it is shown at. Scaled straight to an odd size,
+// the pixels would come out uneven.
+const SCREEN_SCALE = 3;
+const small = document.createElement("canvas");
+const smallCtx = small.getContext("2d");
 const statusEl = $("status");
 const offNote = $("off-note");
 const locStatusEl = $("loc-status");
@@ -211,8 +218,9 @@ function frame(nowReal) {
     const dt = lastFrameReal === null ? 0 : Math.min(MAX_FRAME_MS, nowReal - lastFrameReal);
     // A press is timed by the unit's clock (tap or hold): while a finger or BOOT is down the clock runs at 1x,
     // or a tap at 10x would count as a hold.
-    const pressing = screenPointer !== null || bootHeld;
+    const pressing = screenPointer !== null || bootHeld || touchLift !== null || bootLift;
     advance(dt * (source === "car" && !pressing ? speed : 1));
+    liftWhenDue();
   }
   lastFrameReal = nowReal;
 
@@ -228,7 +236,9 @@ function frame(nowReal) {
 
 function draw() {
   const backlight = sim.frame(rgba);
-  ctx.putImageData(image, 0, 0);
+  smallCtx.putImageData(image, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
   canvas.style.opacity = String(Math.max(0.08, Math.min(1, backlight)));
 }
 
@@ -251,6 +261,17 @@ function renderStatus() {
 // ---------------------------------------------------------------- touch screen
 
 let screenPointer = null;   // the id of the one pointer that counts
+let touchSince = 0;         // the unit's clock when the finger went down
+let touchLift = null;       // [x, y] of a finger that has lifted, but not yet for the unit
+let bootSince = 0;
+let bootLift = false;       // BOOT has been let go, but not yet for the unit
+
+// A finger or BOOT that was let go sooner than MIN_PRESS_MS is lifted for the unit once that time has passed.
+function liftWhenDue() {
+  if (!canSend()) { touchLift = null; bootLift = false; return; }
+  if (touchLift && vNow - touchSince >= MIN_PRESS_MS) { sim.touch(touchLift[0], touchLift[1], false); touchLift = null; }
+  if (bootLift && vNow - bootSince >= MIN_PRESS_MS) { sim.button(false); bootLift = false; }
+}
 
 function screenXY(e) {
   const r = canvas.getBoundingClientRect();
@@ -267,7 +288,12 @@ canvas.addEventListener("pointerdown", (e) => {
   if (wakeIfOff()) return;
   screenPointer = e.pointerId;
   try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* not capturable */ }
-  if (canSend()) { const [x, y] = screenXY(e); sim.touch(x, y, true); }
+  if (canSend()) {
+    const [x, y] = screenXY(e);
+    touchLift = null;
+    touchSince = vNow;
+    sim.touch(x, y, true);
+  }
 });
 canvas.addEventListener("pointermove", (e) => {
   if (e.pointerId !== screenPointer) return;
@@ -277,7 +303,10 @@ canvas.addEventListener("pointermove", (e) => {
 function endTouch(e) {
   if (e.pointerId !== screenPointer) return;
   screenPointer = null;
-  if (canSend()) { const [x, y] = screenXY(e); sim.touch(x, y, false); }
+  if (!canSend()) return;
+  const [x, y] = screenXY(e);
+  if (vNow - touchSince >= MIN_PRESS_MS) sim.touch(x, y, false);
+  else touchLift = [x, y];
 }
 canvas.addEventListener("pointerup", endTouch);
 canvas.addEventListener("pointercancel", endTouch);
@@ -292,13 +321,19 @@ function bootDown() {
   bootHeld = true;
   bootBtn.classList.add("down");
   if (wakeIfOff()) return;
-  if (canSend()) sim.button(true);
+  if (canSend()) {
+    bootLift = false;
+    bootSince = vNow;
+    sim.button(true);
+  }
 }
 function bootUp() {
   if (!bootHeld) return;
   bootHeld = false;
   bootBtn.classList.remove("down");
-  if (canSend()) sim.button(false);
+  if (!canSend()) return;
+  if (vNow - bootSince >= MIN_PRESS_MS) sim.button(false);
+  else bootLift = true;
 }
 
 bootBtn.addEventListener("pointerdown", (e) => {
@@ -499,6 +534,10 @@ async function main() {
     H = host.H;
     rgba = new Uint8ClampedArray(W * H * 4);
     image = new ImageData(rgba, W, H);
+    small.width = W;
+    small.height = H;
+    canvas.width = W * SCREEN_SCALE;
+    canvas.height = H * SCREEN_SCALE;
     const [wasmRes, tracksRes, saved] = await Promise.all([fetch("trackrat.wasm"), fetch("tracks.json"), loadState()]);
     if (!wasmRes.ok) throw new Error(`trackrat.wasm: HTTP ${wasmRes.status}`);
     if (!tracksRes.ok) throw new Error(`tracks.json: HTTP ${tracksRes.status}`);
