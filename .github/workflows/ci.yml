@@ -41,6 +41,8 @@ jobs:
         run: g++ -std=c++17 -Iinclude test/test_portal.cpp -o /tmp/wp && /tmp/wp
       - name: test_web
         run: node test/test_web.js
+      - name: test_try_car
+        run: node test/test_try_car.mjs
       - name: test_freeroam
         run: g++ -std=c++17 -Iinclude test/test_freeroam.cpp -o /tmp/fr && /tmp/fr
       - name: test_ubx
