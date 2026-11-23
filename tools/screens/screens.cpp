@@ -317,6 +317,11 @@ int main(int argc, char** argv) {
                                                       debrief::slice(timer.sectorBestPath(s), INT32_MIN, INT32_MAX)));
       }
     }
+    // As they are, nothing is lost in any sector: the debrief's words for that
+    if (dv.r.valid && dv.r.top.empty()) {
+      d.drawDebrief(track, timer, dv, 0);
+      save(d, "17e_debrief_nothing_lost");
+    }
     // The made-up laps all have the same shape, so nothing is lost anywhere: show three
     // sectors with made-up losses (as from laps 3 and 4), still adding up
     const int32_t loss[3] = {310, 220, 170};
