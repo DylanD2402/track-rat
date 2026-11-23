@@ -94,6 +94,7 @@ jobs:
       # refuses to pick between two called "github-pages"
       - uses: actions/upload-pages-artifact@v5
         with:
+          name: github-pages-${{ github.run_attempt }}
           path: _site
           name: github-pages-${{ github.run_attempt }}
 
