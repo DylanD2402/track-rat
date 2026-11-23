@@ -69,9 +69,11 @@ void DisplayManager::drawDebrief(const Track& track, const LapTimer& timer, cons
     int ry = my + 2;
     const int rx = 140;
     if (r.top.empty()) {
-      text("Nothing lost in any sector:", rx, ry + 8, Font::Body, C_TEXT);
-      text("your best lap is your", rx, ry + 28, Font::Body, C_TEXT);
-      text("theoretical best", rx, ry + 48, Font::Body, C_TEXT);
+      // Four short lines: the column beside the map is only W - rx wide
+      text("Nothing lost in", rx, ry + 8, Font::Body, C_TEXT);
+      text("any sector: your", rx, ry + 28, Font::Body, C_TEXT);
+      text("best lap is your", rx, ry + 48, Font::Body, C_TEXT);
+      text("theoretical best", rx, ry + 68, Font::Body, C_TEXT);
     }
     for (size_t k = 0; k < r.top.size(); k++, ry += 39) {
       const int s = r.top[k];
