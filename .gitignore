@@ -73,3 +73,7 @@ logs/
 
 # Wi-Fi page, gzipped from web/ by tools/build_web.py
 data/web/
+
+# Claude Code: the agents in .claude/agents are shared; their worktrees and local settings are not
+.claude/worktrees/
+.claude/settings.local.json
