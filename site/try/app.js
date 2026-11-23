@@ -148,7 +148,7 @@ function showSession(stateBytes) {
     line(`${ses.base}, ${sizeText(ses.vbo.bytes.length)}`),
     ses.json
       ? line("Open it at ", analyze, ": drop the .vbo and its .json on the page.")
-      : line("The summary (.json) is written when the session ends."),
+      : line("Its summary (.json) comes once a lap is done."),
   );
   const one = line("One at a time:");
   for (const f of [ses.vbo, ses.json]) {
