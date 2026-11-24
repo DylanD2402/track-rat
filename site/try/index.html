@@ -80,7 +80,9 @@
   .loc-status { margin: 12px 0 0; color: #fff; }
   .src-note { margin: 12px 0 0; color: var(--dim); font-size: .9rem; }
   [hidden] { display: none !important; }
-  .reset-row { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .reset-row, .files-row { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .files-row h2 { margin: 0 0 10px; }
+  .linkbtn { min-height: 44px; padding: 0 8px; border: 0; background: none; color: var(--brand); font: inherit; text-decoration: underline; cursor: pointer; }
 
   .notes { max-width: 680px; margin: 24px auto 0; padding: 0; list-style: none; color: var(--text3); font-size: .85rem; }
   .notes li { margin: 4px 0; }
@@ -151,6 +153,12 @@
       <p class="loc-status" id="loc-status" role="status" aria-live="polite" hidden></p>
       <p class="src-note" id="off-info" hidden>The GPS is off. The unit shows that it is waiting for GPS.</p>
 
+      <div class="files-row">
+        <h2>Your session</h2>
+        <button class="btn" id="download" type="button" disabled>Download your session</button>
+        <p class="src-note" id="session-note">Drive a lap at the track and its files appear here.</p>
+      </div>
+
       <div class="reset-row">
         <button class="btn plain" id="reset" type="button">Start again as new</button>
       </div>
@@ -158,7 +166,7 @@
 
     <ul class="notes">
       <li>Your location stays in this browser. Nothing is uploaded.</li>
-      <li>Not in the browser: the Wi-Fi page, Bluetooth and engine data, and the SD card slot.</li>
+      <li>Not in the browser: the Wi-Fi page, Bluetooth and engine data. For the SD card's session files, use Download your session.</li>
       <li>What it saves stays in this browser.</li>
     </ul>
     </div>

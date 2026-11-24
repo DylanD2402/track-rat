@@ -1,6 +1,7 @@
 // The "Try it" page: runs the real firmware (trackrat.wasm, through host.js) and feeds it
 // a screen, touch, the BOOT button and GPS (a simulated car, the visitor's location, or none).
 import { createCar } from "./car.js";
+import { readSaved, latestSession } from "./saved.js";
 
 const FIX_MS = 50;          // one simulated GPS fix every 50 ms of virtual time
 const MAX_STEPS = 40;       // most GPS steps in one animation frame
@@ -100,6 +101,79 @@ async function deleteState() {
   try { await dbRun("readwrite", (store) => store.delete("state")); } catch (e) { /* nothing to delete */ }
 }
 
+// ---------------------------------------------------------------- the session download
+
+const NO_SESSION_NOTE = "Drive a lap at the track and its files appear here.";
+let shownSession = null;    // "base:length:json" of what the Your session block shows
+
+function sizeText(n) {
+  return n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+function downloadFile(name, bytes) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// Shows the newest session in the saved data (bytes may be null) and whether it can be downloaded.
+function showSession(stateBytes) {
+  let ses = null;
+  try { ses = latestSession(readSaved(stateBytes)?.files ?? []); } catch (e) { /* none */ }
+  const key = ses ? `${ses.base}:${ses.vbo.bytes.length}:${ses.json ? 1 : 0}` : "";
+  if (key === shownSession) return;
+  shownSession = key;
+  const note = $("session-note");
+  note.replaceChildren();
+  $("download").disabled = !ses;
+  if (!ses) {
+    note.textContent = NO_SESSION_NOTE;
+    return;
+  }
+  const line = (...parts) => {
+    const p = document.createElement("span");
+    p.style.display = "block";
+    p.append(...parts);
+    return p;
+  };
+  const analyze = document.createElement("a");
+  analyze.href = "../analyze/";
+  analyze.textContent = "Analyze";
+  note.append(
+    line(`${ses.base}, ${sizeText(ses.vbo.bytes.length)}`),
+    ses.json
+      ? line("Open it at ", analyze, ": drop the .vbo and its .json on the page.")
+      : line("Its summary (.json) comes once a lap is done."),
+  );
+  const one = line("One at a time:");
+  for (const f of [ses.vbo, ses.json]) {
+    if (!f) continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "linkbtn";
+    b.textContent = f.name.slice(f.name.lastIndexOf("."));
+    b.addEventListener("click", () => downloadFile(f.name, f.bytes));
+    one.append(" ", b);
+  }
+  note.append(one);
+}
+
+$("download").addEventListener("click", () => {
+  let bytes = latestState;
+  if (sim) { try { bytes = sim.exportState(); } catch (e) { /* use the last one */ } }
+  let ses = null;
+  try { ses = latestSession(readSaved(bytes)?.files ?? []); } catch (e) { /* none */ }
+  if (!ses) return;
+  downloadFile(ses.vbo.name, ses.vbo.bytes);
+  if (ses.json) setTimeout(() => downloadFile(ses.json.name, ses.json.bytes), 400);
+  showSession(bytes);
+});
+
 // Saves the unit's data if it changed. `force` skips the 3 s limit.
 function maybeSave(force) {
   if (noSave || !sim) return;
@@ -113,6 +187,7 @@ function maybeSave(force) {
   try {
     const bytes = sim.exportState();
     latestState = bytes;
+    showSession(bytes);
     if (bytes.length <= MAX_STATE_BYTES) saveState(bytes);
   } catch (e) { /* carry on */ }
 }
@@ -165,6 +240,7 @@ function handleHalt() {
   }
   // Keep what the unit saved, so the next power-on starts from it.
   try { latestState = sim.exportState(); } catch (e) { /* use the last one */ }
+  showSession(latestState);
   maybeSave(true);
   if (why === "restart") powerOn();
   else offNote.hidden = false;     // "off"
@@ -544,6 +620,7 @@ async function main() {
     wasmBytes = new Uint8Array(await wasmRes.arrayBuffer());
     tracksBytes = new Uint8Array(await tracksRes.arrayBuffer());
     latestState = saved;
+    showSession(saved);
     car = createCar(JSON.parse(new TextDecoder().decode(tracksBytes)));
   } catch (e) {
     console.error(e);

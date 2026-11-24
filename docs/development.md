@@ -52,6 +52,8 @@ The website's "Try it" page runs the real firmware in the browser, as a WebAssem
 
 The firmware's own code runs unchanged: `src/main.cpp`, every screen, the lap timer, the saved settings, the track list, the session files. Only the hardware is stood in for, by files in `tools/sim`: the GPS (fixes come from JavaScript), the battery, Wi-Fi, Bluetooth, the logo animation, and a clock that JavaScript sets. `tools/sim/hal` has the Arduino and ESP libraries the firmware calls, with the two file systems (flash and SD card) kept in memory. The touch controller and the BOOT button are answered from the finger and the button on the page, so `src/InputManager.cpp` runs as it is. A stand-in has the same header in `include/` as the file it replaces. When the firmware gains a module that talks to hardware, add a stand-in for it and list its `.cpp` in `STOOD_IN` in `tools/build_sim.py`.
 
+`site/try/saved.js` reads the blob of saved data that the module exports (`sim.exportState()`), for the page's "Download your session" button, which saves the newest session's `.vbo` and `.json` to open at trackrat.ca/analyze. The blob's format is written by `exportSaved()` in `tools/sim/vfs.cpp`; the two change together.
+
 `node tools/sim/smoke.mjs` runs the built module through a drive at Calabogie: the Setup questions, finding the track, two and a half laps, the debrief, saving and starting again, switching off with BOOT, and the Bench Test. It writes a picture of the screen at each step to `build/sim`. CI runs it too. After changing the firmware, run `python tools/build_sim.py` and commit `site/try/trackrat.wasm`.
 
 ## Track maps
@@ -278,6 +280,12 @@ python test/test_overlay.py
 ```
 
 `test/test_web.js` also checks the CSV download: a row per fix, UTC across midnight, the values, lap times and deltas against the fastest or the summary's best lap, and oil temperature (empty when not known).
+
+`test/test_try_saved.mjs` checks the reader for the Try it page's saved data (`site/try/saved.js`): settings and files read back (folders flagged, times past 2^32 kept), a blob that isn't one or is cut short refused, and the newest session picked by time with its `.json` (not `.json.tmp` or a note, nothing outside `/sessions/`) (needs Node.js):
+
+```bash
+node test/test_try_saved.mjs
+```
 
 `test/test_tempalert.cpp` checks the engine temperatures on screen (`include/TempAlert.h`): the coolant tag's colour bands rising from cold through warm to hot, °F, and when the overheat warning shows: once at the limit, again only after dropping 3 °C below it or a minute later, nothing on stale data, oil with its own limit, coolant first when both are over, a tap closing it. `test/test_settings.cpp` checks the Coolant settings (defaults, staying in order, the Wi-Fi page's names, BOOT and touch on the page) and `test/test_vbo.cpp` the laps' hottest temperatures, live and recovered from a log:
 

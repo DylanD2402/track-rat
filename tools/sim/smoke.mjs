@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSim, W, H } from "../../site/try/host.js";
+import { readSaved, latestSession } from "../../site/try/saved.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const wasmPath = path.resolve(process.argv[2] || path.join(ROOT, "site", "try", "trackrat.wasm"));
@@ -134,24 +135,8 @@ async function powerOn(state, name) {
 // --- the unit's saved data, read from an exported blob (tools/sim/vfs.cpp) ---------------------------------
 
 function savedFiles(blob) {
-  const dv = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
-  let at = 4;
-  const u32 = () => ((at += 4), dv.getUint32(at - 4, true));
-  const bytes = () => {
-    const n = u32();
-    return blob.subarray(at, (at += n));
-  };
-  const entries = u32();
-  for (let i = 0; i < entries; i++) bytes(), bytes(), bytes();
   const files = new Map();
-  const n = u32();
-  for (let i = 0; i < n; i++) {
-    const name = Buffer.from(bytes()).toString("utf8");
-    const dir = blob[at++];
-    at += 8;
-    const data = bytes();
-    if (!dir) files.set(name, data);
-  }
+  for (const f of readSaved(blob).files) if (!f.dir) files.set(f.path, f.bytes);
   return files;
 }
 
@@ -286,6 +271,14 @@ let saved;
   const pbMs = pb ? Buffer.from(pb).readUInt32LE(4) : 0;
   check(pbMs === best, `the saved PB (${pbMs} ms) is the best lap driven (${best} ms)`);
   check([...files.keys()].some((k) => k.startsWith("/sessions/") && k.endsWith(".vbo")), "the session's log is in what was saved");
+  const ses = latestSession(readSaved(saved).files);
+  check(!!ses, "the newest session is found in what was saved");
+  const vboText = ses ? Buffer.from(ses.vbo.bytes).toString("utf8") : "";
+  check(vboText.startsWith("File created on") && vboText.includes("[header]"), "its .vbo is a VBO log");
+  let summary = null;
+  try { summary = ses && ses.json ? JSON.parse(Buffer.from(ses.json.bytes).toString("utf8")) : null; } catch (e) { /* not JSON */ }
+  check(!!summary, "its .json summary is there and parses");
+  check(!!summary && summary.bestTimeMs === best, `the summary's best lap (${summary && summary.bestTimeMs} ms) is the best lap driven (${best} ms)`);
   console.log(`     saved: ${(saved.length / 1024).toFixed(0)} KB, ${files.size} files`);
 }
 {
