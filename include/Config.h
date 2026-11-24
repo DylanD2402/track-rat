@@ -281,6 +281,8 @@
 #define BATTERY_STATS_SAVE_MS (10UL * 60UL * 1000UL)  // saved at most this often (flash wear), and before sleeping
 
 // Wi-Fi page: the radio is asked to start, and may be slow to do it (WifiPortal.cpp)
+#define WIFI_TX_POWER_QDBM 34      // transmit power in 0.25 dBm (34: 8.5 dBm). At the default 19.5 dBm this board's
+                                    // network often went missing or gave no address; 8.5 and 11 dBm worked every time
 #define WIFI_START_TIMEOUT_MS 8000  // wait this long for the network to come up before restarting the radio
 #define WIFI_START_ATTEMPTS 3       // radio starts to try in all, then the screen says Wi-Fi didn't start
 

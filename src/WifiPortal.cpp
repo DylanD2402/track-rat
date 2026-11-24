@@ -1350,14 +1350,17 @@ static bool startRadio() {
   apStarted = false;
   WiFi.persistent(false);
   // Fixed send buffers, set aside when Wi-Fi starts. The core's default takes up to 32 from the internal RAM as
-  // traffic needs them, and a phone loading the page at once used it all up (65 KB free to under 2 KB), so the
-  // network couldn't send its beacons, addresses or DNS answers. Read when the radio starts.
+  // traffic needs them: with sends failing, a phone loading the page once used it all up (65 KB free to under
+  // 2 KB) and the network couldn't send its beacons, addresses or DNS answers. Read when the radio starts.
   WiFi.useStaticBuffers(true);
   if (!WiFi.mode(WIFI_AP) || !WiFi.softAP(ssid.c_str())) {  // open network, 192.168.4.1
     DEBUG_PRINTLN("Wi-Fi: could not start the network");
     WiFi.mode(WIFI_OFF);
     return false;
   }
+  // Lower than the default 19.5 dBm: at full power phones and PCs often couldn't see the network, join it or load
+  // the page, though the board heard them (see WIFI_TX_POWER_QDBM). Phones are a few metres away in the pits.
+  WiFi.setTxPower((wifi_power_t)WIFI_TX_POWER_QDBM);
   return true;
 }
 
