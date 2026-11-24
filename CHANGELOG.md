@@ -4,6 +4,8 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.3.0-beta.1] - 2026-11-23
+
 Install both the firmware and the file system (the web installer does both): the Wi-Fi page changed.
 
 ### Added
@@ -20,6 +22,14 @@ Install both the firmware and the file system (the web installer does both): the
 
 - The Wi-Fi screen's button says **Back** instead of Wi-Fi off. Going back still turns Wi-Fi off.
 - Bluetooth (the OBD adapter, the camera and the phone link) pauses while the Wi-Fi screen is open and reconnects when you leave it, so Wi-Fi gets the radio to itself.
+- Code clean-up from the [0.2 code review](docs/code-review-0.2.md), with no change to what the device does or shows (every screen renders pixel for pixel as before):
+  - The OBD adapter and the camera share one list of found Bluetooth devices (`BleFound.h`, with a host test), and Settings > Engine data and Settings > Camera share one Find/Pair page.
+  - Settings > Battery uses the battery code's own mode names, session length is worked out in one place, and boot recovery and re-timing share one log reader.
+  - The touch code takes the screen size and the top bar's height from `UiTheme.h` instead of its own copies.
+  - Unused code removed, and the unused-code, comment and truncation warnings the compiler gave with `-Wall -Wextra` are gone.
+  - The host tests share their geometry, simulated-car and UBX helpers (`test/geo_helpers.h`, `test/ubx_helpers.h`).
+- A plan for other screen sizes, other panels and LVGL: [docs/display-plan.md](docs/display-plan.md).
+- `main.cpp` (2,450 lines) is split into screen files in `src/app`, one group of screens each, with what they share in `src/app/App.h`. The code was moved, not rewritten: every line that changed was checked by a script that compares what was removed with what was added. `main.cpp` is now 623 lines.
 
 ### Fixed
 
@@ -29,17 +39,6 @@ Install both the firmware and the file system (the web installer does both): the
 - A folder listing with a path over about 44 characters could list the wrong folder.
 - The pit debrief's "Nothing lost in any sector" message, shown when the best lap is also the theoretical best, ran off the right edge of the screen. It now takes four shorter lines.
 - The Wi-Fi screen said "Wi-Fi on" before the network was up, which could take a minute or never happen. It now says "Starting Wi-Fi…" until the network is up, starts the radio again after 8 s (up to 3 tries), then says Wi-Fi didn't start. The serial log says how long it took.
-
-### Changed
-
-- Code clean-up from the [0.2 code review](docs/code-review-0.2.md), with no change to what the device does or shows (every screen renders pixel for pixel as before):
-  - The OBD adapter and the camera share one list of found Bluetooth devices (`BleFound.h`, with a host test), and Settings > Engine data and Settings > Camera share one Find/Pair page.
-  - Settings > Battery uses the battery code's own mode names, session length is worked out in one place, and boot recovery and re-timing share one log reader.
-  - The touch code takes the screen size and the top bar's height from `UiTheme.h` instead of its own copies.
-  - Unused code removed, and the unused-code, comment and truncation warnings the compiler gave with `-Wall -Wextra` are gone.
-  - The host tests share their geometry, simulated-car and UBX helpers (`test/geo_helpers.h`, `test/ubx_helpers.h`).
-- A plan for other screen sizes, other panels and LVGL: [docs/display-plan.md](docs/display-plan.md).
-- `main.cpp` (2,450 lines) is split into screen files in `src/app`, one group of screens each, with what they share in `src/app/App.h`. The code was moved, not rewritten: every line that changed was checked by a script that compares what was removed with what was added. `main.cpp` is now 623 lines.
 
 ## [0.2.0-beta.2] - 2026-11-04
 
@@ -226,7 +225,8 @@ First public beta.
 
 Voice notes for the logbook aren't built yet; text notes work.
 
-[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.2.0-beta.2...HEAD
+[Unreleased]: https://github.com/DylanD2402/track-rat/compare/v0.3.0-beta.1...HEAD
+[0.3.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.3.0-beta.1
 [0.2.0-beta.2]: https://github.com/DylanD2402/track-rat/releases/tag/v0.2.0-beta.2
 [0.2.0-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.2.0-beta.1
 [0.1.1-beta.1]: https://github.com/DylanD2402/track-rat/releases/tag/v0.1.1-beta.1
