@@ -4,13 +4,17 @@ All notable changes to Track Rat are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- **Download your session** on trackrat.ca/try: a button that saves the session you drove (its .vbo log and .json summary) to open at trackrat.ca/analyze.
+
 ## [0.3.0-beta.1] - 2026-11-23
 
 Install both the firmware and the file system (the web installer does both): the Wi-Fi page changed.
 
 ### Added
 
-- **Try it in your browser** at trackrat.ca/try: the firmware itself, built for the browser (`tools/build_sim.py`), with a simulated car at Calabogie or your phone's own location as the GPS, and a button to download the session you drove (its .vbo log and .json summary) to open at trackrat.ca/analyze.
+- **Try it in your browser** at trackrat.ca/try: the firmware itself, built for the browser (`tools/build_sim.py`), with a simulated car at Calabogie or your phone's own location as the GPS.
 - A demo on the homepage: the real screens through a session at Calabogie, made from the screen code by `tools/make_demo.py`.
 - A **Files** tab on the Wi-Fi page for the whole SD card, so the card doesn't have to come out of its case: browse, download, upload files or a folder, make folders, rename and delete (a folder with what's in it). One code from the screen opens it for 15 minutes from the last use, for that phone.
 - Delete a session on the Sessions tab: its log, summary and note. Its best laps stay; the Files tab can remove them (`/tracks`).
